@@ -16,6 +16,8 @@
   `{m.set(2)}` threw when it ran. It is `ACTION_CALLED_IN_OWNED_SCOPE`, as a tuple's item, through other names, fns and
   modules, and through a package (the printed signature names the parts that are actions, `: { set: io }`, 09 MO-9b). A call
   in a handler is accepted as before.
+- **Fixed: `UNGUARDED_SNAPSHOT` on a handler whose component is applied inside `loading` and `errored`** (04 R-8): the crate
+  looked no further than the component's root. `ref/` has no such check.
 
 **The language's own constructors, by one table** (tooling/rx-language-server/DECLARATIONS.md, *What a constructor runs*; spec/09 MO-8v)
 

@@ -7568,8 +7568,15 @@ impl<'a> Checker<'a> {
                 // a `disabled` that reads `s` covers the handler; for a failure it must read the value, since
                 // `pending? s` of a failed `s` is false and leaves the element enabled
                 let disabled_by = |probes: bool| attrs.iter().any(|a| a.name == "disabled" && self.depends_in(&a.e, env, s, &mut HashSet::new(), probes));
-                let need_hold = absent && !disabled_by(true) && !self.region_reads(region, s, |r| r.provides.contains(HOLD));
-                let need_catch = failing && !disabled_by(false) && !self.region_reads_in(region, s, |r| r.catches.is_some(), false);
+                let mut need_hold = absent && !disabled_by(true) && !self.region_reads(region, s, |r| r.provides.contains(HOLD));
+                let mut need_catch = failing && !disabled_by(false) && !self.region_reads_in(region, s, |r| r.catches.is_some(), false);
+                if need_hold {
+                    need_hold = !self.component_covered(region, s, true, |q| !esc_p(q, HOLD));
+                }
+                if need_catch {
+                    let cls = self.sym_fails(s).cls;
+                    need_catch = !self.component_covered(region, s, false, |q| cls.iter().all(|c| !esc_f(q, c)));
+                }
                 if !need_hold && !need_catch {
                     continue;
                 }
@@ -7981,6 +7988,25 @@ impl<'a> Checker<'a> {
             cur = self.regions[c].parent;
         }
         false
+    }
+    /// R-8: the component the element is in is applied inside a region that covers it, at every place it is applied — its
+    /// own content reads `s`, outside any such region of its own, so the region above holds the element with that read. A
+    /// place of another module is not seen: what the read needs there is checked where it is applied (R-f-5), or is the
+    /// page's (H-5).
+    fn component_covered(&mut self, r: RId, s: SId, probes: bool, held: impl Fn(&[Step]) -> bool + Copy) -> bool {
+        let Some(c) = self.regions[r].component else { return false };
+        let readers: Vec<(RId, &'a Expr, EId)> = self.readers.iter().filter(|rd| self.regions[rd.region].component == Some(c)).map(|rd| (rd.region, rd.e, rd.env)).collect();
+        let reads = readers.into_iter().any(|(region, e, env)| self.depends_in(e, env, s, &mut HashSet::new(), probes) && self.routes(region).iter().any(|q| !held(q)));
+        reads && self.sites_held(c, held, &mut HashSet::new())
+    }
+    fn sites_held(&mut self, c: RId, held: impl Fn(&[Step]) -> bool + Copy, seen: &mut HashSet<RId>) -> bool {
+        if !seen.insert(c) {
+            return true;
+        }
+        let sites: Vec<RId> = self.apps.iter().filter(|a| a.comp == c).map(|a| a.site).collect();
+        sites.into_iter().all(|site| {
+            self.routes(site).iter().all(|q| held(q)) || self.regions[site].component.is_some_and(|up| self.sites_held(up, held, seen))
+        })
     }
     fn inside(&self, r: RId, anc: RId) -> bool {
         let mut cur = Some(r);
@@ -9160,6 +9186,32 @@ mod tests {
         }
     }
 
+    /// 04 R-8: an element is inside the regions its component is applied in.
+    #[test]
+    fn a_region_around_the_application_covers() {
+        let comp = "component Saved() {\n  source v = await fetch(\"v\")\n  <b onClick={() => { log(v) }}>{v}</b>\n}\n";
+        let fnc = "fn mk() {\n  source v = await fetch(\"v\")\n  action set(n: number) { v := n }\n  { v: v, set: set }\n}\ncomponent Saved() {\n  t = mk()\n  <b onClick={() => { t.set(2) }}>{t.v}</b>\n}\n";
+        let probe = "component Saved() {\n  source v = await fetch(\"v\")\n  <b disabled={pending? v} onClick={() => { log(v) }}>x</b>\n}\n";
+        let own = "component Saved() {\n  source v = await fetch(\"v\")\n  <p><b onClick={() => { log(v) }}>x</b>{errored fallback(e) { <i>e</i> } { {loading fallback { <i>w</i> } { {v} }} }}</p>\n}\n";
+        let both = |x: &str| format!("errored fallback(e) {{ <p>x</p> }} {{ loading fallback {{ <p>w</p> }} {{ {x} }} }}");
+        let app = |body: &str| format!("export default component App() {{\n  {body}\n}}\n");
+        let wrap = "component Wrap() { <Saved /> }\n";
+        let panel = format!("component Panel(props: {{ children: any }}) {{ {} }}\n", both("<div>{props.children}</div>"));
+        for (src, n) in [
+            (format!("{comp}{}", app(&both("<Saved />"))), 0),
+            (format!("{fnc}{}", app(&both("<Saved />"))), 0),
+            (format!("{comp}{wrap}{}", app(&both("<Wrap />"))), 0),
+            (format!("{comp}{panel}{}", app("<Panel><Saved /></Panel>")), 0),
+            // one place of two is not inside; no `loading`; only a probe is read; its own region takes the failure
+            (format!("{comp}{}", app(&format!("<div>{{{}}}<Saved /></div>", both("<Saved />")))), 1),
+            (format!("{comp}{}", app("errored fallback(e) { <p>x</p> } { <Saved /> }")), 1),
+            (format!("{probe}{}", app(&both("<Saved />"))), 1),
+            (format!("{own}{}", app(&both("<Saved />"))), 1),
+        ] {
+            let got = codes(&src, false).iter().filter(|(_, c)| c == "UNGUARDED_SNAPSHOT").count();
+            assert_eq!(got, n, "{src}\n{:?}", codes(&src, false));
+        }
+    }
     /// 04 R-8 (ruled 2026-11-13): an `errored` region covers a handler's read of a failing value only when its content
     /// reads the value; `pending? x` takes no failure (the desk9 reference's fuzz seed 11).
     #[test]

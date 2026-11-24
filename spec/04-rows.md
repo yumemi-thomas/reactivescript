@@ -125,7 +125,10 @@ and where they may not go.
     and takes no failure, so an `errored` region whose content reads `x`
     only under `pending?` never shows its fallback, and a
     `disabled={pending? x}` leaves the element enabled; either way the
-    click throws. (Found by the desk9 reference's fuzz seed 11, eval/results/desk9-reference-2026-11-13:
+    click throws. The regions are those of the tree that renders
+    the element (2026-11-24): a component's own content that reads `x`
+    is inside the regions it is applied in, at every place the module
+    applies it. (Found by the desk9 reference's fuzz seed 11, eval/results/desk9-reference-2026-11-13:
     `add-label` sat in a region of its own reading only `pending? shown`.)
 
   Neither is `UNGUARDED_SNAPSHOT` (static). The check adds nothing at run
