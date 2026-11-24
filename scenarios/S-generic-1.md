@@ -26,6 +26,11 @@ export fn pluck<T, K extends keyof T>(xs: T[], k: K): T[K][] => map(xs, (x) => x
 `export pure fn first<T>(xs: T[], or: T)`, `export pure fn createPicked<T>(ref xs: T[], by: (x: T) => boolean): { list: ref; top: ref } instantiates`:
 the parameters are on the printed row, for the tool that writes the JavaScript types (MO-13i). An importer's checker reads none.
 
+```rx
+-- module: ./api.d.rx
+export pure fn ask(n: string): Promise<number>
+```
+
 ## Program
 
 ```rx
@@ -101,6 +106,36 @@ export default component App() { <p>{f(1)}</p> }
 fn createKept<T>(ref x: T): T {
   y: string = x
   x
+}
+export default component App() {
+  v = createKept("a")
+  <p>{v}</p>
+}
+```
+
+In the body, what `T` is is the caller's to say, and an equation of it is not held to R-1a; the caller's equation is:
+
+```rx
+-- types: MISSING_AWAIT
+import { ask } from "./api"
+fn createHeld<T>(ref x: T): T {
+  now = x
+  now
+}
+export default component App() {
+  h = createHeld(ask("a"))
+  errored fallback(e) { <p>e</p> } { loading fallback { <p>l</p> } { <p>{str(h)}</p> } }
+}
+```
+
+A source seeded with one says its type, as nothing else tells what a later write may be:
+
+```rx
+-- types: TS2345
+fn createKept<T>(ref x: T): T {
+  source kept := peek x
+  action back() { kept := peek x }
+  kept
 }
 export default component App() {
   v = createKept("a")
