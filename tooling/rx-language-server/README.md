@@ -60,7 +60,8 @@ API; a projection or a boundary check is given with the question and is no file 
   where there is none it says so once and the type errors are the editor's TypeScript's.
 - **What stays on TypeScript 6** (`typescript`, in process): reading a library's types for a draft (`src/declare.js`),
   parsing JavaScript for what it proves (`src/infer.js`), hover and the rest of the editor. A draft of `@ui-sdk/solid`
-  makes 8.8 million calls of the checker, 6 million of which would each be a request to another process. What TypeScript 6
+  makes 1.3 million calls of the checker, 1.1 million of which would each be a request to another process (some 17 s where the
+  reading takes 4). What TypeScript 6
   reads, tsrs then holds: a row it does not hold is not written.
 
 

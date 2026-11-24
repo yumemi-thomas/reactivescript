@@ -14,7 +14,9 @@
   it writes no `.tsbuildinfo`. An option's error names the option, without its place in the tsconfig.json.
 - **Changed: Node 20.19, 22.12 or later** for `@reactivescript/language-server` (it was 18).
 - **Changed: `rx-tsc --watch` reports what `rx-tsc` reports** (it reported TypeScript's errors alone).
-- **Faster.** @@FAST@@
+- **Faster.** `rx-tsc` over the benchmark's 37 tasks: 64 s of CPU to 13 s; `rx-declare @ui-sdk/solid`: 16 s to 6.7 s; a small library's draft: no difference.
+- **Fixed: a draft wrote `ref` in a record that may be absent** (`{ name: ref string } | null`), where the notation does not
+  read it: the crate's check of the row was not TypeScript. Its accessors are drafted as the functions they are.
 - **Known: TypeScript 7.1 beta refuses some correct programs TypeScript 6 accepts** — a value of a generic function type
   that writes a conditional over its own type parameter, assigned to that same type (microsoft/TypeScript#64673, fixed by
   #64307, not merged). A declaration's row is not concerned: it is checked as an instance of its type, which relates.
