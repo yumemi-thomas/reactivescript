@@ -424,6 +424,26 @@ closure to that at the call) and so no part of the fn's own effect;
 what the engine raises for a bug (`undefined.x`) is a panic (04
 R-f-10), not a failure, and no part of `rejects`.
 
+**What a constructor runs** (`NEW` in infer.js). One table of ECMAScript's own constructors, from ECMA-262: under which
+arguments making one runs no code of anyone's and reads no clock, chance, locale or time zone. Only the global's binding
+counts: a name declared in any scope around it, or assigned anywhere in the file, is not it; nor is an alias, `Reflect.construct`.
+
+| constructor | only computes when given | refused |
+| --- | --- | --- |
+| `Set`, `WeakSet` (`Map`, `WeakMap`; `AggregateError`) | nothing, `null`, a plain list (of pairs): written out, made by the language (`Object.keys`, `.map` of one or of a parameter, an array literal that spreads), a set or a map made there, a rest parameter, a constant of the module — its name never used where its iterator could be changed — or a parameter whose *type* is the language's own list | any other value: its iterator is code |
+| typed arrays, `ArrayBuffer`, `DataView` | a length, a list of primitives, a buffer made there | an object that is not known |
+| `Error` and its kinds, `RegExp`, `Number`, `String` | a primitive (`RegExp`: or a pattern written out); `{ cause }` written out | a value converted: its `toString` is code |
+| `Date` | one number, or one string in UTC | nothing (the clock); a local time, parts, a string that is not known (the time zone) |
+| `Array`, `Object`, `Boolean`, `WeakRef`, `FinalizationRegistry`, `Promise`, `Proxy` | anything (a promise's executor is run, and read) | |
+| `Function`, `Intl`'s, `SharedArrayBuffer`, the platform's | | always (`URL` and `URLSearchParams` are read as before) |
+
+A requirement on a parameter is asked of each caller the code shows (`bad("…")` for `bad = m => new Error(m)`), and of the
+row's type at the export. A class that extends one: `Map`'s and `Set`'s constructors call `set` and `add` of what is made,
+so it must be given nothing; none of a proxy, a date, a promise is followed. *A Proxy, and a Date,* may be made and go out
+of the call — handed back, in a list, a record or a closure that is — and nothing else (`holds`): every use of a proxy runs
+a trap, and a date's text is the time zone's. What calls such a fn is held to the same. Nothing takes either for a plain
+value: a reader (`ref`), a constant, a `draft`, a plain argument.
+
 **`pure` and determinism.** The word asks less than this proves: R-io-4
 is "no writes to reactive state, and safe to ask again", and a loader
 that fetches is `pure`. No reading of code shows that a `fetch` is safe
@@ -538,7 +558,7 @@ a callback that reaches an element through a spread of props
 (`bus.listen(listener)`); a package with no ES module to read. A
 bundle that is minified is read as any code is — the names in `--why`
 are then the bundle's.
-Executable: `tooling/rx-language-server/test/infer.js` — 48 functions
+Executable: `tooling/rx-language-server/test/infer.js` — 206 functions
 that each do one thing `pure` must not cover, 21 for `handler`, 11 for
 `rejects`, every one refused with a reason that names the thing, and
 their honest twins proven; a package with two builds that disagree;

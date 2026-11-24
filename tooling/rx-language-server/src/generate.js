@@ -26,8 +26,9 @@ const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, unde
 // `export context` rows, MO-8w. 10: a component's props of many fields with no name are their place, MO-8o. 11: no `ref` in
 // a record that may be absent, MO-10b. 12: no word off a name or a shape — `ref` and `instantiates` are the types' `Accessor` or
 // proven by the code, MO-8v. 13: `instantiates` where the code makes what its owner keeps on every path. 14: that word beside a `ref`, MO-8l.
-// 15: a field typed `Accessor` is `ref` whatever its name; no question, which is for the draft a person keeps)
-const FORMAT = 15;
+// 15: a field typed `Accessor` is `ref` whatever its name; no question, which is for the draft a person keeps. 16: what
+// ECMAScript's own constructors run, by one table: a proxy made and handed back is `pure`)
+const FORMAT = 16;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];

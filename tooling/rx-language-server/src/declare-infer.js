@@ -84,6 +84,8 @@ function paramTypes(ts, checker, mod, imp, name) {
   const PRIM = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Void | ts.TypeFlags.EnumLike;
   const isPrim = x => x.isUnion() ? x.types.every(isPrim) : !!(x.flags & PRIM);
   const lib = d => { const f = d.getSourceFile(); return f.hasNoDefaultLib || /[\\/]typescript[\\/]lib[\\/]lib\.[\w.]+\.d\.ts$/.test(f.fileName); };
+  // `lists`: the parameters whose type is the language's own list — "pairs" where its items are lists too
+  const listOf = x => { if (x.isUnion()) return Math.min(...x.types.map(listOf)); if (x.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null)) return 2; if (checker.isArrayType(x) || checker.isTupleType(x)) return checker.getTypeArguments(x).every(y => checker.isArrayType(y) || checker.isTupleType(y)) ? 2 : 1; const n = x.symbol?.name; return !x.symbol?.declarations?.every(lib) ? 0 : /^(Readonly)?Map$/.test(n) ? 2 : /^(Readonly)?Set$/.test(n) ? 1 : 0; };
   const own = (x, depth = 0) => {
     if (depth > 3) return false;
     if (x.isUnion() || x.isIntersection()) return x.types.some(y => own(y, depth));
@@ -103,15 +105,16 @@ function paramTypes(ts, checker, mod, imp, name) {
   // `objects`: the parameters whose type has methods at all, the platform's among them (a socket, an element): an
   // object, not data
   const methods = (x, depth = 0) => { if (depth > 3) return false; if (x.isUnion() || x.isIntersection()) return x.types.some(y => methods(y, depth)); if (x.flags & ts.TypeFlags.TypeParameter) { const c = checker.getBaseConstraintOfType(x); return !!c && c !== x && methods(c, depth + 1); } if (!(x.flags & ts.TypeFlags.Object) || x.getCallSignatures().length || checker.isArrayType(x) || checker.isTupleType(x)) return false; return x.getProperties().some(p => checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, imp)).getCallSignatures().length > 0); };
-  const plain = new Set(), opaque = new Map(), objects = new Set();
+  const lists = new Map(), plain = new Set(), opaque = new Map(), objects = new Set();
   const n = Math.max(...sigs.map(g => g.getParameters().length));
   for (let i = 0; i < n; i++) {
     const ts_ = sigs.map(g => { const p = g.getParameters()[i]; if (!p) return undefined; const d = p.valueDeclaration; if (d && ts.isParameter(d) && d.dotDotDotToken) return null; return checker.getTypeOfSymbolAtLocation(p, imp); });
     if (ts_.every(x => x && isPrim(x))) plain.add(i);
+    else if (ts_.every(x => x && listOf(x))) lists.set(i, ts_.every(x => listOf(x) === 2) ? "pairs" : "list");
     if (ts_.some(x => x && methods(x))) objects.add(i);
     if (ts_.some(x => x && own(x))) opaque.set(i, "self"); else if (ts_.some(x => x === null || (x && parts(x)))) opaque.set(i, "parts");
   }
-  return { plain, opaque, objects };
+  return { plain, lists, opaque, objects };
 }
 
 /** The props of the component `name` that may hold a view — an element, a component, a function that gives one, a list

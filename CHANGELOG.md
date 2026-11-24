@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+**The language's own constructors, by one table** (tooling/rx-language-server/DECLARATIONS.md, *What a constructor runs*; spec/09 MO-8v)
+
+- **Changed: `rx-declare` writes `pure` on a fn that makes a `Proxy` and hands it back**, or keeps it in what it hands back:
+  97 rows of the coverage libraries' modules (49 functions: @ui-sdk/solid's 47 controllers, solid-use's `destructure`,
+  @solid-primitives/i18n's `proxyTranslator`), which a component may call. Using one runs its traps: a fn that reads, calls,
+  spreads, awaits or passes one on has no word. What each of ECMAScript's constructors runs is one table, read from the
+  language's specification; only the global's counts. Questions 757 → 660. Drafts are made again once (draft 16).
+- **Changed, stricter:** `new Set(xs)`, `new Map(xs)`, a typed array, `new Error(x)`, `new RegExp(x)` run code of what they
+  are given unless it is known plain: written out, made by the language, or a parameter whose type is the language's own
+  list or a primitive. A subclass of `Map` or `Set` given something calls its own `set` or `add`. No drafted word was lost.
+  A part that makes an object at each read is no `ref`.
+
 **A draft asks only what changes a verdict** (tooling/rx-language-server/DECLARATIONS.md, *The questions*; spec/09 MO-8v)
 
 - **Changed: a `// TODO` in a draft is asked only where its answer changes what a checker does**, by one rule and no name
