@@ -402,6 +402,18 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     // code it patches, `?import&t=…&rx-dep` from one it compiles again) — so the browser evaluates the file twice, and two
     // factories are two instances: a context declared in the module was two contexts, and a page read `no provision`
     // for one the app's entry provides (RG-7b). The same file with the same text is one module; an edited one is another.
+    // ---- what a fn answers (09 MO-13i): JavaScript's call of it (`self`) is handed its parts, made once, and no equation
+    // over them; `.rx`'s, the accessor it always was, with the parts beside it for a fn that hands them on ----
+    result(self: unknown, whole: () => Acc, parts: () => unknown): unknown {
+      if (self === JS_CALL) return parts();
+      const a = whole(); const o = getOwner(); let made: { v: unknown } | undefined;
+      if (!PARTS.has(a)) PARTS.set(a, () => (made ??= { v: runWithOwner(o, parts) }).v);
+      return a;
+    },
+    parts(a: Acc, name: string): any {
+      const p = PARTS.get(a); if (p) return p();
+      throw new Error(`${name}: its package was compiled by an older version of ReactiveScript, which hands out no parts: build it again (09 MO-13i)`);
+    },
     module(key: unknown, factory: (rt: unknown) => Record<string, unknown>) { const k = (typeof key === "function" && (key as { __rxKey?: string }).__rxKey) || key; let m = modules.get(k); if (!m) { m = factory(app); modules.set(k, m); } return m; },
     // ---- context (RG-7) ----
     owner: () => getOwner(),
@@ -519,6 +531,14 @@ export function components<T extends Record<string, unknown>>(factory: (rt: unkn
 }
 
 const moduleSeq = new WeakMap<object, number>();
+/** MO-13i: JavaScript's call of a compiled fn, by its `this` (`.rx` calls it with none); and, for an accessor a fn
+ *  answered `.rx`, what makes its parts. */
+const JS_CALL = {};
+const PARTS = new WeakMap<Acc, () => unknown>();
+/** A `ref` parameter given by JavaScript: a function is the accessor, anything else the value. */
+const accessor = (v: unknown): Acc => typeof v === "function" ? v as Acc : () => v;
+/** An export called by JavaScript; `refs`: which of its parameters are `ref`. */
+const callExport = (f: (...a: unknown[]) => unknown, a: unknown[], refs: number[] | undefined) => { if (!refs) return f(...a); a = [...a]; for (const i of refs) a[i] = accessor(a[i]); return f.apply(JS_CALL, a); };
 /** A module instantiated in a root of its own that no owner holds, its id the module's name (MO-13h). */
 function rootedBy<T>(factory: (rt: unknown) => T, name: string | undefined) {
   return (rt: unknown) => {
@@ -537,9 +557,13 @@ const moduleRootId = (name: string | undefined, n: number) => name === undefined
  *  wherever the first use is. An `.rx` program of the same page instantiates the same factory in the same app (`__rx`,
  *  MO-13c): one instance. */
 export function library<T extends Record<string, unknown>>(factory: (rt: unknown) => T, name?: string | App, app?: App): T {
-  if (typeof name === "object") { app = name; name = undefined; }
+  return typeof name === "object" ? primitives(factory, undefined, {}, false, name) : primitives(factory, name, {}, false, app);
+}
+/** MO-13i: `library`, for a module whose exported fns hand out parts or take `ref` parameters (`refs`, by name).
+ *  Its own name, so that a package compiled for this runtime does not link against one that would hand out less. */
+export function primitives<T extends Record<string, unknown>>(factory: (rt: unknown) => T, name: string | undefined, refs: Record<string, number[]>, _stateless?: boolean, app?: App): T {
   const made = new Map<string, unknown>();
-  const rooted = rootedBy(factory, name as string | undefined);
+  const rooted = rootedBy(factory, name);
   const inst = () => (app ?? pageApp()).module(factory, rooted as never) as Record<string, any>;
-  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, Object.defineProperty((...a: unknown[]) => inst()[k](...a), Symbol.hasInstance, { value: (e: unknown) => { const c = inst()[k]?.cls; return typeof c === "function" && e instanceof c; } })), made.get(k)) });
+  return new Proxy({} as T, { get: (_, k) => typeof k !== "string" ? undefined : made.get(k) ?? (made.set(k, Object.defineProperty((...a: unknown[]) => callExport(inst()[k], a, refs[k]), Symbol.hasInstance, { value: (e: unknown) => { const c = inst()[k]?.cls; return typeof c === "function" && e instanceof c; } })), made.get(k)) });
 }

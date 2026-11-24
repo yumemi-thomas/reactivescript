@@ -99,28 +99,35 @@ export function leavingKeys(signature, moduleFile, root) {
 const VALUES = new Set(["accessor", "action", "error", "component", "primitive", "fn"]);
 /** x.js / x.server.js: the factory, and each export bound to the page's app (the runtime's `library`, MO-13g); `id`
  *  names the module (`<package>/<module>`), for the root it is instantiated in (MO-13h). */
-function wrapper(name, factory, exports, id, css) {
+function wrapper(name, factory, exports, id, css, stateless) {
+  // MO-13i: a module with a fn that instantiates, or one that holds no state (MO-13g), asks for the runtime's `primitives`
+  const refs = Object.fromEntries(exports.filter(([, k]) => k === "primitive").map(([n, , r]) => [n, r.flatMap((x, i) => x ? [i] : [])]));
+  const more = Object.keys(refs).length || stateless && exports.some(([, k]) => k === "fn");
   const vals = exports.filter(([, k]) => VALUES.has(k));
   // the module's scoped styles (07 CSS-4): what the browser's import resolves to imports its stylesheet, for the app's
   // bundler to link (it was written and exported, and nothing linked it); the server's build has no stylesheet to load
   return `// compiled by ReactiveScript from ${name}.rx — do not edit (spec/09 MO-13e)\n` + (css ? `import ${JSON.stringify(css)};\n` : "") +
-    `import { library as __library } from "@reactivescript/runtime";\nimport __rx from ${JSON.stringify(factory)};\n` +
-    `/** The module as an .rx app instantiates it: once per app (MO-13c). */\nexport { __rx };\nconst __lib = __library(__rx, ${JSON.stringify(id)});\n` +
+    `import { ${more ? "primitives" : "library"} as __library } from "@reactivescript/runtime";\nimport __rx from ${JSON.stringify(factory)};\n` +
+    `/** The module as an .rx app instantiates it: once per app (MO-13c). */\nexport { __rx };\nconst __lib = __library(__rx, ${JSON.stringify(id)}${more ? `, ${JSON.stringify(refs)}, ${!!stateless}` : ""});\n` +
     vals.map(([n]) => n === "default" ? `export default __lib.default;` : `export const ${n} = __lib.${n};`).join("\n") + "\n";
 }
 /** x.d.ts: the types of x.js, from the projection's (x.rx.d.ts): a source or an equation is an accessor, an instantiating
- *  fn takes each `ref` parameter as one and hands one back, an error class makes its instances and is what `instanceof` tests. */
-function declaration(name, exports) {
+ *  fn takes each `ref` parameter as one, or as the value, and hands back its parts (MO-13i: an accessor, an action, a value made once), an error class makes its instances and is what `instanceof` tests. */
+function declaration(name, exports, results = {}) {
+  const part = (r, t) => r === "ref" ? `__Accessor<${t}>` : typeof r === "string" ? t : Array.isArray(r) ? `[${r.map((x, i) => part(x, `${t}[${i}]`)).join(", ")}]` : `{ ${Object.entries(r).map(([k, x]) => `${JSON.stringify(k)}: ${part(x, `${t}[${JSON.stringify(k)}]`)}`).join("; ")} }`;
   const rx = JSON.stringify(`./${name}.rx.js`);
   const lines = [`// the types of ${name}.js, for TypeScript — do not edit (spec/09 MO-13e). An .rx module reads ${name}.d.rx and ${name}.rx.d.ts.`, `import type * as __m from ${rx};`];
-  if (exports.some(([, k]) => k === "primitive")) lines.push(`type __Refs<A extends unknown[], R extends boolean[]> = { [K in keyof A]: K extends keyof R ? (R[K] extends true ? () => A[K] : A[K]) : A[K] };`);
+  if (exports.some(([, k]) => k === "primitive")) lines.push(`import type { Accessor as __Accessor } from "solid-js";`,
+    `/** A \`ref\` parameter: an accessor, or the value — where the value may be a function, an accessor. */`,
+    `type __Ref<T> = (() => unknown) extends T ? __Accessor<T> : [Extract<T, (...a: never) => unknown>] extends [never] ? T | __Accessor<T> : __Accessor<T>;`,
+    `type __Refs<A extends unknown[], R extends boolean[]> = { [K in keyof A]: K extends keyof R ? (R[K] extends true ? __Ref<A[K]> : A[K]) : A[K] };`);
   lines.push(`/** The module as an .rx app instantiates it (MO-13c). */`, `export declare const __rx: (rt: unknown) => Record<string, unknown>;`);
   for (const [n, kind, refs] of exports) {
     if (kind === "type") lines.push(`export type { ${n} } from ${rx};`);
     else if (kind === "accessor") lines.push(`export declare const ${n}: () => typeof __m.${n};`);
     else if (kind === "action" || kind === "fn") lines.push(`export declare const ${n}: typeof __m.${n};`);
     else if (kind === "component") lines.push(n === "default" ? `declare const __default: typeof __m.default;\nexport default __default;` : `export declare const ${n}: typeof __m.${n};`);
-    else if (kind === "primitive") lines.push(`export declare const ${n}: (...args: __Refs<Parameters<typeof __m.${n}>, [${refs.join(", ")}]>) => () => ReturnType<typeof __m.${n}>;`);
+    else if (kind === "primitive") lines.push(`export declare const ${n}: (...args: __Refs<Parameters<typeof __m.${n}>, [${refs.join(", ")}]>) => ${part(results[n] ?? "ref", `ReturnType<typeof __m.${n}>`)};`);
     else if (kind === "error") lines.push(`export declare const ${n}: typeof __m.${n} & { [Symbol.hasInstance](e: unknown): e is __m.${n} };\nexport type ${n} = __m.${n};`);
   }
   return lines.join("\n") + "\n";
@@ -152,7 +159,7 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
     const r = compile(posix(entry), target);
     if (r.diagnostics) { for (const d of r.diagnostics) diagnostics.push(`${path.relative(dir, d.file ?? entry)}:${d.line}: error ${d.code} [${d.rule}] ${d.msg ?? d.message}`); continue; }
     if (r.error || !r.modules) { problems.push(r.error ?? `${entry}: not compiled`); continue; }
-    for (const [p, m] of Object.entries(r.modules)) { const x = modules.get(p) ?? {}; x[target] = m; x.signature = r.signatures?.[p]; modules.set(p, x); }
+    for (const [p, m] of Object.entries(r.modules)) { const x = modules.get(p) ?? {}; x[target] = m; x.signature = r.signatures?.[p]; if (r.results?.[p]) x.results = r.results[p]; x.stateless = !!r.stateless?.includes(p); modules.set(p, x); }
   }
   if (diagnostics.length || problems.length) return { ok: false, problems: [...new Set(diagnostics), ...problems], files, exports: {} };
 
@@ -176,15 +183,15 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
     const exports = exportsOf(m.signature);
     for (const [n, k] of exports) if (k === "server") problems.push(`${path.relative(dir, p)}: exports the server fn ${n}: a server fn is extracted by the app's bundler from the app's own modules, and a compiled package cannot carry one (MO-13f) — export a fn the app wraps in a server fn of its own`);
     const id = pkg.name ? `${pkg.name}/${name}` : name;   // the module's name: its root's id, the same on both sides (MO-13h)
-    put(`${name}.js`, wrapper(base, `./${base}.dom.js`, exports, id, m.dom.css ? `./${base}.css` : undefined));
+    put(`${name}.js`, wrapper(base, `./${base}.dom.js`, exports, id, m.dom.css ? `./${base}.css` : undefined, m.stateless));
     for (const key of foreignKeys(m.signature)) problems.push(`${path.relative(dir, p)}: its signature names a context of another package (${key}): a context's key is a path from this module, right only where that package is installed as it was when this one was built (hoisted or not, linked, in a store) — take the context's value as a prop or provide it from a component of this package (MO-13b; the same of a component a fn renders its arguments beneath, MO-11u: show the toast, or mount the toaster, from the app)`);
     // (found 2026-11-24, built: a package that calls solid-sonner's toast, declared in its own rx-types/, was built "ok"
     // with `export renders ../rx-types/solid-sonner.d.rx#Toaster` in its signature — a file it does not ship, and a key no
     // application of the app's <Toaster /> has: in the app its toast was held to nothing above it, in silence)
     for (const key of leavingKeys(m.signature, p, root)) if (!foreignKeys(m.signature).includes(key)) problems.push(`${path.relative(dir, p)}: its signature names ${key}, which is outside what the package ships (${path.relative(dir, root) || "."}): a key is a path from this module, and an app that installs the package declares that library itself, under another key — so what this module provides, reads or renders beneath it would meet nothing of the app's. Take the value as a prop, or leave the call to the app: export the component and let the app show it, or mount the toaster (MO-13b, MO-11u)`);
-    put(`${name}.server.js`, wrapper(base, `./${base}.ssr.js`, exports, id));
+    put(`${name}.server.js`, wrapper(base, `./${base}.ssr.js`, exports, id, undefined, m.stateless));
     put(`${name}.d.rx`, m.signature);
-    put(`${name}.d.ts`, declaration(base, exports));
+    put(`${name}.d.ts`, declaration(base, exports, m.results));
     if (m.dom.css) put(`${name}.css`, m.dom.css);
     if (js.has(path.join(root, `${name}.js`))) problems.push(`${name}.rx and ${name}.js would both be ${path.relative(dir, dist)}/${name}.js: rename one`);
   }

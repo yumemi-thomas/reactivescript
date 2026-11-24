@@ -197,7 +197,9 @@ does for `.tsrx`. Nothing here is a second type system.
   types of the JavaScript a `.tsx` app imports (09 MO-13f), written from
   the first by kind: `typeof` the projection's export for a component, a
   fn and an action, an accessor of it for a source or an equation, and for
-  a fn that instantiates its `ref` parameters and its result as accessors.
+  a fn that instantiates its parts (09 MO-13i: an accessor of the field's
+  type, the action's type, the value's), and each `ref` parameter as an
+  accessor or the value.
 
 ## TY-5 — Rules the projection states as types
 

@@ -366,9 +366,15 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   - a fn's parameters (`ref`, with written types), `rejects(…)` (absent: it
     returns nothing that rejects), `instantiates` (RG-6) and `uses(…)`
     (RG-7b: the contexts each call reads above the place it is written);
-  - the parts of a fn's result, or of an equation's value, that are actions
-    (R-io-3): `export pure fn createPage(first): { set: io; pair.1: io }
-    instantiates`, a path of fields and items each; `: io`, the whole;
+  - the parts of a fn's result, where they are known (MO-13i): `export pure
+    fn createPage(first): pending { page: ref; quote: ref pending; set: io;
+    first: value } instantiates`, `[ref, io]` for a tuple, `io` or `value`
+    for one part alone. The rows before it are the whole's, which is what an
+    importer is held to;
+  - elsewhere (an equation's value, a part or a result that is one value), the
+    parts that are actions (R-io-3): `{ set: io; pair.1: io; … }`, a path of
+    fields and items each, and `…` for what is not said; `ref io`, a value
+    that is now one action, now another;
   - `export server fn f(a)` (12 SF-1; `server pure fn` when it is not io);
   - per prop: `catches(*)` where every class is discharged, `provides(…)` for
     children (RG-7b), `unrendered` for a prop only an action reads, and the
@@ -967,7 +973,7 @@ is the signature the compiler printed.
 - **MO-13f (The JavaScript boundary).** To JavaScript the module is a Solid 2
   library: a component is a component; a source or an equation is an accessor;
   a fn is a function, and one that instantiates takes each `ref` parameter as
-  an accessor and hands back an accessor; an action is a function that returns
+  an accessor or the value and hands back its parts (MO-13i); an action is a function that returns
   a promise; an error class is called to make an instance, and `e instanceof
   C` holds. A context and a type are not values of that module; a server fn
   cannot be exported by a package (`rx-lib` refuses it). The exports are bound
@@ -983,7 +989,11 @@ is the signature the compiler printed.
     event's `locals`. Outside one, the *render's*: one app for each call of
     `renderToString` or `renderToStream`, kept by that render's identity and
     gone with it. Never the process's: an export used where nothing renders
-    and no request is being answered throws, saying so.
+    and no request is being answered throws, saying so. An export of a module
+    that holds no state is answered there too: a module that declares, at its
+    top level, only fns, components, actions, contexts and types, and imports
+    only such `.rx` modules of its package. Each such call has an app of its
+    own, so nothing is shared.
   - *A request's state lives as the request does.* Its modules are under an
     owner no render owns. Each render of the request that uses the app holds
     it; when the last hold is gone it is released at the end of that turn of
@@ -1001,6 +1011,51 @@ is the signature the compiler printed.
   whoever used it first. What this reads of Solid's internals is in
   `ref/compile/solid-internals.ts`, each read held against the public answer,
   with no fallback: a Solid shaped otherwise is refused.
+
+- **MO-13i (What a fn answers, for JavaScript).** A fn that instantiates
+  answers `.rx` one value (RG-6a). JavaScript is handed what a Solid primitive
+  hands: each part of that value by what it is, in one object made once.
+
+  ```rx
+  export fn createPager(ref pages: number, first: number) {
+    source raw := first
+    page = raw > pages ? pages : raw
+    quote = await fetchQuote(page)
+    action set(n: number) { raw := n }
+    { page: page, quote: quote, set: set, first: first }
+  }
+  // export pure fn createPager(ref pages: number, first: number): pending fails(Error)
+  //   { page: ref; quote: ref pending fails(Error); set: io; first: value } instantiates     (one line)
+  ```
+
+  ```ts
+  createPager: (pages: number | Accessor<number>, first: number) =>
+    { page: Accessor<number>; quote: Accessor<number>; set: (n: number) => Promise<void>; first: number }
+  ```
+
+  - *The parts.* A record or a list literal is its fields and items, each a
+    part. `ref`: it changes; JavaScript gets an accessor, which waits, fails
+    and is tracked by itself. `io`: an action; JavaScript gets it. `value`:
+    made once (a literal, a closure, a value parameter, a JS name, what
+    operators make of them); JavaScript gets it.
+  - *How far it is followed.* Through the names the fn's own body declares,
+    and through the result of another fn it calls (`p = createPage(1)`,
+    `{ page: p.page, set: p.set }`), of this module or by its signature. Not
+    through a module's name, a call of a fn that does not instantiate, a
+    condition, a spread, an optional member, a key that is no identifier, nor
+    an equation that awaits, keeps its last value or drafts: each is one part,
+    an accessor, as a result with no part known is one accessor.
+  - *Parameters.* A `ref` parameter takes an accessor or the value: a function
+    is the accessor. The `.d.ts` offers the value where its type holds no
+    function. An argument left out is `undefined`.
+  - *Owner.* What the call makes is the caller's owner's, as a Solid
+    primitive's is. The call makes no equation over the whole, so a part that
+    waits holds no other. A part handed on from a fn called inside is that
+    call's, which did make one for its `.rx` caller. An `.rx` caller is as
+    before.
+  - *The runtime.* The compiled fn needs one that hands out parts
+    (`__rt.result`, `primitives`). With an older one, a module imported by
+    JavaScript does not link and one imported by `.rx` throws, saying so.
 
 ## MO-14 — What a JS host renders: a host declaration
 

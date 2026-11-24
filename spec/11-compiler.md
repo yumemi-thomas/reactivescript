@@ -187,6 +187,7 @@ record argued each way; this is the decision.
   | `tryCatch(f, match, alt)` | `await … catch …` in imperative scope | `try` |
   | `context(name, dflt)`, `provide(c, entry)`, `use(c, owner)`, `useGet(c, owner)`, `owner()` | contexts (RG-7) | `createContext`, `setContext`, `getContext`, `getOwner` |
   | `module(key, factory)` | an `.rx` dependency, once per app (MO-1); `key` is the file's name in a sibling-file build, the factory itself when modules are imported by source for a bundler (`rxc app`), so a module two programs share is one key | — |
+  | `result(self, whole, parts)`, `parts(acc, name)` | what a fn answers, in a library build (09 MO-13i): JavaScript's call is handed `parts()`, `.rx`'s the accessor, with its parts kept beside it for a fn that hands them on | `getOwner`, `runWithOwner` |
   | `serverRef(name, fn)`, `serverCall(name, gen, args)` | a server fn as the client calls it, and its body (12 SF-2, SF-6, SF-7) | Solid's `"use server"` functions |
   | `show(v)`, `kids(v)`, `scopedClass(v, hash)` | `{e}` (a value formatted, a view inserted); `{props.children}`, a component's children (a view, or the list of views and strings a JS library passes, inserted as it is — `show` printed a list of strings as the list it also is, until 2026-11-24); a dynamic class with the view's scope (CSS-2). On the server neither escapes: the compiled view wraps every hole in Solid's `escape` (the runtime escaped as well until 2026-11-24, and a served `a < b` read `a &lt; b`: S-server-5) | — |
   | `TypedErrored`, `Portal` | `errored fallback(e: A)` (R-f-4), `portal` (RG-8) | `Errored`, `Portal` |
@@ -393,7 +394,11 @@ record argued each way; this is the decision.
   runtime keeps for the request, or outside a request under the render's
   root owner, so the state of a module first read inside a
   `<Show>` is not disposed with it, and its nodes' ids do not depend on
-  where that was. It is the name the runtime adds
+  where that was. A module
+  with a fn that instantiates, or that holds no state (MO-13g), is bound by
+  `primitives(factory, name, refs, stateless)` instead: the same, with the
+  `ref` parameters of each fn by index, calling a fn so that it hands back its
+  parts (MO-13i). They are the names the runtime adds
   for packages, and it is Solid's `createRoot` and a `Proxy`;
   `holdRequest()` is the other, a count (09 MO-13g). Which render the
   caller is in is Solid's public `getHydrationWriter()`. That render's

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+**A fn of an `.rx` package hands JavaScript its parts** (09 MO-13i; `scenarios/S-module-44`, `bench/tasks/rx-package`)
+
+- **Changed: what `rx-lib` hands JavaScript.** A fn that answers a record or a tuple handed one accessor of the whole. It hands
+  an accessor for each part that changes (waiting and failing by itself), the action itself, and the value itself for what is
+  made once: `const { page, set } = createPager(…)`. A fn that answers an action hands it, and one that answers `null`, `null`.
+  A result whose shape is not known (a condition, a spread) is one accessor, as before. `.rx` callers are as before.
+- **Changed: the printed signature says the parts** (MO-9b): `{ page: ref; quote: ref pending fails(Error); set: io; first:
+  value }`, `[ref, io]`; where only some are known, `{ set: io; … }`. The derived `.d.ts` says them: `Accessor<T>`, the action's
+  type, the value's.
+- **Changed: a `ref` parameter takes the value too** from JavaScript (a function is the accessor), and the `.d.ts` offers it
+  where its type holds no function. An argument left out is `undefined`.
+- **Changed: on the server, outside a render and a request,** an export of a module that holds no state is answered, each call
+  with an app of its own (MO-13g); any other still throws.
+- Packages built with this compiler need `@reactivescript/runtime` as new: with an older one their JavaScript does not link (no
+  `primitives`), and an `.rx` app throws, naming the package's module and what to upgrade.
+
 **Bugs found by writing solid-primitives in `.rx`** (2026-11-24)
 
 - **Fixed: an effect lost its listener** (02 EF-5; `scenarios/S-effect-cleanup-1`): when an input was computed again to the

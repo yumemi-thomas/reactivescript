@@ -286,6 +286,10 @@ struct Sym<'a> {
     /// MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
     /// R-io-3: an import — the parts of its value (a fn's: of its result) that are actions, as paths
     action_parts: Vec<String>,
+    /// MO-13i: an imported fn, the parts of its result where they are known
+    result: Option<crate::signature::Res>,
+    /// MO-13i: an instantiating fn of this module, the names its body declares
+    fn_decls: Option<HashSet<&'a str>>,
     needs: Vec<String>,
     /// MO-12c: the JS contexts a declared factory's component provides to what it renders
     gives: Vec<String>,
@@ -396,6 +400,8 @@ impl<'a> Sym<'a> {
             waits: None,
             cbs: vec![],
             action_parts: vec![],
+            result: None,
+            fn_decls: None,
             needs: vec![],
             gives: vec![],
             nests: None,
@@ -1972,6 +1978,7 @@ pub struct Checker<'a> {
     /// the calls of fns that instantiate, each in its region (RG-6a)
     hook_calls: Vec<(RId, SId, i64, String)>,
     parts_memo: HashMap<SId, IndexSet<String>>,
+    results: HashMap<SId, Option<std::rc::Rc<Plan>>>,
     /// MO-10g: closures passed where a declared JS fn takes a callback
     callback_fns: HashSet<*const Expr>,
     /// MO-10i: closures passed where a JS fn's declaration makes their parameters drafts, with those positions
@@ -2086,7 +2093,44 @@ pub struct Checker<'a> {
     deferred: Vec<Deferred>,
 }
 
+/// MO-13i: how the parts of what a fn answers are handed to JavaScript (`emit.rs`), each with what it is.
+#[derive(Debug, Clone)]
+pub enum Plan {
+    /// an action, by its name
+    Io(*const Expr),
+    /// one value: an accessor of the expression, or the value itself
+    Leaf(*const Expr, crate::signature::Res),
+    Rec(Vec<(String, Plan)>),
+    Arr(Vec<Plan>),
+    /// the part at a path of what another fn's call answered, by the name it is bound to
+    Inst(String, Vec<String>, crate::signature::Res),
+}
+impl Plan {
+    pub fn res(&self) -> crate::signature::Res {
+        use crate::signature::Res;
+        match self {
+            Plan::Io(_) => Res::Io,
+            Plan::Leaf(_, r) | Plan::Inst(_, _, r) => r.clone(),
+            Plan::Rec(fs) => Res::Rec(fs.iter().map(|(k, p)| (k.clone(), p.res())).collect()),
+            Plan::Arr(xs) => Res::Arr(xs.iter().map(Plan::res).collect()),
+        }
+    }
+}
+/// The fns whose result is handed out in parts, by their declarations.
+pub type Plans = HashMap<*const Decl, Plan>;
+/// MO-13i: a value that asks, or keeps what it was, is one equation's: its parts are read off that equation.
+fn asks_or_keeps(n: Node) -> bool {
+    if let Node::E(e) = n {
+        match &e.k {
+            ExprKind::Fn { .. } => return false,
+            ExprKind::Await { .. } | ExprKind::Pre { .. } | ExprKind::Draft { .. } | ExprKind::Omit { .. } => return true,
+            _ => {}
+        }
+    }
+    children(n, true).into_iter().any(asks_or_keeps)
+}
 pub struct CheckResult {
+    pub plans: Plans,
     pub diags: Vec<Diagnostic>,
     /// 99, the advisory rows: advice about a correct program, never an error
     pub advice: Vec<Diagnostic>,
@@ -2102,10 +2146,21 @@ pub fn check_with_signature(p: &Program, opts: Opts) -> CheckResult {
     let sig = c.signature(p);
     let model = c.build_model(&file);
     let peeks = c.peek_facts(p);
-    CheckResult { diags: c.diags, advice: c.advice, sig, model, peeks }
+    let mut plans = Plans::new();
+    for d in &p.decls {
+        if let Decl::Fn { name, .. } = d {
+            if let Some(&s) = c.root_env.and_then(|e| c.envs[e].vars.get(name.as_str())) {
+                if let Some(r) = c.fn_result(s).filter(|r| !r.res().is_reader()) {
+                    plans.insert(d, (*r).clone());
+                }
+            }
+        }
+    }
+    CheckResult { plans, diags: c.diags, advice: c.advice, sig, model, peeks }
 }
 
 pub struct Checked {
+    pub plans: Plans,
     pub diags: Vec<Diagnostic>,
     /// 99, the advisory rows: advice about a correct program — it never fails a build
     pub advice: Vec<Diagnostic>,
@@ -2133,10 +2188,12 @@ fn check_modules_judged(set: &ModuleSet, spa: bool, whole: bool, hosts: &[String
     let mut models = IndexMap::new();
     let mut facts = vec![];
     let mut advice = vec![];
+    let mut plans = Plans::new();
     for path in &set.order {
         let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole, hosted: set.hosted.contains(path), dependency: *path != set.entry, through: &set.through, placed: &set.placed, under: &set.under });
         diags.extend(r.diags);
         advice.extend(r.advice);
+        plans.extend(r.plans);
         sigs.insert(path.clone(), r.sig);
         models.insert(path.clone(), r.model);
         facts.push((path.clone(), r.peeks));
@@ -2206,7 +2263,7 @@ fn check_modules_judged(set: &ModuleSet, spa: bool, whole: bool, hosts: &[String
             }
         }
     }
-    Checked { diags, advice, sigs, models }
+    Checked { plans, diags, advice, sigs, models }
 }
 
 /// MO-11u: a fn declared `renders(H)` hands the components it is given to H, which renders them later, any number of
@@ -2373,6 +2430,7 @@ impl<'a> Checker<'a> {
             uses: vec![],
             hook_calls: vec![],
             parts_memo: HashMap::new(),
+            results: HashMap::new(),
             callback_fns: HashSet::new(),
             draft_fns: HashMap::new(),
             fn_stack: vec![],
@@ -3049,7 +3107,7 @@ impl<'a> Checker<'a> {
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s
                 }
-                ExportSig::Fn { params, instantiating, rows, fails, rejects, uses, actions } => {
+                ExportSig::Fn { params, instantiating, rows, fails, rejects, uses, actions, result } => {
                     let mut s = Sym::new(SymKind::Fn, alias, region, line);
                     s.params = Some(params.clone());
                     s.instantiating = *instantiating;
@@ -3058,6 +3116,7 @@ impl<'a> Checker<'a> {
                     s.rejects = Some(set(rejects));
                     s.needs = uses.clone();
                     s.action_parts = actions.clone();
+                    s.result = result.clone();
                     s
                 }
                 ExportSig::Action => {
@@ -3611,7 +3670,7 @@ impl<'a> Checker<'a> {
                         Some((t, te)) => self.rejects(t, te, &mut HashSet::new()),
                         None => self.syms[s].rejects.clone().unwrap_or_default(),
                     };
-                    ExportSig::Fn { params: self.syms[s].params.iter().flatten().map(|p| SigParam { ty: p.ty.as_deref().map(one_line), ..p.clone() }).collect(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone(), actions: self.sorted_parts(self.syms[s].fn_tail) }
+                    ExportSig::Fn { params: self.syms[s].params.iter().flatten().map(|p| SigParam { ty: p.ty.as_deref().map(one_line), ..p.clone() }).collect(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone(), actions: self.sorted_parts(self.syms[s].fn_tail), result: self.fn_result(s).map(|p| p.res()).filter(|r| !r.is_reader()) }
                 }
                 SymKind::Action => ExportSig::Action,
                 SymKind::Server => {
@@ -4009,6 +4068,7 @@ impl<'a> Checker<'a> {
                 let s = self.lookup(env, name).unwrap();
                 let sym = &mut self.syms[s];
                 sym.fn_tail = Some((tail, inner));
+                sym.fn_decls = instantiates(params, decls, tail).then(|| decls.iter().filter_map(|x| match x { Decl::Eq { name, e, deferred: false, key: None, .. } if !asks_or_keeps(Node::E(e)) => Some(name.as_str()), _ => None }).collect());
                 sym.fails_t = Some(FailsT::Expr { e: tail, env: inner, cache: None, busy: false });
                 sym.rows = Some(RowsT::Expr { e: tail, env: inner, cache: None, busy: false });
             }
@@ -5674,6 +5734,140 @@ impl<'a> Checker<'a> {
         let r = self.action_parts(e, env);
         self.parts_memo.insert(s, r.clone());
         r
+    }
+    /// MO-13i: the parts of what an instantiating fn answers, as far as the names its own body declares and the fns it calls
+    /// say: a literal's fields and items, an action, a value made once, and for everything else one reader.
+    fn fn_result(&mut self, f: SId) -> Option<std::rc::Rc<Plan>> {
+        if self.syms[f].kind != SymKind::Fn {
+            return None;
+        }
+        let Some((tail, env)) = self.syms[f].fn_tail else { return self.syms[f].result.clone().map(|r| std::rc::Rc::new(Plan::Inst(String::new(), vec![], r))) };
+        let own = self.syms[f].fn_decls.clone()?;
+        if let Some(r) = self.results.get(&f) {
+            return r.clone();
+        }
+        self.results.insert(f, None); // a fn that answers its own result is one reader
+        let r = if asks_or_keeps(Node::E(tail)) { self.plan_leaf(tail, env, true) } else { self.plan(tail, env, &own, &mut vec![]) };
+        let r = Some(std::rc::Rc::new(r));
+        self.results.insert(f, r.clone());
+        r
+    }
+    fn plan_leaf(&mut self, e: &'a Expr, env: EId, one: bool) -> Plan {
+        let reader = one || !self.plain(e, env);
+        let (rows, fails) = if reader { (self.rows_of(e, env), self.fails_of(e, env, false, &HashMap::new()).cls) } else { Default::default() };
+        let actions = self.sorted_parts(Some((e, env)));
+        Plan::Leaf(e, crate::signature::Res::Leaf { reader, rows: rows.into_iter().collect(), fails: fails.into_iter().collect(), actions })
+    }
+    fn plan(&mut self, e: &'a Expr, env: EId, own: &HashSet<&'a str>, seen: &mut Vec<&'a str>) -> Plan {
+        let (o, key) = match &e.k {
+            ExprKind::Id(n) => {
+                let s = self.lookup(env, n);
+                if s.is_some_and(|s| self.syms[s].kind == SymKind::Action) {
+                    return Plan::Io(e);
+                }
+                let v = if own.contains(n.as_str()) && !seen.contains(&n.as_str()) { s.and_then(|s| self.syms[s].val) } else { None };
+                let Some((ve, venv)) = v else { return self.plan_leaf(e, env, false) };
+                let called = match &ve.k {
+                    ExprKind::Call { f, args, .. } => match &f.k {
+                        ExprKind::Id(f) => self.lookup(env, f).filter(|&f| self.syms[f].kind == SymKind::Fn && self.syms[f].instantiating).map(|f| (f, args)),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let r = match called {
+                    Some((f, args)) => {
+                        let refs: Vec<&'a Expr> = args.iter().enumerate().filter(|(i, _)| self.syms[f].params.as_ref().and_then(|p| p.get(*i)).is_some_and(|p| p.r#ref)).map(|(_, a)| a).collect();
+                        let r = self.fn_result(f).map(|p| p.res());
+                        r.map(|r| Plan::Inst(n.clone(), vec![], self.read_with(r, &refs, env)))
+                    }
+                    None => {
+                        seen.push(n);
+                        let r = self.plan(ve, venv, own, seen);
+                        seen.pop();
+                        Some(r)
+                    }
+                };
+                return match r {
+                    Some(r) if !r.res().is_reader() => r,
+                    _ => self.plan_leaf(e, env, false),
+                };
+            }
+            ExprKind::Rec(fields) => {
+                let mut out = vec![];
+                for f in fields {
+                    match f {
+                        Field::Kv { key, v } if !key.is_empty() && key != "__proto__" && key.chars().all(|c| c.is_ascii_alphanumeric() || "_$-".contains(c)) && !fields.iter().any(|g| matches!(g, Field::Kv { key: k, v: w } if k == key && !std::ptr::eq(v, w))) => out.push((key, v)),
+                        _ => return self.plan_leaf(e, env, false),
+                    }
+                }
+                if out.is_empty() {
+                    return self.plan_leaf(e, env, false);
+                }
+                return Plan::Rec(out.into_iter().map(|(k, v)| (k.clone(), self.plan(v, env, own, seen))).collect());
+            }
+            ExprKind::Arr(items) if !items.is_empty() && !items.iter().any(|x| matches!(x.k, ExprKind::Spread(_))) => return Plan::Arr(items.iter().map(|x| self.plan(x, env, own, seen)).collect()),
+            ExprKind::Member { o, p, opt: false } => (o, Some(p.clone())),
+            ExprKind::Index { o, i, opt: false } => (o, lit_key(i)),
+            _ => return self.plan_leaf(e, env, false),
+        };
+        let at = match key {
+            None => None,
+            Some(k) => match self.plan(o, env, own, seen) {
+                Plan::Rec(fs) => fs.into_iter().find(|f| f.0 == k).map(|f| f.1),
+                Plan::Arr(xs) => k.parse::<usize>().ok().and_then(|i| xs.into_iter().nth(i)),
+                Plan::Inst(n, mut path, r) => r.at(&k).cloned().map(|r| {
+                    path.push(k);
+                    Plan::Inst(n, path, r)
+                }),
+                _ => None,
+            },
+        };
+        match at {
+            Some(p) => p,
+            None => self.plan_leaf(e, env, false),
+        }
+    }
+    /// A fn's result where it is called: what its `ref` arguments wait for and fail with, its readers may.
+    fn read_with(&mut self, r: crate::signature::Res, args: &[&'a Expr], env: EId) -> crate::signature::Res {
+        use crate::signature::Res;
+        let (mut rows, mut fails) = (IndexSet::new(), IndexSet::new());
+        for a in args {
+            rows.extend(self.rows_of(a, env));
+            fails.extend(self.fails_of(a, env, false, &HashMap::new()).cls);
+        }
+        fn go(r: Res, rs: &IndexSet<String>, fs: &IndexSet<String>) -> Res {
+            match r {
+                Res::Leaf { reader: true, rows, fails, actions } => Res::Leaf { reader: true, rows: rows.into_iter().chain(rs.iter().cloned()).collect::<IndexSet<_>>().into_iter().collect(), fails: fails.into_iter().chain(fs.iter().cloned()).collect::<IndexSet<_>>().into_iter().collect(), actions },
+                Res::Rec(xs) => Res::Rec(xs.into_iter().map(|(k, r)| (k, go(r, rs, fs))).collect()),
+                Res::Arr(xs) => Res::Arr(xs.into_iter().map(|r| go(r, rs, fs)).collect()),
+                r => r,
+            }
+        }
+        go(r, &rows, &fails)
+    }
+    /// MO-13i: a value made once: a literal, a closure, a value parameter, a JS name, and what operators make of them.
+    fn plain(&mut self, e: &'a Expr, env: EId) -> bool {
+        match &e.k {
+            ExprKind::Lit(_) | ExprKind::Fn { .. } => true,
+            ExprKind::Id(n) => {
+                let Some(s) = self.lookup(env, n) else { return false };
+                let y = &self.syms[s];
+                match y.kind {
+                    SymKind::Eq => matches!(y.foreign, Some(crate::parse::Shape::Part(crate::parse::Part::Value | crate::parse::Part::Fn))) && !y.via_field || y.val.is_some_and(|(v, _)| matches!(v.k, ExprKind::Fn { .. })) || self.constant_eq(s),
+                    SymKind::Value => y.param,
+                    SymKind::Import | SymKind::ErrClass => true,
+                    SymKind::Fn => !y.instantiating,
+                    _ => false,
+                }
+            }
+            ExprKind::Bin { l, r, .. } => self.plain(l, env) && self.plain(r, env),
+            ExprKind::Un { e, .. } => self.plain(e, env),
+            ExprKind::If { c, t, f } => self.plain(c, env) && self.plain(t, env) && self.plain(f, env),
+            ExprKind::Tpl(parts) => parts.iter().all(|p| match p { TplPart::Expr(e) => self.plain(e, env), _ => true }),
+            ExprKind::Arr(items) => items.iter().all(|x| self.plain(x, env)),
+            ExprKind::Rec(fields) => fields.iter().all(|f| match f { Field::Kv { v, .. } => self.plain(v, env), Field::Spread(_) => false }),
+            _ => false,
+        }
     }
     fn sorted_parts(&mut self, v: Option<(&'a Expr, EId)>) -> Vec<String> {
         let mut ps: Vec<String> = v.map(|(e, env)| self.action_parts(e, env).into_iter().collect()).unwrap_or_default();
@@ -9075,6 +9269,25 @@ mod tests {
 
     /// 06 AC-3 (2026-11-22): a guess in a run that starts nothing to wait for has no hold, and the first guess written
     /// after an `await` is advised. `ref/units.ts` holds the same cases.
+    #[test]
+    fn the_parts_of_what_a_fn_answers_are_in_its_signature() {
+        // MO-13i, MO-9b
+        let src = "import pure { ask } from \"./ask.js\"\nexport fn many(ref n: number, first: number, cb: () => void) {\n  source s := first\n  x = n * 2\n  alias = x\n  action set(v: number) { s := v }\n  act = set\n  { x: x, alias: alias, act: act, \"data-x\": s, first: first, sum: first + 1, obj: first.y, cb: cb, f: (k) => k + x, list: [x, 1], cond: x > 1 ? set : null, u: peek x }\n}\nexport fn nested(ref n: number) {\n  m = many(n, 1, () => {})\n  q = await ask(n)\n  y = { m: m.act, r: m.x, deep: m.list[1], far: m.obj.z }\n  { ...y, q: q }\n}\nexport fn handed(ref n: number) {\n  m = many(n, 1, () => {})\n  y = { m: m.act, r: m.x, deep: m.list[1], far: m.obj.z }\n  { y: y, q: [m.cond] }\n}\nexport fn waits(ref n: number) {\n  q = await ask(n)\n  l = many(q, 1, () => {})\n  { q: q, x: l.x, n: n }\n}\nexport fn asks(ref n: number) {\n  { a: await ask(n) }\n}\nexport fn own(ref n: number) {\n  h = { at: n, was: pre h -> null }\n  h\n}\nexport fn nothing(ref n: number) {\n  effect (n) {}\n  null\n}\nexport fn self(ref n: number) {\n  s = self(n)\n  { s: s, n: n }\n}\nexport fn only() {\n  action go() {}\n  go\n}\nexport fn picked(ref n: number) {\n  action go() {}\n  n > 1 ? go : go\n}\nexport fn plain(n: number) => ({ n: n })\n";
+        let set = load_modules("/app/many.rx", &|p: &str| (p == "/app/many.rx").then(|| src.to_string())).unwrap();
+        let sig = &check_modules(&set, false).sigs["/app/many.rx"];
+        let text = crate::signature::print_signature(sig);
+        let rows: Vec<&str> = text.trim().split('\n').skip(1).map(|l| &l["export pure fn ".len()..]).collect();
+        assert_eq!(rows, ["many(ref n: number, first: number, cb: () => void): { x: ref; alias: ref; act: io; data-x: ref; first: value; sum: value; obj: ref; cb: value; f: value; list: [ref, value]; cond: ref io; u: ref } instantiates", "nested(ref n: number): pending fails(Error) { m: io; … } instantiates", "handed(ref n: number): { y: { m: io; r: ref; deep: value; far: ref }; q: [ref io] } instantiates", "waits(ref n: number): pending fails(Error) { q: ref pending fails(Error); x: ref pending fails(Error); n: ref } instantiates", "asks(ref n: number): pending fails(Error) instantiates", "own(ref n: number) instantiates", "nothing(ref n: number): value instantiates", "self(ref n: number): { s: ref; n: ref } instantiates", "only(): io rejects(Error) instantiates", "picked(ref n: number): ref io rejects(Error) instantiates", "plain(n: number)"]);
+        // read back, it is what was printed: the parts, and those that are actions
+        let back = crate::signature::parse_signature(&text, "/app/many.rx").unwrap();
+        assert_eq!(crate::signature::print_signature(&back), text);
+        let actions = |x: &ModSig| x.exports.iter().map(|(n, e)| (n.clone(), if let ExportSig::Fn { actions, .. } = e { actions.clone() } else { vec![] })).collect::<Vec<_>>();
+        assert_eq!(actions(&back), actions(sig));
+        for bad in ["export pure fn f(): { a }", "export pure fn f(): { a: ref", "export pure fn f(): { a: io, b: ref }", "export pure fn f(): [ref number]", "export pure fn f(): { a.b: ref }", "export pure fn f(): value pending", "export pure fn f("] {
+            assert!(crate::signature::parse_signature(bad, "x.rx").is_err(), "{bad}");
+        }
+    }
+
     #[test]
     fn a_guess_needs_something_to_wait_for() {
         const API: &str = "export fn save(k: string): Promise<void>\nexport fn track(k: string): void\n";

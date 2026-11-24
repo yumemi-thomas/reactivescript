@@ -20,7 +20,7 @@ export fn createFlag(): [boolean, () => void] {
 export main = createPage(7)
 ```
 
-The printed signature says which parts of a result are actions (`: { pair.1: io; set: io }`), and no more.
+The printed signature says what each part of a result is (`: { page: ref; set: io; pair: [ref, io]; label: value }`, MO-13i).
 
 ## Program
 

@@ -104,7 +104,7 @@ process: use it in a render, inside `provideRequestEvent`, or pass the app,
 Start's file routes use this (`examples/start`).
 
 A package written in `.rx` and built by `rx-lib` (spec/09 MO-13e) is a Solid library to JavaScript through
-`library(factory, name)`: each export of the compiled module as a function bound the same way — to the page's app; on
+`library(factory, name)`, or `primitives(factory, name, refs, stateless)` where a fn hands out its parts (spec/09 MO-13i): each export of the compiled module as a function bound the same way — to the page's app; on
 the server to the request's, else the render's — with the module instantiated at its first use in a root of its own,
 whose id is the module's name (spec/09 MO-13h): it is not disposed with whatever read it first, and its nodes have the
 same ids on both sides. An `.rx` program in the same page has the same instance. A package's `index.js` calls it; an

@@ -5,6 +5,7 @@ import { provideRequestEvent } from "@solidjs/web/storage";
 import { Loading } from "solid-js";
 import { library } from "@reactivescript/runtime";
 import { __rx, code } from "@bench/rates";
+import { createPager } from "@bench/rates/pager";
 import { App } from "./app.tsx";
 
 type Sink = { write(chunk: string): void; end(): void };
@@ -27,4 +28,6 @@ export const probe = (sink: Sink) => { renderToStream(() => <Probe />).pipe(sink
 export const probeInRequest = (sink: Sink) => { provideRequestEvent({ request: new Request("http://localhost/"), locals: {} } as never, () => renderToStream(() => <Probe />).pipe(sink as never)); };
 export const probeString = () => renderToString(() => <i>{numbered.serial()}:{numbered.code()}:{numbered.serial()}</i>);
 /** An export read where nothing renders and no request is being answered. */
+/** …and one of a module that holds no state (MO-13g): each call has its own. */
+export const outsideStateless = () => { const a = createPager(() => 5, 2), b = createPager(5, 3); return `${a.page()},${a.edges.start()},${a.label(1)};${b.page()}`; };
 export const outside = () => { try { return code(); } catch (e) { return `threw: ${(e as Error).message}`; } };

@@ -229,14 +229,16 @@ pub fn compile_modules(set: &ModuleSet, extra: &[Vec<Stmt>]) -> R<Compiled> {
 /// `compile_modules`, with each module importing its dependencies by their `.rx` paths (relative to the importer) when
 /// `by_source`, as a bundler resolves them, rather than as the sibling `.mjs` files `compile_modules` names.
 pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> R<Compiled> {
-    compile_linked_as(set, extra, by_source, false)
+    compile_linked_as(set, extra, by_source, false, &Default::default())
 }
 /// CP-4d: `library`, the entry is compiled as a dependency is (`module(__rt)`, its exports), for a JS host that imports
-/// an `.rx` module for its components (`./pages.rx?rx-lib`) rather than mounting a program from it.
-pub fn compile_linked_as(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, library: bool) -> R<Compiled> {
+/// an `.rx` module for its components (`./pages.rx?rx-lib`) rather than mounting a program from it. `plans` (MO-13i): the
+/// fns that hand JavaScript their result in parts.
+pub fn compile_linked_as<'a>(set: &'a ModuleSet, extra: &[Vec<Stmt>], by_source: bool, library: bool, plans: &'a crate::check::Plans) -> R<Compiled> {
     let programs: Vec<&Program> = set.order.iter().map(|p| &set.programs[p]).collect();
     let mut g = Gen::new(usage(&programs, extra), set);
     g.by_source = by_source;
+    g.plans = Some(plans);
     let mut files = IndexMap::new();
     let mut paths = IndexMap::new();
     let mut module_css = IndexMap::new();
@@ -285,6 +287,10 @@ pub fn compile_linked_as(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, 
             let mut inner = g.block(&p.decls, &[], root, Some(tail), false)?;
             body.append(&mut g.top);
             let mut fbody = vec![konst("__B", dot(id("__rt"), "B"))];
+            // MO-13i: a package is compiled apart from the app whose runtime it runs on
+            if p.decls.iter().any(|d| plans.contains_key(&(d as *const Decl))) {
+                fbody.push(S::IfThen(E::Un("!", Box::new(rt("result"))), Box::new(S::Throw(call(id("Error"), vec![str(format!("{}: a package compiled by this version of ReactiveScript needs @reactivescript/runtime of the same version or newer: upgrade it in the app (09 MO-13i)", path.rsplit('/').next().unwrap_or(path)))])))));
+            }
             fbody.append(&mut inner);
             body.push(S::ExportDefault(Func { name: Some("module".into()), params: vec![P::Id("__rt".into())], directives: vec![], body: fbody, is_async: false, generator: false }));
         }
@@ -312,6 +318,7 @@ struct Gen<'p> {
     /// (callee's name, argument index) — how a closure bound to a name is known to be a draft's callback
     arg_calls: HashMap<String, Vec<(String, usize)>>,
     u: Usage,
+    plans: Option<&'p crate::check::Plans>,
     set: &'p ModuleSet,
     file: String,
     /// Modules imported by source path, for a bundler (`compile_linked`), not as sibling `.mjs` files.
@@ -360,6 +367,7 @@ impl<'p> Gen<'p> {
     fn new(u: Usage, set: &'p ModuleSet) -> Self {
         Gen {
             u,
+            plans: None,
             set,
             file: "main.rx".into(),
             by_source: false,
@@ -1417,12 +1425,46 @@ impl<'p> Gen<'p> {
             Some(tb) if matches!(tb.kind, Kind::Acc | Kind::Src) => id(tb.js),
             _ => rtc("memo", vec![E::Null, thunk(self.expr(tail, inner, &reactive())?)]),
         };
+        // MO-13i: called by JavaScript (`this`, the runtime's), its parts; by `.rx`, the accessor, with the parts beside it
+        let plan = self.plans.and_then(|p| p.get(&(d as *const Decl)));
+        let t = match plan {
+            Some(p) => {
+                let parts = self.parts(p, inner)?;
+                rtc("result", vec![id("this"), thunk(t), thunk(parts)])
+            }
+            None => t,
+        };
         body.push(S::Return(Some(t)));
         // RG-6a: what it provides is for what its call instantiates, not for the caller's region: an owner of the call's own
         if decls.iter().any(|x| matches!(x, Decl::Provide { .. })) {
             body = vec![S::Return(Some(rtc("inst", vec![arrow_block(vec![], body, false)])))];
         }
         Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body, is_async: false, generator: false }))
+    }
+    /// MO-13i: the parts of a fn's result, as a Solid primitive hands them.
+    fn parts(&mut self, p: &crate::check::Plan, env: Env) -> R<E> {
+        use crate::check::Plan;
+        // the program outlives its lowering; a plan's expressions are its own
+        let of = |e: &*const Expr| -> &'p Expr { unsafe { &**e } };
+        Ok(match p {
+            Plan::Io(e) => self.expr(of(e), env, &reactive())?,
+            Plan::Leaf(e, r) => {
+                let e = of(e);
+                if !r.is_reader() {
+                    return Ok(rtc("untrack", vec![thunk(self.expr(e, env, &reactive())?)]));
+                }
+                match if let ExprKind::Id(n) = &e.k { self.lookup(env, n) } else { None } {
+                    Some(b) if matches!(b.kind, Kind::Acc | Kind::Src) => id(b.js),
+                    _ => rtc("memo", vec![E::Null, thunk(self.expr(e, env, &reactive())?)]),
+                }
+            }
+            Plan::Rec(fs) => E::Obj(fs.iter().map(|(k, p)| Ok(Prop::Kv(Key::Str(k.clone()), self.parts(p, env)?))).collect::<R<Vec<_>>>()?),
+            Plan::Arr(xs) => E::Arr(xs.iter().map(|p| self.parts(p, env)).collect::<R<Vec<_>>>()?),
+            Plan::Inst(n, path, _) => {
+                let Some(b) = self.lookup(env, n) else { return fail(format!("{n}: no such instance")) };
+                path.iter().fold(rtc("parts", vec![id(b.js), str(n.clone())]), |o, k| E::Index(Box::new(o), Box::new(str(k.clone())), false))
+            }
+        })
     }
     /// MO-10: `x = f(…)` over a declared primitive — called once (RG-6), a ref argument as an accessor, a value one
     /// untracked; and `y = x[i]` / `x.k` over its result. A `ref` part is bound to the accessor itself, any other part to

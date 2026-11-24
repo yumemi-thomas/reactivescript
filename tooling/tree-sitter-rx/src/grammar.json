@@ -11837,12 +11837,24 @@
             "value": "lane"
           },
           {
+            "type": "STRING",
+            "value": "ref"
+          },
+          {
+            "type": "STRING",
+            "value": "value"
+          },
+          {
             "type": "SYMBOL",
             "name": "fails_row"
           },
           {
             "type": "SYMBOL",
             "name": "signature_parts"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "signature_tuple"
           }
         ]
       }
@@ -11875,8 +11887,67 @@
           }
         },
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": ";"
+                },
+                {
+                  "type": "STRING",
+                  "value": "…"
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "STRING",
           "value": "}"
+        }
+      ]
+    },
+    "signature_tuple": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "["
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "signature_rows"
+            },
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": ","
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "signature_rows"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "]"
         }
       ]
     },
@@ -11892,7 +11963,7 @@
               "value": 1,
               "content": {
                 "type": "PATTERN",
-                "value": "[\\w$]+(\\.[\\w$]+)*"
+                "value": "[\\w$-]+(\\.[\\w$-]+)*"
               }
             }
           },
@@ -11904,8 +11975,8 @@
           "value": ":"
         },
         {
-          "type": "STRING",
-          "value": "io"
+          "type": "SYMBOL",
+          "name": "signature_rows"
         }
       ]
     },

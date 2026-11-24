@@ -1091,7 +1091,8 @@ export discount: pending fails(Error | NotFound)
 export total
 export limit: io
 export pure fn qtyOf(id)
-export pure fn useLabel(ref amount: number, unit): pending fails(Error) { set: io; pair.1: io } rejects(Offline | Timeout) instantiates uses(./ui.rx#who)
+export pure fn useLabel(ref amount: number, unit): pending fails(Error) { set: io; text: ref pending fails(Error) { go: io; … }; max: value; pair: [ref, io] } rejects(Offline | Timeout) instantiates uses(./ui.rx#who)
+export main: { set: io; pair.1: io; … }
 export server fn add(id) rejects(Error)
 export server pure fn count()
 export action setCoupon
@@ -1162,15 +1163,43 @@ export component Q(props: { query: takes(data pending fails(Error), result.more 
           (type_identifier))
         (signature_parts
           (signature_part
-            (part_path))
+            (part_path)
+            (signature_rows))
           (signature_part
-            (part_path))))
+            (part_path)
+            (signature_rows
+              (fails_row
+                (type_identifier))
+              (signature_parts
+                (signature_part
+                  (part_path)
+                  (signature_rows)))))
+          (signature_part
+            (part_path)
+            (signature_rows))
+          (signature_part
+            (part_path)
+            (signature_rows
+              (signature_tuple
+                (signature_rows)
+                (signature_rows))))))
       (rejects_clause
         (type_identifier)
         (type_identifier))
       (row_word)
       (signature_uses
         (context_key))))
+  (signature_export
+    (signature_equation
+      (identifier)
+      (signature_rows
+        (signature_parts
+          (signature_part
+            (part_path)
+            (signature_rows))
+          (signature_part
+            (part_path)
+            (signature_rows))))))
   (signature_export
     (signature_fn
       (side)

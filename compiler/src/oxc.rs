@@ -270,6 +270,7 @@ impl<'a> Build<'a> {
             return Expression::new_chain_expression(SPAN, el, b);
         }
         match e {
+            E::Id(n) if n == "this" => Expression::new_this_expression(SPAN, b),
             E::Id(n) => Expression::new_identifier(SPAN, self.s(n), b),
             E::Str(s) => Expression::new_string_literal(SPAN, self.s(s), None, b),
             E::Num(n) => Expression::new_numeric_literal(SPAN, *n, None, NumberBase::Decimal, b),

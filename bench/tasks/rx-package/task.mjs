@@ -16,7 +16,7 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { both, repo, rxc, ws } from "../../harness.mjs";
 
-const SPECS = [["\"@bench/rates/theme\"", "\"./package/src/theme.rx\""], ["\"@bench/rates\"", "\"./package/src/index.rx\""]];
+const SPECS = [["\"@bench/rates/theme\"", "\"./package/src/theme.rx\""], ["\"@bench/rates/pager\"", "\"./package/src/pager.rx\""], ["\"@bench/rates\"", "\"./package/src/index.rx\""]];
 /** The app with the package imported by its source, module for module: what its verdicts are compared with. */
 const bySource = text => SPECS.reduce((t, [a, b]) => t.replaceAll(a, b), text);
 
@@ -24,6 +24,8 @@ const bySource = text => SPECS.reduce((t, [a, b]) => t.replaceAll(a, b), text);
 const plain = html => html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<!--.*?-->/g, "");
 
 const bad = [
+  { name: "an action among the parts a package's fn answers, called while the view computes", edit: ["page {pager.page}:", "page {pager.set(2)}:"], expect: "ACTION_CALLED_IN_OWNED_SCOPE" },
+  { name: "a part of what a package's fn answers, read where the record's wait is not held", edit: ["  <footer><Own /></footer>", "  <footer><Own /> {pager.page}</footer>"], expect: "UNHANDLED_FAILURE" },
   { name: "the package's component outside the package's provider", edit: ["  <footer><Own /></footer>", "  <footer><Own /> <Badge label=\"late\" /></footer>"], expect: "CONTEXT_NOT_FOUND" },
   { name: "the package's context provided beside its reader, not above it", edit: ["  provide theme = { accent: \"navy\" }\n  <Badge label=\"own\" />", "  <Badge label=\"own\" />"], expect: "CONTEXT_NOT_FOUND" },
   { name: "the rate read where only its declared error is taken: the request's own failure gets out", edit: ["{errored fallback(e) { <p class=\"err\">failed: {e.message}</p> } {\n", "{if true {\n"], expect: "UNHANDLED_FAILURE" },
@@ -69,8 +71,10 @@ export default {
     // no word of the package's .d.rx is a person's: each is the signature both checkers print from the module's source
     const printed = file => { const r = spawnSync(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(repo, "ref/check.ts"), "--signature", file], { encoding: "utf8" }); return r.stdout; };
     const refText = printed(path.join(dir, "package/src/index.rx"));
-    const shipped = ["theme", "index"].map(n => readFileSync(path.join(pkg, "dist", `${n}.d.rx`), "utf8"));
-    h.check("the shipped .d.rx is the printed signature, marked, with no word written by hand (ref/ prints the same text)", shipped.every(s => /^\/\/@ signature /.test(s) && refText.includes(s.trim())), { shipped, refText });
+    const pagerText = printed(path.join(dir, "package/src/pager.rx"));
+    const shipped = ["theme", "index", "pager"].map(n => readFileSync(path.join(pkg, "dist", `${n}.d.rx`), "utf8"));
+    h.check("the shipped .d.rx is the printed signature, marked, with no word written by hand (ref/ prints the same text)", shipped.every(s => /^\/\/@ signature /.test(s) && (refText + pagerText).includes(s.trim())), { shipped, refText, pagerText });
+    h.check("the printed signature says each part of what a fn answers: what is read with its rows, the action, the value made once", /^export pure fn createPager\(ref pages: number, first: number\): pending fails\(Error\) \{ page: ref; quote: ref pending fails\(Error\); set: io; first: value; edges: \{ start: ref; end: ref \}; label: value \} instantiates$/m.test(shipped[2]) && /^export pure fn createPages\(ref pages: number\): pending fails\(Error\) \[ref, io\] instantiates$/m.test(shipped[2]), shipped[2]);
 
     // ---- the .rx app: against the shipped .d.rx as against the package's source (MO-9b across the boundary) ----
     const good = readFileSync(path.join(dir, "main.rx"), "utf8");
@@ -110,7 +114,7 @@ export default {
     const clean = tsc();
     h.check("the .tsx app type-checks with tsc against the package's .d.ts (no skipLibCheck)", clean === "", clean);
     const app = readFileSync(path.join(web, "app.tsx"), "utf8");
-    const probes = [["a prop", "<Badge label={label()} />", "<Badge label={3} />", /TS2322/], ["an action's parameter", "pick(\"USD\")", "pick(1)", /TS2345/], ["a source is an accessor", "{code()}=", "{code.toUpperCase()}=", /TS2339/], ["a `ref` parameter is an accessor", "useLabel(amount)", "useLabel(2)", /TS2345/], ["the error's field", "(err() as Offline).code", "(err() as Offline).cod", /TS2339|TS2551/]];
+    const probes = [["a prop", "<Badge label={label()} />", "<Badge label={3} />", /TS2322/], ["an action's parameter", "pick(\"USD\")", "pick(1)", /TS2345/], ["a source is an accessor", "{code()}=", "{code.toUpperCase()}=", /TS2339/], ["a `ref` parameter is an accessor or the value", "useLabel(amount)", "useLabel(\"two\")", /TS2345/], ["a part that is read is an accessor", "{page()}</b>", "{page.toFixed()}</b>", /TS2339/], ["an action's parameter, among the parts", "set(3)", "set(\"3\")", /TS2345/], ["an action answers a promise", "set(9)", "set(9).toFixed()", /TS2339/], ["a nested part", "edges.end()", "edges.last()", /TS2339/], ["a value made once is no accessor", "{first}", "{first()}", /TS2349/], ["a tuple's part", "at()}", "at().at()}", /TS2339/], ["the error's field", "(err() as Offline).code", "(err() as Offline).cod", /TS2339|TS2551/]];
     const lost = [];
     for (const [name, from, to, expect] of probes) { writeFileSync(path.join(web, "app.tsx"), app.replace(from, to)); const out = tsc(); if (!expect.test(out)) lost.push(`${name}: ${out || "accepted"}`); }
     writeFileSync(path.join(web, "app.tsx"), app);
@@ -143,6 +147,17 @@ export default {
       h.check(".tsx: the action, the accessor and the primitive over an accessor follow", await h.until(async () => (await h.text(page, "header")) === "3 USD" && (await h.text(page, ".raw")) === "USD=1.25"), await h.text(page));
       await page.click(".hide"); await page.click(".hide"); await page.click(".more");
       h.check(".tsx: the package's state outlives the component that first read it", await h.until(async () => (await h.text(page, ".rate")) === "USD at 1.25" && (await h.text(page, "header")) === "4 USD"), await h.text(page));
+      const part = async c => h.text(page, `.pager ${c}`), titles = () => page.evaluate(() => window.__followed.join(" "));
+      h.check(".tsx: a fn's parts, each an accessor: the one that waits holds its own place and no other", await h.until(async () => (await part(".page")) === "1" && (await part(".edge")) === "start" && (await part(".label")) === `1 of 12` && (await part(".first")) === "1" && (await part(".quote")) === "10" && (await part(".go")) === "1"), await part(""));
+      const seen = await page.evaluate(() => [window.__pages.join(), window.__followed.join(" ")]);
+      await page.click(".set3");
+      h.check(".tsx: the action writes; a reader, an effect over an accessor, and the fn's own effect follow", await h.until(async () => (await part(".page")) === "3" && (await part(".edge")) === "middle" && (await part(".quote")) === "30" && (await page.evaluate(() => window.__pages.join())).endsWith("1,3") && /-1 \+3/.test(await titles())), [seen, await titles(), await part("")]);
+      await page.click(".set9");
+      h.check(".tsx: a part that fails reaches the boundary around its reader, and the others are read on", await h.until(async () => (await part(".quote")) === "no quote for page 9" && (await part(".page")) === "9"), await part(""));
+      await page.click(".go");
+      h.check(".tsx: the parts a fn hands on from another's, over a plain value given for a `ref` parameter", await h.until(async () => (await part(".go")) === "4"), await part(".go"));
+      await page.click(".hide");
+      h.check(".tsx: disposed with the component that called it: the fn's effects are cleaned up", await h.until(async () => /-9/.test(await titles()) && /-4/.test(await titles())), await titles());
       await page.click(".off");
       h.check(".tsx: the declared error is an instance of the class the package exports", await h.until(async () => (await h.text(page, ".err")) === "offline: ???"), await h.text(page));
     }
@@ -153,6 +168,7 @@ export default {
       const html = plain(await (await fetch(base)).text());
       h.check(`.tsx, on the server, ${how}: the package's server build renders and streams the rate, with hydration keys`, /_hk=/.test(html) && /class="badge"[^>]*>2 EUR</.test(html) && /EUR at 1</.test(html), html.slice(0, 900));
       const again = plain(await (await fetch(base)).text());
+      h.check(`.tsx, on the server, ${how}: a fn's parts render, the one that waits streamed`, /class="page"[^>]*>1</.test(html) && /class="edge"[^>]*>start</.test(html) && /class="quote"[^>]*>10</.test(html), html.slice(0, 1500));
       h.check(`.tsx, on the server, ${how}: a second request renders the same page (the package's state is each one's)`, again === html, again.slice(0, 900));
       const page = await h.open(base);
       // the module's nodes have the server's ids (MO-13h): with other ids the rate would be pending again here, and Solid
@@ -160,6 +176,8 @@ export default {
       h.check(`.tsx, hydrated (${how}): the browser takes the server's page over`, await h.until(async () => (await h.text(page, "header")) === "2 EUR" && (await h.text(page, ".raw")) === "EUR=1"), await h.text(page));
       await page.click(".more"); await page.click(".usd");
       h.check(`.tsx, hydrated (${how}): the page is live`, await h.until(async () => (await h.text(page, "header")) === "3 USD" && (await h.text(page, ".rate")) === "USD at 1.25"), await h.text(page));
+      await page.click(".set3"); await page.click(".go");
+      h.check(`.tsx, hydrated (${how}): the fn's parts are live`, await h.until(async () => (await h.text(page, ".pager .page")) === "3" && (await h.text(page, ".pager .quote")) === "30" && (await h.text(page, ".pager .go")) === "4"), await h.text(page, ".pager"));
     }
     {
       // two renders at once, each a plain renderToStream: each has its own instance of the package's module, before its
@@ -172,6 +190,7 @@ export default {
       }
       const one = /(\d+):EUR:(\d+)/.exec(plain(server.probeString())), two = /(\d+):EUR:(\d+)/.exec(plain(server.probeString()));
       h.check("a plain renderToString: one instance for the render, another for the next", !!one && !!two && one[1] === one[2] && two[1] === two[2] && one[1] !== two[1], { one, two });
+      h.check("a fn of a module that holds no state, called on the server where nothing renders: it works, and two calls share nothing", server.outsideStateless() === "2,false,1 of 5;3", server.outsideStateless());
       const outside = server.outside();
       h.check("an export read on the server where nothing renders and no request is answered throws, and says what to do", /^threw: /.test(outside) && /outside a render and outside a request/.test(outside) && /renderToString/.test(outside) && /provideRequestEvent/.test(outside), outside);
     }

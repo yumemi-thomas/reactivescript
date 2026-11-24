@@ -88,6 +88,68 @@ console.log(JSON.stringify({ seen, program: app.module(mod, mod).n(), second: se
   let pg = {}; try { pg = JSON.parse(pageOut.stdout.trim().split("\n").pop()); } catch { pg = { error: pageOut.stdout + pageOut.stderr }; }
   check("a module JavaScript uses outlives the owner that first read it (MO-13h)", JSON.stringify(pg.seen) === "[2,4]", JSON.stringify(pg));
   check("the .rx program that starts in the page has the instance JavaScript used; a second app has its own (MO-13g)", pg.program === 2 && pg.second === 1, JSON.stringify(pg));
+  // MO-13i: what a fn answers is handed to JavaScript in parts: what they are, when they follow, who owns them, and that
+  // `.rx` has the accessor it had. MO-13g: on the server, outside a render, where the module holds no state
+  writeFileSync(path.join(tmp, "parts.rx"), `export fn createPager(ref pages: number, first: any) {
+  source raw := first
+  page = raw > pages ? pages : raw
+  action set(n: number) { raw := n }
+  { page: page, double: page * 2, set: set, first: first, of: (n: number) => n + pages }
+}
+export fn handOn(ref pages: number) {
+  p = createPager(pages, 1)
+  [p.page, p.set, p]
+}
+export fn useOnce(ref x: any) { y = x  y }
+export fn nothing(ref x: any) { effect (x) {}  null }
+export fn go() { source s := 1  action run() { s := 2 }  run }
+`);
+  const pa = JSON.parse(compile(path.join(tmp, "parts.rx"), "dom", "@solidjs/web", false, true)), paSsr = JSON.parse(compile(path.join(tmp, "parts.rx"), "ssr", "@solidjs/web", false, true));
+  for (const [j, f] of [[pa, "parts.mjs"], [paSsr, "parts.ssr.mjs"]]) writeFileSync(path.join(tmp, f), Object.values(j.modules)[0].code);
+  writeFileSync(path.join(tmp, "parts-page.mjs"), `import mod from "./parts.mjs";
+import { primitives, createApp } from "@reactivescript/runtime";
+import { createRoot, createSignal, createEffect, flush, getOwner } from "solid-js";
+const lib = primitives(mod, "t/parts", { createPager: [0], handOn: [0], useOnce: [0], nothing: [0], go: [] }, true);
+const out = {}; const seen = []; let dispose, owned;
+const [pages, setPages] = createSignal(5);
+createRoot(d => { dispose = d; const before = getOwner();
+  const p = lib.createPager(pages, 3), q = lib.createPager(4), [at, set, whole] = lib.handOn(pages);
+  out.kinds = [typeof p.page, typeof p.double, typeof p.set, p.first, p.of(1), Object.keys(p).join()];
+  out.left = q.page() === undefined && q.first === undefined;        // an argument left out is undefined
+  out.handed = [at(), whole.page(), whole.set === set, whole.first];
+  out.one = [lib.useOnce(7)(), lib.useOnce(() => 8)(), lib.useOnce()()]; out.nothing = lib.nothing(1); out.act = typeof lib.go();
+  createEffect(() => [p.page(), p.double()].join(), v => { seen.push(v); });
+  Object.assign(out, { p, set, at });
+});
+flush(); const { p, set, at } = out; delete out.p; delete out.set; delete out.at;
+out.answer = p.set(9) instanceof Promise; await 0; flush(); setPages(4); flush(); await set(2); flush();
+out.seen = seen; out.at = at();
+dispose(); p.set(1); await 0; flush(); out.after = seen.length;
+const rx = createApp({ root: null }).module(mod, mod);               // .rx: the accessor of the whole, as it was
+createRoot(() => { const w = rx.createPager(() => 2, 1); out.rx = [typeof w, w().page, w().double, typeof w().set]; });
+let old = ""; try { mod({}); } catch (e) { old = e.message; } out.old = /parts\\.rx: .*upgrade it in the app/.test(old);
+console.log(JSON.stringify(out));
+`);
+  const partsOut = spawnSync(process.execPath, ["--conditions=browser", "--conditions=development", "parts-page.mjs"], { cwd: tmp, encoding: "utf8" });
+  let pt = {}; try { pt = JSON.parse(partsOut.stdout.trim().split("\n").pop()); } catch { pt = { error: partsOut.stdout + partsOut.stderr }; }
+  check("a fn's parts, for JavaScript: accessors, the action, the value, a closure (MO-13i)", JSON.stringify(pt.kinds) === '["function","function","function",3,6,"page,double,set,first,of"]' && pt.left === true && pt.nothing === null && pt.act === "function" && pt.answer === true, JSON.stringify(pt));
+  check("a part follows what it reads and the action that writes it; parts handed on from another fn's call too", JSON.stringify(pt.seen) === '["3,6","5,10","4,8"]' && pt.at === 2 && JSON.stringify(pt.handed) === '[1,1,true,1]', JSON.stringify(pt));
+  check("a `ref` parameter takes an accessor or the value, and one left out is undefined", JSON.stringify(pt.one) === "[7,8,null]", JSON.stringify(pt));
+  check("the parts are disposed with the owner that called the fn", pt.after === 3, JSON.stringify(pt));
+  check("`.rx` has the accessor of the whole, and a runtime with no parts is refused by name", JSON.stringify(pt.rx) === '["function",1,2,"function"]' && pt.old === true, JSON.stringify(pt));
+  check("...with nothing said by Solid's development build", partsOut.stderr === "", partsOut.stderr.slice(0, 400));
+  writeFileSync(path.join(tmp, "parts-server.mjs"), `import mod from "./parts.ssr.mjs";
+import { primitives } from "@reactivescript/runtime";
+import { renderToString } from "@solidjs/web";
+const refs = { createPager: [0] }, lib = primitives(mod, "t/parts", refs, true), held = primitives(mod, "t/held", refs, false);
+const a = lib.createPager(5, 2), b = lib.createPager(() => 1, 2); const out = { a: [a.page(), a.double(), a.of(1)], b: b.page() };
+try { held.createPager(5, 2); out.held = "answered"; } catch (e) { out.held = /outside a render and outside a request/.test(e.message); }
+out.render = renderToString(() => String(lib.createPager(5, 2).page()));
+console.log(JSON.stringify(out));
+`);
+  const serverParts = spawnSync(process.execPath, ["parts-server.mjs"], { cwd: tmp, encoding: "utf8" });
+  let sp = {}; try { sp = JSON.parse(serverParts.stdout.trim().split("\n").pop()); } catch { sp = { error: serverParts.stdout + serverParts.stderr }; }
+  check("on the server, outside a render: a fn of a module that holds no state answers, each call its own; another's throws (MO-13g)", JSON.stringify(sp) === '{"a":[2,4,6],"b":1,"held":true,"render":"2"}' && serverParts.stderr === "", JSON.stringify(sp) + serverParts.stderr);
   // Solid's contract: what the runtime reads of Solid that Solid does not publish (ref/compile/solid-internals.ts), held
   // against the installed Solid alone. A Solid bump that moves one of them fails here, by name, before anything is
   // scoped wrongly

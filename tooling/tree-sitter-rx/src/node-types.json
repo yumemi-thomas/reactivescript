@@ -5943,6 +5943,11 @@
     }
   },
   {
+    "type": "ref_modifier",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "ref_type",
     "named": true,
     "fields": {},
@@ -6756,11 +6761,15 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
         {
           "type": "part_path",
+          "named": true
+        },
+        {
+          "type": "signature_rows",
           "named": true
         }
       ]
@@ -6947,6 +6956,10 @@
         {
           "type": "signature_parts",
           "named": true
+        },
+        {
+          "type": "signature_tuple",
+          "named": true
         }
       ]
     }
@@ -7027,6 +7040,21 @@
       "types": [
         {
           "type": "fails_row",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "signature_tuple",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "signature_rows",
           "named": true
         }
       ]
@@ -8766,8 +8794,8 @@
     "named": false
   },
   {
-    "type": "ref_modifier",
-    "named": true
+    "type": "ref",
+    "named": false
   },
   {
     "type": "refresh",
@@ -8927,6 +8955,10 @@
   },
   {
     "type": "uses",
+    "named": false
+  },
+  {
+    "type": "value",
     "named": false
   },
   {

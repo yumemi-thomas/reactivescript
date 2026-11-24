@@ -1,5 +1,6 @@
 // An .rx app that uses the package: checked against the `.d.rx` the package ships (09 MO-13), never its source.
 import { code, rate, pick, useLabel, Badge, Rate, Offline } from "@bench/rates"
+import { createPager } from "@bench/rates/pager"
 import { ThemeProvider, theme } from "@bench/rates/theme"
 
 component Own() {
@@ -10,6 +11,7 @@ component Own() {
 export default component App() {
   source amount: number := 2
   label = useLabel(amount)
+  pager = createPager(amount, 1)
   <ThemeProvider accent="teal">
     <header><Badge label={label} /></header>
     <button class="more" onClick={() => { amount := a => a + 1 }}>more</button>
@@ -19,7 +21,7 @@ export default component App() {
     <button class="again" onClick={() => { refresh rate }}>again</button>
     {errored fallback(e) { <p class="err">failed: {e.message}</p> } {
       {errored fallback(e: Offline) { <p class="offline">offline: {e.code}</p> } {
-        {loading fallback { <p class="wait">asking…</p> } { <Rate /> <i class="raw">{code}={rate}</i> }}
+        {loading fallback { <p class="wait">asking…</p> } { <Rate /> <i class="raw">{code}={rate}</i> <button class="page" onClick={() => { pager.set(3) }}>page {pager.page}: {pager.quote}, {pager.label(pager.page)}</button> }}
       }}
     }}
   </ThemeProvider>

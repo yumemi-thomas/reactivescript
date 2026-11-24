@@ -7,6 +7,25 @@ use crate::modules::load_modules;
 use serde_json::{json, Map, Value};
 use std::path::Path;
 
+/// MO-13g: the modules that hold nothing between two calls of their exports: no source, equation, effect, provision or error class
+/// (its identity is the app's) of their own, nor of a module they import.
+fn stateless(set: &crate::modules::ModuleSet) -> Vec<String> {
+    use crate::ast::Decl;
+    let mut out: Vec<String> = vec![];
+    for p in &set.order {
+        // dependencies come first
+        let holds = |d: &Decl| match d {
+            Decl::Import { resolved: Some(r), .. } => !out.contains(r),
+            Decl::Import { .. } | Decl::Fn { .. } | Decl::Component { .. } | Decl::Action { .. } | Decl::TypeDecl { .. } | Decl::Context { .. } => false,
+            _ => true,
+        };
+        if !set.programs[p].decls.iter().any(holds) {
+            out.push(p.clone());
+        }
+    }
+    out
+}
+
 pub fn read_disk(p: &str) -> Option<String> {
     if Path::new(p).is_file() {
         std::fs::read_to_string(p).ok()
@@ -70,7 +89,7 @@ pub fn app_with(entry: &str, target: Target, module_name: &str, spa: bool, libra
         if !checked.diags.is_empty() && !unchecked {
             return Err(json!({ "diagnostics": checked.diags.iter().map(|d| { let mut j = d.to_json(); if j["file"].is_null() { j["file"] = json!(set.entry); } j }).collect::<Vec<_>>() }));
         }
-        let out = compile_linked_as(&set, &[], true, library).map_err(|e| json!({ "error": format!("{entry}: not compiled: {}", e.0) }))?;
+        let out = compile_linked_as(&set, &[], true, library, &checked.plans).map_err(|e| json!({ "error": format!("{entry}: not compiled: {}", e.0) }))?;
         let mut modules = Map::new();
         for (name, module) in &out.files {
             let path = &out.paths[name];
@@ -119,6 +138,9 @@ pub fn app_with(entry: &str, target: Target, module_name: &str, spa: bool, libra
                 sigs.insert(p.clone(), json!(crate::signature::print_signature(&checked.sigs[p])));
             }
             result["signatures"] = Value::Object(sigs);
+            // MO-13i: the fns whose result is handed to JavaScript in parts; and the modules that hold no state (MO-13g)
+            result["results"] = json!(set.order.iter().map(|p| (p.clone(), json!(checked.sigs[p].exports.iter().filter_map(|(n, x)| match x { crate::signature::ExportSig::Fn { result: Some(r), instantiating: true, .. } => Some((n.clone(), r.json())), _ => None }).collect::<Map<_, _>>()))).collect::<Map<_, _>>());
+            result["stateless"] = json!(stateless(&set));
         }
         Ok(result)
     })()

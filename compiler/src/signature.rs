@@ -112,13 +112,54 @@ pub enum ExportSig {
     /// `actions`: R-io-3, the parts of its value (a fn's: of its result) that are actions, as paths ("": the value)
     Eq { rows: Vec<String>, fails: Vec<String>, io: bool, actions: Vec<String> },
     /// `uses`: RG-7b, the contexts a call of it reads above the place it is written (keys)
-    Fn { params: Vec<SigParam>, instantiating: bool, rows: Vec<String>, fails: Vec<String>, rejects: Vec<String>, uses: Vec<String>, actions: Vec<String> },
+    Fn { params: Vec<SigParam>, instantiating: bool, rows: Vec<String>, fails: Vec<String>, rejects: Vec<String>, uses: Vec<String>, actions: Vec<String>, /// MO-13i: the parts of its result, where they are known
+        result: Option<Res> },
     Action,
     Server { io: bool, params: Vec<String>, rejects: Vec<String> },
     ErrClass { params: Vec<String> },
     Comp { sig: CompSig },
     Context { key: String, source: bool, dflt: bool, rows: Vec<String>, fails: Vec<String>, ty: Option<String> },
     Type,
+}
+/// MO-13i: what a fn's result is made of. An action; one value, read (`reader`: it changes, with the rows it is read with)
+/// or plain (made once), and the parts of it that are actions; a record or a tuple of such.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Res {
+    Io,
+    Leaf { reader: bool, rows: Vec<String>, fails: Vec<String>, actions: Vec<String> },
+    Rec(Vec<(String, Res)>),
+    Arr(Vec<Res>),
+}
+impl Res {
+    pub fn is_reader(&self) -> bool {
+        matches!(self, Res::Leaf { reader: true, .. })
+    }
+    pub fn at(&self, key: &str) -> Option<&Res> {
+        match self {
+            Res::Rec(fs) => fs.iter().find(|f| f.0 == key).map(|f| &f.1),
+            Res::Arr(xs) => key.parse::<usize>().ok().and_then(|i| xs.get(i)),
+            _ => None,
+        }
+    }
+    /// R-io-3: its parts that are actions, as paths
+    pub fn actions(&self) -> Vec<String> {
+        let part = |k: &str, r: &Res| r.actions().into_iter().map(|p| if p.is_empty() { k.to_string() } else { format!("{k}.{p}") }).collect::<Vec<_>>();
+        sorted(match self {
+            Res::Io => vec![String::new()],
+            Res::Leaf { actions, .. } => actions.clone(),
+            Res::Rec(fs) => fs.iter().flat_map(|(k, r)| part(k, r)).collect(),
+            Res::Arr(xs) => xs.iter().enumerate().flat_map(|(i, r)| part(&i.to_string(), r)).collect(),
+        })
+    }
+    /// What `rx-lib` writes the module's JavaScript and its types from: `"io"`, `"ref"`, `"value"`, a record or a list of such.
+    pub fn json(&self) -> serde_json::Value {
+        match self {
+            Res::Io => "io".into(),
+            Res::Leaf { reader, .. } => if *reader { "ref" } else { "value" }.into(),
+            Res::Rec(fs) => serde_json::Value::Object(fs.iter().map(|(k, r)| (k.clone(), r.json())).collect()),
+            Res::Arr(xs) => serde_json::Value::Array(xs.iter().map(Res::json).collect()),
+        }
+    }
 }
 #[derive(Debug, Clone)]
 pub struct ModSig {
@@ -292,21 +333,55 @@ fn hosts_of(file: &str, text: &str) -> IndexMap<String, Vec<HostSite>> {
     }
     out
 }
-/// R-io-3: the parts of a value that are actions, `{ set: io; 1: io }`; `io`: the value itself.
-fn with_actions(r: String, ps: &[String]) -> String {
-    let a = if ps.is_empty() {
-        return r;
+/// R-io-3: the parts of a value that are actions, among others: `{ set: io; pair.1: io; … }`; `io`: the value itself.
+fn actions_text(ps: &[String]) -> String {
+    if ps.is_empty() {
+        String::new()
     } else if ps.iter().any(|p| p.is_empty()) {
         "io".to_string()
     } else {
-        format!("{{ {} }}", ps.iter().map(|p| format!("{p}: io")).collect::<Vec<_>>().join("; "))
-    };
-    if r.is_empty() { a } else { format!("{r} {a}") }
+        format!("{{ {}; … }}", ps.iter().map(|p| format!("{p}: io")).collect::<Vec<_>>().join("; "))
+    }
 }
-fn actions_of(rest: &str) -> Option<Vec<String>> {
-    let inner = rest.strip_prefix('{')?.strip_suffix('}')?;
+fn actions_of(text: &str) -> Option<Vec<String>> {
+    if text == "io" {
+        return Some(vec![String::new()]);
+    }
+    let inner = crate::parse::js_trim(crate::parse::js_trim(text.strip_prefix('{')?.strip_suffix('}')?).strip_suffix('…')?).strip_suffix(';')?;
     let ps = split(inner, ';').iter().map(|p| P_PART.captures(p).map(|m| m[1].to_string())).collect::<Option<Vec<_>>>()?;
     (!ps.is_empty()).then_some(ps)
+}
+fn words(parts: [String; 3]) -> String {
+    parts.into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" ")
+}
+/// MO-13i: the parts of a fn's result.
+fn result_text(r: &Res) -> String {
+    match r {
+        Res::Io => "io".into(),
+        Res::Rec(fs) => format!("{{ {} }}", fs.iter().map(|(k, r)| format!("{k}: {}", result_text(r))).collect::<Vec<_>>().join("; ")),
+        Res::Arr(xs) => format!("[{}]", xs.iter().map(result_text).collect::<Vec<_>>().join(", ")),
+        Res::Leaf { reader: true, rows: r, fails, actions } => words(["ref".into(), rows(r, fails), actions_text(actions)]),
+        Res::Leaf { actions, .. } => words(["value".into(), String::new(), actions_text(actions)]),
+    }
+}
+fn result_of(t: &str) -> Option<Res> {
+    if t == "io" {
+        return Some(Res::Io);
+    }
+    if let Some(inner) = t.strip_prefix('{').and_then(|t| t.strip_suffix('}')) {
+        let fs = split(inner, ';').iter().map(|f| P_FIELD.captures(f).and_then(|m| Some((m[1].to_string(), result_of(&m[2])?)))).collect::<Option<Vec<_>>>()?;
+        return (!fs.is_empty()).then_some(Res::Rec(fs));
+    }
+    if let Some(inner) = t.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
+        let xs = split(inner, ',').iter().map(|x| result_of(x)).collect::<Option<Vec<_>>>()?;
+        return (!xs.is_empty()).then_some(Res::Arr(xs));
+    }
+    let m = P_LEAF.captures(t)?;
+    let rest = m.get(2).map(|x| x.as_str()).unwrap_or("");
+    let r = if &m[1] == "ref" { row_words(rest) } else { RowWords { rows: vec![], fails: vec![], rest: rest.to_string() } };
+    let text = if r.rows.iter().any(|x| x == "io") { "io" } else { r.rest.as_str() };
+    let actions = if text.is_empty() { vec![] } else { actions_of(text)? };
+    Some(Res::Leaf { reader: &m[1] == "ref", rows: r.rows.into_iter().filter(|x| x != "io").collect(), fails: r.fails, actions })
 }
 fn with_rows(head: String, r: String) -> String {
     if r.is_empty() { head } else { format!("{}: {}", head, r) }
@@ -320,13 +395,18 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
             if *io {
                 rr.insert(0, "io".into());
             }
-            with_rows(format!("export {}", name), with_actions(rows(&rr, fails), if *io { &[] } else { actions }))
+            with_rows(format!("export {}", name), words([rows(&rr, fails), if *io { String::new() } else { actions_text(actions) }, String::new()]))
         }
-        ExportSig::Fn { params, instantiating, rows: r, fails, rejects, uses, actions } => {
+        ExportSig::Fn { params, instantiating, rows: r, fails, rejects, uses, actions, result } => {
+            let parts = match result {
+                Some(x) => result_text(x),
+                None if actions.iter().any(|p| p.is_empty()) => "ref io".to_string(),
+                None => actions_text(actions),
+            };
             let ps: Vec<String> = params.iter().map(|p| format!("{}{}{}", if p.r#ref { "ref " } else { "" }, p.name, p.ty.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())).collect();
             format!(
                 "{}{}{}{}",
-                with_rows(format!("export pure fn {}({})", name, ps.join(", ")), with_actions(rows(r, fails), actions)),
+                with_rows(format!("export pure fn {}({})", name, ps.join(", ")), words([rows(r, fails), parts, String::new()])),
                 if rejects.is_empty() { String::new() } else { format!(" rejects({})", rejects.join(" | ")) },
                 if *instantiating { " instantiates" } else { "" },
                 if uses.is_empty() { String::new() } else { format!(" uses({})", uses.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) }
@@ -431,7 +511,10 @@ re!(T_ACTION, r"^action\s+([A-Za-z_$][A-Za-z0-9_$]*)$");
 re!(T_ERROR, r"^error\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\(([^)]*)\))?$");
 re!(T_SOURCE, r"^source\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::([^=].*?)?)??\s*(:?=)\s*…$");
 re!(T_SERVER, r"^server\s+(pure\s+)?fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$");
-re!(T_FN, r"^pure\s+fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\((.*?)\)\s*(?::\s*((?:(?:io|pending|lane|fails\([^)]*\)|\{[^}]*\})\s*)*))?\s*(?:rejects\(([^)]*)\))?\s*(instantiates)?\s*(?:uses\(([^)]*)\))?$");
+re!(T_FN, r"^pure\s+fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(");
+re!(T_FN_ROWS, r"^\s*(?::\s*(.*?))?\s*(?:\brejects\(([^)]*)\))?\s*(\binstantiates)?\s*(?:\buses\(([^)]*)\))?$");
+re!(P_FIELD, r"^([A-Za-z0-9_$-]+)\s*:\s*(.+)$");
+re!(P_LEAF, r"^(ref|value)(?:\s+(.*))?$");
 re!(T_CONTEXT, r"^context\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$");
 re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(props:\s*(\{.*?\}|\{\})\)(.*)$");
 re!(P_PART, r"^([A-Za-z0-9_$.-]+)\s*:\s*io$");
@@ -591,7 +674,10 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             continue;
         }
         if let Some(m) = T_FN.captures(&s) {
-            let params = split(&m[2], ',')
+            let open = m[0].len() - 1;
+            let Some(ps) = balanced(&s, open) else { return Err(fail("a fn's parameters")) };
+            let Some(t) = T_FN_ROWS.captures(&s[open + ps.len() + 2..]) else { return Err(fail("a fn's rows")) };
+            let params = split(ps, ',')
                 .into_iter()
                 .map(|p0| {
                     let r = REF_PARAM.is_match(&p0);
@@ -602,12 +688,16 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     }
                 })
                 .collect();
-            let r = row_words(m.get(3).map(|x| x.as_str()).unwrap_or(""));
-            let actions = if r.rows.iter().any(|x| x == "io") { Some(vec![String::new()]) } else { actions_of(&r.rest) };
-            if !r.rest.is_empty() && actions.is_none() {
-                return Err(fail("a fn's rows"));
-            }
-            exports.insert(m[1].to_string(), ExportSig::Fn { params, instantiating: m.get(5).is_some(), actions: actions.unwrap_or_default(), rows: r.rows.into_iter().filter(|x| x != "io").collect(), fails: r.fails, rejects: classes_of(m.get(4).map(|x| x.as_str()).unwrap_or("")), uses: m.get(6).map(|u| u.as_str().split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).collect()).unwrap_or_default() });
+            let r = row_words(t.get(1).map(|x| x.as_str()).unwrap_or(""));
+            let text = if r.rows.iter().any(|x| x == "io") { "io" } else { r.rest.as_str() };
+            // some parts of one value are actions: what else it holds is not said
+            let (actions, result) = match (if text == "io" { None } else { actions_of(text) }, result_of(text)) {
+                (Some(a), _) => (a, None),
+                (None, Some(x)) => (x.actions(), (!x.is_reader()).then_some(x)),
+                (None, None) if text.is_empty() => (vec![], None),
+                (None, None) => return Err(fail("a fn's rows")),
+            };
+            exports.insert(m[1].to_string(), ExportSig::Fn { params, instantiating: t.get(3).is_some(), actions, result, rows: r.rows.iter().filter(|x| *x != "io").cloned().collect(), fails: r.fails.clone(), rejects: classes_of(t.get(2).map(|x| x.as_str()).unwrap_or("")), uses: t.get(4).map(|u| u.as_str().split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).collect()).unwrap_or_default() });
             continue;
         }
         if let Some(m) = T_CONTEXT.captures(&s) {

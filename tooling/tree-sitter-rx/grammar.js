@@ -106,10 +106,12 @@ module.exports = grammar(tsx, {
       optional($.signature_uses),
     ),
     signature_parameter: $ => seq(optional($.ref_modifier), field('name', $.identifier), optional(seq(':', field('type', $.type)))),
-    signature_rows: $ => repeat1(choice('io', 'pending', 'lane', $.fails_row, $.signature_parts)),
-    // `{ set: io; pair.1: io }`: the parts of a value that are actions (MO-9b)
-    signature_parts: $ => seq('{', $.signature_part, repeat(seq(';', $.signature_part)), '}'),
-    signature_part: $ => seq(alias(token(prec(1, /[\w$]+(\.[\w$]+)*/)), $.part_path), ':', 'io'),
+    signature_rows: $ => repeat1(choice('io', 'pending', 'lane', 'ref', 'value', $.fails_row, $.signature_parts, $.signature_tuple)),
+    // `{ n: ref pending; set: io; max: value }`, `[ref, io]`: the parts of a fn's result (MO-13i); `{ set: io; pair.1: io; … }`:
+    // those of one value that are actions (MO-9b)
+    signature_parts: $ => seq('{', $.signature_part, repeat(seq(';', $.signature_part)), optional(seq(';', '…')), '}'),
+    signature_tuple: $ => seq('[', commaSep1($.signature_rows), ']'),
+    signature_part: $ => seq(alias(token(prec(1, /[\w$-]+(\.[\w$-]+)*/)), $.part_path), ':', $.signature_rows),
 
     // `export component Panel(props: { title; children: catches(Error) provides(./theme.rx#theme) }) uses(./ui.rx#who) shape(roots section)`
     signature_component: $ => seq(

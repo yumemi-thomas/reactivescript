@@ -966,20 +966,43 @@ import { ThemeProvider } from "@demo/rates/theme"
 `rate := 2` is `WRITE_TO_NON_SOURCE`, and `pick("USD")` in the view is `ACTION_CALLED_IN_OWNED_SCOPE`. Don't write an
 `rx-types/` file for such a package and don't run `rx-declare` on it.
 
-**From .tsx**, it is a Solid library. A source or an equation is an accessor, a `ref` parameter takes an accessor:
+**From .tsx**, it is a Solid library. A source or an equation is an accessor. A fn hands back its parts, as a primitive
+does, and a `ref` parameter takes an accessor or the value:
 
 ```tsx
 import { rate, pick, useLabel, Badge } from "@demo/rates";
-const label = useLabel(amount);              // amount: Accessor<number>; label: Accessor<string>
+const label = useLabel(amount);              // amount: number | Accessor<number>; label: Accessor<string>
 <Loading fallback="…"><i>{rate()}</i></Loading>
 ```
+
+```rx
+export fn createPager(ref pages: number, first: number) {
+  source raw := first
+  page = raw > pages ? pages : raw
+  action set(n: number) { raw := n }
+  { page: page, set: set, first: first }     // a tuple, [page, set], is handed out as one
+}
+```
+
+```tsx
+const { page, set, first } = createPager(() => props.pages, 1);   // page: Accessor<number>; set: the action; first: 1
+<button onClick={() => set(2)}>{page()}</button>
+```
+
+What changes is an accessor, an action is the action, and what is made once (a literal, a closure, a value parameter) is
+the value. Each accessor waits and fails by itself. `dist/index.d.rx` says what you handed out: `{ page: ref; set: io;
+first: value }`. Names in the fn's body and other fns it calls are followed (`p = createPager(pages, 1)`, then
+`[p.page, p.set]`). A record picked by a condition, or with a spread, is one value, so one accessor: `ref { set: io; … }`.
+Write a tuple's type (`: [number, (n: number) => Promise<void>]`), or TypeScript infers a list. Apps must have a
+`@reactivescript/runtime` as new as the compiler the package was built with; an older one is refused by name.
 
 TypeScript checks the types and nothing else: a component outside its provider, a read with no boundary or an action
 called during render compile, and fail at run time as with any Solid library. The package's state is one per page, shared with an `.rx` program in the same page. On the server it is per request
 inside Solid's request event (a framework's), and per render otherwise: a plain `renderToString(() => <App />)` works,
 and two renders never share it. Two renders in one request share the request's state, which is released when the last of them has ended; with an `await`
 between two renders and nothing open meanwhile, hold it (`const release = holdRequest()` from `@reactivescript/runtime`, `release()` when the request is answered). Reading an export where nothing renders and no request is answered (a module's top
-level, a timer) throws on the server: do it in the render, or inside `provideRequestEvent` from `@solidjs/web/storage`. A package cannot export a server
+level, a timer) throws on the server, unless its module holds no state (only fns, components, actions, contexts and
+types at its top level): keep such fns in a module of their own, and they work there too. Else do it in the render, or inside `provideRequestEvent` from `@solidjs/web/storage`. A package cannot export a server
 fn or a context to JavaScript: export a provider component and the components or fns that read it. It needs Solid 2.
 
 Rules: `spec/09-modules.md` MO-10, MO-11 and MO-12 (and MO-8 for declaration files); MO-13 for packages written in `.rx`.

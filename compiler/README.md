@@ -165,7 +165,7 @@ npx rx-lib src/index.rx src/theme.rx --root src --out dist   # the same, said on
 
 For each module the entries reach it writes `x.dom.js` and `x.ssr.js` (the module compiled for the browser and for
 the server, `rxc app --lib`), `x.js` and `x.server.js` (what an import resolves to on each side: the factory as
-`__rx`, and each export through the runtime's `library`, with the module's name), `x.d.rx` (the printed signature, `//@ signature x.rx`),
+`__rx`, and each export through the runtime's `library`, or `primitives` where a fn hands JavaScript its parts (spec/09 MO-13i), with the module's name), `x.d.rx` (the printed signature, `//@ signature x.rx`),
 `x.rx.d.ts` (the projection's types, emitted by the project's `rx-tsc`: `@reactivescript/language-server` must be
 installed, or pass `--no-types`) and `x.d.ts` (the types of `x.js`). It fails when the package.json's `exports` do
 not name those files under Solid's conditions, printing the map; `--write` writes it, and the peers. `RXC=<rxc>`

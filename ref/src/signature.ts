@@ -5,7 +5,9 @@
 //   export source products: pending fails(Error) = …        a question (ST-5); `:= …` a plain source
 //   export discount: pending fails(Error)                   an equation; `io` when bound to an io value
 //   export pure fn qtyOf(id) rejects(Offline) instantiates  a fn (`ref` params; RG-6); `rejects(…)` absent: none
-//   export pure fn useCart(): { add: io; 1: io } instantiates   … and the parts of its result that are actions (R-io-3)
+//   export pure fn useCart(): { n: ref pending; add: io; limit: value } instantiates   … and the parts of its result (MO-13i): read,
+//                                                           an action, made once; `[ref, io]` a tuple; `ref { add: io; … }` one value, with
+//                                                           the parts of it that are actions (R-io-3)
 //   export pure fn useForm() instantiates uses(./form.rx#form)   … and the contexts each call reads above it (RG-7b)
 //   export server fn add(id) rejects(Error)                 12 SF-1 (`server pure fn` when no io)
 //   export action setCoupon
@@ -28,16 +30,32 @@
 //   export renders ./kit.d.rx#Toaster from toast:12 fails(Error) uses(./theme.rx#theme, loading) hosts(./kit.d.rx#Toaster)
 //                                                            a call of `toast` (line 12) that was given components: what they let out of H's children,
 //                                                            and each place they themselves apply a host (from their own root)
-import type { ModSig, ExportSig, CompSig, HostSite, Hosted } from "./check.ts";
+import type { ModSig, ExportSig, CompSig, HostSite, Hosted, Result } from "./check.ts";
 import { EMPTY_SHAPE, type Shape } from "./content.ts";
 
 type Catch = Set<string> | "all";
 const HOLD = "$hold";
 const cls = (c: Catch) => c === "all" ? "*" : c.size ? [...c].sort().join(" | ") : "nothing";
 const rows = (r: string[], fails: string[]) => [...["io", "pending", "lane"].filter(x => r.includes(x)), ...(fails.length ? [`fails(${[...fails].sort().join(" | ")})`] : [])].join(" ");
-/** R-io-3: the parts of a value that are actions, `{ set: io; 1: io }`; `io`: the value itself. */
-const actionsText = (ps: string[] | undefined) => !ps?.length ? "" : ps.includes("") ? "io" : `{ ${ps.map(p => `${p}: io`).join("; ")} }`;
-const actionsOf = (rest: string): string[] | undefined => { const m = /^\{(.*)\}$/.exec(rest); const ps = m ? split(m[1], ";").map(p => /^([\w$.-]+)\s*:\s*io$/.exec(p)?.[1]) : []; return ps.length && ps.every(p => p !== undefined) ? ps as string[] : undefined; };
+/** R-io-3: the parts of a value that are actions, among others: `{ set: io; pair.1: io; … }`; `io`: the value itself. */
+const actionsText = (ps: string[] | undefined) => !ps?.length ? "" : ps.includes("") ? "io" : `{ ${ps.map(p => `${p}: io`).join("; ")}; … }`;
+const actionsOf = (text: string): string[] | undefined => { if (text === "io") return [""]; const m = /^\{(.*);\s*…\s*\}$/.exec(text); const ps = m ? split(m[1], ";").map(p => /^([\w$.-]+)\s*:\s*io$/.exec(p)?.[1]) : []; return ps.length && ps.every(p => p !== undefined) ? ps as string[] : undefined; };
+/** MO-13i: the parts of a fn's result. */
+const resultText = (r: Result): string => r.k === "io" ? "io" : r.k === "rec" ? `{ ${r.fields.map(([k, v]) => `${k}: ${resultText(v)}`).join("; ")} }` : r.k === "arr" ? `[${r.items.map(resultText).join(", ")}]` : [r.reader ? "ref" : "value", r.reader ? rows(r.rows, r.fails) : "", actionsText(r.actions)].filter(Boolean).join(" ");
+function resultOf(t: string): Result | undefined {
+  if (t === "io") return { k: "io" };
+  if (/^\{.*\}$/.test(t)) {
+    const fields = split(t.slice(1, -1), ";").map((f): [string, Result] | undefined => { const m = /^([\w$-]+)\s*:\s*(.+)$/.exec(f); const r = m && resultOf(m[2]); return r ? [m[1], r] : undefined; });
+    return fields.length && fields.every(f => f !== undefined) ? { k: "rec", fields: fields as [string, Result][] } : undefined;
+  }
+  if (/^\[.*\]$/.test(t)) { const items = split(t.slice(1, -1), ",").map(resultOf); return items.length && items.every(x => x !== undefined) ? { k: "arr", items: items as Result[] } : undefined; }
+  const m = /^(ref|value)(?:\s+(.*))?$/.exec(t); if (!m) return undefined;
+  const r = m[1] === "ref" ? rowWords(m[2] ?? "") : { rows: [], fails: [], rest: m[2] ?? "" };
+  const text = r.rows.includes("io") ? "io" : r.rest; const actions = text ? actionsOf(text) : [];
+  return actions && { k: "leaf", reader: m[1] === "ref", rows: r.rows.filter(x => x !== "io"), fails: r.fails, actions };
+}
+/** R-io-3: the parts of a result that are actions, as paths. */
+const resultActions = (r: Result): string[] => (r.k === "io" ? [""] : r.k === "leaf" ? r.actions : (r.k === "rec" ? r.fields : r.items.map((x, i): [string, Result] => [String(i), x])).flatMap(([k, v]) => resultActions(v).map(p => p === "" ? k : `${k}.${p}`))).sort();
 const dir = (p: string) => p.split("/").slice(0, -1).join("/");
 /** O-3: the props a component stores where they outlive it, and where. */
 const retainsText = (file: string, st?: Record<string, string[]>) => {
@@ -94,7 +112,7 @@ function line(file: string, name: string, x: ExportSig): string {
   switch (x.kind) {
     case "source": { const r = rows(x.rows, x.fails); return `export source ${name}${r ? `: ${r}` : ""} ${x.question ? "=" : ":="} …`; }
     case "eq": { const r = [rows(x.io ? ["io", ...x.rows] : x.rows, x.fails), x.io ? "" : actionsText(x.actions)].filter(Boolean).join(" "); return `export ${name}${r ? `: ${r}` : ""}`; }
-    case "fn": { const r = [rows(x.rows, x.fails), actionsText(x.actions)].filter(Boolean).join(" "); return `export pure fn ${name}(${x.params.map(p => (p.ref ? "ref " : "") + p.name + ((p as { type?: string }).type ? `: ${(p as { type?: string }).type}` : "")).join(", ")})${r ? `: ${r}` : ""}${x.rejects.length ? ` rejects(${x.rejects.join(" | ")})` : ""}${x.instantiating ? " instantiates" : ""}${x.uses?.length ? ` uses(${x.uses.map(k => relKey(file, k)).join(", ")})` : ""}`; }
+    case "fn": { const a = x.result ? resultText(x.result) : x.actions?.includes("") ? "ref io" : actionsText(x.actions); const r = [rows(x.rows, x.fails), a].filter(Boolean).join(" "); return `export pure fn ${name}(${x.params.map(p => (p.ref ? "ref " : "") + p.name + ((p as { type?: string }).type ? `: ${(p as { type?: string }).type}` : "")).join(", ")})${r ? `: ${r}` : ""}${x.rejects.length ? ` rejects(${x.rejects.join(" | ")})` : ""}${x.instantiating ? " instantiates" : ""}${x.uses?.length ? ` uses(${x.uses.map(k => relKey(file, k)).join(", ")})` : ""}`; }
     case "server": return `export server ${x.io ? "" : "pure "}fn ${name}(${x.params.join(", ")})${x.rejects.length ? ` rejects(${[...x.rejects].sort().join(" | ")})` : ""}`;
     case "action": return `export action ${name}`;
     case "errclass": return `export error ${name}(${x.params.join(", ")})`;
@@ -178,10 +196,15 @@ export function parseSignature(src: string, file: string): ModSig {
     if ((m = /^error\s+([A-Za-z_$][\w$]*)\s*(?:\(([^)]*)\))?$/.exec(s))) { exports.set(m[1], { kind: "errclass", params: (m[2] ?? "").split(",").map(x => x.trim()).filter(Boolean) }); return; }
     if ((m = /^source\s+([A-Za-z_$][\w$]*)\s*(?::(?!=)\s*(.*?))?\s*(:?=)\s*…$/.exec(s))) { const r = rowWords(m[2] ?? ""); if (r.rest) fail("a source's rows"); exports.set(m[1], { kind: "source", question: m[3] === "=", rows: r.rows, fails: r.fails }); return; }
     if ((m = /^server\s+(pure\s+)?fn\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$/.exec(s))) { exports.set(m[2], { kind: "server", io: !m[1], params: m[3].split(",").map(x => x.trim()).filter(Boolean), rejects: classesOf(m[4] ?? "") }); return; }
-    if ((m = /^pure\s+fn\s+([A-Za-z_$][\w$]*)\s*\((.*?)\)\s*(?::\s*((?:(?:io|pending|lane|fails\([^)]*\)|\{[^}]*\})\s*)*))?\s*(?:rejects\(([^)]*)\))?\s*(instantiates)?\s*(?:uses\(([^)]*)\))?$/.exec(s))) {
-      const params = split(m[2], ",").map(p0 => { const ref = /^ref\s/.test(p0); const p = ref ? p0.slice(4).trim() : p0; const c = p.indexOf(":"); return { name: (c < 0 ? p : p.slice(0, c)).trim(), ref, ...(c < 0 ? {} : { type: p.slice(c + 1).trim() }) }; });
-      const r = rowWords(m[3] ?? ""); const acts = r.rows.includes("io") ? [""] : actionsOf(r.rest); if (r.rest && !acts) fail("a fn's rows");
-      exports.set(m[1], { kind: "fn", params, instantiating: !!m[5], rows: r.rows.filter(x => x !== "io"), fails: r.fails, rejects: classesOf(m[4] ?? ""), ...(acts ? { actions: acts } : {}), ...(m[6] ? { uses: m[6].split(",").map(k => absKey(file, k.trim())) } : {}) }); return;
+    if ((m = /^pure\s+fn\s+([A-Za-z_$][\w$]*)\s*\(/.exec(s))) {
+      const ps = balanced(s, m[0].length - 1); if (ps === undefined) fail("a fn's parameters");
+      const t = /^\s*(?::\s*(.*?))?\s*(?:\brejects\(([^)]*)\))?\s*(\binstantiates)?\s*(?:\buses\(([^)]*)\))?$/.exec(s.slice(m[0].length + ps!.length + 1)); if (!t) return fail("a fn's rows");
+      const params = split(ps!, ",").map(p0 => { const ref = /^ref\s/.test(p0); const p = ref ? p0.slice(4).trim() : p0; const c = p.indexOf(":"); return { name: (c < 0 ? p : p.slice(0, c)).trim(), ref, ...(c < 0 ? {} : { type: p.slice(c + 1).trim() }) }; });
+      const r = rowWords(t[1] ?? ""); const text = r.rows.includes("io") ? "io" : r.rest;
+      const open = text && text !== "io" ? actionsOf(text) : undefined;   // some parts of one value are actions: what else it holds is not said
+      const result = text && !open ? resultOf(text) : undefined; if (text && !open && !result) fail("a fn's rows");
+      const acts = open ?? (result ? resultActions(result) : []); const one = result?.k === "leaf" && result.reader;
+      exports.set(m[1], { kind: "fn", params, instantiating: !!t[3], rows: r.rows.filter(x => x !== "io"), fails: r.fails, rejects: classesOf(t[2] ?? ""), ...(acts.length ? { actions: acts } : {}), ...(result && !one ? { result } : {}), ...(t[4] ? { uses: t[4].split(",").map(k => absKey(file, k.trim())) } : {}) }); return;
     }
     if ((m = /^context\s+([A-Za-z_$][\w$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$/.exec(s))) {
       let body = (m[2] ?? "").trim(); const source = /^source\b/.test(body); if (source) body = body.slice(6).trim();
