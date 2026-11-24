@@ -480,5 +480,21 @@ console.log("a function of nothing is `ref` where the code shows that calling it
   ok("no code read: no part is ref off its shape, and no row instantiates off its name", !/\bref\b|instantiates/.test(off.split("\n").filter(l => l.startsWith("export")).join("\n")), off);
 }
 
+// A value the types declare and no build of the code exports (valibot's `BrandSymbol`, a `unique symbol` its types are
+// written with) is no row: an import of it is undefined. Where a build's exports are not read to their end, it is one.
+{
+  const app = path.join(ws, "absent"); fs.mkdirSync(app, { recursive: true });
+  fs.writeFileSync(path.join(app, "part.js"), "export const held = 1;\n");
+  fs.writeFileSync(path.join(app, "lib.js"), "const go = () => 1;\nexport { go, go as alias };\nexport * from './part.js';\n");
+  const types = "export declare const Brand: unique symbol;\nexport declare const held: number;\nexport declare function go(): number;\nexport declare function alias(): number;\nexport declare function gone(): number;\nexport type T = { [Brand]: 1 };\n";
+  fs.writeFileSync(path.join(app, "lib.d.ts"), types);
+  fs.writeFileSync(path.join(app, "open.js"), "export const go = () => 1;\nexport * from 'not-installed';\n");
+  fs.writeFileSync(path.join(app, "open.d.ts"), types);
+  const run = (m, ...a) => spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), m, ...a], { cwd: app, encoding: "utf8", env: { ...process.env, RX_DECLARE_INFER: "1" } }).stdout;
+  const names = d => [...d.matchAll(/^export (?:(?:pure|const|fn|type) )+(\w+)/gm)].map(m => m[1]).sort().join();
+  ok("a value no build of the code exports is not drafted", names(run("./lib.js")) === "T,alias,go,held", run("./lib.js"));
+  ok("…and is where the code's exports are not read to their end, or not read", names(run("./open.js")) === "Brand,T,alias,go,gone,held" && names(run("./lib.js", "--no-infer")) === "Brand,T,alias,go,gone,held", run("./open.js"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

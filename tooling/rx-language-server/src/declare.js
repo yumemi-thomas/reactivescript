@@ -929,6 +929,8 @@ function declare(ts, spec, from, options = {}, how = {}) {
   }
   const opts = { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options };
   const real = JSON.stringify(spec);
+  // a value the types declare and no build of the code exports (a `unique symbol` that types are written with): an import of it is undefined
+  let inCode; if (how.infer !== false) try { inCode = require("./infer.js").create(ts, { solid: process.env.RX_INFER_SOLID !== "0" }).exportedNames(spec, from); } catch { inCode = undefined; }
   /** The rows, with the library's types named where it declares them (`refs`, MO-8m) or left `any` (as every draft was). */
   const rows = (mode, roots) => {   // `roots`: of these exports alone
   const refs = !!mode;
@@ -983,7 +985,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
       lines.push(aliases.get(name));
       continue;
     }
-    if (!(sym.flags & ts.SymbolFlags.Value)) continue;
+    if (!(sym.flags & ts.SymbolFlags.Value) || (inCode && !inCode.has(name))) continue;
     }
     const t = item.member ? item.t : checker.getTypeOfSymbolAtLocation(sym, imp);
     if (!item.member && sym.flags & ts.SymbolFlags.Class) {

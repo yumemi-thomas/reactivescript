@@ -233,6 +233,19 @@ function create(ts, options = {}) {
     for (const from of m.stars) { if (name === "default") break; const r = imported(m, from, name, seen, true); if (r) return r; }
     return undefined;
   }
+  /** Every name the module exports in any of its builds — undefined where one of them, or a module it hands on whole
+   *  (`export * from`), is not read to its end: no ES module, Solid's own, a file that is not there. */
+  function exportedNames(spec, dir) {
+    const out = new Set(), seen = new Set();
+    const read = file => {
+      if (seen.has(file)) return true; seen.add(file);
+      const m = load(file); if (!m || !(m.exports.size || m.stars.length)) return false;
+      for (const n of m.exports.keys()) out.add(n);
+      return m.stars.every(from => { const fs_ = SOLID.test(from) ? [] : targets(from, path.dirname(file)); return fs_.length > 0 && fs_.every(read); });
+    };
+    const files = targets(spec, dir);
+    return files.length && files.every(read) ? out : undefined;
+  }
   function imported(m, from, name, seen = new Set(), quiet) {
     if (SOLID.test(from)) return [{ solid: name }];
     const files = targets(from, path.dirname(m.file)); if (!files.length) return undefined;
@@ -2035,7 +2048,7 @@ function create(ts, options = {}) {
   }
   /** The context the export `name` of `spec` is (a `createContext(…)` the module hands out), by its key. */
   function contextKey(spec, dir, name) { for (const file of targets(spec, dir)) { const bs = exported(file, name); const x = bs && bs.length === 1 && !bs[0].solid ? bs[0] : undefined; if (!x) continue; const c = ctxOf(ts.factory.createIdentifier(x.name), x.m, undefined); if (c) return c.key; } return undefined; }
-  return { exportFacts, targets, load, exported, contextKey };
+  return { exportFacts, targets, load, exported, exportedNames, contextKey };
 }
 
 module.exports = { create };

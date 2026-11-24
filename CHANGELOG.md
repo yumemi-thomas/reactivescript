@@ -29,6 +29,8 @@
 - **Fixed: a record or a function type is read wherever a type is written** (07 §2; `scenarios/S-types-2`): as a fn's result
   (`fn k(): { a: number } { … }`, `fn k(a): () => number => …`, which projected to invalid TypeScript), and as a parameter's, a
   source's or an equation's (`fn f(cb: (x: number) => void)`). A printed signature writes a type of several lines on one.
+- **Fixed:** `rx-declare` drafts no row for a value the types declare and no build of the code exports (valibot's `BrandSymbol`).
+- **Fixed:** a parameter's default was reported as an assignment to a source, and `Math` as a name of the caller's.
 
 **The language's own constructors, by one table** (tooling/rx-language-server/DECLARATIONS.md, *What a constructor runs*; spec/09 MO-8v)
 
