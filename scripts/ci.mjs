@@ -41,7 +41,7 @@ const steps = [
   { id: "runtime-test", dir: "runtime", run: "npm test && npm pack --silent && rm -f *.tgz && node test.mjs", after: ["runtime", "node-build"], uses: ["binding-read"], quick: true },
   { id: "names", dir: ".", run: `${strip} compiler/test/names.mjs`, after: ["crate"], quick: true },
   { id: "spec-refs", dir: ".", run: "node scripts/spec-refs.mjs", quick: true },
-  { id: "tools", dir: ".", run: "node scripts/lock.test.mjs && node scripts/cache.test.mjs", quick: true },
+  { id: "tools", dir: ".", run: "node scripts/lock.test.mjs && node scripts/cache.test.mjs" },
   { id: "ref-run", dir: "ref", run: "npm test -s", quick: true },
   { id: "ref-oracle", dir: "ref", run: "npm run -s oracle", quick: true },
   { id: "ref-compiled", dir: "ref", run: "npm run -s compiled", uses: ["ref-out"], quick: true },
