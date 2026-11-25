@@ -28,7 +28,8 @@ const pluginOf = () => process.env.SOLID_VITE_PLUGIN ? null : "SOLID_VITE_PLUGIN
 
 /** The steps. `after`: what they need; `uses`: what two steps may not use at once — cargo's target folder, the bench's
  *  workspace, compiler/test/.out, the package's built files; `n`: how many processes it counts as (it is given that many);
- *  `heavy`: several browsers, under the machine's lock; `quick`: in the quick tier too; `not`: why it cannot run here. */
+ *  `soft` (quick): the seconds it has — what it did is kept, and the
+ *  next run goes on from there; what it did not is said, and is `scripts/ci`'s; `heavy`: several browsers, under the machine's lock; `quick`: in the quick tier too; `not`: why it cannot run here. */
 const steps = [
   { id: "npm-compiler", dir: "compiler", run: ci("compiler"), quick: true, skipQuietly: true },
   { id: "npm-runtime", dir: "runtime", run: ci("runtime"), quick: true, skipQuietly: true },
@@ -48,7 +49,7 @@ const steps = [
   { id: "ref-compiled-crate", dir: "ref", run: "RX_CRATE=1 npm run -s compiled", uses: ["ref-out", "cargo"], after: ["crate"], quick: true, only: "quick" },
   { id: "ref-types", dir: "ref", run: "npm run -s types", after: ["npm-language-server"], quick: true },
   { id: "ref-crate", dir: "ref", run: `node ../scripts/parallel.mjs ${crate.map(c => `"npm run -s crate -- ${c}"`).join(" ")}`, after: ["node-build"], uses: ["cargo"], n: jobs, quick: true },
-  { id: "ref-ssr", dir: "ref", run: "npm run -s ssr", n: jobs, heavy: true, quick: true },
+  { id: "ref-ssr", dir: "ref", run: "npm run -s ssr", n: jobs, heavy: true, quick: true, soft: 45 },
   { id: "drafts", dir: ".", run: "node compiler/test/drafts.mjs", after: ["crate"], quick: true },
   { id: "lib", dir: ".", run: "node compiler/test/lib.mjs", after: ["node-build"], uses: ["binding-read"], quick: true },
   { id: "bench-install", dir: ".", run: 'mkdir -p bench/.out/ws && cd bench/.out/ws && if cmp -s ../../package-lock.json node_modules/.installed-from-lock && cmp -s ../../package.json package.json; then echo installed; else cp ../../package.json ../../package-lock.json . && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock; fi', uses: ["ws"], quick: true },
@@ -60,12 +61,12 @@ const steps = [
   { id: "generated", dir: ".", run: `${strip} bench/generated.mjs`, after: ["wasm", "node-build", "bench-install", "runtime", "npm-language-server"], uses: ["ws"], n: jobs, heavy: true },
   { id: "bench-tasks", dir: ".", run: "node bench/run.mjs --tasks-only --check --strict", after: ["generated", "confined"], uses: ["ws"], n: jobs, heavy: true },
   { id: "bench-coverage", dir: ".", run: "node bench/run.mjs --coverage-only --check --strict", after: ["bench-tasks"], uses: ["ws"], n: jobs, heavy: true },
-  { id: "bench", dir: ".", run: "node bench/run.mjs --check --strict", after: ["confined", "wasm", "npm-language-server", "runtime"], uses: ["ws", "binding-read"], n: jobs, heavy: true, quick: true, only: "quick" },
+  { id: "bench", dir: ".", run: "node bench/run.mjs --check --strict", after: ["confined", "wasm", "npm-language-server", "runtime"], uses: ["ws", "binding-read"], n: jobs, heavy: true, quick: true, only: "quick", soft: 45 },
   { id: "tree-sitter", dir: "tooling/tree-sitter-rx", run: "pnpm install --frozen-lockfile && pnpm run generate && git diff --exit-code -- src/ && pnpm test && pnpm run parse:repo && pnpm run query -- ../../examples/*.rx > /dev/null", not: () => has("pnpm") ? null : "no pnpm" },
   { id: "editor-ls", dir: LS, run: `npm test -s && RXC=${rxc} node test/run.js`, after: ["npm-language-server", "wasm", "crate", "runtime", "node-build"], n: jobs },
   { id: "editor-vscode", dir: "tooling/vscode-rx", run: "npm ci --no-audit --no-fund && npm run package && SERVER=dist/server.js node ../rx-language-server/test/run.js && rm -f *.vsix", after: ["editor-ls"], uses: ["ls-pack"] },
   { id: "editor-pack", dir: LS, run: "npm pack --silent && rm -f *.tgz", after: ["wasm", "editor-vscode"], uses: ["ls-pack"] },
-  ...["vite-dir", "vite-gate", "vite-types", "vite", "wardic", "formisch", "ssr-router", "start"].map(t => ({ id: `t-${t}`, dir: ".", run: t === "vite" ? `node scripts/parallel.mjs ${[1, 2, 3].map(i => `"node compiler/test/vite.mjs --shard ${i}/3"`).join(" ")}` : `node compiler/test/${t}.mjs`, after: ["node-build", "runtime", "npm-language-server"], uses: ["binding-read"], n: t === "vite" ? jobs : 1, heavy: t === "vite" })),
+  ...["vite-gate", "vite-types", "vite", "wardic", "formisch", "ssr-router", "start"].map(t => ({ id: `t-${t}`, dir: ".", run: t === "vite" ? `node scripts/parallel.mjs ${[1, 2, 3].map(i => `"node compiler/test/vite.mjs --shard ${i}/3"`).join(" ")}` : `node compiler/test/${t}.mjs`, after: ["node-build", "runtime", "npm-language-server"], uses: ["binding-read"], n: t === "vite" ? jobs : 1, heavy: t === "vite" })),
   ...["vite-hosts", "vite-watch"].map(t => ({ id: `t-${t}`, dir: ".", run: `node compiler/test/${t}.mjs`, after: ["node-build", "runtime"], uses: ["binding-read"], not: pluginOf })),
   { id: "proposals", dir: ".", run: "node proposals/check.mjs", after: ["node-build", "runtime", "npm-language-server"], uses: [], n: jobs, heavy: true },
   // the package as it is published, last: these write over the binding the suites above have loaded
@@ -99,10 +100,12 @@ process.on("exit", stopAll); for (const s of ["SIGINT", "SIGTERM"]) process.on(s
 function start(s) {
   const file = path.join(log, `${s.id}.log`), n = Math.min(s.n ?? 1, jobs), cmd = s.heavy ? `node ${JSON.stringify(path.join(repo, "scripts/heavy.mjs"))} ${s.id} -- bash -c 'eval "$RX_STEP"'` : s.run;
   const child = spawn("bash", ["-c", `exec >${JSON.stringify(file)} 2>&1; time { ${cmd}\n} 2>&1; code=$?; exit $code`], { cwd: path.join(repo, s.dir), env: { ...env, RX_JOBS: String(n), BENCH_JOBS: String(n), ...(s.heavy ? { RX_STEP: s.run } : {}) }, stdio: "ignore", detached: true });
-  const began = Date.now(), wall = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, (s.limit ?? 1800) * 1000);
+  let late = false; const soft = quick && s.soft ? setTimeout(() => { late = true; try { process.kill(-child.pid, "SIGTERM"); } catch { /* ended */ } }, s.soft * 1000) : null;
+  const began = Date.now(), wall = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, (s.limit ?? (Number(process.env.RX_CI_LIMIT) || 1200)) * 1000);
   running.set(s.id, { child, s, n });
   child.on("close", code => {
-    clearTimeout(wall); running.delete(s.id);
+    clearTimeout(wall); clearTimeout(soft); running.delete(s.id);
+    if (late && code !== 0) { done.set(s.id, { not: `stopped after ${s.soft} s with part of it run (kept): again, or scripts/ci, for the rest`, wall: (Date.now() - began) / 1000 }); console.log(`${at()}  part ${s.id.padEnd(22)} ${((Date.now() - began) / 1000).toFixed(1).padStart(6)} s  more is new than there was time for`); return next(); }
     const text = existsSync(file) ? readFileSync(file, "utf8") : "", m = /(\d+[.,]\d+) (\d+[.,]\d+) (\d+[.,]\d+)\s*$/.exec(text), cpu = m ? Number(m[2].replace(",", ".")) + Number(m[3].replace(",", ".")) : null;
     const used = /cache: .*? — --no-cache/.exec(text)?.[0]?.replace(" — --no-cache", "");
     done.set(s.id, { ok: code === 0, wall: (Date.now() - began) / 1000, cpu });

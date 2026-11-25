@@ -12,7 +12,8 @@
 // With --text, over the same programs with characters of several bytes in them, and broken ones (below).
 // Usage: node --experimental-strip-types ref/crate.ts [--lower|--project|--spa|--whole-program] [--text] [filter]     (builds compiler/ with cargo first; VERBOSE=1 lists each;
 //        DUMP=dir writes the first differing module of a failure, both sides, to dir/{ref,crate}.<target>.js)
-import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, existsSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -65,6 +66,13 @@ for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLA
 const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith(".rx") && !e.name.endsWith(".d.rx") ? [join(d, e.name)] : []);
 for (const f of walk(join(root, "examples")).sort()) add(`examples/${f.slice(join(root, "examples").length + 1)}`, f, disk, lowerMode ? [] : undefined, false, false, undefined, false);
 
+/** The crate's answer to a request of megabytes: its input is a file and not a pipe, where Node's synchronous spawn has been seen
+ *  to wait for ever (macOS: the pipe's other end never found writable). */
+function rxc(command: string, request: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "rx-crate-")); const fd = (writeFileSync(join(dir, "in"), request), openSync(join(dir, "in"), "r"));
+  try { return execFileSync(join(root, "compiler/target/release/rxc"), [command], { stdio: [fd, "pipe", "inherit"], maxBuffer: 1 << 30 }).toString(); }
+  finally { closeSync(fd); rmSync(dir, { recursive: true, force: true }); }
+}
 const plain = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => v instanceof Map ? Object.fromEntries(v) : v instanceof Set ? [...v] : v));
 function refOf(r: Req) {
   const read = (p: string) => r.files[p];
@@ -112,7 +120,7 @@ if (textMode) {
 execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
 if (lowerMode) process.exit(await lower());
 if (projectMode) process.exit(await project());
-const out = execFileSync(join(root, "compiler/target/release/rxc"), ["conform"], { input: JSON.stringify(reqs), maxBuffer: 1 << 30 }).toString();
+const out = rxc("conform", JSON.stringify(reqs));
 const got = new Map((JSON.parse(out) as any[]).map(x => [x.id, x]));
 let bad = 0;
 for (const r of reqs) {
@@ -131,7 +139,7 @@ async function lower(): Promise<number> {
   const { transformSync } = await import("esbuild");
   const { parseStmts } = await import("./src/parse.ts");
   const norm = (code: string) => { try { return transformSync(code, { loader: "js", format: "esm", legalComments: "none" }).code; } catch (e) { return `esbuild: ${(e as Error).message}\n${code}`; } };
-  const out = execFileSync(join(root, "compiler/target/release/rxc"), ["lower"], { input: JSON.stringify(reqs.map(r => ({ ...r, renderer: STRING_RENDERER, maps: true }))), maxBuffer: 1 << 30 }).toString();
+  const out = rxc("lower", JSON.stringify(reqs.map(r => ({ ...r, renderer: STRING_RENDERER, maps: true }))));
   const got = new Map((JSON.parse(out) as any[]).map(x => [x.id, x]));
   let bad = 0, compiled = 0, modules = 0, mapped = 0;
   for (const r of reqs) {
@@ -225,7 +233,7 @@ function checkMap(code: string, map: string | undefined, prog: any, text: string
 /** --project: types/project.ts's projection against the crate's, and the crate's mappings onto the `.rx`. */
 async function project(): Promise<number> {
   const { projectModules, PRELUDE } = await import("./types/project.ts");
-  const out = JSON.parse(execFileSync(join(root, "compiler/target/release/rxc"), ["project"], { input: JSON.stringify(reqs), maxBuffer: 1 << 30 }).toString());
+  const out = JSON.parse(rxc("project", JSON.stringify(reqs)));
   const got = new Map((out.programs as any[]).map(x => [x.id, x]));
   let bad = 0, n = 0, maps = 0, files = 0;
   if (out.prelude !== PRELUDE) { bad++; console.log("FAIL prelude: compiler/src/prelude.ts is not types/project.ts's PRELUDE"); }

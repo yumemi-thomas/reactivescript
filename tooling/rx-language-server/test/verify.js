@@ -84,6 +84,7 @@ fs.writeFileSync(path.join(ws, "lib.d.rx"), [
   "",
 ].join("\n"));
 
+const { checkStrict } = require("../src/strict.js");
 let pass = 0, fail = 0;
 function check(name, ok, got) {
   if (ok) pass++; else fail++;
@@ -276,7 +277,6 @@ const cbDecl = [
 ].join("\n");
 fs.writeFileSync(path.join(ws, "cb.d.rx"), cbDecl);
 fs.rmSync(path.join(ws, "cb.verified.json"), { force: true });
-const { checkStrict } = require("../src/strict.js");
 const before = checkStrict(path.join(ws, "cb.d.rx"));
 check("strict: with no record, every row is refused", before.length === 6 && before.every(u => /nothing verified it/.test(u.message)), before);
 const r3 = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "--record", "cb.d.rx"], { cwd: ws, encoding: "utf8" });
