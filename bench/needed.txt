@@ -1,6 +1,6 @@
 Hand-written words no tool has shown, in the declarations of the tasks and of the coverage entries (bench/needed.mjs): each is the app author's own claim, in the app's own declaration. None is in a generated declaration, which holds only words the code proves.
 
-59 a correct program is refused without (25 instantiates, 20 pure, 10 handler, 4 provides; by diagnostic: 44 IO_IN_REACTIVE, 10 REACTIVE_WRITE_IN_OWNED_SCOPE, 5 CONTEXT_NOT_FOUND, 2 SNAPSHOT_KEPT, 1 SNAPSHOT_ARGUMENT, 1 UNHANDLED_FAILURE):
+53 a correct program is refused without (25 instantiates, 20 pure, 4 handler, 4 provides; by diagnostic: 44 IO_IN_REACTIVE, 5 CONTEXT_NOT_FOUND, 4 REACTIVE_WRITE_IN_OWNED_SCOPE, 2 SNAPSHOT_KEPT, 1 SNAPSHOT_ARGUMENT, 1 UNHANDLED_FAILURE):
   cover-primitives-analytics/rx-types/@solid-primitives/analytics.d.rx: createAnalytics: instantiates — without it: IO_IN_REACTIVE main.rx:5
       not proven: no call that needs an owner is made on every path
   cover-primitives-controlled-props/control.d.rx: TextControl: handler(onChange) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:7
@@ -11,8 +11,6 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
       not proven: no call that needs an owner is made on every path
   cover-primitives-event-dispatcher/rx-types/@solid-primitives/event-dispatcher.d.rx: createEventDispatcher: instantiates — without it: SNAPSHOT_KEPT main.rx:5
       not proven: no call that needs an owner is made on every path
-  cover-primitives-event-listener/rx-types/@solid-primitives/event-listener.d.rx: createEventListener: handler(handler) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:7
-      not proven: it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:22]
   cover-primitives-event-props/rx-types/@solid-primitives/event-props.d.rx: createEventProps: instantiates — without it: IO_IN_REACTIVE main.rx:6
       not proven: no call that needs an owner is made on every path
   cover-primitives-filesystem/rx-types/@solid-primitives/filesystem.d.rx: createFileSystem: instantiates — without it: IO_IN_REACTIVE main.rx:5
@@ -21,12 +19,8 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
       not proven: it calls .getItem() of a primitive [@solid-primitives/filesystem/dist/adapter-vfs.js:14]
   cover-primitives-flux-store/counter.d.rx: createCounter: instantiates — without it: IO_IN_REACTIVE main.rx:5
       not proven: no call that needs an owner is made on every path
-  cover-primitives-idle/rx-types/@solid-primitives/idle.d.rx: createIdleTimer: handler(__0.onActive) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:6
-      not proven: a default, or `arguments`, may call it [@solid-primitives/idle/dist/createIdleTimer.js:50]
   cover-primitives-input-mask/rx-types/@solid-primitives/input-mask.d.rx: createInputMask: instantiates — without it: IO_IN_REACTIVE main.rx:5
       not proven: no call that needs an owner is made on every path
-  cover-primitives-keyboard/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: handler(callback) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:7
-      not proven: it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:7]
   cover-primitives-keyboard/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: instantiates — without it: IO_IN_REACTIVE main.rx:7
       not proven: no call that needs an owner is made on every path
   cover-primitives-map/map.d.rx: makeMap: instantiates — without it: IO_IN_REACTIVE main.rx:6
@@ -75,16 +69,10 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
       not proven: no call that needs an owner is made on every path
   primitives-listeners/rx-types/@solid-primitives/scheduled.d.rx: debounce: instantiates — without it: IO_IN_REACTIVE main.rx:16
       not proven: no call that needs an owner is made on every path
-  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: handler(callback) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:15
-      not proven: it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:7]
   primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: instantiates — without it: IO_IN_REACTIVE main.rx:15
       not proven: no call that needs an owner is made on every path
   primitives-state/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — without it: IO_IN_REACTIVE main.rx:14
       not proven: it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
-  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: createEventListener: handler(handler) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:14
-      not proven: it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:22]
-  primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: makeResizeObserver: handler(callback) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:17
-      not proven: it goes where it is not followed [@solid-primitives/resize-observer/dist/index.js:22]
   query-mutation/api.d.rx: dehydrated: pure — without it: IO_IN_REACTIVE main.rx:20
       not proven: it reads document: the environment [api.js:24]
   query-mutation/api.d.rx: fetchTodo: pure — without it: IO_IN_REACTIVE main.rx:10
