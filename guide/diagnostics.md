@@ -1774,36 +1774,31 @@ export default component App() {
 }
 ```
 
-### AMBIGUOUS_CONTEXT
+### VIEW_NOT_SHOWN
 
-A context is used in a component's children, and the component provides it around them (RG-7b). Whether it is read there
-or where it is written is not settled: RG-4c says a component's children are the caller's, RG-7b that a provision is for what
-is shown beneath it. Say which is meant. Bound above, it is what is provided where you are; in a component of its own, in a
-block of the children (`{if true { v = use room … }}`), or in a `view` for a component that takes one, it is what the
-component provides.
+A component reads a view it was given (its children, or a prop typed `View`) as a value (RG-4c). A view is only shown:
+`{props.children}` in the component's view, at as many places as it likes, each with its own, made there; given on to
+another component, as content or as an argument; or asked for, `if props.children { … }`, `props.children ?? …`. It is
+not kept by `peek` or a source, carried by a context, read by an effect or a handler, answered by a closure, held in a
+record or a list, or given to a fn. The message says what to write for the one it found.
 
 ```rx before
-context room: string
-component Room(props: { children: View }) {
-  provide room = "hall"
-  <p>{props.children}</p>
+component Reveal(props: { children: View }) {
+  source kept := null
+  <button onClick={() => { kept := props.children }}>show</button><i>{kept}</i>
 }
 export default component App() {
-  <Room>{use room}</Room>
+  <Reveal><b>x</b></Reveal>
 }
 ```
 
 ```rx after
-context room: string
-component Room(props: { children: View }) {
-  provide room = "hall"
-  <p>{props.children}</p>
-}
-component Name() {
-  <b>{use room}</b>
+component Reveal(props: { children: View }) {
+  source open := false
+  <button onClick={() => { open := true }}>show</button>{if open { <i>{props.children}</i> }}
 }
 export default component App() {
-  <Room><Name /></Room>
+  <Reveal><b>x</b></Reveal>
 }
 ```
 

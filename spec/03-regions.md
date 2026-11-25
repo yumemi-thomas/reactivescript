@@ -137,11 +137,26 @@ A component is a function from a props value to a region whose tail is a view.
   form; destructuring covers the signature use. `component C()` declares no
   props: `props` is not a name in its body, and reading it is `UNBOUND`
   (S-check-1; before 2026-11-14 it read `undefined` silently).
-- **RG-4c (Children).** `children` is a view value evaluated in the *caller's*
-  region: its readers are the caller's, its lifetime is the caller's, and the
-  child only decides where it is placed. A child that needs to create its
-  content more than once, or conditionally own it, asks for a function prop
-  instead, which is ordinary.
+- **RG-4c (Children; proposed 2026-11-25, proposals/26).** `children` is a
+  view: a block of the *caller's* names, owned where it is *shown*. Each place
+  that shows it has its own, made there and disposed with that place; what it
+  reads from contexts (RG-7b), what it waits on and fails with are that
+  place's. So is a prop typed `View`. A component only shows a view it is
+  given: `{props.children}` in its view (also `props.children ?? e`, and under
+  a choice, `c ? props.children : e`); gives it on, as another component's
+  content or argument, or in a spread of its props; names it by a projection
+  of the props (RG-4b); or asks whether it was given (`if props.children`,
+  `!props.children`, `props.children != undefined`), which is whether content
+  was written and makes nothing. Read as a value — kept by `peek` or a source,
+  carried by a context, read by an effect or a handler, answered by a closure,
+  held in a record or a list, given to a fn — it is `VIEW_NOT_SHOWN`
+  (S-context-4, S-context-5). Content that takes what the component knows is
+  a view with a parameter, below. (Until this proposal: "evaluated in the
+  caller's region: its readers are the caller's, its lifetime is the caller's,
+  and the child only decides where it is placed", which 08 and RG-7b
+  contradicted, and compiled code followed for a `use` alone.)
+  One `{e}` given to a component whose `children` are declared a function is
+  that function, a value (S-view-2).
   - **A view (proposed 2026-11-25).** The function prop that makes markup. A
     prop declared a function giving a `View`, of one parameter or none
     (`children: (s: { on: boolean }) => View`, `cell: () => View`), may be shown
@@ -155,8 +170,7 @@ A component is a function from a props value to a region whose tail is a view.
     argument is checked as read where the view is shown. What the view stores
     where it outlives it (O-3) is nothing the component's closures hold.
     Children declared `View | ((s: T) => View)` are given plain content as well:
-    a view that asks nothing, so owned, read and asked where it is shown, as any
-    view is; they are not asked for. A spread gives no view: one that may hold
+    a view that asks nothing, as all plain content is. A spread gives no view: one that may hold
     the field, by the record written and by its type, is refused. The types are
     read through the names the module declares or imports from `.rx`. A component
     so typed that never shows them this way is as it was: it reads and calls

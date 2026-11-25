@@ -1028,7 +1028,27 @@ pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup], fields: &Inde
 /// component, or in a spread of the props), named again by a projection of the props, or asked whether it was given
 /// (`if props.children`, `!`, `== undefined`). The first other mention: the field, and its line. `skip`: the fields the
 /// component shows as `<props.f … />`, which have their own rule (`other_mention`). `ref/src/modules.ts` `viewUses`.
-pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String]) -> Option<(String, usize)> {
+/// What refuses a view read as a value, and the way that is accepted, by what read it (`how`). `ref/src/modules.ts` `viewNotShown`.
+pub fn view_not_shown(comp: &str, props: &str, field: &str, how: &str) -> String {
+    let v = if field == "props" || field == "view" { format!("{props}.children") } else { format!("{props}.{field}") };
+    if field == "props" {
+        return format!("{comp} is given views in {props}, and gives {props} whole to what is no component: a view is only shown — take the views out first, `{{ children, ...rest }} = {props}`, and show them (`{{children}}`)");
+    }
+    let tail = match how {
+        "peek" => format!("`peek` keeps nothing of it — show it where it goes, `{{{v}}}`: each place it is shown has its own, made there"),
+        "source" => format!("a source does not hold it — show it, `{{{v}}}`; to show it later, keep a source that says when: `{{if open {{ {{{v}}} }}}}`"),
+        "effect" => format!("an effect cannot watch it — whether one was given is `{v} != undefined`"),
+        "handler" => format!("a handler or an action cannot read it — write a source there and show it under that: `{{if open {{ {{{v}}} }}}}`"),
+        "closure" => format!("a closure that answers it is not shown — show `{{{v}}}` there, or give it on as an argument typed `View`: `<Q part={{{v}}} />`"),
+        "record" => "a record does not hold it — give each on as an argument typed `View`: `<Q header={…} footer={…} />`".to_string(),
+        "list" => format!("a list does not hold it — write them one after the other: `{{{v}}}{{…}}`"),
+        "context" => format!("a context does not carry it — give it on as an argument typed `View` of the component that shows it (`<Q part={{{v}}} />`), or let what is shown elsewhere be shown by a `portal to(…)` where it is written"),
+        "argument" => format!("a fn does not take it — a component does: `<Q part={{{v}}} />`"),
+        _ => format!("it is not read as a value (compared, written out, computed with) — `{{{v}}}` shows it, `{v} != undefined` asks whether one was given"),
+    };
+    format!("{comp} is given a view, {}, and a view is only shown: {tail}", if field == "view" { "a prop typed View" } else { field })
+}
+pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String]) -> Option<(String, usize, String)> {
     use serde_json::Value;
     #[derive(Clone)]
     enum G {
@@ -1039,7 +1059,7 @@ pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], vie
         names: HashMap<String, G>,
         views: HashSet<String>,
         child_view: bool,
-        bad: Option<(String, usize)>,
+        bad: Option<(String, usize, String)>,
         _p: std::marker::PhantomData<&'a ()>,
     }
     fn s<'v>(v: &'v Value, f: &str) -> &'v str {
@@ -1096,40 +1116,68 @@ pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], vie
                 _ => false,
             }
         }
-        fn hit(&mut self, f: &str, line: usize) {
+        fn hit(&mut self, f: &str, line: usize, how: &str) {
             if self.bad.is_none() {
-                self.bad = Some((f.to_string(), line));
+                self.bad = Some((f.to_string(), line, how.to_string()));
             }
         }
-        fn plain(&mut self, x: &Value, mut line: usize) {
+        fn plain(&mut self, x: &Value, mut line: usize, how: &str) {
             match x {
-                Value::Array(xs) => xs.iter().for_each(|y| self.plain(y, line)),
+                Value::Array(xs) => xs.iter().for_each(|y| self.plain(y, line, how)),
                 Value::Object(o) => {
                     if let Some(l) = o.get("line").and_then(Value::as_u64) {
                         line = l as usize;
                     }
-                    match s(x, "k") {
+                    let k = s(x, "k");
+                    // what reads it: the nearest, but a handler's or an effect's body whatever is in it
+                    let how = if how == "handler" || how == "effect" {
+                        how
+                    } else {
+                        match k {
+                            "fn" if x["name"].is_string() => "argument",
+                            "fn" if x.get("stmts").is_some_and(|v| !v.is_null()) => "handler",
+                            "fn" => "closure",
+                            "peek" => "peek",
+                            "rec" => "record",
+                            "arr" => "list",
+                            "call" => "argument",
+                            "source" | "write" | "optimistic" => "source",
+                            "provide" => "context",
+                            "effect" => "effect",
+                            "action" | "server" => "handler",
+                            _ => how,
+                        }
+                    };
+                    match k {
                         "id" | "pre" => {
                             let id = serde_json::json!({ "k": "id", "name": x["name"] });
                             match self.names.get(s(x, "name")).cloned() {
-                                Some(G::Held(h)) if self.held(&id).is_some() => self.hit(&h, line),
-                                Some(G::Props(_)) if self.whole(&id) => self.hit("props", line),
+                                Some(G::Held(h)) if self.held(&id).is_some() => self.hit(&h, line, how),
+                                Some(G::Props(_)) if self.whole(&id) => self.hit("props", line, how),
                                 _ => {}
                             }
                         }
                         "member" => {
                             if self.held(x).is_some() {
-                                self.hit(s(x, "p"), line);
+                                self.hit(s(x, "p"), line, how);
                             } else if !matches!(self.given(&x["o"]), Some(G::Props(_))) {
-                                self.plain(&x["o"], line);
+                                self.plain(&x["o"], line, how);
                             }
                         }
                         "omit" if matches!(self.given(&x["e"]), Some(G::Props(_))) => {
                             if self.whole(x) {
-                                self.hit("props", line);
+                                self.hit("props", line, how);
                             }
                         }
-                        _ => o.values().for_each(|v| self.plain(v, line)),
+                        // whether one was given is a value like another, wherever it is asked
+                        "un" if s(x, "op") == "!" && self.form(&x["e"]) => {}
+                        "bin" if matches!(s(x, "op"), "==" | "!=" | "===" | "!==") && self.form(&x["l"]) && Self::nullish(&x["r"]) => {}
+                        "if" if self.form(&x["c"]) => {
+                            self.plain(&x["t"], line, how);
+                            self.plain(&x["f"], line, how);
+                        }
+                        "bin" if s(x, "op") == "&&" && self.form(&x["l"]) => self.plain(&x["r"], line, how),
+                        _ => o.values().for_each(|v| self.plain(v, line, how)),
                     }
                 }
                 _ => {}
@@ -1149,7 +1197,7 @@ pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], vie
                     self.test(&c["l"], line);
                     self.test(&c["r"], line);
                 }
-                _ => self.plain(c, line),
+                _ => self.plain(c, line, "value"),
             }
         }
         fn ve(&mut self, e: &Value, line: usize) {
@@ -1170,7 +1218,7 @@ pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], vie
                     self.test(&e["l"], line);
                     self.ve(&e["r"], line);
                 }
-                _ => self.plain(e, line),
+                _ => self.plain(e, line, "value"),
             }
         }
         fn dk(&mut self, ds: &Value, line: usize) {
@@ -1178,7 +1226,7 @@ pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], vie
                 if s(x, "k") == "eq" && self.names.contains_key(s(x, "name")) && self.given(&x["e"]).is_some() {
                     continue;
                 }
-                self.plain(x, x["line"].as_u64().map(|l| l as usize).unwrap_or(line));
+                self.plain(x, x["line"].as_u64().map(|l| l as usize).unwrap_or(line), "value");
             }
         }
         fn mk(&mut self, ms: &Value, line: usize) {
@@ -1194,12 +1242,12 @@ pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], vie
                             let handler = n == "ref" || (n.starts_with("on") && n[2..].starts_with(|c: char| c.is_ascii_uppercase() || c == ':'));
                             if n == "..." {
                                 if !matches!(self.given(&a["e"]), Some(G::Props(_))) {
-                                    self.plain(&a["e"], at);
+                                    self.plain(&a["e"], at, "value");
                                 }
                             } else if comp && !handler {
                                 self.ve(&a["e"], at);
                             } else {
-                                self.plain(&a["e"], at);
+                                self.plain(&a["e"], at, if handler && n != "ref" { "handler" } else { "value" });
                             }
                         }
                         self.mk(&m["children"], at);
@@ -1212,7 +1260,7 @@ pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], vie
                         self.mk(&m["f"], at);
                     }
                     "mfor" => {
-                        self.plain(&m["xs"], at);
+                        self.plain(&m["xs"], at, "value");
                         self.dk(&m["decls"], at);
                         self.mk(&m["body"], at);
                     }
@@ -1221,7 +1269,7 @@ pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], vie
                         self.mk(&m["body"], at);
                     }
                     "loading" => {
-                        self.plain(&m["on"], at);
+                        self.plain(&m["on"], at, "value");
                         self.mk(&m["fallback"], at);
                         self.dk(&m["decls"], at);
                         self.mk(&m["body"], at);
@@ -1232,7 +1280,7 @@ pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], vie
                         self.mk(&m["body"], at);
                     }
                     "portal" => {
-                        self.plain(&m["to"], at);
+                        self.plain(&m["to"], at, "value");
                         self.dk(&m["decls"], at);
                         self.mk(&m["body"], at);
                     }

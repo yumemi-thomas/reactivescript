@@ -8,7 +8,7 @@
 
 By RG-4c a `use` written in children is one of the caller's readers. By 08 it sees what the component provides, and both checkers accept a program on that ground: the one below is `CONTEXT_NOT_FOUND` if P provides nothing.
 
-<!-- check branch=AMBIGUOUS_CONTEXT upstream=ok -->
+<!-- check branch=ok upstream=ok -->
 ```rx
 context c: string
 component P(props: { children?: View }) {
@@ -24,7 +24,7 @@ A `use` in children's own place bound to the owner that reads them, in the crate
 
 **A context that forwards children.** Nothing is wrong with this program today, and no text says which it is:
 
-<!-- frames branch=pass upstream=pass -->
+<!-- frames branch=refused upstream=pass -->
 ```rx
 context c: string = "out"
 context child: View
@@ -101,3 +101,5 @@ export default component App() {
 ```
 
 Related: [34](bugs/34-closure-as-a-child.md) (a closure as children), [35](bugs/35-children-in-a-record.md) (children in a record).
+
+**On `proto-children-rule` (2026-11-25).** [26](26-children-are-shown.md) decides it: a view is only shown, and is made where it is shown. The first program above is accepted and right in every runner; the one carried by a context is refused (`VIEW_NOT_SHOWN`), with what is written instead.

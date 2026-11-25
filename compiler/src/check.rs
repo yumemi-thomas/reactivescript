@@ -4138,10 +4138,9 @@ impl<'a> Checker<'a> {
                     self.line = was;
                 }
                 let skip: Vec<String> = fields.keys().cloned().collect();
-                if let Some((f, at)) = view_misplaced(props, props_type.as_deref(), decls, view, &self.opts.types, &skip) {
+                if let Some((f, at, how)) = view_misplaced(props, props_type.as_deref(), decls, view, &self.opts.types, &skip) {
                     let was = std::mem::replace(&mut self.line, if at == 0 { *line as i64 } else { at as i64 });
-                    let what = if f == "props" { format!("views in {props}") } else { format!("a view, {f}") };
-                    self.err("VIEW_NOT_SHOWN", "RG-4c", format!("{name} is given {what}: a view is shown (`{{{props}.children}}`), given on to a component, or asked for (`if {props}.children`, `{props}.children ?? …`) — it is not read as a value (an equation of it that is no projection, a source, `peek`, an effect, a handler, a closure, a record, a list, a context, an argument of a fn). Each place it is shown has its own, owned there"));
+                    self.err("VIEW_NOT_SHOWN", "RG-4c", crate::modules::view_not_shown(name, props, &f, &how));
                     self.line = was;
                 }
                 self.block(decls, view, inner, Ctx::reactive());
@@ -7817,26 +7816,6 @@ impl<'a> Checker<'a> {
         let out = out.unwrap_or_default();
         self.around_memo.insert(key, out.clone());
         out
-    }
-    /// RG-4c says that a component's children are read at the caller, RG-7b and 08 that a context read in them is read where they
-    /// are shown. Where the component provides that context around them, the two differ: it is refused.
-    fn ambiguous_uses(&mut self) {
-        for (region, key, name, line) in self.kid_uses.clone() {
-            let mut r = region;
-            while let Some((comp, site)) = self.regions[r].kids {
-                // a view, and plain content that is one (RG-4c), is a block
-                if self.regions[r].kids_view.is_some() || self.regions[comp].sig.as_ref().is_some_and(|s| s.props.get("children").is_some_and(|p| p.view.is_some())) || self.comp_syms.get(&comp).copied().is_some_and(|s| self.shown_by(s).contains_key("children")) {
-                    break;
-                }
-                if self.around(comp, "children").contains(&key) {
-                    let tag = self.apps.iter().find(|a| a.comp == comp && a.site == site).map(|a| a.tag.clone()).unwrap_or_default();
-                    self.line = line;
-                    self.err("AMBIGUOUS_CONTEXT", "RG-7b", format!("{name} is used in <{tag}>'s children, and <{tag}> provides it around them: whether that is read there or where it is written is not settled — bind it above (`v = use {name}`) for what is provided here, or read it in a component of its own or in a block (`{{if true {{ v = use {name} … }}}}`) for what <{tag}> provides"));
-                    break;
-                }
-                r = site;
-            }
-        }
     }
     fn reads_children(&self, e: &Expr, env: EId) -> bool {
         match &e.k {

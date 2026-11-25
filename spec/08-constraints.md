@@ -309,10 +309,8 @@ How each enforcer is realised:
 - **Provisions (RG-7b)** are checked over the static application tree:
   the names available in a region are its own provisions plus, for a
   component, the intersection over every place it is applied; children
-  passed to a component are owned where it reads them (a view, where it shows
-  it, RG-4c), so they see its provisions. (Proposed 2026-11-25: a context used in the children's own place,
-  which the component provides around every place it shows them in its own
-  view, is `AMBIGUOUS_CONTEXT`: RG-4c reads it at the caller. S-context-5.)
+  passed to a component are owned where it shows them (RG-4c, proposed
+  2026-11-25: it only shows them), so they see its provisions. S-context-4.
   What a fn uses and does not provide itself is used at each
   call of it. A component never applied, or applied only recursively, is
   undecidable and not checked (the runtime's `ContextNotFound` remains).

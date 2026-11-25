@@ -761,7 +761,7 @@ export class Oracle {
     switch (m.k) {
       case "text": return R.createTextNode(m.s);
       case "style": return "";                                                            // CSS-4: removed from the view
-      case "read": { const g = () => { const v = this.ev(m.e, scope); return isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; }   // a view value (children) is inserted as structure
+      case "read": { const view = !!given(m.e, scope.given)?.held; const g = () => { const v = this.ev(m.e, scope); return isView(v) || (view && v == null) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; }   // RG-4c: a view that was not given shows nothing;   // a view value (children) is inserted as structure
       case "el": {
         if (m.tag === "") return this.fragment(m.children, scope, inEl);     // `<>…</>`
         const n = shownIn(m.tag), given = n && scope.lookup(n[0]);
@@ -775,7 +775,7 @@ export class Oracle {
           const fn = (params: string[], decls: Decl[], body: Markup[]) => (p: unknown) => { const s2 = new Scope(scope); for (const x of params) s2.vars.set(x, { k: "const", value: p }); return this.region(decls, body, s2); };
           for (const c of m.children) if (c.k === "mview" && c.prop) kids[c.prop] = fn(c.params, c.decls, c.body);
           const view = m.children.find(c => c.k === "mview" && !c.prop);
-          Object.defineProperty(kids, "children", takes ? { enumerable: true, value: view?.k === "mview" ? fn(view.params, view.decls, view.body) : content.some(c => c.k !== "text" || c.s.trim()) ? fn([], [], content) : undefined } : { enumerable: true, get: () => content.length === 1 && content[0].k === "read" && !placed(content[0].e) ? this.fragment(content, scope) : this.region([], content, new Scope(scope)) });   // RG-4c: content is a block of the caller's names, made and owned where it is shown; one `{e}` that asks nothing of its place is the value it is   // plain content, where a view is taken, is one that asks nothing
+          if (takes || content.some(c => c.k !== "text" || c.s.trim())) Object.defineProperty(kids, "children", takes ? { enumerable: true, value: view?.k === "mview" ? fn(view.params, view.decls, view.body) : content.some(c => c.k !== "text" || c.s.trim()) ? fn([], [], content) : undefined } : !content.some(c => c.k !== "text" || c.s.trim()) ? { enumerable: true, value: undefined } : { enumerable: true, get: () => content.length === 1 && content[0].k === "read" && (content[0].e.k === "fn" || !placed(content[0].e)) ? this.fragment(content, scope) : this.region([], content, new Scope(scope)) });   // RG-4c: content is a block of the caller's names, made and owned where it is shown; one `{e}` that asks nothing of its place is the value it is   // plain content, where a view is taken, is one that asks nothing
           const props = this.props(m, scope, kids);
           return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); s2.givens.set(comp.props, { props: { less: [], views: viewFields(comp.propsType, this.typeDecls) } }); return this.region(comp.decls, comp.view, s2); }, props);
         }
@@ -851,6 +851,6 @@ export function resetScopes() { Scope.all = []; }
 function placed(e: unknown): boolean {
   if (!e || typeof e !== "object") return false;
   if (Array.isArray(e)) return e.some(placed);
-  const o = e as { k?: string }; if (o.k === "fn") return false;
+  const o = e as { k?: string };
   return o.k === "use" || o.k === "await" || Object.values(e).some(placed);
 }

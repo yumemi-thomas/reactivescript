@@ -1827,7 +1827,7 @@ impl<'p> Gen<'p> {
             ExprKind::Pending(x) => rtc("isPending", vec![thunk(self.expr(x, env, &sub)?)]),
             ExprKind::If { c, t, f } => {
                 self.raw.insert(&**c as *const Expr);
-                let c = match if ctx.imp { None } else { self.asks(c, env, true)? } {
+                let c = match self.asks(c, env, true)? {
                     Some(a) => a,
                     None => self.expr(c, env, &sub)?,
                 };
@@ -2011,7 +2011,7 @@ impl<'p> Gen<'p> {
             ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
             ExprKind::Bin { op, l, r } => {
                 // RG-4c: a view asked for is not made
-                if !ctx.imp {
+                {
                     if let Some(a) = self.asks(e, env, false)? {
                         return Ok(a);
                     }
@@ -2036,10 +2036,8 @@ impl<'p> Gen<'p> {
                 }
             }
             ExprKind::Un { op, e: x } => {
-                if !ctx.imp {
-                    if let Some(a) = self.asks(e, env, false)? {
-                        return Ok(a);
-                    }
+                if let Some(a) = self.asks(e, env, false)? {
+                    return Ok(a);
                 }
                 self.raw.insert(&**x as *const Expr);
                 E::Un(static_op(op), Box::new(self.expr(x, env, &sub)?))
@@ -2373,7 +2371,7 @@ impl<'p> Gen<'p> {
             // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another
             // value is formatted (a JS library hands a component its text as an array of strings)
             MarkupKind::Read(e) => {
-                let kids = self.given(e, env) == Some(Given::Children);
+                let kids = self.given(e, env).is_some_and(|g| g.held()); // RG-4c: a view that was not given shows nothing
                 Child::Expr(rtc(if kids { "kids" } else { "show" }, vec![self.expr(e, env, &re)?]))
             }
             MarkupKind::El { tag, children, .. } if tag.is_empty() => {
@@ -2439,9 +2437,6 @@ impl<'p> Gen<'p> {
                 let rest: Vec<&Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
                 if rest.is_empty() {
                     // MO-11: a JS component gets JSX's own `<X />`, with no children prop
-                    if shape != Some(FShape::Comp) {
-                        xs.push(("children".into(), AttrValue::Expr(E::Arr(vec![]))));
-                    }
                     return Ok(Some(el(name, xs, vec![], true)));
                 }
                 if shape != Some(FShape::Comp) {
@@ -2457,7 +2452,7 @@ impl<'p> Gen<'p> {
                 }
                 // RG-4c: content is a block of the caller's names, made and owned where it is shown. One `{e}` that asks
                 // nothing of its place (no `use`, no `await`) is given as the value it is: a function prop is one
-                let lone = matches!(&rest[..], [Markup { kind: MarkupKind::Read(e), .. }] if !placed(&e.to_json()));
+                let lone = matches!(&rest[..], [Markup { kind: MarkupKind::Read(e), .. }] if matches!(e.k, ExprKind::Fn { .. }) || !placed(&e.to_json()));
                 let blank = rest.iter().all(|c| matches!(&c.kind, MarkupKind::Text(t) if t.trim().is_empty()));
                 if !lone && !blank {
                     let r = self.region(&[], children, env)?; // a named view among them is an attribute: no child
@@ -2715,7 +2710,6 @@ fn placed(v: &serde_json::Value) -> bool {
     match v {
         serde_json::Value::Array(xs) => xs.iter().any(placed),
         serde_json::Value::Object(o) => match o.get("k").and_then(|k| k.as_str()) {
-            Some("fn") => false,
             Some("use" | "await") => true,
             _ => o.values().any(placed),
         },

@@ -176,6 +176,7 @@ export class Runtime {
   /** 09 MO-1: each imported module's region, instantiated once, dependencies first; its state is app state. */
   modules = new Map<string, Region>();
   private shown: Map<unknown, Map<string, Shown>>;   // RG-4c
+  providing: Node | null = null;                       // RG-7b: the provision being computed reads what is above it
   private held: Set<unknown>;                          // RG-4c: the readers that show a component's children
   constructor(input: Program | ModuleSet) {
     const set = "programs" in input ? input : singleModule(input);
@@ -207,7 +208,7 @@ export class Runtime {
       if (d.k === "fn") region.scope.set(d.name, { fn: d, home: region }); if (d.k === "component") region.scope.set(d.name, { comp: d, home: region }); if (d.k === "action") region.scope.set(d.name, { action: d, home: region }); }
     for (const d of decls) {                                           // E-7: equations are a system
       if (d.k === "eq" && !this.instantiates(d.e, region)) { for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x); const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.ownPre = readsOwn(d.e, d.name); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
-      if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(this.ctxNamed(d.name, region), b instanceof Node ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
+      if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(this.ctxNamed(d.name, region), b instanceof Node && b.kind === "source" ? b : ((): Node => { const n: Node = this.mkNode("eq", `provide ${d.name}`, region, rt => { const was = rt.providing; rt.providing = n; try { return rt.evalExpr(d.e, region); } finally { rt.providing = was; } }); return n; })()); }   // a provided source is the source (O-4)
       if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
       else if (d.k === "source") { const n = this.mkNode("source", d.name, region); n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
     }
@@ -978,7 +979,7 @@ export class Runtime {
   /** RG-7b: the nearest provision of a context above `region`, else its default. */
   private provisionOf(name: string, region: Region): Node {
     const c = this.ctxNamed(name, region);
-    for (let r: Region | null = region; r; r = r.parent) { const n = r.provided.get(c); if (n) return n; }
+    for (let r: Region | null = region; r; r = r.parent) { const n = r.provided.get(c); if (n && n !== this.providing) return n; }   // `provide c = use c`: what is above it
     if (c.context.dflt) { const de = c.context.dflt; return c.dflt ??= this.mkNode("eq", `${name} (default)`, c.home, rt => rt.evalExpr(de, c.home)); }
     throw new RuleError("RG-7b", `no provision for ${name}`);
   }
@@ -1254,7 +1255,8 @@ export class Runtime {
           const b = region.lookup(m.tag);
           if (!b || !("comp" in b)) throw new RuleError("SCOPE", `unknown component ${m.tag}`);
           const comp = b.comp; const r = new Region(region, this, region.boundary, b.home);   // owned at the application, names from the declaration (RG-7a, MO-6)
-          const views = new Set(["children"]); for (const c of m.children) if (c.k === "mview" && c.prop) views.add(c.prop);
+          const written = m.children.some(c => c.k === "mview" ? !c.prop : c.k !== "text" || !!c.s.trim()) || !!this.shown.get(comp)?.get("children");   // RG-4c: content that is written is the children; with none, a spread may give them
+          const views = new Set(written ? ["children"] : []); for (const c of m.children) if (c.k === "mview" && c.prop) views.add(c.prop);
           const props = this.spread({}, this.parts(m, region), views);
           for (const c of m.children) if (c.k === "mview" && c.prop) Object.defineProperty(props, c.prop, { enumerable: true, configurable: true, value: new ViewFn(c, region) });
           const takes = this.shown.get(comp)?.get("children"), content = m.children.filter(c => c.k !== "mview");
@@ -1262,7 +1264,7 @@ export class Runtime {
             const view = m.children.find(c => c.k === "mview" && !c.prop) ?? (content.some(c => c.k !== "text" || c.s.trim()) ? { k: "mview" as const, params: [], decls: [], body: content } : undefined);
             Object.defineProperty(props, "children", { enumerable: true, value: view?.k === "mview" ? new ViewFn(view, region) : undefined });
           }
-          if (!takes && !Object.getOwnPropertyDescriptor(props, "children")) Object.defineProperty(props, "children", { enumerable: true, value: content.some(c => c.k !== "text" || c.s.trim()) ? new ViewFn({ k: "mview", params: [], decls: [], body: content }, region, true) : undefined });   // RG-4c: content is a view that asks nothing, made at each place it is shown
+          if (!takes && written) Object.defineProperty(props, "children", { enumerable: true, value: new ViewFn({ k: "mview", params: [], decls: [], body: content }, region, true) });   // RG-4c: content is a view that asks nothing, made at each place it is shown
           r.scope.set(comp.props, { constant: props });
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };

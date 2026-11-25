@@ -537,9 +537,27 @@ export function onlyShown(d: { props: string; decls: Decl[]; view: Markup[] }): 
  *  named again by a projection of the props; asked whether it was given (`if props.children`, `!`, `== undefined`).
  *  `bad`: every other mention, by line. `kids`: the readers that show the children. `skip`: the fields the component
  *  shows as `<props.f … />`, which have their own rule (`otherMention`). */
-export type ViewUses = { kids: Set<unknown>; bad: { field: string; line: number }[] };
+export type ViewUses = { kids: Set<unknown>; bad: { field: string; line: number; how: string }[] };
+/** What refuses a view read as a value, and the way that is accepted, by what read it (`how`). */
+export function viewNotShown(comp: string, props: string, field: string, how: string): string {
+  const v = field === "props" || field === "view" ? `${props}.children` : `${props}.${field}`;
+  if (field === "props") return `${comp} is given views in ${props}, and gives ${props} whole to what is no component: a view is only shown — take the views out first, \`{ children, ...rest } = ${props}\`, and show them (\`{children}\`)`;
+  const tail: Record<string, string> = {
+    peek: `\`peek\` keeps nothing of it — show it where it goes, \`{${v}}\`: each place it is shown has its own, made there`,
+    source: `a source does not hold it — show it, \`{${v}}\`; to show it later, keep a source that says when: \`{if open { {${v}} }}\``,
+    effect: `an effect cannot watch it — whether one was given is \`${v} != undefined\``,
+    handler: `a handler or an action cannot read it — write a source there and show it under that: \`{if open { {${v}} }}\``,
+    closure: `a closure that answers it is not shown — show \`{${v}}\` there, or give it on as an argument typed \`View\`: \`<Q part={${v}} />\``,
+    record: `a record does not hold it — give each on as an argument typed \`View\`: \`<Q header={…} footer={…} />\``,
+    list: `a list does not hold it — write them one after the other: \`{${v}}{…}\``,
+    context: `a context does not carry it — give it on as an argument typed \`View\` of the component that shows it (\`<Q part={${v}} />\`), or let what is shown elsewhere be shown by a \`portal to(…)\` where it is written`,
+    argument: `a fn does not take it — a component does: \`<Q part={${v}} />\``,
+    value: `it is not read as a value (compared, written out, computed with) — \`{${v}}\` shows it, \`${v} != undefined\` asks whether one was given`,
+  };
+  return `${comp} is given a view, ${field === "view" ? "a prop typed View" : field}, and a view is only shown: ${tail[how] ?? tail.value}`;
+}
 export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, types: Types, skip: Set<string> = new Set()): ViewUses {
-  const kids = new Set<unknown>(), bad: { field: string; line: number }[] = [];
+  const kids = new Set<unknown>(), bad: { field: string; line: number; how: string }[] = [];
   const text = d.propsType === undefined ? undefined : expandType(d.propsType, types);
   const ct = text === undefined ? undefined : fieldType(text, "children");
   const childView = !skip.has("children") && (!ct || isViewType(ct.type));   // children typed as a function are a function (bug 34): called, as they were
@@ -554,14 +572,21 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
   const held = (e: Expr): string | undefined => { const g = given(e, look); return !g?.held || (g.held === "children" && !childView) ? undefined : g.held; };
   const form = (e: Expr): boolean => (e.k === "id" || e.k === "member") && held(e) !== undefined;
   const whole = (e: Expr): boolean => { const p = given(e, look)?.props; return !!p && ((childView && !p.less.includes("children")) || [...p.views].some(v => !p.less.includes(v))); };
-  const plain = (x: unknown, line: number): void => {
+  const HOW: Record<string, string> = { peek: "peek", rec: "record", arr: "list", call: "argument", source: "source", write: "source", optimistic: "source", provide: "context", effect: "effect", action: "handler", server: "handler" };
+  const plain = (x: unknown, line: number, how = "value"): void => {
     if (!x || typeof x !== "object") return;
-    if (Array.isArray(x)) { for (const y of x) plain(y, line); return; }
+    if (Array.isArray(x)) { for (const y of x) plain(y, line, how); return; }
     const o = x as O; if (typeof o.line === "number") line = o.line;
-    if (o.k === "id" || o.k === "pre") { const g = names.get(o.name); if (g?.held && held(o as Expr)) bad.push({ field: g.held, line }); else if (g?.props && whole({ k: "id", name: o.name })) bad.push({ field: "props", line }); return; }
-    if (o.k === "member") { if (held(o as Expr)) { bad.push({ field: o.p, line }); return; } if (given(o.o, look)?.props) return; plain(o.o, line); return; }
-    if (o.k === "omit" && given(o.e, look)?.props) { if (whole(o as Expr)) bad.push({ field: "props", line }); return; }
-    for (const v of Object.values(o)) plain(v, line);
+    if (how !== "handler" && how !== "effect") how = o.k === "fn" ? (typeof o.name === "string" ? "argument" : o.stmts ? "handler" : "closure") : HOW[o.k] ?? how;   // what reads it: the nearest, but a handler's or an effect's body whatever is in it
+    if (o.k === "id" || o.k === "pre") { const g = names.get(o.name); if (g?.held && held(o as Expr)) bad.push({ field: g.held, line, how }); else if (g?.props && whole({ k: "id", name: o.name })) bad.push({ field: "props", line, how }); return; }
+    if (o.k === "member") { if (held(o as Expr)) { bad.push({ field: o.p, line, how }); return; } if (given(o.o, look)?.props) return; plain(o.o, line, how); return; }
+    if (o.k === "omit" && given(o.e, look)?.props) { if (whole(o as Expr)) bad.push({ field: "props", line, how }); return; }
+    // whether one was given is a value like another, wherever it is asked
+    if (o.k === "un" && o.op === "!" && form(o.e)) return;
+    if (o.k === "bin" && /^[!=]==?$/.test(o.op) && form(o.l) && o.r.k === "lit" && o.r.v == null) return;
+    if (o.k === "if" && form(o.c)) { plain(o.t, line, how); plain(o.f, line, how); return; }
+    if (o.k === "bin" && o.op === "&&" && form(o.l)) { plain(o.r, line, how); return; }
+    for (const v of Object.values(o)) plain(v, line, how);
   };
   const test = (c: Expr, line: number): void => {
     if (form(c)) return;
@@ -581,9 +606,9 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
   const mk = (ms: Markup[], line: number): void => { for (const m0 of ms) {
     const m = m0 as O; const at = typeof m.line === "number" ? m.line : line;
     switch (m.k) {
-      case "read": ve(m.e, at); if (given(m.e, look)?.held === "children" && childView) kids.add(m0); break;
+      case "read": ve(m.e, at); if (held(m.e)) kids.add(m0); break;
       case "el": { const comp = /^[A-Z]/.test(m.tag) || shownIn(m.tag) !== undefined;
-        for (const a of m.attrs) { if (a.name === "..." ? !!given(a.e, look)?.props : comp && !/^on[A-Z:]/.test(a.name) && a.name !== "ref") { if (a.name !== "...") ve(a.e, at); } else plain(a.e, at); }
+        for (const a of m.attrs) { if (a.name === "..." ? !!given(a.e, look)?.props : comp && !/^on[A-Z:]/.test(a.name) && a.name !== "ref") { if (a.name !== "...") ve(a.e, at); } else plain(a.e, at, /^on[A-Z:]/.test(a.name) ? "handler" : "value"); }
         mk(m.children, at); break; }
       case "mif": test(m.c, at); dk(m.tDecls, at); mk(m.t, at); dk(m.fDecls, at); mk(m.f, at); break;
       case "mfor": plain(m.xs, at); dk(m.decls, at); mk(m.body, at); break;

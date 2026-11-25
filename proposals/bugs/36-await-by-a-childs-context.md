@@ -1,6 +1,6 @@
 # An await in children is asked where they are written
 
-<!-- frames branch=refused upstream=fail says-upstream="no flight q" -->
+<!-- frames branch=pass upstream=fail says-upstream="no flight q" -->
 ```rx
 import pure { fetch } from "./prelude"
 context c: string
@@ -23,7 +23,7 @@ export default component App() {
 
 The same table, in the reference: its interpreter is right, and its emitter asks `outer`.
 
-<!-- frames branch=fail upstream=pass runner=ref says-branch="AMBIGUOUS_CONTEXT" -->
+<!-- frames branch=pass upstream=pass runner=ref -->
 ```rx
 import pure { fetch } from "./prelude"
 context c: string
@@ -44,7 +44,7 @@ export default component App() {
 | 0 | mount | `wait` |
 | 1 | resolve "q" "ok" | `ok` |
 
-<!-- frames branch=refused upstream=fail runner=ref-compiled -->
+<!-- frames branch=pass upstream=fail runner=ref-compiled -->
 ```rx
 import pure { fetch } from "./prelude"
 context c: string
@@ -67,7 +67,7 @@ export default component App() {
 
 **On upstream (e650b85).** Accepted by both checkers. Compiled, and in the oracle, it asks `outer`: an `await` in a view is hoisted to the block it is written in (07 §3), which is above the provision. An `await` that is never reached is enough to see the rest of it, which is [33](33-use-in-children.md):
 
-<!-- frames branch=refused upstream=fail says-upstream="got 'out!'" -->
+<!-- frames branch=pass upstream=fail says-upstream="got 'out!'" -->
 ```rx
 import pure { fetch } from "./prelude"
 context c: string = "out"
@@ -89,3 +89,5 @@ export default component App() { <P>{use c}{false ? await fetch(use c) : "!"}</P
 **Instead.** The `await` in a block of the children, which has its own place: `{if true { x = await fetch(use c); <b>{x}</b> }}`.
 
 **Test.** `compiler/src/awaits.rs`.
+
+**On `proto-children-rule` (2026-11-25): fixed, by the rule.** [26](../26-children-are-shown.md): content is a block made where it is shown, so an `await` in it is hoisted into that block and asked there, once for each place. The four programs above are right in every runner. The crate's gate (92 lines of `awaits.rs`) is gone, and its eighteen programs that were not compiled are compiled (`awaits.rs`, tests).

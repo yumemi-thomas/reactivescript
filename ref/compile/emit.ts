@@ -603,7 +603,7 @@ class Gen {
       }
       case "latest": return `__rt.latest(() => ${this.expr(e.e, env, { ...ctx, imp: false })})`;   // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
       case "pending": return `__rt.isPending(() => ${go(e.e)})`;
-      case "if": return `(${(!ctx.imp && this.asks(e.c, env, true)) || rawGo(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
+      case "if": return `(${this.asks(e.c, env, true) ?? rawGo(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
       case "throw": return `__rt.throw(${go(e.e)})`;                                          // R-f-3
       case "catch": {                                                                           // R-f-4: over a sync value, or the tail await's promise/stream
         if (!ctx.imp && this.hoistedCatch.has(e)) return `${this.hoistedCatch.get(e)}()`;
@@ -645,13 +645,13 @@ class Gen {
       }
       case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
-        if (!ctx.imp) { const a = this.asks(e, env, false); if (a) return a; if (e.op === "&&") { const l = this.asks(e.l, env, true); if (l) return `(${l} && ${go(e.r)})`; } }   // RG-4c: asked, not made
+        { const a = this.asks(e, env, false); if (a) return a; if (e.op === "&&") { const l = this.asks(e.l, env, true); if (l) return `(${l} && ${go(e.r)})`; } }   // RG-4c: asked, not made
         if (e.op !== "??" && e.op !== "||" && e.op !== "&&") { this.raw.add(e.l); this.raw.add(e.r); }   // MO-10i: an operator that makes a primitive keeps nothing of what it reads
         if (e.op === "==") return `__rt.eq(${go(e.l)}, ${go(e.r)})`;
         if (e.op === "!=") return `!__rt.eq(${go(e.l)}, ${go(e.r)})`;
         return `(${go(e.l)} ${e.op} ${go(e.r)})`;
       }
-      case "un": return (!ctx.imp && this.asks(e, env, false)) || `(${e.op}${rawGo(e.e)})`;
+      case "un": return this.asks(e, env, false) ?? `(${e.op}${rawGo(e.e)})`;
       case "draft": throw new CompileError("a draft is an equation's whole expression");
       case "spread": throw new CompileError("spread outside an array literal");
       case "omit": return `__rt.omit(${[go(e.e), ...e.keys.map(k => J(k))].join(", ")})`;   // RG-4b: Solid's live view
@@ -748,9 +748,9 @@ class Gen {
     return decls.some(x => x.k === "provide") ? `${pad}return __rt.inst(() => {\n${b}\n${pad}});` : b;
   }
   /** RG-4c: a component's content, a block of the caller's names that is made where it is shown. One `{e}` that asks
-   *  nothing of its place (no `use`, no `await`) is given as the value it is: a function prop is one. */
+   *  nothing of its place (no `use`, no `await`), or is one closure, is given as the value it is: a function prop is one. */
   private content(kids: Markup[], env: Env, ind: number): string {
-    if (kids.length === 1 && kids[0].k === "read" && !placed(kids[0].e)) return this.child(kids[0], env, ind);
+    if (kids.length === 1 && kids[0].k === "read" && (kids[0].e.k === "fn" || !placed(kids[0].e))) return this.child(kids[0], env, ind);
     return this.region([], kids, env, ind);
   }
   private region(decls: Decl[], view: Markup[], env: Env, ind: number): string { return `{(${this.regionFn(decls, view, env, ind)})()}`; }
@@ -766,7 +766,7 @@ class Gen {
       // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another value
       // is formatted. A JS library hands a component its text as an array of strings (solid-marked's paragraphs), which
       // `show` would print as the list it also is (2026-11-24)
-      case "read": return `{__rt.${given(m.e, n => env.lookup(n)?.given)?.held === "children" ? "kids" : "show"}(${this.expr(m.e, env, re)})}`;
+      case "read": return `{__rt.${given(m.e, n => env.lookup(n)?.given)?.held ? "kids" : "show"}(${this.expr(m.e, env, re)})}`;
       case "el": {
         if (m.tag === "") return this.markup(m.children, env, ind);
         { const p = this.shownFrom(m.tag, env); if (p) return `{__rt.view(${p.view}, V$view => <V$view${m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("")} />${p.mixed ? ", true" : ""})}`; }   // RG-4c: the view the component was given, applied (plain content, as it is)
@@ -781,7 +781,7 @@ class Gen {
           if (view) return `<${b.js}${props}>{${this.regionFn(view.decls, view.body, env, ind + 2, viewParam(view), e => { for (const p of view.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}</${b.js}>`;
           if (kids.length === 1 && kids[0].k === "read" && (kids[0].e.k === "fn" || given(kids[0].e, n => env.lookup(n)?.given)?.held)) return `<${b.js}${props}>${this.child(kids[0], env, ind + 1)}</${b.js}>`;   // one closure is a function prop (RG-4c), a value; children given on are made where they are shown, as they are
           return kids.some(c => c.k !== "text" || c.s.trim()) ? `<${b.js}${props}>${this.content(kids, env, ind + 1)}</${b.js}>` :   // RG-4c: content is a block of the caller's names, made and owned where it is shown
-            kids.length ? `<${b.js}${props}>${kids.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : b.shape === "comp" ? `<${b.js}${props} />` : `<${b.js}${props} children={[]} />`;   // MO-11: a JS component gets JSX's own <X />
+            kids.length ? `<${b.js}${props}>${kids.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : `<${b.js}${props} />`;   // MO-11: a JS component gets JSX's own <X />
         }
         let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");
         if (this.styleHash && !m.attrs.some(a => a.name === "class")) attrs += ` class=${J(this.styleHash)}`;   // CSS-2: every HTML element of the view
@@ -819,11 +819,11 @@ class Gen {
   }
 }
 
-/** Whether an expression asks something of the place it is evaluated at: a `use`, an `await` (not in a closure, which is a value). */
+/** Whether an expression asks something of the place it is evaluated at: a `use`, an `await`, also in a closure it calls there. */
 function placed(e: unknown): boolean {
   if (!e || typeof e !== "object") return false;
   if (Array.isArray(e)) return e.some(placed);
-  const o = e as { k?: string }; if (o.k === "fn") return false;
+  const o = e as { k?: string };
   return o.k === "use" || o.k === "await" || Object.values(e).some(placed);
 }
 /** An expression written out as a constant: a literal, or an array, a record, a template or a sign over them. */

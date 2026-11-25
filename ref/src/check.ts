@@ -6,7 +6,7 @@ import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
-import { expandType, onlyShown, otherMention, shown, shownIn, typesOf, viewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
+import { expandType, onlyShown, otherMention, shown, shownIn, typesOf, viewUses, viewNotShown, type ModuleSet, type Shown, type Types } from "./modules.ts";
 import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
@@ -1431,7 +1431,7 @@ class Checker {
         this.bind(inner, d.props, { kind: "props", name: d.props, region: r, line: d.line, ...(d.noProps ? { noProps: d.name } : {}), ...(ph ? { held: ph, ...(d.propsType !== undefined ? { retTy: fieldRows(d.propsType).text } : {}) } : {}) });
         sym.compEnv = inner;
         { const fs = this.shownBy(sym); const o = fs && otherMention(d, fs); if (o) { const at = this.line; this.line = o.line || d.line; const p = `${d.props}.${o.field}`; this.err("VIEW_FN_MISPLACED", "RG-4c", `${d.name} shows ${p} as a view, \`<${p} … />\`: it is named nowhere else (not read, called, stored, passed or spread; \`if ${p}\` asks for an optional one that takes no plain content, and \`{ ${o.field}: none, ...rest } = ${d.props}\` leaves it out of a rest)`); this.line = at; } }
-        { const o = viewUses(d, this.types, new Set(this.shownBy(sym)?.keys() ?? [])).bad[0]; if (o) { const at = this.line; this.line = o.line || d.line; this.err("VIEW_NOT_SHOWN", "RG-4c", `${d.name} is given ${o.field === "props" ? `views in ${d.props}` : `a view, ${o.field}`}: a view is shown (\`{${d.props}.children}\`), given on to a component, or asked for (\`if ${d.props}.children\`, \`${d.props}.children ?? …\`) — it is not read as a value (an equation of it that is no projection, a source, \`peek\`, an effect, a handler, a closure, a record, a list, a context, an argument of a fn). Each place it is shown has its own, owned there`); this.line = at; } }
+        { const o = process.env.RX_VIEW_WIDE ? undefined : viewUses(d, this.types, new Set(this.shownBy(sym)?.keys() ?? [])).bad[0]; if (o) { const at = this.line; this.line = o.line || d.line; this.err("VIEW_NOT_SHOWN", "RG-4c", viewNotShown(d.name, d.props, o.field, o.how)); this.line = at; } }
         this.block(d.decls, d.view, inner, { scope: "reactive" });
         this.later.push(() => this.contentCheck(d.view, inner, []));
         return;
@@ -3198,19 +3198,6 @@ class Checker {
     let out: Set<string> | undefined;
     if (shown && at.every(r => r.component === comp)) for (const r of at) { const ns = this.above(r); out = out ? new Set([...out].filter(k => ns.has(k))) : ns; }
     out ??= new Set(); this.aroundMemo.set(key, out); return out;
-  }
-  /** RG-4c says that a component's children are read at the caller, RG-7b and 08 that a context read in them is read where they are
-   *  shown. Where the component provides that context around them, the two differ: it is refused. */
-  private ambiguousUses() {
-    for (const u of this.kidUses) for (let r = u.region; r.kids; r = r.kids.site) {
-      const { comp, site, view } = r.kids;
-      const s = this.compSyms.get(comp); if (view !== undefined || comp.sig?.props.children?.view || (s && this.shownBy(s)?.has("children"))) break;   // a view, and plain content that is one (RG-4c), is a block
-      if (this.around(comp, "children").has(u.key)) {
-        const tag = this.apps.find(a => a.comp === comp && a.site === site)?.tag ?? ""; this.line = u.line;
-        this.err("AMBIGUOUS_CONTEXT", "RG-7b", `${u.name} is used in <${tag}>'s children, and <${tag}> provides it around them: whether that is read there or where it is written is not settled — bind it above (\`v = use ${u.name}\`) for what is provided here, or read it in a component of its own or in a block (\`{if true { v = use ${u.name} … }}\`) for what <${tag}> provides`);
-        break;
-      }
-    }
   }
   private readsChildren(e: Expr, env: Env) { return e.k === "member" && e.p === "children" && e.o.k === "id" && env.lookup(e.o.name)?.kind === "props"; }
   /** SV-7d: every element, text and component root of a view against the elements open above it (in this view; a view's

@@ -1,6 +1,6 @@
 # A context read in a component's children is read at the caller
 
-<!-- frames branch=refused upstream=fail says-upstream="no provision for toggle" -->
+<!-- frames branch=pass upstream=fail says-upstream="no provision for toggle" -->
 ```rx
 context toggle: { pressed: boolean }
 component Toggle(props: { children: View }) {
@@ -22,7 +22,7 @@ export default component App() {
 
 **On upstream (e650b85).** Accepted by both checkers, and right in the interpreter. Compiled, it depends on the target. A fresh mount in a browser throws *no provision for toggle*. The server's output shows `off!`, and its hydration throws. Where the caller has a provision of its own, or the context has a default, the mount reads that one, in silence.
 
-<!-- frames branch=fail upstream=pass runner=ref says-branch="AMBIGUOUS_CONTEXT" -->
+<!-- frames branch=pass upstream=pass runner=ref -->
 ```rx
 context toggle: { pressed: boolean }
 component Toggle(props: { children: View }) {
@@ -40,7 +40,7 @@ export default component App() {
 | 0 | mount | `off` |
 | 1 | handler `lit := true` | `on` |
 
-<!-- frames branch=refused upstream=fail runner=ssr says-upstream="page.evaluate: Error: RG-7b: no provision for toggle" -->
+<!-- frames branch=pass upstream=fail runner=ssr says-upstream="page.evaluate: Error: RG-7b: no provision for toggle" -->
 ```rx
 context toggle: { pressed: boolean }
 component Toggle(props: { children: View }) {
@@ -70,3 +70,5 @@ Of 1,116 programs made for it (31 ways to show children, 15 forms of children), 
 **Test.** S-context-5 (refused, and what is not); S-context-4 (what a fix must not change).
 
 **Instead.** A child component that reads the context, or the read in a block of the children: `{if true { t = use toggle; <b>{t.pressed ? "on" : "off"}</b> }}`.
+
+**On `proto-children-rule` (2026-11-25): fixed, by the rule.** [26](../26-children-are-shown.md): a component only shows a view it is given, so the read that had to stay the caller's (a snapshot, a context's value, a second read in one computation) is refused, and content is emitted as a block that binds its owner where it is shown. The three programs above are right in the interpreter, the oracle, both emitters, served and hydrated. `AMBIGUOUS_CONTEXT` is gone. What is said above of `proto-children` is as it was there.
