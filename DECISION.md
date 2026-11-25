@@ -488,6 +488,18 @@ each needed fixes first. Each finding was reproduced with the review's own progr
 | 979 | 822 agree, 157 refused | the same | nothing |
 | 505 (a context that holds a view) | 333 agree, 170 refused | 334 agree, 169 refused | one more accepted; the one "differ" is the oracle's kept rows |
 
+Served and hydrated, both emitters, the review's sets with their frames filled: p1 483 of 483, p2 328 of 328, p3 343
+of 344, s1 146 of 146, e1 74 of 74, v1 244 of 246, m1 112 of 113, t1 42 of 42, k1 3 of 3, o1 107 of 107 that its
+harness can read (22 have a `|` in a frame). The four that miss are the review's four, older than the branch and the
+same without its forms: a late fetch after hydration in a loop (two), an await under an inner `if` (one), and **the
+text of an explicit view in a `<tbody>`, which is accepted and moved by the browser's parser** (one: `<p.row … />`
+whose view is text; a context that holds a view refuses the same text). That last one is a hole of the content model
+that this work did not close.
+
+Suites on the final code: the four scenario runners 211 of 211, served and hydrated, the type pass, crate parity,
+lowering and projection parity, `cargo test`, `compiler/test/js-host.mjs` 17 of 17, `test/tsc.js` 56 of 56. The full
+suite was run once on the branch that holds this one merged (`rx-best`), not here.
+
 What is weaker than before: nothing is accepted that was refused for a reason that still holds, by the sets above.
 What changed its answer on purpose: a closure written in a provision reads what is above it (it read the provision);
 `x = use c; provide c = x` is `CYCLE` (it froze); `slot` has no `when`.
