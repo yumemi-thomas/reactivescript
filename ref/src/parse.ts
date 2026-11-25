@@ -766,7 +766,8 @@ function parseDecl(c: Cursor): Decl {
   if (c.keyword("fn")) {
     c.ws(); const name = c.bound("fn name"); c.ws(); c.expect("("); c.ws();
     const params: Param[] = [];
-    while (!c.startsWith(")")) { const ref = c.keyword("ref"); c.ws(); const pname = c.bound("param"); const type = optType(c); params.push({ name: pname, ref, type }); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    while (!c.startsWith(")")) { const ref = c.keyword("ref"); c.ws(); const pname = c.bound("param"); const opt = c.peek() === "?" && c.eat("?"); if (opt && ref) c.fail("a `ref` parameter is not optional (E-9a): a value parameter may be left out");
+      if (!opt && params.some(p => p.opt)) c.fail("an optional parameter is the last (E-9a): a required one follows"); const type = optType(c); params.push({ name: pname, ref, type, ...(opt ? { opt } : {}) }); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); const ret = optType(c, true); c.ws();
     if (c.eat("=>")) { c.ws(); return { k: "fn", name, params, decls: [], tail: parseExpr(c), line, ret }; }
     c.expect("{");

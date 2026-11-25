@@ -532,7 +532,7 @@ impl Proj<'_> {
                         params
                             .iter()
                             .map(|p| {
-                                let n = self.name(&p.name, sp, &mut at);
+                                let n = self.name(&p.name, sp, &mut at).t(if p.opt { "?" } else { "" });
                                 n.c(self.ann(&p.ty, sp, &mut at))
                             })
                             .collect(),

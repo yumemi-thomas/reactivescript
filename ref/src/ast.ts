@@ -45,7 +45,7 @@ export type Stmt = (
   | { k: "throw"; e: Expr }
 ) & { line?: number };                                             // the line the statement starts on, for diagnostics
 
-export type Param = { name: string; ref: boolean; type?: string };   // E-9; types are TS's, kept as text (07 §2)
+export type Param = { name: string; ref: boolean; type?: string; opt?: boolean };   // E-9; types are TS's, kept as text (07 §2); opt: `b?: T`, a trailing value parameter a call may leave out (E-9a)
 export type Decl =
   | { k: "source"; name: string; init: Expr; line: number; question?: boolean; type?: string; exported?: boolean; key?: string }   // question: `source x = e` (ST-5)
   | { k: "eq"; name: string; e: Expr; line: number; deferred?: boolean; key?: string; type?: string; exported?: boolean }   // deferred: declared lag (V-16, D-40); key: ST-4

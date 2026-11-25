@@ -3117,7 +3117,7 @@ impl<'a> Checker<'a> {
             let mut sym = Sym::new(kind, name, region, d.line() as i64);
             let mut server_expr = None;
             match d {
-                Decl::Server { params, .. } => sym.params = Some(params.iter().map(|n| SigParam { name: n.clone(), r#ref: false, ty: None }).collect()),
+                Decl::Server { params, .. } => sym.params = Some(params.iter().map(|n| SigParam { name: n.clone(), r#ref: false, ty: None, opt: false }).collect()),
                 Decl::Source { question, key, init, ty, .. } => {
                     sym.made = Some((init, env, ty.as_deref()));
                     sym.question = *question;
@@ -3129,7 +3129,7 @@ impl<'a> Checker<'a> {
                     sym.outlasts = Some(action_waits(body)); // AC-1h
                 }
                 Decl::Fn { params, decls: fdecls, tail, .. } => {
-                    sym.params = Some(params.iter().map(|p| SigParam { name: p.name.clone(), r#ref: p.r#ref, ty: p.ty.clone() }).collect());
+                    sym.params = Some(params.iter().map(|p| SigParam { name: p.name.clone(), r#ref: p.r#ref, ty: p.ty.clone(), opt: p.opt }).collect());
                     sym.instantiating = instantiates(params, fdecls, tail);
                     sym.fn_decl = Some(d);
                     sym.decl_env = Some(env);
@@ -3181,7 +3181,7 @@ impl<'a> Checker<'a> {
                     if let Some(sf) = unwrap_server(e) {
                         sym.kind = SymKind::Server;
                         if let ExprKind::ServerFn { params, .. } = &sf.k {
-                            sym.params = Some(params.iter().map(|n| SigParam { name: n.clone(), r#ref: false, ty: None }).collect());
+                            sym.params = Some(params.iter().map(|n| SigParam { name: n.clone(), r#ref: false, ty: None, opt: false }).collect());
                         }
                         server_expr = Some(sf as *const Expr);
                     }
@@ -3341,7 +3341,7 @@ impl<'a> Checker<'a> {
                 ExportSig::Server { io, params, rejects } => {
                     let mut s = Sym::new(SymKind::Server, alias, region, line);
                     s.io = *io;
-                    s.params = Some(params.iter().map(|n| SigParam { name: n.clone(), r#ref: false, ty: None }).collect());
+                    s.params = Some(params.iter().map(|n| SigParam { name: n.clone(), r#ref: false, ty: None, opt: false }).collect());
                     s.server_rejects = Some(ServerRejects::Fixed(set(rejects)));
                     s
                 }
@@ -3566,7 +3566,7 @@ impl<'a> Checker<'a> {
                             self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{} is declared io in {} (`export fn`, not `export pure fn`); `pure` on the import cannot lower it", name, file));
                         }
                         let mut s = Sym::new(SymKind::Fn, alias, region, line);
-                        s.params = Some(xparams.iter().enumerate().map(|(i, n)| SigParam { name: n.clone(), r#ref: refs.get(i).copied().unwrap_or(false), ty: None }).collect());
+                        s.params = Some(xparams.iter().enumerate().map(|(i, n)| SigParam { name: n.clone(), r#ref: refs.get(i).copied().unwrap_or(false), ty: None, opt: false }).collect());
                         s.instantiating = true;
                         s.generated = generated.clone();
                         s.makes = *xmakes;
@@ -10620,6 +10620,30 @@ mod tests {
 
     /// 06 AC-3 (2026-11-22): a guess in a run that starts nothing to wait for has no hold, and the first guess written
     /// after an `await` is advised. `ref/units.ts` holds the same cases.
+    #[test]
+    fn an_optional_parameter_is_the_last_and_is_printed() {
+        // E-9a, MO-9b; `ref/units.ts` holds the same cases
+        let says = |ps: &str| match crate::parse::parse_program(&format!("export fn f({ps}) => 1\n")) {
+            Ok(p) => match &p.decls[0] {
+                Decl::Fn { params, .. } => params.iter().map(|q| format!("{} {} {} {}", if q.r#ref { "ref" } else { "" }, q.name, if q.opt { "?" } else { "" }, q.ty.as_deref().unwrap_or(""))).collect::<Vec<_>>().join(","),
+                _ => String::new(),
+            },
+            Err(e) => if e.to_string().contains("E-9a") { "E-9a" } else { "PARSE" }.to_string(),
+        };
+        assert_eq!(
+            ["a: number, b?: number", "a?, b?", "ref a, b?: { x?: number }", "a ? : number", "a? : T", "a?: number, b", "a?: number, ref b", "ref a?: number", "...a"].map(says),
+            [" a  number, b ? number", " a ? , b ? ", "ref a  , b ? { x?: number }", "PARSE", " a ? T", "E-9a", "E-9a", "E-9a", "PARSE"]
+        );
+        let src = "export fn f(a: number, b?: { x?: number }, c?) => 1\nexport fn g(ref a: number, b?: () => void) { x = a + 1\n  x }\n";
+        let set = load_modules("/a.rx", &|p: &str| (p == "/a.rx").then(|| src.to_string())).unwrap();
+        let text = crate::signature::print_signature(&check_modules(&set, false).sigs["/a.rx"]);
+        assert_eq!(text.trim().split('\n').skip(1).collect::<Vec<_>>(), ["export pure fn f(a: number, b?: { x?: number }, c?)", "export pure fn g(ref a: number, b?: () => void) instantiates"]);
+        let back = crate::signature::parse_signature(&text, "/a.rx").unwrap();
+        assert_eq!(crate::signature::print_signature(&back), text);
+        let opts: Vec<Vec<(String, bool)>> = back.exports.values().map(|e| if let ExportSig::Fn { params, .. } = e { params.iter().map(|p| (p.name.clone(), p.opt)).collect() } else { vec![] }).collect();
+        assert_eq!(opts, [vec![("a".to_string(), false), ("b".to_string(), true), ("c".to_string(), true)], vec![("a".to_string(), false), ("b".to_string(), true)]]);
+    }
+
     #[test]
     fn the_parts_of_what_a_fn_answers_are_in_its_signature() {
         // MO-13i, MO-9b

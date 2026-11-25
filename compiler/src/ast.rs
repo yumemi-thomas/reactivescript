@@ -177,6 +177,8 @@ pub struct Param {
     pub name: String,
     pub r#ref: bool,
     pub ty: Option<String>,
+    /// `b?: T`, a trailing value parameter a call may leave out (E-9a)
+    pub opt: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -825,7 +827,7 @@ impl Decl {
             Decl::Fn { name, params, decls, tail, line, ret, exported, .. } => obj(vec![
                 ("k", s("fn")),
                 ("name", s(name)),
-                ("params", Some(Value::Array(params.iter().map(|p| obj(vec![("name", s(&p.name)), ("ref", Some(Value::Bool(p.r#ref))), ("type", os(&p.ty))])).collect()))),
+                ("params", Some(Value::Array(params.iter().map(|p| obj(vec![("name", s(&p.name)), ("ref", Some(Value::Bool(p.r#ref))), ("type", os(&p.ty)), ("opt", p.opt.then_some(Value::Bool(true)))])).collect()))),
                 ("decls", Some(decls_json(decls))),
                 ("tail", Some(tail.to_json())),
                 ("line", num(*line)),

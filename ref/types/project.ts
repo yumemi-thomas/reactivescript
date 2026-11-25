@@ -218,7 +218,7 @@ class Proj {
     }
     for (const d of ds) {
       if (d.k === "fn") {
-        const ps = d.params.map(p => `${p.name}${ann(p.type)}`).join(", ");
+        const ps = d.params.map(p => `${p.name}${p.opt ? "?" : ""}${ann(p.type)}`).join(", ");
         if (!d.decls.length) { this.w.emit(`${ind}${ex(d)}function ${d.name}(${ps})${ann(d.ret)} { return ${this.expr(d.tail, false)}; }`, d.line); continue; }
         this.w.emit(`${ind}${ex(d)}function ${d.name}(${ps})${ann(d.ret)} {`, d.line); this.decls(d.decls, ind + "  "); this.w.emit(`${ind}  return ${this.expr(d.tail, false)};\n${ind}}`, d.line);
       }

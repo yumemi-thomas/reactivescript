@@ -219,6 +219,12 @@ Function application `f(e…)` covers both language functions and FFI imports;
   effect, or region, or reads a context (`use`, 03 RG-7b), is an
   **instantiation** (03 RG-6): it happens once at the call site. In an instantiation, value arguments are snapshots (E-4) and ref
   arguments are passed as equations.
+- **E-9a (Optional parameter).** (Proposed 2026-11-25.) A value parameter may
+  be written `b?: T`, after every required parameter; it is `T | undefined`
+  in the body. A call may leave it out: `f(a)` is `f(a, undefined)`, in a
+  lifted call and in an instantiation, from `.rx` and from JavaScript. A
+  `ref` parameter is not optional, and there is no default and no rest.
+  S-optional-1.
 - **E-11 (Lazy conditional).** In `c ? a : b` as an expression, only
   the selected arm is demanded; the equation's inputs are `c`'s plus the
   selected arm's, and change as `c` changes. The unselected arm is neither

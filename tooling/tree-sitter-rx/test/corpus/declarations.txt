@@ -530,3 +530,27 @@ server fn load(id: number): Row
           (identifier)
           (arguments
             (identifier)))))))
+
+================================================================================
+An optional parameter
+================================================================================
+
+fn cut(s: string, n?: number): string => s
+
+--------------------------------------------------------------------------------
+
+(program
+  (fn_declaration
+    (identifier)
+    (formal_parameters
+      (required_parameter
+        (identifier)
+        (type_annotation
+          (predefined_type)))
+      (optional_parameter
+        (identifier)
+        (type_annotation
+          (predefined_type))))
+    (type_annotation
+      (predefined_type))
+    (identifier)))
