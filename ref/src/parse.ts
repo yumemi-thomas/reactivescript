@@ -715,7 +715,7 @@ function parseDecl(c: Cursor): Decl {
   }
   if (/^(type|interface)\b/.test(c.src.slice(c.i))) {                // a TS type declaration: kept as text, not a binding
     const t0 = c.i; c.keyword("type") || c.keyword("interface");
-    c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws();
+    c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); typeParams(c); c.ws();   // 07 §2: `type Item<T> = …`, TypeScript's text
     if (c.eat("=")) { c.ws(); parseType(c, false, true); } else { c.expect("{"); c.i = closes(c.src, c.i - 1) ?? c.src.length; }
     return { k: "typedecl", name, line, text: c.src.slice(t0, c.i) };
   }
@@ -777,13 +777,13 @@ function parseDecl(c: Cursor): Decl {
     return { k: "fn", name, params, decls, tail, line, ret, ...(tparams ? { tparams } : {}) };
   }
   if (c.keyword("component")) {
-    c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); c.expect("("); c.ws();
+    c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); const tparams = typeParams(c); c.ws(); c.expect("("); c.ws();   // 07 §2: `component List<T>(…)`
     const sig = c.peek() === "{" ? parsePattern(c) : null;           // RG-4b: `component C({ a, b })` — each name a projection of props
     const noneDeclared = !sig && c.peek() === ")";
     const props = sig || c.peek() === ")" ? "props" : (c.bound("props name")); const propsType = optType(c); c.ws(); c.expect(")"); c.ws(); c.expect("{");   // `component C()`: no props (found by S-ai2-tracker)
     const { decls, body } = parseBlockBody(c);
     if (sig) { const names: { name: string; e: Expr; line: number }[] = []; expandPattern(sig, { k: "id", name: props }, names); decls.unshift(...names.map(n => ({ k: "eq" as const, name: n.name, e: n.e, line: n.line }))); }
-    return { k: "component", name, props, decls, view: body, line, propsType, ...(!sig && props === "props" && noneDeclared ? { noProps: true } : {}) };
+    return { k: "component", name, props, decls, view: body, line, propsType, ...(!sig && props === "props" && noneDeclared ? { noProps: true } : {}), ...(tparams ? { tparams } : {}) };
   }
   const save = c.i;
   const name = c.ident();

@@ -11,7 +11,7 @@ import { packageRelative, besideDeclaration, isPrintedSignature, relativeModule 
 import { looksLikeTypes, quotedEnd, parseProgram, parseDeclarations, holdsComponent, fieldRows } from "./src/parse.ts";
 import { printSignature, parseSignature } from "./src/signature.ts";
 import { parseScenario } from "./src/scenario.ts";
-import { loadModules, hostProgram } from "./src/modules.ts";
+import { loadModules, hostProgram, applyAlias, typeParamNames, expandType } from "./src/modules.ts";
 import { checkModules, tyStep, tyScalar } from "./src/check.ts";
 
 const files = (fs: Record<string, string>) => (p: string) => fs[p];
@@ -596,6 +596,21 @@ export const units: [string, () => void][] = [
     deepStrictEqual(text.trim().split("\n").slice(1), ["export pure fn f<T>(xs: T[], by: (x: T) => number)", "export pure fn g< T extends (x: Array<Array<number>>) => string, U = T >(ref a: T) instantiates", "export pure fn h(a)"]);
     deepStrictEqual(printSignature(parseSignature(text, "/a.rx")), text);
     for (const e of ["a<b>(c)", "a<b && b>(c)", "[a<b, b>(c)]"]) deepStrictEqual([e, parseProgram(`fn f(a, b, c) => ${e}\n`).decls[0]], [e, parseProgram(`fn f(a, b, c) => ${e.replace("a<b", "a < b").replace("b>(", "b > (")}\n`).decls[0]]);
+  }],
+  ["a_generic_alias_is_read_with_its_arguments", () => {   // 07 §2; `compiler/src/modules.rs` holds the same cases
+    const says = (body: string, tp: string, args: string[]) => applyAlias(body, tp, args) ?? "-";
+    deepStrictEqual([
+      says("{ children: C; n: A }", "<A, C = View>", ["number"]), says("{ children: C; n: A }", "<A, C>", ["number"]), says("{ T: T; f: (T: number) => T; g: X.T }", "<T>", ["string"]),
+      says("{ v: T }", "<T>", ["a | b"]), says("T extends (infer U)[] ? U : never", "<T>", ["number[]"]), says("T extends (infer T)[] ? T : never", "<T>", ["x"]), says("{ [T in K]: 1 }", "<T, K>", ["a", "b"]),
+      says("{ f: <T>(x: T) => T }", "<T>", ["a"]), says("{ v: T }", "<T>", ["a", "b"]), says("{ a: \"T\"; b: T }", "<T extends string = \"x\">", []), says("(x: T) => U", "<T, U = (y: T) => void>", ["n"]),
+    ], ["{ children: View; n: number }", "-", "{ T: string; f: (T: number) => string; g: X.T }", "{ v: (a | b) }", "number[] extends (infer U)[] ? U : never", "-", "-", "-", "-", "{ a: \"T\"; b: \"x\" }", "(x: n) => ((y: T) => void)"]);
+    deepStrictEqual(typeParamNames("<const T extends readonly string[], in out U = T, V>"), ["T", "U", "V"]);
+    const types = new Map([["Slot", "{ children: C }"], ["Slot<", "<C = View>"], ["Render", "(r: { item: T }) => View"], ["Render<", "<T>"]]);
+    deepStrictEqual([expandType("Slot", types), expandType("Slot<number>[]", types), expandType("View | Render<Row>", types), expandType("Other<Row>", types)], ["{ children: View }", "{ children: number }[]", "View | ((r: { item: Row }) => View)", "Other<Row>"]);
+    const src = "export type Item<T, U = string> = { v: T; label: U }\nexport type Render<T> = (r: { item: T }) => View\nexport component List<T extends { id: number }>(props: { items: T[]; children: Render<T> }) { <ul>{for x in props.items { <li><props.children item={x} /></li> }}</ul> }\n";
+    const sig = checkModules(loadModules("/a.rx", files({ "/a.rx": src }))).sigs.get("/a.rx")!; const text = printSignature(sig);
+    deepStrictEqual(text.trim().split("\n").slice(1), ["export type Item<T, U = string> = { v: T; label: U }", "export type Render<T> = (r: { item: T }) => View", "export component List<T extends { id: number }>(props: { items; children: view { item: T } value(item) }) shape(roots ul; closes-p; children-at ul li)"]);
+    deepStrictEqual(printSignature(parseSignature(text, "/a.rx")), text);
   }],
   ["the_parts_of_what_a_fn_answers_are_in_its_signature", () => {   // MO-13i, MO-9b
     const set = loadModules("/app/many.rx", files({ "/app/many.rx": "import pure { ask } from \"./ask.js\"\nexport fn many(ref n: number, first: number, cb: () => void) {\n  source s := first\n  x = n * 2\n  alias = x\n  action set(v: number) { s := v }\n  act = set\n  { x: x, alias: alias, act: act, \"data-x\": s, first: first, sum: first + 1, obj: first.y, cb: cb, f: (k) => k + x, list: [x, 1], cond: x > 1 ? set : null, u: peek x }\n}\nexport fn nested(ref n: number) {\n  m = many(n, 1, () => {})\n  q = await ask(n)\n  y = { m: m.act, r: m.x, deep: m.list[1], far: m.obj.z }\n  { ...y, q: q }\n}\nexport fn handed(ref n: number) {\n  m = many(n, 1, () => {})\n  y = { m: m.act, r: m.x, deep: m.list[1], far: m.obj.z }\n  { y: y, q: [m.cond] }\n}\nexport fn waits(ref n: number) {\n  q = await ask(n)\n  l = many(q, 1, () => {})\n  { q: q, x: l.x, n: n }\n}\nexport fn asks(ref n: number) {\n  { a: await ask(n) }\n}\nexport fn own(ref n: number) {\n  h = { at: n, was: pre h -> null }\n  h\n}\nexport fn nothing(ref n: number) {\n  effect (n) {}\n  null\n}\nexport fn self(ref n: number) {\n  s = self(n)\n  { s: s, n: n }\n}\nexport fn only() {\n  action go() {}\n  go\n}\nexport fn picked(ref n: number) {\n  action go() {}\n  n > 1 ? go : go\n}\nexport fn plain(n: number) => ({ n: n })\n" }));

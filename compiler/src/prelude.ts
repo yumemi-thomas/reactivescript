@@ -17,7 +17,11 @@ export declare function caught<T, R>(v: T, alt: (e: any) => R): T | R;
 export declare function raise(e: unknown): never;
 /** W-1/W-6: a write checks its value (or its function of the slot) against the target — whose type alone decides it. A
  *  function is applied, so one is no value here, whatever the target holds: Solid's Setter says the same. */
-export declare function set<T>(target: T): (v: Exclude<T, Function> | ((p: T) => T)) => void;
+/** What a source of T is written with (W-6: a function is applied to what it held, so a function is no value to write).
+ *  Read by a tuple's length, as `eq` is: a type parameter, which is not known, is written with itself (07 §2). */
+type HasFn<T> = 0 extends (1 & T) ? [] : [Extract<T, Function>] extends [never] ? [] : [1];
+type Written<T> = [...HasFn<T>]["length"] extends 1 ? Exclude<T, Function> : T;
+export declare function set<T>(target: T): (v: Written<T> | ((p: T) => T)) => void;
 /** …at a path, which may be a draft's: there a function can be the value (ST-3a). */
 export declare function setAt<T>(target: T): (v: T | ((p: T) => T)) => void;
 /** A source's type when none is written: its initializer's, widened — a source is written later (`""` is a string,

@@ -78,6 +78,8 @@ pub struct Own {
 /// MO-3: an exported component as an importer sees it.
 #[derive(Debug, Clone)]
 pub struct CompSig {
+    /// 07 §2: `<T>`, as text
+    pub tparams: Option<String>,
     /// MO-11j: a JS factory's component, exported from the module that made it (applied as JSX's `<X />`)
     pub made: bool,
     pub own: Vec<Own>,
@@ -135,7 +137,8 @@ pub enum ExportSig {
     Comp { sig: CompSig },
     Context { key: String, source: bool, dflt: bool, rows: Vec<String>, fails: Vec<String>, ty: Option<String> },
     /// what it stands for (RG-4c), where a signature can hold it
-    Type(Option<String>),
+    /// what it stands for, and its type parameters (07 §2)
+    Type(Option<String>, Option<String>),
 }
 /// MO-13i: what a fn's result is made of. An action; one value, read (`reader`: it changes, with the rows it is read with)
 /// or plain (made once), and the parts of it that are actions; a record or a tuple of such.
@@ -461,7 +464,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
         ),
         ExportSig::Action => format!("export action {}", name),
         ExportSig::ErrClass { params } => format!("export error {}({})", name, params.join(", ")),
-        ExportSig::Type(t) => format!("export type {}{}", name, t.as_ref().map(|t| format!(" = {t}")).unwrap_or_default()),
+        ExportSig::Type(t, tp) => format!("export type {}{}", name, t.as_ref().map(|t| format!("{} = {t}", tp.as_deref().unwrap_or(""))).unwrap_or_default()),
         ExportSig::Context { source, dflt, rows: r, fails, ty, .. } => {
             let t: Vec<String> = [if *source { "source".to_string() } else { String::new() }, rows(r, fails), ty.clone().unwrap_or_default()].into_iter().filter(|x| !x.is_empty()).collect();
             let t = t.join(" ");
@@ -506,8 +509,9 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                 .collect();
             let own: IndexSet<String> = s.own.iter().map(|o| o.cls.clone()).collect();
             format!(
-                "export component {}(props: {}){}{}{}{}{}{}",
+                "export component {}{}(props: {}){}{}{}{}{}{}",
                 name,
+                s.tparams.as_deref().unwrap_or(""),
                 if props.is_empty() { "{}".to_string() } else { format!("{{ {} }}", props.join("; ")) },
                 if s.made { " made" } else { "" },
                 if own.is_empty() { String::new() } else { format!(" fails({})", sorted(own).join(" | ")) },
@@ -556,7 +560,7 @@ re!(T_ERROR, r"^error\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\(([^)]*)\))?$");
 re!(T_SOURCE, r"^source\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::([^=].*?)?)??\s*(:?=)\s*…$");
 re!(T_SERVER, r"^server\s+(pure\s+)?fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$");
 re!(T_FN, r"^pure\s+fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(");
-re!(T_FN_TPARAMS, r"^pure\s+fn\s+[A-Za-z_$][A-Za-z0-9_$]*\s*<");
+re!(T_FN_TPARAMS, r"^(?:pure\s+fn|component)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*<");
 re!(T_FN_ROWS, r"^\s*(?::\s*(.*?))?\s*(?:\brejects\(([^)]*)\))?\s*(\binstantiates)?\s*(?:\buses\(([^)]*)\))?$");
 re!(P_FIELD, r"^([A-Za-z0-9_$-]+)\s*:\s*(.+)$");
 re!(P_LEAF, r"^(ref|value)(?:\s+(.*))?$");
@@ -697,7 +701,8 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             continue;
         }
         if let Some(m) = T_TYPE.captures(&s) {
-            exports.insert(m[1].to_string(), ExportSig::Type(m.get(2).map(|t| crate::parse::js_trim(t.as_str()).to_string())));
+            let h = crate::modules::alias_head(&s);
+            exports.insert(m[1].to_string(), ExportSig::Type(h.as_ref().map(|h| h.1.to_string()), h.and_then(|h| h.0)));
             continue;
         }
         if let Some(m) = T_ACTION.captures(&s) {
@@ -766,10 +771,10 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             );
             continue;
         }
-        if let Some((m, ps)) = T_COMP.captures(&s).and_then(|m| balanced(&s, m.get(0).unwrap().end() - 1).filter(|p| T_PROPS.is_match(p)).map(|p| (m, p))) {
+        if let Some((m, ps)) = T_COMP.captures(&bare).and_then(|m| balanced(&bare, m.get(0).unwrap().end() - 1).filter(|p| T_PROPS.is_match(p)).map(|p| (m, p))) {
             let props = T_PROPS.captures(ps).unwrap();
-            let m = [String::new(), m[1].to_string(), props[1].to_string(), s[m.get(0).unwrap().end() + ps.len() + 1..].to_string()];
-            let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new(), hosts: IndexMap::new(), through: false };
+            let m = [String::new(), m[1].to_string(), props[1].to_string(), bare[m.get(0).unwrap().end() + ps.len() + 1..].to_string()];
+            let mut sig = CompSig { tparams: tparams.clone(), made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new(), hosts: IndexMap::new(), through: false };
             let inner = &m[2][1..m[2].len() - 1];
             for f in split(inner, ';') {
                 let (fname0, spec) = match f.find(':') {

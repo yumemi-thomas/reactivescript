@@ -744,13 +744,169 @@ pub fn defaulted(e: &Expr, look: &dyn Fn(&str) -> Option<Given>) -> Option<Given
 }
 /// The fields declared `View` of a component's props, where its type is read: written out, a type of the module, one
 /// imported from `.rx`. One classification for the checker and the compiled module. `ref/src/modules.ts` `viewsOf`.
-pub fn views_of(props_type: Option<&str>, types: &Types, decls: &[Decl]) -> HashSet<String> {
+pub fn views_of(props_type: Option<&str>, types: &Types, decls: &[Decl], tparams: Option<&str>) -> HashSet<String> {
     let mut out = HashSet::new();
     if let Some(t) = props_type {
-        view_fields(t, decls, 0, &mut out);
-        view_fields(&expand_type(t, types, 0), &[], 0, &mut out);
+        let ps = tparams.map(type_param_names).unwrap_or_default();
+        view_fields(t, decls, 0, &mut out, &ps);
+        view_fields(&expand_type(t, &without(types, tparams), 0), &[], 0, &mut out, &[]);
     }
     out
+}
+/// 07 §2: the type parameter a generic component's children are declared (`children: T`, `children?: T | undefined`), if they are.
+pub fn children_param(props_type: Option<&str>, types: &Types, tparams: Option<&str>) -> Option<String> {
+    let ps = type_param_names(tparams?);
+    let (t, _) = field_type(&expand_type(props_type?, &without(types, tparams), 0), "children")?;
+    split_top(&t, "|").iter().map(|a| a.js_trim().to_string()).find(|a| ps.contains(a))
+}
+/// A function's type, written with no parentheses around it: `(r: T) => View`.
+pub fn fn_text(x: &str) -> bool {
+    x.starts_with('(') && crate::parse::closes(x, 0).is_some_and(|e| x[e..].js_trim().starts_with("=>"))
+}
+/// 07 §2: a module's types as a generic component reads its props: a type parameter's name is no type of the module there.
+pub fn without<'a>(types: &'a Types, tparams: Option<&str>) -> std::borrow::Cow<'a, Types> {
+    let ps: Vec<String> = tparams.map(type_param_names).unwrap_or_default().into_iter().filter(|n| types.contains_key(n)).collect();
+    if ps.is_empty() {
+        return std::borrow::Cow::Borrowed(types);
+    }
+    let mut out = types.clone();
+    for n in ps {
+        out.remove(&format!("{n}<"));
+        out.remove(&n);
+    }
+    std::borrow::Cow::Owned(out)
+}
+/// `type N<T> = body`, `interface N<T> { … }`: the parameters as written, and the body. `ref/src/modules.ts` `aliasHead`.
+pub fn alias_head(text: &str) -> Option<(Option<String>, &str)> {
+    let t = text.strip_prefix("export").map(|r| r.trim_start()).unwrap_or(text);
+    let (interface, r) = match t.strip_prefix("interface") {
+        Some(r) => (true, r),
+        None => (false, t.strip_prefix("type")?),
+    };
+    let r = r.trim_start();
+    let n = r.bytes().take_while(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$').count();
+    let mut r = r[n..].trim_start();
+    let mut tparams = None;
+    if r.starts_with('<') {
+        let e = crate::parse::closes(r, 0)?;
+        tparams = Some(r[..e].to_string());
+        r = &r[e..];
+    }
+    let r = r.js_trim();
+    if interface {
+        return Some((tparams, &r[r.find('{')?..]));
+    }
+    Some((tparams, r.strip_prefix('=')?.js_trim().trim_end_matches(';')))
+}
+/// The names of `<T extends X = Y, const U>`.
+pub fn type_param_names(tparams: &str) -> Vec<String> {
+    let t = tparams.js_trim();
+    if t.len() < 2 {
+        return vec![];
+    }
+    split_top(&t[1..t.len() - 1], ",").iter().filter_map(|p| type_param(p).map(|(n, _)| n)).collect()
+}
+/// One type parameter: its name, and what follows it (`extends X = Y`).
+fn type_param(p: &str) -> Option<(String, &str)> {
+    let mut r = p.js_trim();
+    loop {
+        let w = ["const", "in", "out"].iter().find_map(|w| r.strip_prefix(w).filter(|x| x.starts_with(|c: char| c.is_whitespace())));
+        match w {
+            Some(x) => r = x.js_trim(),
+            None => break,
+        }
+    }
+    let n = r.bytes().take_while(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$').count();
+    if n == 0 || r.as_bytes()[0].is_ascii_digit() {
+        return None;
+    }
+    Some((r[..n].to_string(), &r[n..]))
+}
+/// A generic alias applied, `Item<number>`: its body with each parameter's name replaced by its argument (a default where
+/// none is written). Not read (`None`): more arguments than parameters, a parameter with no argument and no default, a
+/// body that binds one of the names again (`infer T`, `[T in …]`, `<T>(…) => …`). `ref/src/modules.ts` `applyAlias`.
+pub fn apply_alias(body: &str, tparams: &str, args: &[String]) -> Option<String> {
+    let t = tparams.js_trim();
+    let mut map: Vec<(String, String)> = vec![];
+    let ps = split_top(&t[1..t.len() - 1], ",");
+    if args.len() > ps.len() {
+        return None;
+    }
+    for (i, p) in ps.iter().enumerate() {
+        let (name, tail) = type_param(p)?;
+        // what follows the first `=` that is not inside brackets and is no arrow's
+        let dflt = {
+            let (tb, mut depth, mut at) = (tail.as_bytes(), 0i32, None);
+            for i in 0..tb.len() {
+                match tb[i] {
+                    b'<' | b'(' | b'{' | b'[' => depth += 1,
+                    b')' | b'}' | b']' => depth -= 1,
+                    b'>' if i == 0 || tb[i - 1] != b'=' => depth -= 1,
+                    b'=' if tb.get(i + 1) != Some(&b'>') && depth == 0 => {
+                        at = Some(i + 1);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            at.map(|i| tail[i..].js_trim().to_string()).filter(|d| !d.is_empty())
+        };
+        let a = args.get(i).map(|a| a.js_trim().to_string()).filter(|a| !a.is_empty()).or(dflt)?;
+        map.push((name, if a.contains(['|', '&', '?']) || a.contains("=>") { format!("({a})") } else { a }));
+    }
+    let b = body.as_bytes();
+    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    // a body that binds a name again is not read
+    for (n, _) in &map {
+        let n = regex::escape(n);
+        if regex::Regex::new(&format!(r"\binfer\s+{n}\b|\[\s*{n}\s+in\b|<\s*(?:const\s+)?{n}\b")).is_ok_and(|r| r.is_match(body)) {
+            return None;
+        }
+    }
+    let (mut out, mut prev, mut nl, mut i) = (String::new(), 0u8, false, 0);
+    while i < b.len() {
+        let ch = b[i];
+        if ch == b'"' || ch == b'\'' || ch == b'`' {
+            let mut j = i + 1;
+            while j < b.len() && b[j] != ch {
+                j += if b[j] == b'\\' { 2 } else { 1 };
+            }
+            let j = (j + 1).min(b.len());
+            out.push_str(&body[i..j]);
+            i = j;
+            prev = ch;
+            nl = false;
+            continue;
+        }
+        if ch.is_ascii_alphabetic() || ch == b'_' || ch == b'$' {
+            let mut j = i + 1;
+            while j < b.len() && word(b[j]) {
+                j += 1;
+            }
+            let w = &body[i..j];
+            let after = body[j..].js_trim();
+            let field = after.strip_prefix('?').map(|r| r.js_trim()).unwrap_or(after).starts_with(':') && (prev == 0 || b"{,;(".contains(&prev) || nl || out.js_trim().ends_with("readonly") && !out.ends_with("readonly"));
+            match map.iter().find(|(n, _)| n == w) {
+                Some((_, a)) if prev != b'.' && !field => out.push_str(a),
+                _ => out.push_str(w),
+            }
+            i = j;
+            prev = b'a';
+            nl = false;
+            continue;
+        }
+        if ch == b'\n' {
+            nl = true;
+        } else if !ch.is_ascii_whitespace() {
+            prev = ch;
+            nl = false;
+        }
+        // one character, whatever its width
+        let n = body[i..].chars().next().map_or(1, |c| c.len_utf8());
+        out.push_str(&body[i..i + n]);
+        i += n;
+    }
+    Some(out)
 }
 /// A type that is read and is a value's, with no view in it: `number`, `string | undefined`, `"a" | "b"`.
 pub fn value_type(t: &str) -> bool {
@@ -763,19 +919,20 @@ pub fn value_type(t: &str) -> bool {
     })
 }
 /// What a component's prop is declared: a view (`Some(true)`), a value's type that is read (`Some(false)`), or not known.
-pub fn takes_view(props_type: Option<&str>, types: &Types, field: &str) -> Option<bool> {
-    let (t, _) = field_type(&expand_type(props_type?, types, 0), field)?;
+pub fn takes_view(props_type: Option<&str>, types: &Types, field: &str, tparams: Option<&str>) -> Option<bool> {
+    let (t, _) = field_type(&expand_type(props_type?, &without(types, tparams), 0), field)?;
+    let ps = tparams.map(type_param_names).unwrap_or_default(); // 07 §2: a type parameter stands for a value's type, never for a view
     let w = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
     if t.match_indices("View").any(|(i, _)| !t[..i].ends_with(w) && !t[i + 4..].starts_with(w)) {
         Some(true)
-    } else if value_type(&t) {
+    } else if value_type(&t) || split_top(&t, "|").iter().all(|a| ps.iter().any(|p| p == a.js_trim()) || value_type(a)) {
         Some(false)
     } else {
         None
     }
 }
 /// The fields typed `View` of a component's props type: written out, or a type of the module (`type P = …`, `interface P`).
-pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<String>) {
+pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<String>, hidden: &[String]) {
     if depth > 8 {
         return;
     }
@@ -784,7 +941,7 @@ pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<Stri
     if alts.iter().filter(|x| !x.trim().is_empty()).count() > 1 {
         for a in &alts {
             if !a.trim().is_empty() {
-                view_fields(a.trim(), decls, depth + 1, out);
+                view_fields(a.trim(), decls, depth + 1, out, hidden);
             }
         }
         return;
@@ -802,11 +959,12 @@ pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<Stri
             continue;
         }
         let n: String = part.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        if hidden.contains(&n) {
+            continue;
+        }
         let Some(text) = decls.iter().find_map(|d| match d { Decl::TypeDecl { name, text, .. } if *name == n => Some(text), _ => None }) else { continue };
-        let text = text.trim_start_matches("export").trim_start();
-        let body = if text.starts_with("interface") { text.find('{').map(|i| &text[i..]) } else { text.find('=').map(|i| &text[i + 1..]) };
-        if let Some(b) = body {
-            view_fields(b.trim().trim_end_matches(';'), decls, depth + 1, out);
+        if let Some((_, b)) = alias_head(text) {
+            view_fields(b.trim().trim_end_matches(';'), decls, depth + 1, out, hidden);
         }
     }
 }
@@ -820,14 +978,14 @@ pub struct Shown {
     pub mixed: bool,
     pub param: Option<String>,
 }
-pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types) -> IndexMap<String, Shown> {
+pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, tparams: Option<&str>) -> IndexMap<String, Shown> {
     let mut out = IndexMap::new();
     let Some(t) = props_type else { return out };
     let fields = shown_fields(props, decls, view);
     if fields.is_empty() {
         return out;
     }
-    let t = expand_type(t, types, 0);
+    let t = expand_type(t, &without(types, tparams), 0);
     for f in fields {
         let Some((ty, optional)) = field_type(&t, &f) else { continue };
         if let Some((mixed, param)) = view_type(&ty).filter(|v| f != "ref" && (!v.0 || f == "children")) {
@@ -839,7 +997,8 @@ pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Mark
 /// The types a module names, its own and those it imports from `.rx` modules: what each stands for, in no name of a module.
 pub type Types = HashMap<String, String>;
 pub fn types_of(set: &ModuleSet, path: &str) -> Types {
-    fn named(set: &ModuleSet, path: &str, name: &str, busy: &mut Vec<(String, String)>) -> Option<String> {
+    // what an alias stands for, and its type parameters (07 §2)
+    fn named(set: &ModuleSet, path: &str, name: &str, busy: &mut Vec<(String, String)>) -> Option<(String, Option<String>)> {
         let at = (path.to_string(), name.to_string());
         if busy.contains(&at) || busy.len() > 8 {
             return None; // a type that names itself is read as far as its name
@@ -847,19 +1006,26 @@ pub fn types_of(set: &ModuleSet, path: &str) -> Types {
         for d in &set.programs.get(path)?.decls {
             match d {
                 Decl::TypeDecl { name: n, text, .. } if n == name => {
-                    let text = text.trim_start_matches("export").trim_start();
-                    let body = if text.starts_with("interface") { &text[text.find('{')?..] } else { text[text.find('=')? + 1..].js_trim().trim_end_matches(';') };
+                    let (tparams, body) = alias_head(text)?;
+                    let ps = tparams.as_deref().map(type_param_names).unwrap_or_default(); // a parameter's name is no type of the module inside its alias
                     busy.push(at);
-                    let t = expand(body, 0, &mut |n: &str| named(set, path, n, busy));
+                    let t = expand(body, 0, &mut |k: &str| {
+                        let n = k.strip_suffix('<').unwrap_or(k);
+                        if ps.iter().any(|p| p == n) {
+                            return None;
+                        }
+                        let (b, tp) = named(set, path, n, busy)?;
+                        if k.ends_with('<') { tp } else { Some(b) }
+                    });
                     busy.pop();
-                    return Some(t);
+                    return Some((t, tparams));
                 }
                 Decl::Import { names, resolved: Some(r), .. } => {
                     if let Some(n) = names.iter().find(|n| n.alias == name) {
                         // MO-9: a signature says what it stands for
                         return match set.programs.contains_key(r) {
                             true => named(set, r, &n.name, busy),
-                            false => set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).and_then(|x| match x { crate::signature::ExportSig::Type(t) => t.clone(), _ => None }),
+                            false => set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).and_then(|x| match x { crate::signature::ExportSig::Type(t, tp) => t.clone().map(|t| (t, tp.clone())), _ => None }),
                         };
                     }
                 }
@@ -877,8 +1043,11 @@ pub fn types_of(set: &ModuleSet, path: &str) -> Types {
             _ => continue,
         };
         for n in names {
-            if let Some(t) = named(set, path, n, &mut vec![]) {
+            if let Some((t, tp)) = named(set, path, n, &mut vec![]) {
                 out.insert(n.to_string(), t);
+                if let Some(tp) = tp {
+                    out.insert(format!("{n}<"), tp);
+                }
             }
         }
     }
@@ -913,7 +1082,8 @@ fn expand(t: &str, depth: usize, named: &mut dyn FnMut(&str) -> Option<String>) 
     for sep in ["|", "&"] {
         let parts: Vec<String> = split_top(t, sep).into_iter().filter(|x| !x.js_trim().is_empty()).collect();
         if parts.len() > 1 {
-            let xs: Vec<String> = parts.iter().map(|x| expand(x, depth + 1, named)).collect();
+            // a name that stands for a function's type, among others, is written in parentheses
+            let xs: Vec<String> = parts.iter().map(|x| expand(x, depth + 1, named)).map(|x| if fn_text(&x) { format!("({x})") } else { x }).collect();
             let record = |x: &String| x.starts_with('{') && crate::parse::closes(x, 0) == Some(x.len());
             if sep == "&" && xs.iter().all(record) {
                 return format!("{{ {} }}", xs.iter().map(|x| x[1..x.len() - 1].js_trim().trim_end_matches([',', ';']).to_string()).filter(|x| !x.is_empty()).collect::<Vec<_>>().join("; "));
@@ -940,7 +1110,20 @@ fn expand(t: &str, depth: usize, named: &mut dyn FnMut(&str) -> Option<String>) 
         }).collect();
         return if fields.is_empty() { "{}".into() } else { format!("{{ {} }}", fields.join("; ")) };
     }
+    // 07 §2: a generic alias applied, `Item<number>`; alone, where every parameter has a default
+    if let Some(open) = t.find('<').filter(|&i| word(t[..i].js_trim()) && crate::parse::closes(t, i) == Some(t.len())) {
+        let n = t[..open].js_trim();
+        if let (Some(tp), Some(body)) = (named(&format!("{n}<")), named(n)) {
+            let args: Vec<String> = split_top(&t[open + 1..t.len() - 1], ",").iter().map(|a| expand(a, depth + 1, named)).collect();
+            if let Some(r) = apply_alias(&body, &tp, &args) {
+                return expand(&r, depth + 1, &mut |_| None);
+            }
+        }
+    }
     if word(t) {
+        if let Some(tp) = named(&format!("{t}<")) {
+            return named(t).and_then(|body| apply_alias(&body, &tp, &[])).unwrap_or_else(|| t.to_string());
+        }
         if let Some(x) = named(t) {
             return x;
         }
@@ -1149,7 +1332,7 @@ pub struct ViewUses {
     /// the provisions of a context that holds a view whose every arm is a view of the component, or nothing: no text
     pub only: HashSet<usize>,
 }
-pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String], dest: &dyn Fn(&str, &str) -> Option<bool>, ctx: &dyn Fn(&str) -> bool) -> ViewUses {
+pub fn view_uses(props: &str, props_type: Option<&str>, tparams: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String], dest: &dyn Fn(&str, &str) -> Option<bool>, ctx: &dyn Fn(&str) -> bool) -> ViewUses {
     use crate::ast::{Attr, Field, MarkupKind, PathSeg, Stmt, StmtKind, TplPart};
     #[derive(Default)]
     struct Sc {
@@ -1699,7 +1882,7 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
             }
         }
     }
-    let mut views = views_of(props_type, types, &[]);
+    let mut views = views_of(props_type, types, &[], tparams);
     views.retain(|f| !skip.contains(f));
     let mut root = Sc::default();
     root.names.insert(props.to_string(), Some(Given::Props { less: vec![], views: views.into() }));

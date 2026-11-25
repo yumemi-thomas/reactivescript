@@ -3172,7 +3172,7 @@ impl<'a> Checker<'a> {
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
                             props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, components: false, takes: vec![], view: None });
-                            self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new(), hosts: IndexMap::new(), through: false });
+                            self.regions[r].sig = Some(CompSig { tparams: None, made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new(), hosts: IndexMap::new(), through: false });
                             sym.kind = SymKind::Comp;
                             sym.comp_region = Some(r);
                             sym.factory = Some((args.as_slice(), env));
@@ -3304,7 +3304,7 @@ impl<'a> Checker<'a> {
             };
             let set = |v: &Vec<String>| -> IndexSet<String> { v.iter().cloned().collect() };
             let sym = match x {
-                ExportSig::Type(_) => continue,
+                ExportSig::Type(..) => continue,
                 ExportSig::Source { question, rows, fails } => {
                     let mut s = Sym::new(SymKind::Source, alias, region, line);
                     s.question = *question;
@@ -3455,7 +3455,7 @@ impl<'a> Checker<'a> {
                 }
                 let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                 let r = c.region(None, "imported", true, Some(alias.to_string()));
-                c.regions[r].sig = Some(CompSig { made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new(), hosts: IndexMap::new(), through: false });
+                c.regions[r].sig = Some(CompSig { tparams: None, made: false, own, requires, props, shape: content.clone(), stored: IndexMap::new(), hosts: IndexMap::new(), through: false });
                 // MO-11u: its applications are where a fn's components render
                 if decls.iter().any(|y| matches!(y, JsDecl::Fn { renders: Some(h), .. } if h == xname)) {
                     c.regions[r].host_key = Some(format!("{}#{}", declared, xname));
@@ -3862,7 +3862,9 @@ impl<'a> Checker<'a> {
             }
             let Some(name) = d.name() else { continue };
             if let Decl::TypeDecl { .. } = d {
-                exports.insert(name.to_string(), ExportSig::Type(self.opts.types.get(name).and_then(|t| printed_type(&one_line(t)))));
+                let text = self.opts.types.get(name).and_then(|t| printed_type(&one_line(t)));
+                let tp = text.as_ref().and_then(|_| self.opts.types.get(&format!("{name}<"))).map(|t| one_line(t));
+                exports.insert(name.to_string(), ExportSig::Type(text, tp));
                 continue;
             }
             let Some(&s) = self.envs[env].vars.get(name) else { continue };
@@ -3897,6 +3899,9 @@ impl<'a> Checker<'a> {
                     let r = self.syms[s].exported_as.and_then(|w| self.syms[w].comp_region).or(self.syms[s].comp_region).unwrap();
                     let mut sig = self.comp_sig(r);
                     sig.made = self.syms[s].exported_as.is_some(); // a JS component
+                    if let Decl::Component { tparams, .. } = d {
+                        sig.tparams = tparams.as_deref().map(one_line);
+                    }
                     sig.through = self.through_names.contains(d.name().unwrap_or_default());
                     ExportSig::Comp { sig }
                 }
@@ -4362,7 +4367,7 @@ impl<'a> Checker<'a> {
                 sym.fails_t = Some(FailsT::Expr { e: tail, env: inner, cache: None, busy: false });
                 sym.rows = Some(RowsT::Expr { e: tail, env: inner, cache: None, busy: false });
             }
-            Decl::Component { name, props, decls, view, line, no_props, props_type, .. } => {
+            Decl::Component { name, props, decls, view, line, no_props, props_type, tparams, .. } => {
                 let s = self.lookup(env, name).unwrap();
                 let r = self.syms[s].comp_region.unwrap();
                 let inner = self.env(Some(env), r);
@@ -4388,11 +4393,15 @@ impl<'a> Checker<'a> {
                     self.err("VIEW_FN_MISPLACED", "RG-4c", format!("{name} shows {p} as a view, `<{p} … />`: it is named nowhere else (not read, called, stored, passed or spread; `if {p}` asks for an optional one that takes no plain content, and `{{ {f}: none, ...rest }} = {props}` leaves it out of a rest)"));
                     self.line = was;
                 }
+                // 07 §2
+                if let Some(t) = crate::modules::children_param(props_type.as_deref(), &self.opts.types, tparams.as_deref()) {
+                    self.err("VIEW_NOT_SHOWN", "RG-4c", format!("{name}'s children are declared a type parameter, {t}: children are content, a view, and a type parameter stands for a value — declare them `View`, or a view with a parameter, `(r: {{ item: {t} }}) => View`"));
+                }
                 let skip: Vec<String> = fields.keys().cloned().collect();
-                let uses = view_uses(props, props_type.as_deref(), decls, view, &self.opts.types, &skip, &|tag, attr| {
+                let uses = view_uses(props, props_type.as_deref(), tparams.as_deref(), decls, view, &self.opts.types, &skip, &|tag, attr| {
                     let s = self.lookup(inner, tag)?;
-                    let Some(Decl::Component { props_type, .. }) = self.syms[s].comp else { return None };
-                    takes_view(props_type.as_deref(), &self.opts.types, attr)
+                    let Some(Decl::Component { props_type, tparams, .. }) = self.syms[s].comp else { return None };
+                    takes_view(props_type.as_deref(), &self.opts.types, attr, tparams.as_deref())
                 }, &|n| self.lookup(inner, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
                 if let Some((f, at, how, of)) = uses.bad.into_iter().next() {
                     let was = std::mem::replace(&mut self.line, if at == 0 { *line as i64 } else { at as i64 });
@@ -7483,11 +7492,11 @@ impl<'a> Checker<'a> {
         if let Some(sig) = sy.comp_region.and_then(|r| self.regions[r].sig.as_ref()) {
             return sig.props.iter().filter_map(|(f, p)| p.view.as_ref().map(|v| (f.clone(), Shown { optional: v.optional, mixed: v.mixed, param: v.ty.clone() }))).collect();
         }
-        let Some(Decl::Component { props, props_type, decls, view, .. }) = sy.comp else { return IndexMap::new() };
+        let Some(Decl::Component { props, props_type, decls, view, tparams, .. }) = sy.comp else { return IndexMap::new() };
         if let Some(r) = self.shown_memo.get(&s) {
             return r.clone();
         }
-        let r = shown(props, props_type.as_deref(), decls, view, &self.opts.types);
+        let r = shown(props, props_type.as_deref(), decls, view, &self.opts.types, tparams.as_deref());
         self.shown_memo.insert(s, r.clone());
         r
     }
@@ -7964,11 +7973,11 @@ impl<'a> Checker<'a> {
             return sh;
         }
         let (Some(d), Some(cenv)) = (self.syms[c].comp, self.syms[c].comp_env) else { return Shape::default() };
-        let Decl::Component { view, props, props_type, decls, .. } = d else { return Shape::default() };
+        let Decl::Component { view, props, props_type, decls, tparams, .. } = d else { return Shape::default() };
         if self.view_placed.insert(c) {
             // RG-4c: a view is placed where it is shown, under whatever name, and where the component it is given on to shows it
             let skip: Vec<String> = self.shown_by(c).keys().cloned().collect();
-            let vu = view_uses(props, props_type.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
+            let vu = view_uses(props, props_type.as_deref(), tparams.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
             self.view_places.extend(vu.at);
             self.view_only.extend(vu.only);
             self.view_carried.insert(c, vu.carried);
@@ -8774,10 +8783,10 @@ impl<'a> Checker<'a> {
     /// The places of the views of the component a scope is in (`view_places`), computed.
     fn ensure_places(&mut self, env: EId) {
         let Some(c) = self.regions[self.reg(env)].component.and_then(|r| self.comp_syms.get(&r).copied()) else { return };
-        let (Some(Decl::Component { view, props, props_type, decls, .. }), Some(cenv)) = (self.syms[c].comp, self.syms[c].comp_env) else { return };
+        let (Some(Decl::Component { view, props, props_type, decls, tparams, .. }), Some(cenv)) = (self.syms[c].comp, self.syms[c].comp_env) else { return };
         if self.view_placed.insert(c) {
             let skip: Vec<String> = self.shown_by(c).keys().cloned().collect();
-            let vu = view_uses(props, props_type.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
+            let vu = view_uses(props, props_type.as_deref(), tparams.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
             self.view_places.extend(vu.at);
             self.view_only.extend(vu.only);
             self.view_carried.insert(c, vu.carried);
@@ -10538,7 +10547,7 @@ impl<'a> Checker<'a> {
             }
         }
         let hosts = self.sites_record(Some(g));
-        CompSig { made: false, own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored, hosts, through: false }
+        CompSig { tparams: None, made: false, own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored, hosts, through: false }
     }
 }
 
@@ -10642,6 +10651,43 @@ mod tests {
         assert_eq!(crate::signature::print_signature(&back), text);
         let opts: Vec<Vec<(String, bool)>> = back.exports.values().map(|e| if let ExportSig::Fn { params, .. } = e { params.iter().map(|p| (p.name.clone(), p.opt)).collect() } else { vec![] }).collect();
         assert_eq!(opts, [vec![("a".to_string(), false), ("b".to_string(), true), ("c".to_string(), true)], vec![("a".to_string(), false), ("b".to_string(), true)]]);
+    }
+
+    #[test]
+    fn a_generic_alias_is_read_with_its_arguments() {
+        // 07 §2; `ref/units.ts` holds the same cases
+        use crate::modules::{apply_alias, expand_type, type_param_names};
+        let says = |body: &str, tp: &str, args: &[&str]| apply_alias(body, tp, &args.iter().map(|a| a.to_string()).collect::<Vec<_>>()).unwrap_or_else(|| "-".to_string());
+        assert_eq!(
+            [
+                says("{ children: C; n: A }", "<A, C = View>", &["number"]),
+                says("{ children: C; n: A }", "<A, C>", &["number"]),
+                says("{ T: T; f: (T: number) => T; g: X.T }", "<T>", &["string"]),
+                says("{ v: T }", "<T>", &["a | b"]),
+                says("T extends (infer U)[] ? U : never", "<T>", &["number[]"]),
+                says("T extends (infer T)[] ? T : never", "<T>", &["x"]),
+                says("{ [T in K]: 1 }", "<T, K>", &["a", "b"]),
+                says("{ f: <T>(x: T) => T }", "<T>", &["a"]),
+                says("{ v: T }", "<T>", &["a", "b"]),
+                says("{ a: \"T\"; b: T }", "<T extends string = \"x\">", &[]),
+                says("(x: T) => U", "<T, U = (y: T) => void>", &["n"]),
+            ],
+            ["{ children: View; n: number }", "-", "{ T: string; f: (T: number) => string; g: X.T }", "{ v: (a | b) }", "number[] extends (infer U)[] ? U : never", "-", "-", "-", "-", "{ a: \"T\"; b: \"x\" }", "(x: n) => ((y: T) => void)"]
+        );
+        assert_eq!(type_param_names("<const T extends readonly string[], in out U = T, V>"), ["T", "U", "V"]);
+        let types: crate::modules::Types = [("Slot", "{ children: C }"), ("Slot<", "<C = View>"), ("Render", "(r: { item: T }) => View"), ("Render<", "<T>")].into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        assert_eq!(
+            ["Slot", "Slot<number>[]", "View | Render<Row>", "Other<Row>"].map(|t| expand_type(t, &types, 0)),
+            ["{ children: View }", "{ children: number }[]", "View | ((r: { item: Row }) => View)", "Other<Row>"]
+        );
+        let src = "export type Item<T, U = string> = { v: T; label: U }\nexport type Render<T> = (r: { item: T }) => View\nexport component List<T extends { id: number }>(props: { items: T[]; children: Render<T> }) { <ul>{for x in props.items { <li><props.children item={x} /></li> }}</ul> }\n";
+        let set = load_modules("/a.rx", &|p: &str| (p == "/a.rx").then(|| src.to_string())).unwrap();
+        let text = crate::signature::print_signature(&check_modules(&set, false).sigs["/a.rx"]);
+        assert_eq!(
+            text.trim().split('\n').skip(1).collect::<Vec<_>>(),
+            ["export type Item<T, U = string> = { v: T; label: U }", "export type Render<T> = (r: { item: T }) => View", "export component List<T extends { id: number }>(props: { items; children: view { item: T } value(item) }) shape(roots ul; closes-p; children-at ul li)"]
+        );
+        assert_eq!(crate::signature::print_signature(&crate::signature::parse_signature(&text, "/a.rx").unwrap()), text);
     }
 
     #[test]
@@ -11251,7 +11297,9 @@ fn printed_type(t: &str) -> Option<String> {
             out.push(c);
         }
     }
-    if !(out.starts_with('{') && closes(&out, 0) == Some(out.len())) || out.contains('/') {
+    // a record; a view's type (RG-4c: `(r: T) => View`, which an importer's props may name)
+    let view = crate::modules::fn_text(&out) && out.trim_end().strip_suffix("View").is_some_and(|r| r.trim_end().ends_with("=>"));
+    if !((out.starts_with('{') && closes(&out, 0) == Some(out.len())) || view) || out.contains('/') {
         return None;
     }
     Some(out)

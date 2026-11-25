@@ -216,7 +216,7 @@ fn signature_stub(sig: &ModSig) -> String {
     sig.exports
         .iter()
         .map(|(n, x)| match x {
-            ExportSig::Type(_) => format!("export type {n} = any;"),
+            ExportSig::Type(..) => format!("export type {n} = any;"),
             ExportSig::Comp { .. } => format!("export declare function {n}(props: any): any;"),
             // a class is a value and the type of its instances (`errored fallback(e: NotFound)`)
             ExportSig::ErrClass { .. } => format!("export declare const {n}: any;\nexport type {n} = any;"),
@@ -554,8 +554,12 @@ impl Proj<'_> {
                     let t = self.expr(tail, false, None);
                     self.w.emit(Code::of(&format!("{ind}  return ")).c(t).t(&format!(";\n{ind}}}")), *line);
                 }
-                Decl::Component { name, props, decls, view, line, props_type, no_props, .. } => {
+                Decl::Component { name, props, decls, view, line, props_type, no_props, tparams, .. } => {
                     let nm = self.name(name, sp, &mut at);
+                    let nm = match tparams {
+                        Some(t) => nm.c(self.ty(t, sp, &mut at)),
+                        None => nm,
+                    };
                     // TY-3d (2026-11-24): `component C()` declares no props, and takes none — a function of nothing
                     if *no_props {
                         self.w.emit(Code::of(ind).t(ex(d)).t("function ").c(nm).t("() {"), *line);
@@ -582,9 +586,9 @@ impl Proj<'_> {
                         None => Code::of(": any"),
                     };
                     self.w.emit(Code::of(ind).t(ex(d)).t("function ").c(nm).t("(").c(pn).c(pt).t(") {"), *line);
-                    let shown = crate::modules::shown(props, props_type.as_deref(), decls, view, &self.types);
+                    let shown = crate::modules::shown(props, props_type.as_deref(), decls, view, &self.types, tparams.as_deref());
                     let was = std::mem::replace(&mut self.loose, shown.iter().filter(|(_, v)| v.mixed || v.optional).map(|(f, _)| format!("{props}.{f}")).collect());
-                    let was_props = std::mem::replace(&mut self.props_of, props_type.as_deref().map(|t| (props.clone(), crate::modules::expand_type(t, &self.types, 0))));
+                    let was_props = std::mem::replace(&mut self.props_of, props_type.as_deref().map(|t| (props.clone(), crate::modules::expand_type(t, &crate::modules::without(&self.types, tparams.as_deref()), 0))));
                     self.decls(decls, &format!("{ind}  "), false);
                     self.w.emit(Code::of(&format!("{ind}  return (")), *line);
                     self.markup(view, &format!("{ind}    "));

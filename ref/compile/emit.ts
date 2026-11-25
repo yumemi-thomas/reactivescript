@@ -518,7 +518,7 @@ class Gen {
   private component(d: Extract<Decl, { k: "component" }>, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
     const shows = new Map([...shown(d, typesOf(this.mods?.set, this.file))].map(([f, v]) => [f, v.mixed] as const));
-    const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props), shows, given: { props: { less: [], views: viewsOf(d.propsType, typesOf(this.mods?.set, this.file), this.modDecls) } } });
+    const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props), shows, given: { props: { less: [], views: viewsOf(d.propsType, typesOf(this.mods?.set, this.file), this.modDecls, d.tparams) } } });
     const was = this.shown; this.shown = new Set([...shows.keys()].map(f => `${d.props}.${f}`));
     try { return `${pad}function ${cm(d.name)}(${mg(d.props)}) {\n${this.owned(d.decls, d.view, inner, ind + 1, true)}\n${pad}}`; } finally { this.shown = was; }
   }

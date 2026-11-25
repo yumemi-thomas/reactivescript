@@ -100,7 +100,7 @@ struct Bind {
 }
 /// RG-4c: a component whose children are a view or plain content.
 fn takes_plain(d: &Decl, types: &Types) -> bool {
-    matches!(d, Decl::Component { props, props_type, decls, view, .. } if shown(props, props_type.as_deref(), decls, view, types).get("children").is_some_and(|v| v.mixed))
+    matches!(d, Decl::Component { props, props_type, decls, view, tparams, .. } if shown(props, props_type.as_deref(), decls, view, types, tparams.as_deref()).get("children").is_some_and(|v| v.mixed))
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
     Bind { kind, js: js.into(), given: None, view_ctx: false, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
@@ -808,7 +808,7 @@ impl<'p> Gen<'p> {
             }
             for n in names {
                 let is_type = self.set.programs.get(r).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name, .. } if *name == n.name)))
-                    || self.set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).is_some_and(|x| matches!(x, ExportSig::Type(_)));
+                    || self.set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).is_some_and(|x| matches!(x, ExportSig::Type(..)));
                 if is_type {
                     continue; // a type binds nothing
                 }
@@ -1793,12 +1793,12 @@ impl<'p> Gen<'p> {
         self.types.borrow_mut().entry(path.to_string()).or_insert_with(|| std::rc::Rc::new(types_of(self.set, path))).clone()
     }
     fn component(&mut self, d: &Decl, env: Env) -> R<S> {
-        let Decl::Component { name, props, decls, view, props_type, .. } = d else { unreachable!() };
+        let Decl::Component { name, props, decls, view, props_type, tparams, .. } = d else { unreachable!() };
         let inner = self.new_env(Some(env));
         let mut pb = val(mg(props));
         let types = self.types(&self.file);
-        pb.given = Some(Given::Props { less: vec![], views: views_of(props_type.as_deref(), &types, self.mod_decls).into() });
-        pb.shows = shown(props, props_type.as_deref(), decls, view, &types).into_iter().map(|(f, v)| (f, v.mixed)).collect();
+        pb.given = Some(Given::Props { less: vec![], views: views_of(props_type.as_deref(), &types, self.mod_decls, tparams.as_deref()).into() });
+        pb.shows = shown(props, props_type.as_deref(), decls, view, &types, tparams.as_deref()).into_iter().map(|(f, v)| (f, v.mixed)).collect();
         let was = std::mem::replace(&mut self.shown, pb.shows.iter().map(|f| format!("{props}.{}", f.0)).collect());
         self.set(inner, props, pb);
         let body = self.owned(decls, view, inner, true);

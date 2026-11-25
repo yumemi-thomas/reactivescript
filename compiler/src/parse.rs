@@ -3001,6 +3001,8 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         c.ws(true);
         let name = c.ident_or("type name")?;
         c.ws(true);
+        type_params(c); // 07 §2: `type Item<T> = …`, TypeScript's text
+        c.ws(true);
         if c.eat("=") {
             c.ws(true);
             parse_type(c, false, true)?;
@@ -3180,6 +3182,8 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         c.ws(true);
         let name = c.ident_or("component name")?;
         c.ws(true);
+        let tparams = type_params(c); // 07 §2: `component List<T>(…)`
+        c.ws(true);
         c.expect("(")?;
         c.ws(true);
         // RG-4b: `component C({ a, b })` — each name a projection of props
@@ -3198,7 +3202,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             let pre: Vec<Decl> = names.into_iter().map(|(name, e, line, span)| Decl::Eq { name, e, line, span, deferred: false, key: None, ty: None, exported: false }).collect();
             decls.splice(0..0, pre);
         }
-        return Ok(Decl::Component { name, props, decls, view, line, span: Span::NONE, props_type, no_props, exported: false, is_default: false });
+        return Ok(Decl::Component { name, props, decls, view, line, span: Span::NONE, props_type, no_props, exported: false, is_default: false, tparams });
     }
     let save = c.i;
     let name = c.ident();

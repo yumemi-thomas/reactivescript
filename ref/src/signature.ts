@@ -33,6 +33,7 @@
 import type { ModSig, ExportSig, CompSig, HostSite, Hosted, Result } from "./check.ts";
 import { EMPTY_SHAPE, type Shape } from "./content.ts";
 import { closes } from "./parse.ts";
+import { aliasHead } from "./modules.ts";
 
 type Catch = Set<string> | "all";
 const HOLD = "$hold";
@@ -102,7 +103,7 @@ function balanced(s: string, at: number): string | undefined {
 }
 /** 07 §2: a fn's row without its type parameters, `pure fn f<T>(…)`, and those, as text. */
 function typeParamsOf(s: string): { text: string; tparams?: string } {
-  const at = /^pure\s+fn\s+[A-Za-z_$][\w$]*\s*</.exec(s)?.[0].length; if (at === undefined) return { text: s };
+  const at = /^(?:pure\s+fn|component)\s+[A-Za-z_$][\w$]*\s*</.exec(s)?.[0].length; if (at === undefined) return { text: s };
   let i = at, depth = 1; for (; i < s.length && depth; i++) if (s[i] === "<") depth++; else if (s[i] === ">" && s[i - 1] !== "=") depth--;
   return { text: s.slice(0, at - 1) + s.slice(i), tparams: s.slice(at - 1, i) };
 }
@@ -123,7 +124,7 @@ function line(file: string, name: string, x: ExportSig): string {
     case "server": return `export server ${x.io ? "" : "pure "}fn ${name}(${x.params.join(", ")})${x.rejects.length ? ` rejects(${[...x.rejects].sort().join(" | ")})` : ""}`;
     case "action": return `export action ${name}`;
     case "errclass": return `export error ${name}(${x.params.join(", ")})`;
-    case "type": return `export type ${name}${x.text !== undefined ? ` = ${x.text}` : ""}`;
+    case "type": return `export type ${name}${x.text !== undefined ? `${x.tparams ?? ""} = ${x.text}` : ""}`;
     case "context": { const t = [x.source ? "source" : "", rows(x.rows, x.fails), x.type ?? ""].filter(Boolean).join(" "); return `export context ${name}${t ? `: ${t}` : ""}${x.dflt ? " = …" : ""}`; }
     case "comp": {
       const s = x.sig;
@@ -140,7 +141,7 @@ function line(file: string, name: string, x: ExportSig): string {
         return `${f === "*" ? "...props" : f}${parts.length ? `: ${parts.join(" ")}` : ""}`;
       });
       const own = [...new Set(s.own.map(o => o.cls))];
-      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${s.made ? " made" : ""}${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${retainsText(file, s.stored)}${s.hosts ? ` ${hostsText(file, s.hosts)}` : ""}${shapeText(s.shape)}`;
+      return `export component ${name}${s.tparams ?? ""}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${s.made ? " made" : ""}${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${retainsText(file, s.stored)}${s.hosts ? ` ${hostsText(file, s.hosts)}` : ""}${shapeText(s.shape)}`;
     }
   }
 }
@@ -199,7 +200,7 @@ export function parseSignature(src: string, file: string): ModSig {
       const at = /\shosts\(/.exec(row); if (at) { const open = at.index + at[0].length - 1; const text = balanced(row, open); if (text === undefined) fail("hosts(…)"); inner = hostsOf(file, text!); row = (row.slice(0, at.index) + row.slice(open + text!.length + 2)).trim(); }
       if ((m = /^renders\s+(\S+)\s+from\s+([A-Za-z_$][\w$.]*):(\d+)\s*(?:fails\(([^)]*)\))?\s*(?:uses\(([^)]*)\))?$/.exec(row))) { const host = absKey(file, m[1]); hosted.push({ host, name: host.slice(host.lastIndexOf("#") + 1), fn: m[2], line: Number(m[3]), fails: classesOf(m[4] ?? "").sort(), requires: (m[5] ?? "").split(",").map(k => k.trim()).filter(Boolean).map(k => absKey(file, k)), ...(inner ? { inner } : {}) }); return; }
     }
-    if ((m = /^type\s+([A-Za-z_$][\w$]*)(?:\s*=\s*(.+))?/.exec(s))) { exports.set(m[1], { kind: "type", ...(m[2] !== undefined ? { text: m[2].trim() } : {}) }); return; }
+    if ((m = /^type\s+([A-Za-z_$][\w$]*)/.exec(s))) { const h = aliasHead(s); exports.set(m[1], { kind: "type", ...(h ? { text: h.body } : {}), ...(h?.tparams ? { tparams: h.tparams } : {}) }); return; }
     if ((m = /^action\s+([A-Za-z_$][\w$]*)$/.exec(s))) { exports.set(m[1], { kind: "action" }); return; }
     if ((m = /^error\s+([A-Za-z_$][\w$]*)\s*(?:\(([^)]*)\))?$/.exec(s))) { exports.set(m[1], { kind: "errclass", params: (m[2] ?? "").split(",").map(x => x.trim()).filter(Boolean) }); return; }
     if ((m = /^source\s+([A-Za-z_$][\w$]*)\s*(?::(?!=)\s*(.*?))?\s*(:?=)\s*…$/.exec(s))) { const r = rowWords(m[2] ?? ""); if (r.rest) fail("a source's rows"); exports.set(m[1], { kind: "source", question: m[3] === "=", rows: r.rows, fails: r.fails }); return; }
@@ -221,9 +222,9 @@ export function parseSignature(src: string, file: string): ModSig {
       const r = rowWords(body);
       exports.set(m[1], { kind: "context", key: `${file}#${m[1]}`, source, dflt: !!m[3], rows: r.rows, fails: r.fails, ...(r.rest ? { type: r.rest } : {}) }); return;
     }
-    const cm = /^component\s+([A-Za-z_$][\w$]*)\s*\(/.exec(s), cp = cm ? balanced(s, cm[0].length - 1) : undefined;
-    if (cp !== undefined && (m = /^props:\s*(\{.*\})$/.exec(cp)) && (m = ["", cm![1], m[1], s.slice(cm![0].length + cp.length + 1)] as unknown as RegExpExecArray)) {
-      const sig: CompSig = { own: [], requires: [], props: {}, shape: undefined };
+    const cm = /^component\s+([A-Za-z_$][\w$]*)\s*\(/.exec(g.text), cp = cm ? balanced(g.text, cm[0].length - 1) : undefined;
+    if (cp !== undefined && (m = /^props:\s*(\{.*\})$/.exec(cp)) && (m = ["", cm![1], m[1], g.text.slice(cm![0].length + cp.length + 1)] as unknown as RegExpExecArray)) {
+      const sig: CompSig = { own: [], requires: [], props: {}, shape: undefined, ...(g.tparams ? { tparams: g.tparams } : {}) };
       for (const f of split(m[2].slice(1, -1), ";")) {
         const [fname0, spec0 = ""] = f.includes(":") ? [f.slice(0, f.indexOf(":")).trim(), f.slice(f.indexOf(":") + 1).trim()] : [f.trim(), ""];
         const fname = fname0 === "...props" ? "*" : fname0;

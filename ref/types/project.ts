@@ -40,7 +40,11 @@ export declare function caught<T, R>(v: T, alt: (e: any) => R): T | R;
 export declare function raise(e: unknown): never;
 /** W-1/W-6: a write checks its value (or its function of the slot) against the target — whose type alone decides it. A
  *  function is applied, so one is no value here, whatever the target holds: Solid's Setter says the same. */
-export declare function set<T>(target: T): (v: Exclude<T, Function> | ((p: T) => T)) => void;
+/** What a source of T is written with (W-6: a function is applied to what it held, so a function is no value to write).
+ *  Read by a tuple's length, as \`eq\` is: a type parameter, which is not known, is written with itself (07 §2). */
+type HasFn<T> = 0 extends (1 & T) ? [] : [Extract<T, Function>] extends [never] ? [] : [1];
+type Written<T> = [...HasFn<T>]["length"] extends 1 ? Exclude<T, Function> : T;
+export declare function set<T>(target: T): (v: Written<T> | ((p: T) => T)) => void;
 /** …at a path, which may be a draft's: there a function can be the value (ST-3a). */
 export declare function setAt<T>(target: T): (v: T | ((p: T) => T)) => void;
 /** A source's type when none is written: its initializer's, widened — a source is written later (\`""\` is a string,
@@ -185,7 +189,7 @@ class Proj {
   private refFns = new Map<string, Extract<JsDecl, { kind: "fn" }>>();   // MO-10: declared JS fns with a `ref` parameter or result, by local name
   private refParts = new Map<string, Shape>();               // MO-10b: equations bound to such a fn's tuple or record result
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; this.views = new ViewProps(set, set.programs.get(path)?.decls ?? []); }
-  private propsOf: { name: string; type: string } | undefined;   // the props of the component being projected
+  private propsOf: { name: string; type: string; tparams?: string } | undefined;   // the props of the component being projected
   private loose = new Set<string>();   // RG-4c: what the component shows as a view that may be plain content, or nothing
   private views: ViewProps;   // MO-11t
 
@@ -227,10 +231,10 @@ class Proj {
       if (d.k === "component") {
         // TY-3d (2026-11-24): `component C()` declares no props, and takes none — a function of nothing, which TypeScript holds
         // where a library asks for one (`toast(() => JSX.Element)`) and wherever a component is asked for
-        if (d.noProps) this.w.emit(`${ind}${ex(d)}function ${d.name}() {`, d.line);
-        else this.w.emit(`${ind}${ex(d)}function ${d.name}(${d.props}${d.propsType ? `: ${d.propsType.replace(/(:\s*)((?:pending\s+|fails\([^)]*\)\s*)+)/g, "$1")}` : ": any"}) {`, d.line);   // MO-10f: a field's row words are .rx's, not TypeScript's
+        if (d.noProps) this.w.emit(`${ind}${ex(d)}function ${d.name}${d.tparams ?? ""}() {`, d.line);
+        else this.w.emit(`${ind}${ex(d)}function ${d.name}${d.tparams ?? ""}(${d.props}${d.propsType ? `: ${d.propsType.replace(/(:\s*)((?:pending\s+|fails\([^)]*\)\s*)+)/g, "$1")}` : ": any"}) {`, d.line);   // MO-10f: a field's row words are .rx's, not TypeScript's
         const was = this.loose; this.loose = new Set([...shown(d, typesOf(this.set, this.path))].flatMap(([f, v]) => v.mixed || v.optional ? [`${d.props}.${f}`] : []));
-        const wasProps = this.propsOf; this.propsOf = d.noProps || d.propsType === undefined ? undefined : { name: d.props, type: d.propsType };
+        const wasProps = this.propsOf; this.propsOf = d.noProps || d.propsType === undefined ? undefined : { name: d.props, type: d.propsType, tparams: d.tparams };
         this.decls(d.decls, ind + "  ");
         this.w.emit(`${ind}  return (`, d.line); this.markup(d.view.length ? d.view : [], ind + "    "); this.w.emit(`${ind}  );\n${ind}}`, d.line);
         this.loose = was; this.propsOf = wasProps;
@@ -250,7 +254,7 @@ class Proj {
       }
       // RG-4c: a view the component may not have been given is provided as it is — the context then holds none, and what
       // shows it shows nothing (`item?: (o) => View`, `provide item = props.item`)
-      if (d.k === "provide") this.w.emit(`${ind}__.provide${d.e.k === "member" && d.e.o.k === "id" && this.propsOf && d.e.o.name === this.propsOf.name && optionalView(this.propsOf.type, typesOf(this.set, this.path), d.e.p) ? "Or" : ""}(${d.name}, ${this.expr(d.e, false)});`, d.line);
+      if (d.k === "provide") this.w.emit(`${ind}__.provide${d.e.k === "member" && d.e.o.k === "id" && this.propsOf && d.e.o.name === this.propsOf.name && optionalView(this.propsOf.type, typesOf(this.set, this.path), d.e.p, this.propsOf.tparams) ? "Or" : ""}(${d.name}, ${this.expr(d.e, false)});`, d.line);
     }
     for (const d of ds) if (d.k === "effect") {
       this.w.emit(`${ind}__.effect(() => {`, d.line);

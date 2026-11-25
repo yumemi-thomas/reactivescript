@@ -371,7 +371,7 @@ export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set
   for (const part of splitTop(t, "&").map(x => x.trim())) {
     if (part.startsWith("{") && part.endsWith("}")) { for (const f of splitTop(part.slice(1, -1), ",;\n")) { const i = f.indexOf(":"); if (i > 0 && isViewType(f.slice(i + 1))) out.add(fieldName(f.slice(0, i))); } continue; }
     const d = decls.find(x => x.k === "typedecl" && x.name === /^\w+/.exec(part)?.[0]);
-    const body = d?.k === "typedecl" ? /^(?:type\s[^=]*=|interface\s[^{]*(?={))([^]*)$/.exec((d.text ?? "").replace(/^export\s+/, ""))?.[1] : undefined;
+    const body = d?.k === "typedecl" ? aliasHead(d.text ?? "")?.body : undefined;
     for (const f of viewFields(body?.trim().replace(/;$/, ""), decls, depth + 1)) out.add(f);
   }
   return out;
@@ -379,10 +379,11 @@ export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set
 
 /** The fields declared `View` of a component's props, where its type is read: written out, a type of the module, one
  *  imported from `.rx`. One classification for the checkers, the interpreter, the oracle and the compiled module. */
-export function viewsOf(propsType: string | undefined, types: Types, decls: Decl[] = []): Set<string> {
+export function viewsOf(propsType: string | undefined, types: Types, decls: Decl[] = [], tparams?: string): Set<string> {
   if (propsType === undefined) return new Set();
-  const out = viewFields(propsType, decls);
-  for (const f of viewFields(expandType(propsType, types), [])) out.add(f);
+  const ps = tparams ? typeParamNames(tparams) : [];
+  const out = viewFields(propsType, ps.length ? decls.filter(d => !(d.k === "typedecl" && ps.includes(d.name))) : decls);
+  for (const f of viewFields(expandType(propsType, without(types, tparams)), [])) out.add(f);
   return out;
 }
 /** The same of every component of a program, for the runners. */
@@ -390,7 +391,7 @@ export function viewsAll(set: ModuleSet): Map<unknown, Set<string>> {
   const out = new Map<unknown, Set<string>>();
   for (const [path, p] of set.programs) {
     const mine = p.decls.filter(d => d.k === "typedecl");
-    const walk = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string; propsType?: string }; if (o.k === "component" && "props" in o) out.set(o, viewsOf(o.propsType, typesOf(set, path), mine)); Object.values(x).forEach(walk); };
+    const walk = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string; propsType?: string }; if (o.k === "component" && "props" in o) out.set(o, viewsOf(o.propsType, typesOf(set, path), mine, (o as { tparams?: string }).tparams)); Object.values(x).forEach(walk); };
     walk(p.decls); walk(p.view);
   }
   return out;
@@ -398,16 +399,23 @@ export function viewsAll(set: ModuleSet): Map<unknown, Set<string>> {
 /** A type that is read and is a value's, with no view in it: `number`, `string | undefined`, `"a" | "b"`. */
 export function valueType(t: string): boolean { return splitTop(t, "|").every(a => /^(string|number|boolean|bigint|null|undefined|true|false|-?\d[\d.]*|"[^"]*"|'[^']*')$/.test(a.trim())); }
 /** What a component's prop is declared: a view (`true`), a value's type that is read (`false`), or not known. */
-export function takesView(propsType: string | undefined, types: Types, field: string): boolean | undefined {
+export function takesView(propsType: string | undefined, types: Types, field: string, tparams?: string): boolean | undefined {
   if (propsType === undefined) return undefined;
-  const t = fieldType(expandType(propsType, types), field); if (!t) return undefined;
-  return /\bView\b/.test(t.type) ? true : valueType(t.type) ? false : undefined;
+  const t = fieldType(expandType(propsType, without(types, tparams)), field); if (!t) return undefined;
+  const ps = tparams ? typeParamNames(tparams) : [];   // 07 §2: a type parameter stands for a value's type, never for a view
+  return /\bView\b/.test(t.type) ? true : valueType(t.type) || splitTop(t.type, "|").every(a => ps.includes(a.trim()) || valueType(a)) ? false : undefined;
 }
 
+/** 07 §2: the type parameter a generic component's children are declared (`children: T`, `children?: T | undefined`), if they are. */
+export function childrenParam(propsType: string | undefined, types: Types, tparams?: string): string | undefined {
+  if (propsType === undefined || !tparams) return undefined;
+  const ps = typeParamNames(tparams), t = fieldType(expandType(propsType, without(types, tparams)), "children");
+  return t ? splitTop(t.type, "|").map(a => a.trim()).find(a => ps.includes(a)) : undefined;
+}
 /** RG-4c: whether a prop is a view with a parameter that the component may not be given (`item?: (o: T) => View`). */
-export function optionalView(propsType: string | undefined, types: Types, field: string): boolean {
+export function optionalView(propsType: string | undefined, types: Types, field: string, tparams?: string): boolean {
   if (propsType === undefined) return false;
-  const t = fieldType(expandType(propsType, types), field);
+  const t = fieldType(expandType(propsType, without(types, tparams)), field);
   return !!t && t.optional && viewType(t.type.trim())?.mixed === false;
 }
 /** RG-4c, a context that holds a view (proposals/27): its declared type, read, is `View` (`fn: false`) or a function
@@ -433,9 +441,9 @@ export function viewCtxAll(set: ModuleSet): Set<unknown> {
  *  none, which its view shows as `<props.f … />`. `mixed`: `children` declared `View | ((s: T) => View)` take plain content as well.
  *  `param`: the parameter's type. */
 export type Shown = { optional: boolean; mixed: boolean; param?: string };
-export function shown(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, types: Types): Map<string, Shown> {
+export function shown(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[]; tparams?: string }, types: Types): Map<string, Shown> {
   const out = new Map<string, Shown>(); const fields = d.propsType === undefined ? new Set<string>() : shownFields(d); if (!fields.size) return out;
-  const text = expandType(d.propsType!, types);
+  const text = expandType(d.propsType!, without(types, d.tparams));
   for (const f of fields) { const t = fieldType(text, f), v = t && viewType(t.type); if (v && f !== "ref" && (!v.mixed || f === "children")) out.set(f, { optional: t.optional, ...v }); }
   return out;
 }
@@ -455,28 +463,82 @@ export function typesOf(set: ModuleSet | undefined, path: string): Types {
   if (!set) return new Map();
   let memo = typesMemo.get(set); if (!memo) typesMemo.set(set, memo = new Map());
   const done = memo.get(path); if (done) return done;
-  const named = (path: string, name: string, busy: string[]): string | undefined => {
+  const one = (path: string, name: string, busy: string[]): string | undefined => { const t = named(path, name, busy); return t && !t.tparams ? t.body : undefined; };
+  const named = (path: string, name: string, busy: string[]): Alias | undefined => {
     const at = `${path}#${name}`; if (busy.includes(at) || busy.length > 8) return undefined;   // a type that names itself is read as far as its name
     for (const d of set.programs.get(path)?.decls ?? []) {
       if (d.k === "typedecl" && d.name === name) {
-        const text = (d.text ?? "").replace(/^export\s+/, ""); let body: string | undefined;
-        if (text.startsWith("interface")) { const i = text.indexOf("{"); if (i < 0) return undefined; body = text.slice(i); }
-        else { const i = text.indexOf("="); if (i < 0) return undefined; body = text.slice(i + 1).trim().replace(/;$/, ""); }
-        return expand(body, n => named(path, n, [...busy, at]));
+        const h = aliasHead(d.text ?? ""); if (!h) return undefined;
+        const ps = h.tparams ? typeParamNames(h.tparams) : [];   // 07 §2: a parameter's name is no type of the module inside its alias
+        const body = expand(h.body, n => ps.includes(n) ? undefined : one(path, n, [...busy, at]), 0, n => ps.includes(n) ? undefined : named(path, n, [...busy, at]));
+        return { body, ...(h.tparams ? { tparams: h.tparams } : {}) };
       }
-      if (d.k === "import" && d.resolved) { const n = d.names.find(n => n.alias === name); if (n) { if (set.programs.has(d.resolved)) return named(d.resolved, n.name, busy); const x = set.signatures?.get(d.resolved)?.exports.get(n.name); return x?.kind === "type" ? x.text : undefined; } }   // MO-9: a signature says what it stands for
+      if (d.k === "import" && d.resolved) { const n = d.names.find(n => n.alias === name); if (n) { if (set.programs.has(d.resolved)) return named(d.resolved, n.name, busy); const x = set.signatures?.get(d.resolved)?.exports.get(n.name); return x?.kind === "type" && x.text !== undefined ? { body: x.text, ...(x.tparams ? { tparams: x.tparams } : {}) } : undefined; } }   // MO-9: a signature says what it stands for
     }
     return undefined;
   };
   const out: Types = new Map();
-  for (const d of set.programs.get(path)?.decls ?? []) for (const n of d.k === "typedecl" ? [d.name] : d.k === "import" && d.resolved ? d.names.map(n => n.alias) : []) { const t = named(path, n, []); if (t !== undefined) out.set(n, t); }
+  for (const d of set.programs.get(path)?.decls ?? []) for (const n of d.k === "typedecl" ? [d.name] : d.k === "import" && d.resolved ? d.names.map(n => n.alias) : []) { const t = named(path, n, []); if (t !== undefined) { out.set(n, t.body); if (t.tparams) out.set(`${n}<`, t.tparams); } }
   memo.set(path, out); return out;
 }
+/** 07 §2: a module's types as a generic component reads its props: a type parameter's name is no type of the module there. */
+export function without(types: Types, tparams?: string): Types {
+  const ps = tparams ? typeParamNames(tparams).filter(n => types.has(n)) : []; if (!ps.length) return types;
+  const out = new Map(types); for (const n of ps) { out.delete(n); out.delete(`${n}<`); } return out;
+}
+/** 07 §2: a type alias with type parameters, `type Item<T> = …`: what it stands for, with its parameters' names in it. In a
+ *  module's types (`Types`) it is under its name, and its parameters, `<T, U = X>`, under `Name<`. */
+type Alias = { body: string; tparams?: string };
+/** `type N<T> = body`, `interface N<T> { … }`: the parameters as written, and the body. */
+export function aliasHead(text: string): { tparams?: string; body: string } | undefined {
+  const m = /^(?:export\s+)?(type|interface)\s+[A-Za-z_$][\w$]*\s*/.exec(text); if (!m) return undefined;
+  let i = m[0].length, tparams: string | undefined;
+  if (text[i] === "<") { const e = closes(text, i); if (e === undefined) return undefined; tparams = text.slice(i, e); i = e; }
+  const rest = text.slice(i).trim();
+  if (m[1] === "interface") { const j = rest.indexOf("{"); return j < 0 ? undefined : { ...(tparams ? { tparams } : {}), body: rest.slice(j) }; }
+  return rest.startsWith("=") ? { ...(tparams ? { tparams } : {}), body: rest.slice(1).trim().replace(/;$/, "") } : undefined;
+}
+/** The names of `<T extends X = Y, const U>`. */
+export function typeParamNames(tparams: string): string[] { return splitTop(tparams.trim().slice(1, -1), ",").map(p => /^\s*(?:const\s+|in\s+|out\s+)*([A-Za-z_$][\w$]*)/.exec(p)?.[1] ?? "").filter(Boolean); }
+/** A generic alias applied, `Item<number>`: its body with each parameter's name replaced by its argument (a default where
+ *  none is written). Not read (`undefined`): more arguments than parameters, a parameter with no argument and no default,
+ *  a body that binds one of the names again (`infer T`, `[T in …]`, `<T>(…) => …`). A name is a type's wherever it is
+ *  not a field's or a parameter's (`{ T: T }`, `(T: number) => T`) and not after a dot. */
+export function applyAlias(body: string, tparams: string, args: string[]): string | undefined {
+  const ps = splitTop(tparams.trim().slice(1, -1), ",").map(p => { const m = /^\s*(?:const\s+|in\s+|out\s+)*([A-Za-z_$][\w$]*)([^]*)$/.exec(p); if (!m) return undefined; const eq = topRangesOf(m[2], "="); return { name: m[1], dflt: eq }; });
+  if (ps.some(p => !p) || args.length > ps.length) return undefined;
+  const map = new Map<string, string>();
+  for (let i = 0; i < ps.length; i++) { const a = args[i]?.trim() || ps[i]!.dflt; if (a === undefined) return undefined; map.set(ps[i]!.name, /[|&]|=>|\?/.test(a) ? `(${a})` : a); }
+  for (const n of map.keys()) if (new RegExp(`\\binfer\\s+${esc(n)}\\b|\\[\\s*${esc(n)}\\s+in\\b|<\\s*(?:const\\s+)?${esc(n)}\\b`).test(body)) return undefined;
+  let out = "", prev = "", nl = false;   // prev: the last character before the name that is not a space; nl: a line ended since
+  for (let i = 0; i < body.length;) {
+    const ch = body[i];
+    if (ch === '"' || ch === "'" || ch === "`") { let j = i + 1; while (j < body.length && body[j] !== ch) j += body[j] === "\\" ? 2 : 1; out += body.slice(i, j + 1); i = j + 1; prev = ch; nl = false; continue; }
+    if (/[A-Za-z_$]/.test(ch)) {
+      let j = i + 1; while (j < body.length && /[\w$]/.test(body[j])) j++;
+      const w = body.slice(i, j), field = /^\s*\??\s*:/.test(body.slice(j)) && (prev === "" || "{,;(".includes(prev) || nl || /\breadonly\s*$/.test(out));
+      out += map.has(w) && prev !== "." && !field ? map.get(w)! : w; i = j; prev = "a"; nl = false; continue;
+    }
+    if (ch === "\n") nl = true; else if (!/\s/.test(ch)) { prev = ch; nl = false; }
+    out += ch; i++;
+  }
+  return out;
+}
+const esc = (n: string) => n.replace(/\$/g, "\\$");
+/** What follows the first `=` of a type parameter's tail (`extends X = Y`) that is not inside brackets and is no arrow's: its default. */
+function topRangesOf(t: string, _sep: string): string | undefined {
+  for (let i = 0, depth = 0; i < t.length; i++) {
+    const ch = t[i];
+    if ("<({[".includes(ch)) depth++; else if (")}]".includes(ch) || (ch === ">" && t[i - 1] !== "=")) depth--;
+    else if (ch === "=" && t[i + 1] !== ">" && depth === 0) return t.slice(i + 1).trim() || undefined;
+  }
+  return undefined;
+}
 /** A type with what its names stand for written out: records, lists, unions, a function's parameters and what it answers; a name it does not know is left. */
-export const expandType = (t: string, types: Types) => expand(t, n => types.get(n));
-function expand(t: string, named: (n: string) => string | undefined, depth = 0): string {
+export const expandType = (t: string, types: Types) => expand(t, n => types.has(`${n}<`) ? undefined : types.get(n), 0, n => { const body = types.get(n); return body === undefined ? undefined : { body, ...(types.has(`${n}<`) ? { tparams: types.get(`${n}<`)! } : {}) }; });
+function expand(t: string, named: (n: string) => string | undefined, depth = 0, alias?: (n: string) => Alias | undefined): string {
   t = t.trim(); if (depth > 8 || t.length > 4000) return t;
-  const go = (x: string) => expand(x, named, depth + 1);
+  const go = (x: string) => expand(x, named, depth + 1, alias);
   if (t.startsWith("(")) {
     const end = closes(t, 0);
     if (end !== undefined) {
@@ -487,7 +549,7 @@ function expand(t: string, named: (n: string) => string | undefined, depth = 0):
   }
   for (const sep of ["|", "&"]) {
     const parts = splitTop(t, sep).filter(x => x.trim()); if (parts.length < 2) continue;
-    const xs = parts.map(go);
+    const xs = parts.map(go).map(x => fnText(x) ? `(${x})` : x);   // a name that stands for a function's type, among others
     if (sep === "&" && xs.every(x => x.startsWith("{") && closes(x, 0) === x.length)) return `{ ${xs.map(x => x.slice(1, -1).trim().replace(/[,;]+$/, "")).filter(Boolean).join("; ")} }`;
     return xs.join(` ${sep} `);
   }
@@ -498,8 +560,13 @@ function expand(t: string, named: (n: string) => string | undefined, depth = 0):
     const fields = splitTop(t.slice(1, -1), ",;\n").filter(f => f.trim()).map(f => { const i = f.indexOf(":"); return i >= 0 && !/[([]/.test(f.slice(0, i)) ? `${f.slice(0, i).trim()}: ${go(f.slice(i + 1))}` : f.trim(); });
     return fields.length ? `{ ${fields.join("; ")} }` : "{}";
   }
+  const g = alias && /^([A-Za-z_$][\w$]*)\s*</.exec(t);   // 07 §2: a generic alias applied
+  if (g && closes(t, g[0].length - 1) === t.length) { const a = alias!(g[1]); const r = a?.tparams ? applyAlias(a.body, a.tparams, splitTop(t.slice(g[0].length, -1), ",").map(go)) : undefined; if (r !== undefined) return expand(r, () => undefined, depth + 1); }
+  if (alias && /^[A-Za-z_$][\w$]*$/.test(t)) { const a = alias(t); if (a?.tparams) return applyAlias(a.body, a.tparams, []) ?? t; }   // every parameter has a default
   return (/^[A-Za-z_$][\w$]*$/.test(t) ? named(t) : undefined) ?? t;
 }
+/** A function's type, written with no parentheses around it: `(r: T) => View`. */
+export function fnText(x: string): boolean { if (!x.startsWith("(")) return false; const e = closes(x, 0); return e !== undefined && x.slice(e).trim().startsWith("=>"); }
 /** `<props.f … />`: the name of the props, and the field. */
 /** `<use.item … />`: the context whose view is shown. */
 export const usedIn = (tag: string): string | undefined => /^use\.([A-Za-z_$][\w$]*)$/.exec(tag)?.[1];
@@ -595,9 +662,9 @@ export function viewNotShown(comp: string, props: string, field: string, how: st
   };
   return `${comp} is given a view, ${field === "view" ? "a prop typed View" : field}, and a view is only shown: ${tail[how] ?? tail.value}`;
 }
-export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, types: Types, skip: Set<string> = new Set(), dest?: (tag: string, attr: string) => boolean | undefined, ctx?: (name: string) => boolean): ViewUses {   // ctx: whether a context of that name holds a view (`context item: View`)
+export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[]; tparams?: string }, types: Types, skip: Set<string> = new Set(), dest?: (tag: string, attr: string) => boolean | undefined, ctx?: (name: string) => boolean): ViewUses {   // ctx: whether a context of that name holds a view (`context item: View`)
   const kids = new Set<unknown>(), bad: ViewUses["bad"] = [], places = new Map<unknown, string[]>();
-  const views = new Set([...viewsOf(d.propsType, types)].filter(f => !skip.has(f)));
+  const views = new Set([...viewsOf(d.propsType, types, [], d.tparams)].filter(f => !skip.has(f)));
   type Sc = { names: Map<string, Given | null>; up: Sc | null; fields?: Map<string, string[]> };   // fields: the props a name of this block stands for   // null: a name of this block that is no view
   const sub = (up: Sc, ...ns: (string | undefined)[]): Sc => { const s: Sc = { names: new Map(), up }; for (const n of ns) if (n) s.names.set(n, null); return s; };
   const look = (sc: Sc) => (n: string): Given | undefined => { for (let s: Sc | null = sc; s; s = s.up) if (s.names.has(n)) return s.names.get(n) ?? undefined; return undefined; };

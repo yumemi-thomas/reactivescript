@@ -6,7 +6,7 @@ import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates, ownUses, usesNow } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
-import { expandType, otherMention, shown, shownIn, usedIn, typesOf, viewUses, viewNotShown, takesView, viewCtx, type ViewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
+import { childrenParam, fnText, expandType, otherMention, shown, shownIn, usedIn, typesOf, viewUses, viewNotShown, takesView, viewCtx, type ViewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
 import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, USE, carriedBy, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
@@ -66,7 +66,7 @@ const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "
 const escAbove = (chain: Step[], name: string) => { const i = chain.findIndex(s => s.p && (s.p === "all" || s.p.has(name))); return i < 0 || escP(chain.slice(i + 1), name); };
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; view?: { optional: boolean; mixed: boolean; values: string[]; type?: string }; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean; }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; through?: boolean };   // through: MO-14f (2026-11-25), in a host's view — the component's view applies a component the host renders through, so it renders its applier's children there (not printed: a host's view is checked from source)   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { /** 07 §2: `<T>`, as text */ tparams?: string; made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; view?: { optional: boolean; mixed: boolean; values: string[]; type?: string }; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean; }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; through?: boolean };   // through: MO-14f (2026-11-25), in a host's view — the component's view applies a component the host renders through, so it renders its applier's children there (not printed: a host's view is checked from source)   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 /** MO-11u: one application of a component a declared fn `renders(…)` beneath, as the components that fn is given see it:
  *  what is discharged and provided between that application's children and the root of the component it is written in
  *  (in a module's own list: the program's). */
@@ -609,7 +609,7 @@ export type ExportSig =
   | { kind: "errclass"; params: string[] }
   | { kind: "comp"; sig: CompSig }
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
-  | { kind: "type"; /** what it stands for (RG-4c), where a signature can hold it */ text?: string };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
+  | { kind: "type"; /** what it stands for (RG-4c), where a signature can hold it */ text?: string; /** 07 §2: `<T>`, as text */ tparams?: string };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig>; hosted?: Hosted[]; hosts?: Record<string, HostSite[]> };   // MO-11u: hosted, the calls of `renders(H)` fns that were given components; hosts, the applications of such an H the module itself roots (its mounted view, a root of a library's own)
 type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean; dependency?: boolean; through?: Set<string>; placed?: Set<string>; under?: Set<string>; conformance?: boolean; /** what the module's types stand for, its own and what it imports from `.rx` */ types?: Types };   // placed, under: MO-14h — the components a host's view places (`module#Name`), and the JS components its declaration says the host renders through: a component given to a fn that `renders(H)`, H among them, is checked where the view places it   // through: MO-14f, in a host's view — the JS components the host renders through (`declaration#Name`)   // dependency: MO-1c, the module is not the program's entry: its default component is a component like any other, mounted by no one   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
 
@@ -1284,7 +1284,7 @@ class Checker {
     const actions = (e?: Expr, en?: Env) => { const ps = e && en ? [...this.actionParts(e, en)].sort() : []; return ps.length ? { actions: ps } : {}; };
     for (const d of p.decls) {
       if (!(d as { exported?: boolean }).exported || !("name" in d)) continue;
-      if (d.k === "typedecl") { const t = this.types.get(d.name), text = t === undefined ? undefined : printedType(oneLine(t)).type; exports.set(d.name, { kind: "type", ...(text !== undefined ? { text } : {}) }); continue; }
+      if (d.k === "typedecl") { const t = this.types.get(d.name), text = t === undefined ? undefined : printedType(oneLine(t)).type; exports.set(d.name, { kind: "type", ...(text !== undefined ? { text, ...(this.types.has(`${d.name}<`) ? { tparams: oneLine(this.types.get(`${d.name}<`)!) } : {}) } : {}) }); continue; }
       const s = env.vars.get(d.name); if (!s) continue;
       switch (s.kind) {
         case "source": exports.set(d.name, { kind: "source", question: !!s.question, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls) }); break;
@@ -1293,7 +1293,7 @@ class Checker {
         case "action": exports.set(d.name, { kind: "action" }); break;
         case "server": exports.set(d.name, { kind: "server", io: !!s.io, params: (s.params ?? []).map(p => p.name), rejects: arr(s.serverRejects?.()) }); break;
         case "errclass": exports.set(d.name, { kind: "errclass", params: d.k === "error" ? d.params : [] }); break;
-        case "comp": exports.set(d.name, { kind: "comp", sig: s.factory?.exported ? { ...this.compSig!(s.factory.exported.compRegion!), made: true } : { ...this.compSig!(s.compRegion!), ...(this.throughNames.has(d.name) ? { through: true } : {}) } }); break;   // MO-11j: a made component's summary is its wrapper's, and it is a JS component
+        case "comp": exports.set(d.name, { kind: "comp", sig: s.factory?.exported ? { ...this.compSig!(s.factory.exported.compRegion!), made: true } : { ...this.compSig!(s.compRegion!), ...(d.k === "component" && d.tparams ? { tparams: oneLine(d.tparams) } : {}), ...(this.throughNames.has(d.name) ? { through: true } : {}) } }); break;   // MO-11j: a made component's summary is its wrapper's, and it is a JS component
         case "context": { const c = s.ctx!; exports.set(d.name, { kind: "context", key: c.key, source: c.source, dflt: c.dflt, rows: arr(c.contract?.rows), fails: arr(c.contract?.fails), type: d.k === "context" ? d.type?.replace(ROW_WORDS, "") : undefined }); break; }
       }
     }
@@ -1475,7 +1475,8 @@ class Checker {
         this.bind(inner, d.props, { kind: "props", name: d.props, region: r, line: d.line, ...(d.noProps ? { noProps: d.name } : {}), ...(ph ? { held: ph, ...(d.propsType !== undefined ? { retTy: fieldRows(d.propsType).text } : {}) } : {}) });
         sym.compEnv = inner;
         { const fs = this.shownBy(sym); const o = fs && otherMention(d, fs, n => !!inner.lookup(n)?.ctx?.view?.fn); if (o) { const at = this.line; this.line = o.line || d.line; const p = `${d.props}.${o.field}`; this.err("VIEW_FN_MISPLACED", "RG-4c", `${d.name} shows ${p} as a view, \`<${p} … />\`: it is named nowhere else (not read, called, stored, passed or spread; \`if ${p}\` asks for an optional one that takes no plain content, and \`{ ${o.field}: none, ...rest } = ${d.props}\` leaves it out of a rest)`); this.line = at; } }
-        { const o = process.env.RX_VIEW_WIDE ? undefined : viewUses(d, this.types, new Set(this.shownBy(sym)?.keys() ?? []), (tag, attr) => { const s = inner.lookup(tag); return s?.comp ? takesView(s.comp.propsType, this.types, attr) : undefined; }, n => !!inner.lookup(n)?.ctx?.view).bad[0]; if (o) { const at = this.line; this.line = o.line || d.line; this.err("VIEW_NOT_SHOWN", "RG-4c", viewNotShown(d.name, d.props, o.field, o.how, o.of)); this.line = at; } }
+        { const t = childrenParam(d.propsType, this.types, d.tparams); if (t) this.err("VIEW_NOT_SHOWN", "RG-4c", `${d.name}'s children are declared a type parameter, ${t}: children are content, a view, and a type parameter stands for a value — declare them \`View\`, or a view with a parameter, \`(r: { item: ${t} }) => View\``); }   // 07 §2
+        { const o = process.env.RX_VIEW_WIDE ? undefined : viewUses(d, this.types, new Set(this.shownBy(sym)?.keys() ?? []), (tag, attr) => { const s = inner.lookup(tag); return s?.comp ? takesView(s.comp.propsType, this.types, attr, s.comp.tparams) : undefined; }, n => !!inner.lookup(n)?.ctx?.view).bad[0]; if (o) { const at = this.line; this.line = o.line || d.line; this.err("VIEW_NOT_SHOWN", "RG-4c", viewNotShown(d.name, d.props, o.field, o.how, o.of)); this.line = at; } }
         this.block(d.decls, d.view, inner, { scope: "reactive" });
         this.later.push(() => this.contentCheck(d.view, inner, []));
         return;
@@ -3660,7 +3661,7 @@ function tyMembers(t: string, present: boolean): string[] { return splitTop(tyCl
 /** RG-4c: a type in a printed signature, a string's literal as `string`; none: not a record written out. */
 function printedType(t: string): { type?: string } {
   const out = t.replace(/(["'`])(?:\\[^]|(?!\1)[^\\])*\1/g, "string");
-  return out.startsWith("{") && closes(out, 0) === out.length && !out.includes("/") ? { type: out } : {};
+  return ((out.startsWith("{") && closes(out, 0) === out.length) || (fnText(out) && /=>\s*View$/.test(out))) && !out.includes("/") ? { type: out } : {};   // a record; a view's type (RG-4c: `(r: T) => View`, which an importer's props may name)
 }
 /** A record type's fields, as written: `{ a: T; b?: (x: U) => V }`. */
 export function tyFields(t: string): [string, string][] | undefined {
