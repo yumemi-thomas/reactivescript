@@ -1,0 +1,337 @@
+{
+ "cmdk": {
+  "rx": 116,
+  "js": 100,
+  "decl": 48,
+  "facade": 2
+ },
+ "editors": {
+  "rx": 34,
+  "js": 13,
+  "decl": 46,
+  "facade": 0
+ },
+ "icons": {
+  "rx": 19,
+  "js": 4,
+  "decl": 45,
+  "facade": 0
+ },
+ "kobalte": {
+  "rx": 1031,
+  "js": 92,
+  "decl": 69,
+  "facade": 19
+ },
+ "p-animation": {
+  "rx": 11,
+  "js": 1,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-connectivity": {
+  "rx": 10,
+  "js": 1,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-controlled-signal": {
+  "rx": 25,
+  "js": 0,
+  "decl": 0,
+  "facade": 5
+ },
+ "p-cursor": {
+  "rx": 9,
+  "js": 2,
+  "decl": 2,
+  "facade": 2
+ },
+ "p-date": {
+  "rx": 19,
+  "js": 3,
+  "decl": 3,
+  "facade": 2
+ },
+ "p-devices": {
+  "rx": 12,
+  "js": 1,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-event-listener": {
+  "rx": 10,
+  "js": 5,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-favicon": {
+  "rx": 6,
+  "js": 3,
+  "decl": 2,
+  "facade": 2
+ },
+ "p-focus": {
+  "rx": 11,
+  "js": 1,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-geolocation": {
+  "rx": 8,
+  "js": 1,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-interaction": {
+  "rx": 5,
+  "js": 0,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-intersection-observer": {
+  "rx": 6,
+  "js": 1,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-mouse": {
+  "rx": 11,
+  "js": 1,
+  "decl": 3,
+  "facade": 2
+ },
+ "p-pointer": {
+  "rx": 13,
+  "js": 7,
+  "decl": 2,
+  "facade": 2
+ },
+ "p-raf": {
+  "rx": 8,
+  "js": 0,
+  "decl": 0,
+  "facade": 2
+ },
+ "p-scroll": {
+  "rx": 9,
+  "js": 4,
+  "decl": 3,
+  "facade": 3
+ },
+ "p-set": {
+  "rx": 6,
+  "js": 2,
+  "decl": 2,
+  "facade": 2
+ },
+ "p-share": {
+  "rx": 14,
+  "js": 1,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-signal-builders": {
+  "rx": 10,
+  "js": 2,
+  "decl": 2,
+  "facade": 2
+ },
+ "p-spring": {
+  "rx": 10,
+  "js": 7,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-sse": {
+  "rx": 8,
+  "js": 1,
+  "decl": 1,
+  "facade": 2
+ },
+ "p-styles": {
+  "rx": 8,
+  "js": 9,
+  "decl": 2,
+  "facade": 2
+ },
+ "p-upload": {
+  "rx": 37,
+  "js": 2,
+  "decl": 2,
+  "facade": 2
+ },
+ "p-url": {
+  "rx": 8,
+  "js": 5,
+  "decl": 3,
+  "facade": 2
+ },
+ "p-websocket": {
+  "rx": 12,
+  "js": 7,
+  "decl": 3,
+  "facade": 2
+ },
+ "slider": {
+  "rx": 56,
+  "js": 12,
+  "decl": 40,
+  "facade": 0
+ },
+ "terracotta": {
+  "rx": 273,
+  "js": 42,
+  "decl": 49,
+  "facade": 7
+ },
+ "toast": {
+  "rx": 43,
+  "js": 4,
+  "decl": 37,
+  "facade": 0
+ },
+ "ui-sdk": {
+  "rx": 171,
+  "js": 123,
+  "decl": 121,
+  "facade": 5
+ },
+ "cases": {
+  "cmdk": {
+   "orig": 12362,
+   "withRuntime": 4732,
+   "alone": 11989
+  },
+  "icons": {
+   "orig": 1719,
+   "withRuntime": 1318,
+   "alone": 8669
+  },
+  "kobalte-accordion": {
+   "orig": 11097,
+   "withRuntime": 4139,
+   "alone": 11277
+  },
+  "kobalte-breadcrumbs": {
+   "orig": 1075,
+   "withRuntime": 1336,
+   "alone": 8665
+  },
+  "kobalte-checkbox": {
+   "orig": 4211,
+   "withRuntime": 3674,
+   "alone": 10871
+  },
+  "kobalte-dialog": {
+   "orig": 8558,
+   "withRuntime": 11040,
+   "alone": 18087
+  },
+  "kobalte-pagination": {
+   "orig": 3207,
+   "withRuntime": 3638,
+   "alone": 10890
+  },
+  "kobalte-popover": {
+   "orig": 17178,
+   "withRuntime": 10974,
+   "alone": 18031
+  },
+  "kobalte-progress": {
+   "orig": 2879,
+   "withRuntime": 1587,
+   "alone": 8863
+  },
+  "kobalte-radio": {
+   "orig": 5327,
+   "withRuntime": 4122,
+   "alone": 11310
+  },
+  "kobalte-select": {
+   "orig": 28154,
+   "withRuntime": 14015,
+   "alone": 21077
+  },
+  "kobalte-switch": {
+   "orig": 3511,
+   "withRuntime": 3613,
+   "alone": 10730
+  },
+  "kobalte-tabs": {
+   "orig": 11063,
+   "withRuntime": 3032,
+   "alone": 10261
+  },
+  "kobalte-toggle-group": {
+   "orig": 9326,
+   "withRuntime": 2362,
+   "alone": 9603
+  },
+  "kobalte-tooltip": {
+   "orig": 14778,
+   "withRuntime": 8656,
+   "alone": 15829
+  },
+  "slider": {
+   "orig": 7031,
+   "withRuntime": 7386,
+   "alone": 14647
+  },
+  "terracotta-dialog": {
+   "orig": 3459,
+   "withRuntime": 2793,
+   "alone": 10006
+  },
+  "terracotta-disclosure": {
+   "orig": 1814,
+   "withRuntime": 2792,
+   "alone": 10002
+  },
+  "terracotta-listbox": {
+   "orig": 4753,
+   "withRuntime": 6360,
+   "alone": 13421
+  },
+  "terracotta-menu": {
+   "orig": 2429,
+   "withRuntime": 6313,
+   "alone": 13379
+  },
+  "terracotta-radio": {
+   "orig": 3191,
+   "withRuntime": 6240,
+   "alone": 13450
+  },
+  "terracotta-switch": {
+   "orig": 1318,
+   "withRuntime": 1220,
+   "alone": 8528
+  },
+  "ui-accordion": {
+   "orig": 15084,
+   "withRuntime": 47970,
+   "alone": 54953
+  },
+  "ui-checkbox": {
+   "orig": 15194,
+   "withRuntime": 48042,
+   "alone": 55003
+  },
+  "ui-listbox": {
+   "orig": 24166,
+   "withRuntime": 48102,
+   "alone": 55069
+  },
+  "ui-switch": {
+   "orig": 12717,
+   "withRuntime": 47964,
+   "alone": 54941
+  },
+  "ui-tooltip": {
+   "orig": 31936,
+   "withRuntime": 47923,
+   "alone": 54909
+  }
+ }
+}
