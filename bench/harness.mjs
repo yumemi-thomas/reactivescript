@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { published } from "../compiler/scripts/published.mjs";
 import * as cache from "../scripts/lib/cache.mjs";
+import * as tools from "../scripts/lib/tools.mjs";
 
 const require_ = createRequire(import.meta.url);
 const { rowsOf, claimOf } = require_("../tooling/rx-language-server/src/rows.js");   // a declaration's rows, as the crate reads them
@@ -54,7 +55,7 @@ function shared() {
   if (process.env.RX_SHARED_KEYS) return (shared_ = JSON.parse(process.env.RX_SHARED_KEYS));
   const at = (...p) => path.join(repo, ...p), nm = path.join(ws, "node_modules");
   shared_ = {
-    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), at("scripts/lib/cache.mjs")),
+    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), ...["cache.mjs", "tools.mjs", "tool-worker.cjs", "ts-shared.cjs"].map(f => at("scripts/lib", f))),
     tools: cache.inputs(...["bin", "src", "package.json", "package-lock.json", "node_modules"].map(f => at("tooling/rx-language-server", f))),
     installed: [cache.treeHash(nm, { skip: (r, n) => r === "@reactivescript" || r === "@rx-types" || n === ".package-lock.json" }), cache.treeHash(path.join(nm, "@rx-types"))],
     // (the copies a program runs with, not what they were copied from: `workspace()` makes them again, a task run alone does not)
@@ -110,16 +111,38 @@ export function generate(spec, from) {
 function tool(kind, flags, bin, args, { cwd, dir = cwd, env = {}, timeout, file, sealed = opaque.has(dir) }) {
   const at = bin => path.join(repo, "tooling/rx-language-server/bin", bin);
   const key = cache.enabled ? { flags, bin, args, cwd, dir, env, environment: cache.environment(), rxc: !!(env.RXC ?? process.env.RXC), folder: folder(dir), deps: deps(dir), timeout, ...pick("harness", "tools", "installed", "runtime", ...(sealed ? ["builds"] : [])) } : null;
-  const r = cache.resultSync(`tool ${kind}`, key, answer, () => timed(kind, () => {
-    const log = cache.enabled ? path.join(ws, `.trace-${process.pid}`) : null; if (log) rmSync(log, { force: true });
+  const r = cache.resultSync(`tool ${kind}`, key, answer, () => once(kind, args, flags, dir, env, traced => timed(kind, () => {
+    const log = cache.enabled || traced ? path.join(ws, `.trace-${process.pid}`) : null; if (log) rmSync(log, { force: true });
     if (file) rmSync(file, { force: true });
-    const r = spawnSync(process.execPath, [...flags, at(bin), ...args, ...(file ? ["--causes", file] : [])], { cwd, encoding: "utf8", maxBuffer: 1 << 26, timeout, env: { ...process.env, ...env, ...(log ? { RX_TRACE: log } : {}) } });
+    const given = [...args, ...(file ? ["--causes", file] : [])], around = { cwd, timeout, env: { ...process.env, ...env, ...(log ? { RX_TRACE: log } : {}) } };
+    // (what runs the package — rx-verify, a draft made with --run — is a process of its own: the module's state is)
+    const r = (bin !== "verify.js" && !given.includes("--run") && !given.includes("--dom") && tools.ask(bin, given, around)) || spawnSync(process.execPath, [...flags, at(bin), ...given], { ...around, encoding: "utf8", maxBuffer: 1 << 26 });
     let extra; if (file) { try { extra = readFileSync(file, "utf8"); } catch { /* none */ } rmSync(file, { force: true }); }
     const trace = log ? asks(log, !!(env.RXC ?? process.env.RXC)) : [], files = {};
     if (log) { try { for (const m of readFileSync(log, "utf8").matchAll(/"([^"]*node_modules\/\.rx-types\/[^"]+\.d\.rx)"/g)) if (existsSync(m[1])) files[m[1]] = readFileSync(m[1], "utf8"); } catch { /* it asked nothing */ } rmSync(log, { force: true }); }
     return { value: { status: r.status, signal: r.signal, stdout: r.stdout, stderr: r.stderr, extra }, trace, files };
-  }));
+  })));
   return { ...r.value, keep: ok => r.keep(ok && !r.value.signal) };
+}
+/** A package's draft is one for every program of a run that asks for it (a library of fifteen entries is drafted whole by
+ *  each): it depends on the install, which is the workspace's, and on the crate's answers — asked again from the folder that
+ *  asks, and each must be the one it was made with. Not of a folder with an install of its own, nor of a module beside it. */
+function once(kind, args, flags, dir, env, run) {
+  const spec = args[0];
+  if (kind !== "draft" || !process.env.RX_RUN || /^[./]/.test(spec) || ["node_modules", "package.json"].some(f => existsSync(path.join(dir, f)))) return run(false);
+  const at = path.join(process.env.RX_RUN, cache.said([args, flags, env])), lock = `${at}.lock`, file = `${at}.json`, pause = new Int32Array(new SharedArrayBuffer(4));
+  let mine = false; const until = Date.now() + 300000;
+  while (!existsSync(file) && Date.now() < until) { try { mkdirSync(lock); mine = true; break; } catch { Atomics.wait(pause, 0, 0, 5); } }
+  let kept; if (!mine) try { kept = JSON.parse(readFileSync(file, "utf8")); } catch { /* none was made */ }
+  if (kept) {
+    const to = (x, a, b) => JSON.parse(JSON.stringify(x ?? null).replaceAll(JSON.stringify(a).slice(1, -1), JSON.stringify(b).slice(1, -1)));
+    const trace = kept.trace.map(t => { const ask = to(t.ask, kept.dir, dir); let now; try { now = answer(ask); } catch { return null; } return cache.said(to(now, dir, kept.dir)) === t.said ? { ask, said: cache.said(now) } : null; });
+    if (trace.every(Boolean)) return { value: kept.value, trace, files: {} };
+    return run(false);
+  }
+  const r = run(true);
+  if (mine) { if (r.value.status === 0 && r.trace && !JSON.stringify(r.value).includes(dir)) { writeFileSync(`${file}.tmp`, JSON.stringify({ dir, ...r })); renameSync(`${file}.tmp`, file); } else writeFileSync(file, "null"); }
+  return r;
 }
 const pick = (...ks) => Object.fromEntries(ks.map(k => [k, shared()[k]]));
 /** Folders whose task reaches past the crate's answers: it prepares itself with a build, or is under a JS host. */
@@ -197,10 +220,11 @@ export async function pool(items, fn, few = () => false) {
  *  ends. `crash`: what stands for a result that is not there. */
 export const alone = (args, id, crash, timeout = 600000) => new Promise(res => {
   const at = path.join(ws, "tasks", `${id}.result.json`); rmSync(at, { force: true });
-  const c = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(here, "run.mjs"), ...args], { stdio: ["ignore", "ignore", "pipe"] });
+  const worker = tools.lend();
+  const c = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(here, "run.mjs"), ...args], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, ...worker.env } });
   let err = ""; c.stderr.on("data", d => { err += d; });
   const timer = setTimeout(() => c.kill("SIGKILL"), timeout);
-  c.on("close", (code, signal) => { clearTimeout(timer); let r; try { r = JSON.parse(readFileSync(at, "utf8")); } catch { r = crash(`no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`); } if (r.cache) { cache.merge(cache.stats, r.cache); delete r.cache; } res([r, err]); });
+  c.on("close", (code, signal) => { clearTimeout(timer); worker.back(); let r; try { r = JSON.parse(readFileSync(at, "utf8")); } catch { r = crash(`no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`); } if (r.cache) { cache.merge(cache.stats, r.cache); delete r.cache; } res([r, err]); });
 });
 
 /** A record as data, one line an entry: what `--check` compares with, and a diff shows entry by entry. */
@@ -585,7 +609,10 @@ export const claimsSaid = by => Object.entries(by).sort((a, b) => a[0].localeCom
 export function claimsIn(dir, file, read = audited(file, declares(file)?.from ?? path.dirname(file))) {
   const problems = []; const claims = [];
   if (read.error) problems.push(`the audit did not run (${read.error})`);
-  const v = tool("verify", ["--conditions=browser"], "verify.js", ["--dom", "--json", path.relative(dir, file)], { cwd: dir, timeout: 180000 });
+  // (the reading just made of the same file is given to the run, where nothing is kept: what a kept result depended on is its own)
+  const given = !cache.enabled && !read.error && read.spec ? path.join(ws, `.reading-${process.pid}.json`) : null;
+  if (given) writeFileSync(given, JSON.stringify({ file: path.resolve(file), text: readFileSync(file, "utf8"), read }));
+  let v; try { v = tool("verify", ["--conditions=browser"], "verify.js", ["--dom", "--json", path.relative(dir, file)], { cwd: dir, timeout: 180000, env: given ? { RX_VERIFY_READING: given } : {} }); } finally { if (given) rmSync(given, { force: true }); }
   let res; try { res = JSON.parse(String(v.stdout).trim().split("\n").pop())[0].results; } catch { return { claims, problems: [...problems, `rx-verify did not run (${String(v.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${v.status ?? v.signal}`})`], mismatches: [] }; }
   v.keep(!res.some(r => r.status === "mismatch"));
   const worst = new Map(); const RANK = { mismatch: 3, unverified: 2, read: 1, held: 1, na: 0 };

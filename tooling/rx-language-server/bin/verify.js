@@ -154,6 +154,12 @@ function noEvidence(claims, again, kind) {
   for (const r of claims) if (again.some(a => a.line === r.line && a.ob === r.ob && a.status === "held")) Object.assign(r, { status: "unverified", what: `${r.what} — which is not evidence: the probe shows the same of a module changed so that the claim is false (${kind}; src/verify-mutate.js). Use what the probe is handed (lib, the result), not the library it imports` });
 }
 
+/** RX_VERIFY_READING=<file>: the audit (`rx-declare --audit --json`) of one declaration, made by whoever runs this — of the
+ *  file and the text it names, or it is not used. */
+function given(file) {
+  if (!process.env.RX_VERIFY_READING) return undefined;
+  try { const g = JSON.parse(fs.readFileSync(process.env.RX_VERIFY_READING, "utf8")); return g.file === path.resolve(file) && g.text === fs.readFileSync(file, "utf8") && Array.isArray(g.read.rows) ? g.read : undefined; } catch { return undefined; }
+}
 /** `mutation`: the module is changed by it, and only what running shows is asked. */
 async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
   // MO-8k's first place (2026-11-23): a project's declaration of a package, `rx-types/<spec>.d.rx`, declares the module
@@ -182,7 +188,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
   // is held, below, to what the reading claims; one the code contradicts is a mismatch as it stands; the rest are a
   // person's, and are run as any row is
   let read = null;
-  if (process.env.RX_VERIFY_READ !== "0" && !mutation) { try { read = require("../src/declare-audit.js").auditFile(require("typescript"), file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
+  if (process.env.RX_VERIFY_READ !== "0" && !mutation) { try { read = given(file) ?? require("../src/declare-audit.js").auditFile(require("typescript"), file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
   const proven = new Map();   // export → claim → why the code proves it
   const audit = { proven: 0, contradicted: 0, unproven: 0 };
   for (const row of read?.rows ?? []) for (const w of row.words) {

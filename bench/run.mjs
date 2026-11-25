@@ -26,6 +26,7 @@ import path from "node:path";
 import { runCoverage } from "./coverage.mjs";
 import * as cache from "../scripts/lib/cache.mjs";
 import { heavy } from "../scripts/lib/lock.mjs";
+import { end as endTools } from "../scripts/lib/tools.mjs";
 import { here, ws, given, workspace, stage, loadRef, shareKeys, reaches, driven, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone } from "./harness.mjs";
 
 /** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
@@ -201,6 +202,7 @@ if (cover) {
 // several browsers and a process a core: one such run at a time on a machine (scripts/lib/lock.mjs; a filtered run does not wait)
 if (!args.some((a, i) => !a.startsWith("--") && args[i - 1] !== "--shard")) given(await heavy("bench", { want: Number(process.env.BENCH_JOBS) || undefined }));
 workspace(); shareKeys();
+process.env.RX_RUN = path.join(ws, `.run-${process.pid}`); mkdirSync(process.env.RX_RUN, { recursive: true }); process.on("exit", () => rmSync(process.env.RX_RUN, { recursive: true, force: true }));
 const filters = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--shard");
 const ids = readdirSync(path.join(here, "tasks"), { withFileTypes: true }).filter(e => e.isDirectory() && existsSync(path.join(here, "tasks", e.name, "task.mjs"))).map(e => e.name).sort().filter(id => !filters.length || filters.some(f => id.includes(f)));
 // tasks are independent programs in folders of their own: several at once (harness.mjs `jobs`), reported in their order
@@ -321,4 +323,5 @@ if (flag("--check")) {
   problems.push(...coverage.problems);
   if (problems.length) { console.log(`\n--check: ${problems.length} problem(s)\n${problems.map(p => `  ${p}`).join("\n")}`); exit = 1; } else console.log("\n--check: as bench/scorecard.json, or better; every failure is a documented one");
 }
+await endTools();
 process.exit(exit);
