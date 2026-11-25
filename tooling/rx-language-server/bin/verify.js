@@ -287,7 +287,9 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
         const r = unowned(js, name, probeFile);
         if (r?.reports) push("instantiates", "held", `instantiates holds: with no owner Solid reports it (${r.reports})`, { quiet: true });
         else if (!r || r.threw !== undefined) push("instantiates", "unverified", `instantiates not run: ${r ? `with no owner it threw (${r.threw})` : "Solid's development build did not answer"}`, { quiet: true });
-        else push("instantiates", "mismatch", "declared instantiates, but called with no owner it returns, and Solid reports nothing: no call of it needs one, and a program that calls it in a handler is refused");
+        else if (read.has("instantiates")) push("instantiates", "mismatch", "instantiates was read from the code, but called with no owner it returns, and Solid reports nothing: the reading is wrong — remove the word, and report it");
+        // (an author's: the call is made once, whatever it makes — a client, a bus — and no run shows that)
+        else push("instantiates", "unverified", "instantiates not shown: called with no owner it returns, and Solid reports nothing", { quiet: true });
       }
 
       // rejects(E): what its promise rejects with, under the probe's failing arguments

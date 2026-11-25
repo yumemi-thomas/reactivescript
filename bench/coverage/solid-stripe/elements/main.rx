@@ -1,0 +1,12 @@
+// solid-stripe: a checkout that waits for Stripe's script, and what reads it under <Elements>.
+import { Elements, useStripe } from "solid-stripe"
+
+component Pay() {
+  stripe = useStripe()
+  <button class="pay" disabled={!stripe}>{stripe ? "pay" : "loading"}</button>
+}
+export default component App() {
+  <Elements stripe={null}>
+    <Pay />
+  </Elements>
+}

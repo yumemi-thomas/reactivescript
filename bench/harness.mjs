@@ -319,6 +319,8 @@ export function compile(entry, target, spa, asked) {
   return { file: name(out.entry ?? entry), css: out.css };
 }
 
+/** A package that ships its source as JSX, compiled as an app's bundler compiles it. */
+const jsxOfPackages = () => ({ name: "package-jsx", transform: { filter: { id: /[\\/]node_modules[\\/].*\.jsx$/ }, handler: (code, id) => ({ code: createRequire(path.join(ws, "package.json"))("@solidjs/compiler").transform(code, { filename: id, generate: "dom", hydratable: true }).code, moduleType: "js" }) } });
 /** Node's own modules, in a bundle for the browser: empty, as a bundler for the web makes them (Vite externalizes them
  *  with a warning). A package with one entry for every platform imports its Node adapter beside its browser's
  *  (@solid-primitives/filesystem: `node:fs/promises`, chokidar). */
@@ -352,7 +354,7 @@ export class Runner {
     if (!built.file) throw new Error(JSON.stringify(built).slice(0, 600));
     const entry = built.file + ".entry.mjs";
     writeFileSync(entry, `import main from ${JSON.stringify("./" + path.basename(built.file))};\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp({ root: document.getElementById("app") });\ntry { app.mount(main(app)${hydrate ? ", true" : ""}); } catch (e) { console.error("mount threw: " + (e && e.message)); }\nwindow.__mounted = true;\n`);
-    return timed("bundle", () => bundle(ws, { entry, dir: this.dir, conditions: ["browser", "development"], alias: nodeBuiltins() }));
+    return timed("bundle", () => bundle(ws, { entry, dir: this.dir, conditions: ["browser", "development"], alias: nodeBuiltins(), plugins: [jsxOfPackages()] }));
   }
   /** Serves the program: `ssr` renders each URL on the server and hydrates it; otherwise an empty page the client mounts in. */
   async serve({ ssr = false } = {}) {

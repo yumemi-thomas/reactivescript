@@ -1,0 +1,12 @@
+// @solidjs/meta: the document's title and a description, the app's own, kept to what the page shows.
+import { Title, Meta, Head } from "@solidjs/meta"
+
+export default component App() {
+  source n := 1
+  <Head>
+    <Title>{"Page " + n}</Title>
+    <Meta name="description" content="the numbers" />
+  </Head>
+  <p>page {n}</p>
+  <button class="next" onClick={() => { n := n => n + 1 }}>next</button>
+}

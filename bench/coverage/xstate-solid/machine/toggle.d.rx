@@ -1,0 +1,1 @@
+export fn toggle(): { state: ref string; send: (type: "flip") => void }

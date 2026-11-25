@@ -1,15 +1,24 @@
 The tasks' declarations, every behaviour word (pure, handler, draft, rejects, uses, provides, nests, renders) held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
 
-38 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
+12 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
 0 contradicted: a run shows the word false (rx-verify).
-76 the code does not show: a person's word, with the first thing the reading stops at — what to check.
+99 the code does not show: a person's word, with the first thing the reading stops at — what to check.
   file-routes/rx-types/@solidjs/router.d.rx: useParams: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  file-routes/src/people.d.rx: getPerson: pure — a node made as the module loads [@solidjs/router/dist/index.js:2005]
-  file-routes/src/people.d.rx: getPerson: rejects(NotFound) — what it throws is not shown to be of a class of the module's
-  file-routes/src/router.d.rx: Router: provides(router) — which context the name stands for is not shown
+  file-routes/src/people.d.rx: getPerson: pure — it uses Solid's isServerFunction [@solidjs/router/dist/index.js:2005]
+  file-routes/src/people.d.rx: getPerson: rejects(NotFound) — what it throws is not read
+  file-routes/src/router.d.rx: Router: provides(router) — not read: it loads virtual:file-routes, which is not read (bench/.out/ws/tasks/file-routes/src/router.ts, node)
   formisch-field-array/rx-types/@formisch/solid/v2.d.rx: Form: handler(onSubmit) — the record it is in goes where it is not followed [@formisch/solid/dist/v2/index.js:603]
+  formisch-field-array/rx-types/valibot.d.rx: object: pure — what it answers may be changed by a function beside it [valibot/dist/index.mjs:557]
+  formisch-field-array/rx-types/valibot.d.rx: array: pure — what it answers may be changed by a function beside it [valibot/dist/index.mjs:557]
+  formisch-field-array/rx-types/valibot.d.rx: string: pure — what it answers may be changed by a function beside it [valibot/dist/index.mjs:557]
+  formisch-field-array/rx-types/valibot.d.rx: pipe: pure — what it answers may be changed by a function beside it [valibot/dist/index.mjs:557]
+  formisch-field-array/rx-types/valibot.d.rx: minLength: pure — a function it answers (reference) is not shown to only compute: it converts a value that may run code (`toString`, `valueOf`) [valibot/dist/index.mjs:2405]
   formisch-field-path/rx-types/@formisch/solid/v2.d.rx: Form: handler(onSubmit) — the record it is in goes where it is not followed [@formisch/solid/dist/v2/index.js:603]
+  formisch-field-path/rx-types/valibot.d.rx: object: pure — what it answers may be changed by a function beside it [valibot/dist/index.mjs:557]
+  formisch-field-path/rx-types/valibot.d.rx: string: pure — what it answers may be changed by a function beside it [valibot/dist/index.mjs:557]
+  formisch-field-path/rx-types/valibot.d.rx: pipe: pure — what it answers may be changed by a function beside it [valibot/dist/index.mjs:557]
   formisch-field-path/rx-types/valibot.d.rx: email: pure — EMAIL_REGEX is an object of the module that code may change or let go [valibot/dist/index.mjs:764]
+  formisch-field-path/rx-types/valibot.d.rx: minLength: pure — a function it answers (reference) is not shown to only compute: it converts a value that may run code (`toString`, `valueOf`) [valibot/dist/index.mjs:2405]
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: Toast: uses(toastRegion) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: Toast: provides(toast) — which context the name stands for is not shown
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: Toast.CloseButton: uses(toast) — not read: a method of an object the module exports: any importer may change it
@@ -17,54 +26,68 @@ The tasks' declarations, every behaviour word (pure, handler, draft, rejects, us
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: Toast.Region: provides(toastRegion) — not read: a method of an object the module exports: any importer may change it
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: Toast.Title: uses(toast) — not read: a method of an object the module exports: any importer may change it
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: toaster.show: renders(Toast.List) — not read: a method of an object the module exports: any importer may change it
-  primitives-listeners/rx-types/@solid-primitives/focus.d.rx: makeFocusListener: handler(callback) — it listens, and what the import loads may send what it listens to while a call runs: .focus() [@solid-primitives/focus/dist/focusGroup.js:155]
+  kobalte-toast/sync.d.rx: pushChanges: pure — a class the module exports, which any importer may change [sync.js:5]
+  kobalte-toast/sync.d.rx: pushChanges: rejects(Offline) — what it throws is not read
+  primitives-listeners/rx-types/@solid-primitives/focus.d.rx: makeFocusListener: handler(callback) — it listens, and the package's code may send what it listens to while a call runs: .focus() [@solid-primitives/focus/dist/autofocus.js:23]
+  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: handler(callback) — it listens, and the package's code may send what it listens to while a call runs: .bind() of a function that is not known [@solid-primitives/rootless/dist/index.js:25]
+  primitives-state/rx-types/@solid-primitives/sortable.d.rx: by: pure — a function it answers (itself) is not shown to only compute: it converts a value that may run code (`toString`, `valueOf`) [@solid-primitives/sortable/dist/comparators.js:18]
   primitives-state/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
   query-forward/query.d.rx: useQuery: uses(queryClient) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  query-forward/rx-types/@tanstack/solid-query.d.rx: QueryClientProvider: provides(queryClient) — what it answers is no provider whose children are read [@tanstack/solid-query/build/index.js:1]
+  query-forward/rx-types/@tanstack/solid-query.d.rx: QueryClientProvider: provides(queryClient) — what it answers is no provider of a value that is shown to be one, whose children are read [@tanstack/solid-query/build/index.js:1]
   query-mutation/api.d.rx: fetchTodo: pure — it reads globalThis: the environment [api.js:6]
   query-mutation/api.d.rx: dehydrated: pure — it reads document: the environment [api.js:24]
   query-mutation/query.d.rx: useQuery: uses(queryClient) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  query-mutation/rx-types/@tanstack/solid-query.d.rx: QueryClientProvider: provides(queryClient) — what it answers is no provider whose children are read [@tanstack/solid-query/build/index.js:1]
+  query-mutation/rx-types/@tanstack/solid-query.d.rx: QueryClientProvider: provides(queryClient) — what it answers is no provider of a value that is shown to be one, whose children are read [@tanstack/solid-query/build/index.js:1]
   query-mutation/rx-types/@tanstack/solid-query.d.rx: useQueryClient: uses(queryClient) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
   query-mutation/rx-types/@tanstack/solid-query.d.rx: useMutation: handler(options.onSuccess) — the record it is in goes where it is not followed [@tanstack/solid-query/build/index.js:1]
   query-mutation/rx-types/@tanstack/solid-query.d.rx: useMutation: uses(queryClient) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: Outlet: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRoute: pure — a class made in the call [@tanstack/solid-router/dist/esm/route.js:76]
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRoute: renders(RouterProvider) — where the library renders what it is given is not read: a value kept in the module's state is followed no further
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRootRoute: pure — a class made in the call [@tanstack/solid-router/dist/esm/route.js:141]
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRootRoute: renders(RouterProvider) — where the library renders what it is given is not read: a value kept in the module's state is followed no further
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: RouterProvider: provides(router) — its props are taken apart [@tanstack/solid-router/dist/esm/RouterProvider.js:44]
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-data/people.d.rx: getPerson: pure — a node made as the module loads [@solidjs/router/dist/index.js:2005]
-  router-data/people.d.rx: getPerson: rejects(NotFound) — what it throws is not shown to be of a class of the module's
+  router-code-routes/people.d.rx: fetchPerson: pure — a class the module exports, which any importer may change [people.js:9]
+  router-code-routes/people.d.rx: fetchPerson: rejects(NotFound) — what it throws is not read
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: Outlet: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRoute: pure — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRoute: renders(RouterProvider) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRootRoute: pure — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRootRoute: renders(RouterProvider) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: RouterProvider: provides(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-data/people.d.rx: getPerson: pure — it uses Solid's isServerFunction [@solidjs/router/dist/index.js:2005]
+  router-data/people.d.rx: getPerson: rejects(NotFound) — what it throws is not read
   router-data/rx-types/@solidjs/router.d.rx: createRouter: nests(children in component) — how a component the fn makes nests what it is given is not read
   router-data/rx-types/@solidjs/router.d.rx: createRouter: provides(router) — a fn's row: what the component it makes provides is not read
   router-data/rx-types/@solidjs/router.d.rx: defineRoute: pure — its code is another under another host, and it answers data
-  router-provider/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-provider/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-provider/rx-types/@tanstack/solid-router.d.rx: Outlet: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-provider/src/router.d.rx: AppRouter: provides(router) — it takes no props [router.tsx:10]
-  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: Outlet: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: useLoaderData: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: useSearch: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
+  router-provider/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-provider/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-provider/rx-types/@tanstack/solid-router.d.rx: Outlet: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-provider/src/people.d.rx: fetchPerson: pure — a class the module exports, which any importer may change [people.js:9]
+  router-provider/src/people.d.rx: fetchPerson: rejects(NotFound) — what it throws is not read
+  router-provider/src/router.d.rx: AppRouter: provides(router) — not read: it loads ../pages.rx?rx-lib, which is not read (bench/.out/ws/tasks/router-provider/src/routes/people.$id.tsx, client dev)
+  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: Outlet: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: useLoaderData: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  router-rx-routes/rx-types/@tanstack/solid-router.d.rx: useSearch: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
   router-rx-routes/src/people.d.rx: fetchPeople: pure — people is an object of the module that code may change or let go [people.js:2]
   router-rx-routes/src/people.d.rx: fetchPerson: pure — people is an object of the module that code may change or let go [people.js:2]
-  router-rx-routes/src/people.d.rx: fetchPerson: rejects(NotFound) — what it throws is not shown to be of a class of the module's
-  router-rx-routes/src/router.d.rx: AppRouter: provides(router) — it takes no props [router.tsx:10]
+  router-rx-routes/src/people.d.rx: fetchPerson: rejects(NotFound) — what it throws is not read
+  router-rx-routes/src/people.d.rx: fetchStamp: rejects(Stale) — what it throws is not read
+  router-rx-routes/src/router.d.rx: AppRouter: provides(router) — not read: it loads ./routes/__root.rx?rx-page, which is not read (bench/.out/ws/tasks/router-rx-routes/src/routeTree.gen.ts, client dev)
   ssr-divergence/env.d.rx: whereAmI: pure — it asks where it runs, and answers data
   start-mode/rx-types/@solidjs/router.d.rx: useParams: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  start-mode/src/people.d.rx: getPerson: pure — a node made as the module loads [@solidjs/router/dist/index.js:2005]
-  start-mode/src/people.d.rx: getPerson: rejects(NotFound) — what it throws is not shown to be of a class of the module's
-  start-mode/src/router.d.rx: Router: provides(router) — which context the name stands for is not shown
-  start-route/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  start-route/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
-  store-helper/array.d.rx: sortBy: draft(list) — a write that not every path makes, a part of it read, or a use that may keep it
+  start-mode/src/people.d.rx: getPerson: pure — it uses Solid's isServerFunction [@solidjs/router/dist/index.js:2005]
+  start-mode/src/people.d.rx: getPerson: rejects(NotFound) — what it throws is not read
+  start-mode/src/router.d.rx: Router: provides(router) — not read: it loads virtual:file-routes, which is not read (bench/.out/ws/tasks/start-mode/src/router.ts, node)
+  start-route/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/deps/start-route/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  start-route/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/deps/start-route/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  start-route/src/people.d.rx: fetchPerson: pure — a class the module exports, which any importer may change [people.js:9]
+  start-route/src/people.d.rx: fetchPerson: rejects(NotFound) — what it throws is not read
+  store-helper/array.d.rx: moveItem: draft(list) — whether the code changes what it is given in place, and keeps nothing of it, is not read
+  store-helper/array.d.rx: sortBy: draft(list) — whether the code changes what it is given in place, and keeps nothing of it, is not read
+  table-pagination/table.d.rx: getCoreRowModel: pure — a function it answers (itself) is not shown to only compute: it reads process: the environment [@tanstack/table-core/build/lib/index.mjs:153]
+  table-pagination/table.d.rx: getPaginationRowModel: pure — a function it answers (itself) is not shown to only compute: it reads process: the environment [@tanstack/table-core/build/lib/index.mjs:153]
   table-pagination/table.d.rx: createTable: renders(FlexRender) — where the library renders what it is given is not read: a value kept in the module's state is followed no further
   ui-sdk-dialog/rx-types/@ui-sdk/solid/dialog.d.rx: Dialog: handler(onOpenChange) — the record it is in goes where it is not followed [@ui-sdk/solid/dist/dialog.js:9]
-  ui-sdk-dialog/rx-types/@ui-sdk/solid/dialog.d.rx: Dialog: provides(dialog) — what it answers is no provider whose children are read [@ui-sdk/solid/dist/dialog.js:9]
+  ui-sdk-dialog/rx-types/@ui-sdk/solid/dialog.d.rx: Dialog: provides(dialog) — what it answers is no provider of a value that is shown to be one, whose children are read [@ui-sdk/solid/dist/dialog.js:9]
   ui-sdk-dialog/rx-types/@ui-sdk/solid/dialog.d.rx: DialogBackdrop: uses(dialog) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
   ui-sdk-dialog/rx-types/@ui-sdk/solid/dialog.d.rx: DialogClose: uses(dialog) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
   ui-sdk-dialog/rx-types/@ui-sdk/solid/dialog.d.rx: DialogContent: uses(dialog) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
@@ -74,7 +97,7 @@ The tasks' declarations, every behaviour word (pure, handler, draft, rejects, us
   ui-sdk-forms/rx-types/@ui-sdk/solid/checkbox.d.rx: Checkbox: handler(onCheckedChange) — it is no function written out in the module, under a name nothing writes
   ui-sdk-forms/rx-types/@ui-sdk/solid/radio.d.rx: Radio: uses(radioGroup) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
   ui-sdk-forms/rx-types/@ui-sdk/solid/radio.d.rx: RadioGroup: handler(onValueChange) — the record it is in goes where it is not followed [@ui-sdk/solid/dist/radio.js:14]
-  ui-sdk-forms/rx-types/@ui-sdk/solid/radio.d.rx: RadioGroup: provides(radioGroup) — what it answers is no provider whose children are read [@ui-sdk/solid/dist/radio.js:15]
+  ui-sdk-forms/rx-types/@ui-sdk/solid/radio.d.rx: RadioGroup: provides(radioGroup) — what it answers is no provider of a value that is shown to be one, whose children are read [@ui-sdk/solid/dist/radio.js:15]
   wardic-motion/rx-types/@wardic/solid.d.rx: WardicProvider: provides(wardic) — a statement before the return that may leave it [@wardic/solid/dist/server/provider.js:142]
   wardic-motion/rx-types/@wardic/solid.d.rx: wardic.div: uses(wardic) — not read: a method of an object the module exports: any importer may change it
   wardic-values/rx-types/@wardic/solid.d.rx: WardicProvider: provides(wardic) — a statement before the return that may leave it [@wardic/solid/dist/server/provider.js:142]

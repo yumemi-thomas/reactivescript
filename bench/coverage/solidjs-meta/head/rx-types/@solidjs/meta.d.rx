@@ -1,0 +1,5 @@
+//@ for @solidjs/meta ^2.0.0
+export context headGroup
+export component Head(props: { children?: View }) provides(headGroup)
+export component Title(props: Parameters<typeof import("@solidjs/meta").Title>[0])
+export component Meta(props: Parameters<typeof import("@solidjs/meta").Meta>[0])

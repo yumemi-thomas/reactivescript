@@ -1,0 +1,12 @@
+// @dschz/solid-flow: a graph of two nodes and the edge between them.
+import { SolidFlow } from "@dschz/solid-flow"
+import { graph } from "./graph.js"
+
+export default component App() {
+  source picked := "none"
+  { nodes, edges } = graph()
+  <div style="width: 600px; height: 300px">
+    <SolidFlow nodes={nodes} edges={edges} fitView={true} onNodeClick={(e) => { picked := e.node.id }} />
+  </div>
+  <p>picked {picked}</p>
+}

@@ -1,0 +1,8 @@
+// @zag-js/solid: a Zag machine run by a component, by a module of the app's own that hands out the parts' props.
+import { airplane } from "./airplane.js"
+
+export default component App() {
+  { checked, toggle } = airplane()
+  <button class="air" role="switch" aria-checked={checked ? "true" : "false"} onClick={() => { toggle() }}>airplane mode</button>
+  <p>{checked ? "offline" : "online"}</p>
+}

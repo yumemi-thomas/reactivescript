@@ -1,0 +1,8 @@
+// @xstate/solid: a machine run by a component: its state in the view, its events from handlers.
+import { toggle } from "./toggle.js"
+
+export default component App() {
+  { state, send } = toggle()
+  <p>{state}</p>
+  <button class="flip" onClick={() => { send("flip") }}>flip</button>
+}

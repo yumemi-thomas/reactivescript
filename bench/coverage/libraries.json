@@ -709,7 +709,7 @@
   }
  },
  "@ui-sdk/solid": {
-  "about": "UI SDK for Solid (Vercel Labs): every module is drafted whole; `use` lists the modules a program of the suite imports \u2014 its component families (disclosure, form controls, status, popups, selection) and its utilities. bench/tasks/ui-sdk-dialog has the dialog and the toggle, with their mistakes.",
+  "about": "UI SDK for Solid (Vercel Labs): every module is drafted whole; `use` lists the modules a program of the suite imports — its component families (disclosure, form controls, status, popups, selection) and its utilities. bench/tasks/ui-sdk-dialog has the dialog and the toggle, with their mistakes.",
   "packages": {
    "@ui-sdk/solid": {
     "version": "0.1.0-beta.13",
@@ -833,6 +833,214 @@
     ],
     "use": [
      "solid-marked/component"
+    ]
+   }
+  }
+ },
+ "@solidjs/meta": {
+  "about": "Solid Meta: the document's head from components.",
+  "packages": {
+   "@solidjs/meta": {
+    "version": "2.0.0",
+    "modules": [
+     "@solidjs/meta"
+    ],
+    "use": [
+     "@solidjs/meta"
+    ]
+   }
+  }
+ },
+ "terracotta": {
+  "about": "Terracotta (lxsmnsyc): headless parts, one subpath a family; its source is shipped as JSX.",
+  "packages": {
+   "terracotta": {
+    "version": "2.0.0",
+    "modules": [
+     "terracotta/accordion",
+     "terracotta/alert",
+     "terracotta/alert-dialog",
+     "terracotta/breadcrumb",
+     "terracotta/button",
+     "terracotta/checkbox",
+     "terracotta/color-scheme",
+     "terracotta/combobox",
+     "terracotta/command",
+     "terracotta/command-bar",
+     "terracotta/context-menu",
+     "terracotta/dialog",
+     "terracotta/disclosure",
+     "terracotta/feed",
+     "terracotta/grid",
+     "terracotta/listbox",
+     "terracotta/menu",
+     "terracotta/meter",
+     "terracotta/popover",
+     "terracotta/radio-group",
+     "terracotta/select",
+     "terracotta/slider",
+     "terracotta/spinbutton",
+     "terracotta/splitter",
+     "terracotta/states",
+     "terracotta/switch",
+     "terracotta/tabs",
+     "terracotta/toast",
+     "terracotta/toggle",
+     "terracotta/toolbar",
+     "terracotta/tooltip",
+     "terracotta/transition",
+     "terracotta/tree",
+     "terracotta/treegrid",
+     "terracotta/utils"
+    ],
+    "use": [
+     "terracotta/switch"
+    ]
+   }
+  }
+ },
+ "virtua": {
+  "about": "virtua: virtual lists; its Solid subpath (the others are React's, Vue's, Svelte's and Angular's).",
+  "packages": {
+   "virtua": {
+    "version": "0.56.0",
+    "modules": [
+     "virtua/solid"
+    ],
+    "use": [
+     "virtua/solid"
+    ]
+   }
+  }
+ },
+ "solid-floating-ui": {
+  "about": "solid-floating-ui: Floating UI's hooks and components for Solid; its source is shipped as JSX.",
+  "packages": {
+   "solid-floating-ui": {
+    "version": "2.0.0",
+    "modules": [
+     "solid-floating-ui",
+     "solid-floating-ui/utils"
+    ],
+    "use": [
+     "solid-floating-ui"
+    ]
+   }
+  }
+ },
+ "cmdk-solid": {
+  "about": "cmdk-solid: a command menu, over Kobalte 2.",
+  "packages": {
+   "cmdk-solid": {
+    "version": "2.0.0-rc.0",
+    "modules": [
+     "cmdk-solid"
+    ],
+    "use": [
+     "cmdk-solid"
+    ]
+   }
+  }
+ },
+ "solid-slider": {
+  "about": "solid-slider: carousels over keen-slider.",
+  "packages": {
+   "solid-slider": {
+    "version": "2.0.0",
+    "modules": [
+     "solid-slider",
+     "solid-slider/plugins/autoplay",
+     "solid-slider/plugins/adaptiveHeight",
+     "solid-slider/plugins/adaptiveWidth"
+    ],
+    "use": [
+     "solid-slider"
+    ]
+   }
+  }
+ },
+ "@dschz/solid-flow": {
+  "about": "Solid Flow: node graphs, over @xyflow/system.",
+  "packages": {
+   "@dschz/solid-flow": {
+    "version": "1.0.1",
+    "modules": [
+     "@dschz/solid-flow"
+    ],
+    "use": [
+     "@dschz/solid-flow"
+    ]
+   }
+  }
+ },
+ "solid-stripe": {
+  "about": "solid-stripe: Stripe's elements.",
+  "packages": {
+   "solid-stripe": {
+    "version": "2.0.0",
+    "modules": [
+     "solid-stripe",
+     "solid-stripe/checkout",
+     "solid-stripe/pricing"
+    ],
+    "use": [
+     "solid-stripe"
+    ]
+   }
+  }
+ },
+ "@xstate/solid": {
+  "about": "@xstate/solid: XState 6 (a beta) machines run by components.",
+  "packages": {
+   "@xstate/solid": {
+    "version": "3.0.0-beta.1",
+    "modules": [
+     "@xstate/solid"
+    ],
+    "use": [
+     "@xstate/solid"
+    ]
+   }
+  }
+ },
+ "solid-codemirror": {
+  "about": "solid-codemirror: CodeMirror 6 editors.",
+  "packages": {
+   "solid-codemirror": {
+    "version": "3.0.0",
+    "modules": [
+     "solid-codemirror"
+    ],
+    "use": [
+     "solid-codemirror"
+    ]
+   }
+  }
+ },
+ "solid-tiptap": {
+  "about": "solid-tiptap: Tiptap 3 editors.",
+  "packages": {
+   "solid-tiptap": {
+    "version": "1.0.0",
+    "modules": [
+     "solid-tiptap"
+    ],
+    "use": [
+     "solid-tiptap"
+    ]
+   }
+  }
+ },
+ "@zag-js/solid": {
+  "about": "@zag-js/solid: Zag's machines (2.0's pre-release) run by components; the machines are packages of their own.",
+  "packages": {
+   "@zag-js/solid": {
+    "version": "2.0.0-next.4",
+    "modules": [
+     "@zag-js/solid"
+    ],
+    "use": [
+     "@zag-js/solid"
     ]
    }
   }

@@ -1,0 +1,1 @@
+export fn graph(): { nodes: ref import("@dschz/solid-flow").Node[]; edges: ref import("@dschz/solid-flow").Edge[] }
