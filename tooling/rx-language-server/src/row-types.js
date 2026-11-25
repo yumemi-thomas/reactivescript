@@ -17,7 +17,8 @@ function rowTypes(spec, from, rows) {
   try {
     if (!mod) return out;
     const t = tsrs(), TF = t.TypeFlags, SF = t.SymbolFlags;
-    const run = gens => gens.length ? api.batch(...gens) : [];
+    const run = gens => { const out = []; for (let i = 0; i < gens.length; i += 4096) out.push(...api.batch(...gens.slice(i, i + 4096))); return out; };
+    let left = 40000;   // what is past it is `any`
     const prim = TF.StringLike | TF.BooleanLike | TF.BigIntLike | TF.ESSymbolLike | TF.Undefined | TF.Null | TF.Void | TF.Never | TF.EnumLike;
     const isLib = s => !!s?.declarations?.length && s.declarations.every(d => LIB.test(d.path ?? d.fileName ?? ""));
     const exports = new Map(ch.getExportsOfModule(mod).map(e => [e.name, e]));
@@ -43,7 +44,7 @@ function rowTypes(spec, from, rows) {
         const f = x.type.flags;
         if (f & TF.NumberLike) x.node.k = "num";
         else if (f & prim) x.node.k = "prim";
-        else if (f & (TF.Any | TF.Unknown) || x.d > DEPTH) x.node.k = "any";
+        else if (f & (TF.Any | TF.Unknown) || x.d > DEPTH || left-- <= 0) x.node.k = "any";
         else open.push(x);
       }
       // unions, type parameters
@@ -69,7 +70,7 @@ function rowTypes(spec, from, rows) {
         else if (a && /Map$/.test(sym[i].name)) { n.k = "map"; n.key = push(a[0], x.d + 1); n.e = push(a[1], x.d + 1); }
         else if (a && /Set$/.test(sym[i].name)) { n.k = "set"; n.e = push(a[0], x.d + 1); }
         else if (a) { n.k = "promise"; n.e = push(a[0], x.d + 1); }
-        else if (isLib(sym[i])) n.k = "other";
+        else if (isLib(sym[i]) && sym[i].flags & (SF.Class | SF.Interface | SF.Variable)) n.k = "other";   // (a `Record` is lib's alias, not its object)
         else recs.push(x);
       });
       // what a function answers

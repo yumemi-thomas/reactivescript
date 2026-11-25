@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 /// Solid's own: what it exports is known by name (DESIGN.md), and its code is not read.
 pub fn is_solid(spec: &str) -> bool {
-    matches!(spec, "solid-js" | "@solidjs/signals" | "@solidjs/web" | "@solidjs/universal")
+    matches!(spec, "solid-js" | "@solidjs/signals" | "@solidjs/web" | "@solidjs/universal") || spec.starts_with("solid-js/") || spec.starts_with("@solidjs/web/")
 }
 
 pub enum Export<'a> {
@@ -141,7 +141,16 @@ impl<'a> Module<'a> {
                 }
                 AstKind::WithStatement(_) => m.banned = Some("it has a `with`"),
                 AstKind::StaticMemberExpression(_) | AstKind::ComputedMemberExpression(_) if m.is_written(n.id()) => {
-                    let (obj, prop) = match n.kind() { AstKind::StaticMemberExpression(x) => (&x.object, Some(x.property.name.as_str())), AstKind::ComputedMemberExpression(x) => (&x.object, None), _ => unreachable!() };
+                    let (obj, prop) = match n.kind() {
+                        AstKind::StaticMemberExpression(x) => (&x.object, Some(x.property.name.as_str())),
+                        AstKind::ComputedMemberExpression(x) => (&x.object, match &x.expression {
+                            Expression::StringLiteral(s) => Some(s.value.as_str()),
+                            // (a symbol of its own names no built-in)
+                            Expression::CallExpression(c) if matches!(&c.callee, Expression::StaticMemberExpression(k) if k.property.name == "for" && matches!(&k.object, Expression::Identifier(i) if i.name == "Symbol" && m.symbol(i).is_none())) => Some("Symbol.for"),
+                            _ => None,
+                        }),
+                        _ => unreachable!(),
+                    };
                     if let Some((r, first)) = root_of(obj) { if m.symbol(r).is_none() {
                         let p = first.or(prop);
                         if BUILTINS.contains(&r.name.as_str()) || (HOLDERS.contains(&r.name.as_str()) && p.map_or(true, |p| BUILTINS.contains(&p) || TIMERS.contains(&p))) { m.banned = Some("it replaces a part of a built-in"); }

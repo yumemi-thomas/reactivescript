@@ -145,7 +145,7 @@ pub struct Eval<'m, 'a, 'r> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Narrow { Num, Prim, Fn, NotFn, List, NotList }
 
-const BUILTIN_VALUES: &[&str] = &["Math", "JSON", "Object", "Array", "String", "Number", "Boolean", "BigInt", "Promise", "Map", "Set", "WeakMap", "WeakSet", "Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "RegExp", "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURIComponent", "encodeURI", "decodeURIComponent", "decodeURI", "setTimeout", "clearTimeout", "clearInterval", "queueMicrotask"];
+const BUILTIN_VALUES: &[&str] = &["Math", "JSON", "Object", "Array", "String", "Number", "Boolean", "BigInt", "Promise", "Proxy", "Map", "Set", "WeakMap", "WeakSet", "Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "RegExp", "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURIComponent", "encodeURI", "decodeURIComponent", "decodeURI", "setTimeout", "clearTimeout", "clearInterval", "queueMicrotask"];
 const ERRORS: &[&str] = &["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"];
 const OBJECT_PROTO: &[&str] = &["toString", "valueOf", "toLocaleString", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable"];
 const STR_METHODS: &[&str] = &["charAt", "charCodeAt", "codePointAt", "at", "endsWith", "startsWith", "includes", "indexOf", "lastIndexOf", "normalize", "padEnd", "padStart", "repeat", "slice", "substring", "substr", "toLowerCase", "toUpperCase", "trim", "trimStart", "trimEnd", "toString", "valueOf", "toFixed", "toPrecision", "toExponential", "concat", "search"];
@@ -648,7 +648,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         if b.operator == B::Instanceof {
             let l = self.expr(&b.left)?;
             let r = self.expr(&b.right)?;
-            let _ = l;
+            if l.iter().any(|a| matches!(a, Atom::Opaque)) { return self.stop(b.span, "`instanceof` of a value that is not known"); }
             for a in &r {
                 match a {
                     Atom::Native(n) if matches!(self.natives[*n as usize].as_str(), "Array" | "Map" | "Set" | "Promise" | "Error" | "TypeError" | "RangeError" | "RegExp" | "Object" | "WeakMap" | "WeakSet") => {}
@@ -827,6 +827,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                         Ty::Rec(f) => match f.get(name) { Some(x) => self.of_type(*x, d + 1), None => one(Atom::Param(ANY, 3)) },
                         Ty::Arr(_) | Ty::Tuple(_) | Ty::Rest(_) if name == "length" => num(),
                         Ty::Map(..) | Ty::Set(_) if name == "size" => num(),
+                        Ty::Fn { .. } if matches!(name, "length" | "name") => one(Atom::Param(ANY, 3)),
                         _ => return self.stop(at, format!("it reads .{name} of an argument that is no data")),
                     };
                     join(&mut out, &w);
@@ -1396,6 +1397,8 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                 } } }
                 Ok(target)
             }
+            // (an object whose other properties are found elsewhere: made, and read by nobody here)
+            "Object.create" if args.len() == 1 => Ok(one(Atom::Opaque)),
             "Object.freeze" => { for a in arg(0) { match a { Atom::Obj(o) => self.own(o, at)?, a if flat(a) => {} _ => return self.stop(at, "it freezes what is not its own") } } Ok(arg(0)) }
             "Object.hasOwn" => { if prims(&arg(1)) && arg(0).iter().all(|a| matches!(a, Atom::Param(..) | Atom::Obj(_) | Atom::Const(_)) || flat(*a)) { Ok(prim()) } else { self.stop(at, "Object.hasOwn of a value that is not known") } }
             "Promise.resolve" => { let v = self.awaited(&arg(0), at)?; let o = self.made(at, 7, Kind::Promise); self.put_items(o, &v); Ok(one(Atom::Obj(o))) }
@@ -1454,6 +1457,8 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                         "Set" | "WeakSet" => { let o = self.made(at, 0, if c == "Set" { Kind::Set } else { Kind::Weak }); if !arg(0).iter().all(|a| *a == Atom::Undef) { let v = self.iterated(&arg(0), at)?; self.put_items(o, &v); } one(Atom::Obj(o)) }
                         "Array" => { if !args.iter().all(prims) { return self.stop(at, "new Array of a value that is not known"); } self.facts.throws.insert("Error".into()); self.new_array(at, 6, undef()) }
                         "RegExp" => { if !args.iter().all(prims) { return self.stop(at, "new RegExp of a value it converts"); } self.facts.throws.insert("Error".into()); let o = self.made(at, 0, Kind::RegExp); one(Atom::Obj(o)) }
+                        // (made, it runs nothing: every use of it does, and it has none)
+                        "Proxy" => one(Atom::Opaque),
                         "Promise" => {
                             let p = self.made(at, 7, Kind::Promise);
                             let res = self.made(at, 10, Kind::Resolve(p));
@@ -1740,5 +1745,5 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
 }
 fn native_fn(n: &str) -> bool {
     matches!(n, "Math.abs" | "Math.acos" | "Math.acosh" | "Math.asin" | "Math.asinh" | "Math.atan" | "Math.atan2" | "Math.atanh" | "Math.cbrt" | "Math.ceil" | "Math.clz32" | "Math.cos" | "Math.cosh" | "Math.exp" | "Math.expm1" | "Math.floor" | "Math.fround" | "Math.hypot" | "Math.imul" | "Math.log" | "Math.log10" | "Math.log1p" | "Math.log2" | "Math.max" | "Math.min" | "Math.pow" | "Math.round" | "Math.sign" | "Math.sin" | "Math.sinh" | "Math.sqrt" | "Math.tan" | "Math.tanh" | "Math.trunc"
-        | "JSON.stringify" | "JSON.parse" | "Array.isArray" | "Array.of" | "Array.from" | "Object.keys" | "Object.values" | "Object.entries" | "Object.fromEntries" | "Object.assign" | "Object.freeze" | "Object.hasOwn" | "Object.is" | "Number.isNaN" | "Number.isFinite" | "Number.isInteger" | "Number.isSafeInteger" | "Number.parseInt" | "Number.parseFloat" | "String.fromCharCode" | "String.fromCodePoint" | "Promise.resolve" | "Promise.reject" | "Promise.all" | "Promise.race")
+        | "JSON.stringify" | "JSON.parse" | "Array.isArray" | "Array.of" | "Array.from" | "Object.keys" | "Object.values" | "Object.entries" | "Object.fromEntries" | "Object.assign" | "Object.create" | "Object.freeze" | "Object.hasOwn" | "Object.is" | "Number.isNaN" | "Number.isFinite" | "Number.isInteger" | "Number.isSafeInteger" | "Number.parseInt" | "Number.parseFloat" | "String.fromCharCode" | "String.fromCodePoint" | "Promise.resolve" | "Promise.reject" | "Promise.all" | "Promise.race")
 }
