@@ -14,7 +14,7 @@ export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
   const out: Hoisted[] = [];
   const walk = (x: Expr, tail: boolean, g: Guard[]): void => {
     switch (x.k) {
-      case "await": if (!tail) out.push({ node: x, guards: g }); walk(x.e, false, g); if (x.init) walk(x.init, false, g); return;
+      case "await": walk(x.e, false, g); if (x.init) walk(x.init, false, g); if (!tail) out.push({ node: x, guards: g }); return;   // one inside another's question first: the outer one reads it
       case "if": walk(x.c, false, g); walk(x.t, tail, [...g, { e: x.c }]); walk(x.f, tail, [...g, { e: x.c, neg: true }]); return;
       case "bin":
         walk(x.l, false, g);

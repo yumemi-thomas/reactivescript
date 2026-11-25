@@ -344,20 +344,20 @@ const TYPE_KEYS = new Set(["type", "ptypes", "ret", "targs", "propsType"]);
  *  `views`: those typed `View`. `held`: a view the component was given, its children (`children`) or another. Such an
  *  equation is a projection and no computation: the view is made where it is read, under what provides and catches there,
  *  as `props.children` is. */
-export type Given = { props?: { less: string[]; views: Set<string> }; held?: "children" | "view"; view?: boolean };   // view: declared `View` where the type is read (`views`); the children of a type that is not read are held, and no more is known of them
+export type Given = { props?: { less: string[]; views: Set<string> }; held?: "children" | "view"; view?: boolean; field?: string };   // field: the prop it is, or the first of those a choice names; view: declared `View` where the type is read (`views`); the children of a type that is not read are held, and no more is known of them
 export function given(e: Expr, look: (n: string) => Given | undefined): Given | undefined {
   if (e.k === "id") return look(e.name);
   if (e.k === "omit") { const p = given(e.e, look)?.props; return p && { props: { less: [...p.less, ...e.keys], views: p.views } }; }
-  if (e.k === "member") { const p = given(e.o, look)?.props; if (!p || p.less.includes(e.p)) return undefined; const view = p.views.has(e.p); return e.p === "children" ? { held: "children", ...(view ? { view } : {}) } : view ? { held: "view", view } : undefined; }
+  if (e.k === "member") { const p = given(e.o, look)?.props; if (!p || p.less.includes(e.p)) return undefined; const view = p.views.has(e.p); return e.p === "children" ? { held: "children", field: e.p, ...(view ? { view } : {}) } : view ? { held: "view", view, field: e.p } : undefined; }
   if (e.k === "if") { const d = defaulted(e, look); if (d) return d; }
   const either = e.k === "if" ? [e.t, e.f] : e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&") ? [e.l, e.r] : [];
   const gs = either.map(x => given(x, look)).filter(g => g?.held);
-  return gs.length ? { held: "view", ...(gs.some(g => g!.view) ? { view: true } : {}) } : undefined;
+  return gs.length ? { held: "view", field: gs[0]!.field, ...(gs.some(g => g!.view) ? { view: true } : {}) } : undefined;
 }
 /** A view with a default, `{ children = "none" } = props`: read once. Of text, it is still the children. */
 export function defaulted(e: Expr, look: (n: string) => Given | undefined): Given | undefined {
   if (e.k !== "if" || e.c.k !== "bin" || e.c.op !== "==" || e.c.r.k !== "lit" || e.c.r.v !== undefined || JSON.stringify(e.c.l) !== JSON.stringify(e.f)) return undefined;
-  const g = given(e.f, look); return !g?.held ? undefined : e.t.k === "lit" && typeof e.t.v === "string" ? g : { held: "view", ...(g.view ? { view: true } : {}) };
+  const g = given(e.f, look); return !g?.held ? undefined : e.t.k === "lit" && typeof e.t.v === "string" ? g : { held: "view", field: g.field, ...(g.view ? { view: true } : {}) };
 }
 /** Names the equations of a block that are projections of its component's props, in whatever order they are written. */
 export function bindGiven(decls: Decl[], look: (n: string) => Given | undefined, set: (n: string, g: Given) => void) {
@@ -568,7 +568,7 @@ export function onlyShown(d: { props: string; decls: Decl[]; view: Markup[] }): 
  *  the same spelling is another name. `bad`: every other mention, in the order of the text. `kids`: the readers that
  *  show a view. `skip`: the fields the component shows as `<props.f … />`, which have their own rule (`otherMention`).
  *  `dest`: what the prop `attr` of `<tag>` is declared (`takesView`). */
-export type ViewUses = { kids: Set<unknown>; bad: { field: string; line: number; how: string; of?: string }[] };
+export type ViewUses = { kids: Set<unknown>; bad: { field: string; line: number; how: string; of?: string }[]; /** each reader that shows a view, each argument and each content that gives one on: the props it is of (a choice names several) */ at: Map<unknown, string[]> };
 /** What refuses a view read as a value, and the way that is accepted, by what read it (`how`). */
 export function viewNotShown(comp: string, props: string, field: string, how: string, of = ""): string {
   const v = field === "props" || field === "view" ? `${props}.children` : `${props}.${field}`;
@@ -589,9 +589,9 @@ export function viewNotShown(comp: string, props: string, field: string, how: st
   return `${comp} is given a view, ${field === "view" ? "a prop typed View" : field}, and a view is only shown: ${tail[how] ?? tail.value}`;
 }
 export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, types: Types, skip: Set<string> = new Set(), dest?: (tag: string, attr: string) => boolean | undefined): ViewUses {
-  const kids = new Set<unknown>(), bad: ViewUses["bad"] = [];
+  const kids = new Set<unknown>(), bad: ViewUses["bad"] = [], places = new Map<unknown, string[]>();
   const views = new Set([...viewsOf(d.propsType, types)].filter(f => !skip.has(f)));
-  type Sc = { names: Map<string, Given | null>; up: Sc | null };   // null: a name of this block that is no view
+  type Sc = { names: Map<string, Given | null>; up: Sc | null; fields?: Map<string, string[]> };   // fields: the props a name of this block stands for   // null: a name of this block that is no view
   const sub = (up: Sc, ...ns: (string | undefined)[]): Sc => { const s: Sc = { names: new Map(), up }; for (const n of ns) if (n) s.names.set(n, null); return s; };
   const look = (sc: Sc) => (n: string): Given | undefined => { for (let s: Sc | null = sc; s; s = s.up) if (s.names.has(n)) return s.names.get(n) ?? undefined; return undefined; };
   const view = (e: Expr, sc: Sc): Given | undefined => { const g = given(e, look(sc)); return g?.held && g.view ? g : undefined; };
@@ -608,10 +608,18 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
     if (e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&")) return shows(e.l, sc) ?? shows(e.r, sc);
     return undefined;
   };
+  /** Every prop an expression shows. */
+  const fields = (e: Expr, sc: Sc): string[] => {
+    if (e.k === "id" || e.k === "member") { const g = view(e, sc); if (!g) return []; if (e.k === "member") return [e.p]; for (let s: Sc | null = sc; s; s = s.up) if (s.names.has(e.name)) return s.fields?.get(e.name) ?? (g.field ? [g.field] : []); return []; }
+    if (e.k === "if") return [...fields(e.t, sc), ...fields(e.f, sc)];
+    if (e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&")) return [...fields(e.l, sc), ...fields(e.r, sc)];
+    return [];
+  };
   const declared = (x: Decl): string[] => x.k === "import" ? x.names.map(n => n.alias) : x.k === "effect" || x.k === "provide" ? [] : [x.name];
   const block = (ds: Decl[], up: Sc): Sc => {
     const sc = sub(up); for (const x of ds) for (const n of declared(x)) sc.names.set(n, null);
     bindGiven(ds, look(sc), (n, g) => { sc.names.set(n, g); });
+    for (let more = true; more;) { more = false; for (const x of ds) if (x.k === "eq" && sc.names.get(x.name)?.held) { const fs = [...new Set(fields(x.e, sc))], was = sc.fields?.get(x.name); if (fs.length !== (was?.length ?? 0)) { (sc.fields ??= new Map()).set(x.name, fs); more = true; } } }
     return sc;
   };
   const plain = (x: Expr | Expr[] | undefined, sc: Sc, line: number, how: string): void => {
@@ -696,17 +704,17 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
   const mk = (ms: Markup[], sc: Sc, line: number): void => { for (const m of ms) {
     const at = typeof m.line === "number" ? m.line : line;
     switch (m.k) {
-      case "read": ve(m.e, sc, at); if (shows(m.e, sc) !== undefined) kids.add(m); break;
+      case "read": ve(m.e, sc, at); if (shows(m.e, sc) !== undefined) { kids.add(m); places.set(m, fields(m.e, sc)); } break;
       case "el": {
         const comp = /^[A-Z]/.test(m.tag) || shownIn(m.tag) !== undefined;
-        const to = (attr: string, e: Expr): void => { const f = shows(e, sc); if (f !== undefined && dest?.(m.tag, attr) === false) hit(f, at, "prop", `${attr} of <${m.tag}>`); };
+        const to = (attr: string, e: Expr, key: unknown): void => { const f = shows(e, sc); if (f === undefined) return; places.set(key, fields(e, sc)); if (dest?.(m.tag, attr) === false) hit(f, at, "prop", `${attr} of <${m.tag}>`); };
         for (const a of m.attrs) {
           const handler = /^on[A-Z:]/.test(a.name);
           if (a.name === "...") { if (!given(a.e, look(sc))?.props) plain(a.e, sc, at, "value"); }
-          else if (comp && !handler && a.name !== "ref") { ve(a.e, sc, at); to(a.name, a.e); }
+          else if (comp && !handler && a.name !== "ref") { ve(a.e, sc, at); to(a.name, a.e, a); }
           else plain(a.e, sc, at, handler ? "handler" : "value");
         }
-        if (comp) { const c = m.children.filter(x => x.k !== "text" || x.s.trim()); if (c.length === 1 && c[0].k === "read") to("children", c[0].e); }
+        if (comp) { const c = m.children.filter(x => x.k !== "text" || x.s.trim()); if (c.length === 1 && c[0].k === "read") to("children", c[0].e, m); }
         mk(m.children, sc, at); break;
       }
       case "mif": test(m.c, sc, at); inner(m.tDecls, m.t, sc, at); inner(m.fDecls, m.f, sc, at); break;
@@ -719,7 +727,7 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
     }
   } };
   inner(d.decls, d.view, { names: new Map([[d.props, { props: { less: [], views } }]]), up: null }, 0);
-  return { kids, bad };
+  return { kids, bad, at: places };
 }
 /** The readers that show a component's children, of every component of a program: for the interpreter. */
 export function heldReads(set: ModuleSet): Set<unknown> {

@@ -6,7 +6,7 @@ import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
-import { expandType, onlyShown, otherMention, shown, shownIn, typesOf, viewUses, viewNotShown, takesView, type ModuleSet, type Shown, type Types } from "./modules.ts";
+import { expandType, onlyShown, otherMention, shown, shownIn, typesOf, viewUses, viewNotShown, takesView, type ViewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
 import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
@@ -3040,6 +3040,9 @@ class Checker {
   }
 
   // ---- SV-7d: the content model across templates ----
+  private viewUsesMemo = new Map<Sym, ViewUses>();
+  /** RG-4c: where a component shows each view it is given, and gives it on. */
+  private usesOf(c: Sym): ViewUses | undefined { if (!c.comp) return undefined; let u = this.viewUsesMemo.get(c); if (!u) this.viewUsesMemo.set(c, u = viewUses(c.comp, this.types, new Set(this.shownBy(c)?.keys() ?? []))); return u; }
   private shapes = new Map<Sym, Shape | null>();   // null: being computed (a recursive component contributes nothing more)
   /** What a component contributes where it is applied (content.ts Shape): from its signature, or its body. */
   private shape(c: Sym): Shape {
@@ -3048,10 +3051,12 @@ class Checker {
     if (!c.comp || !c.compEnv) return EMPTY_SHAPE;
     this.shapes.set(c, null);
     const sh: Shape = { roots: [], closesP: false, a: false, form: false, childrenAt: [] }; const roots = new Set<string>();
+    const places = this.usesOf(c)?.at;                                                    // RG-4c: a view is placed where it is shown, under whatever name, and where the component it is given on to shows it
+    const put = (f: string, anc: string[]) => { if (f === "children") sh.childrenAt.push(anc); else ((sh.viewsAt ??= {})[f] ??= []).push(anc); };
     const walk = (ms: Markup[], anc: string[], scoped: boolean, env: Env) => {
       for (const m of ms) switch (m.k) {
         case "text": if (!anc.length) roots.add("#text"); break;
-        case "read": if (this.readsChildren(m.e, env)) sh.childrenAt.push(anc); break;
+        case "read": { const fs = places?.get(m); if (fs) for (const f of fs) put(f, anc); else if (this.readsChildren(m.e, env)) sh.childrenAt.push(anc); break; }
         case "el": {
           if (m.tag === "") { walk(m.children, anc, scoped, env); break; }
           if (/^[A-Z]/.test(m.tag)) {
@@ -3065,6 +3070,7 @@ class Checker {
               if (s.factory && !this.expanding.shape.has(s)) { this.expanding.shape.add(s); walk(this.factoryTree(s, m.line), [...anc, ...ch], sc, s.factory.env); this.expanding.shape.delete(s); }
             }
             for (const x of m.children) { const f = this.viewElsewhere(s, x); for (const at of f === undefined ? [] : S.viewsAt?.[f] ?? []) walk([x], [...anc, ...at], scoped || at.some(t => P_SCOPE.has(t)), env); }
+            for (const a of m.attrs) { const fs = places?.get(a); if (fs) for (const at of S.viewsAt?.[a.name] ?? []) for (const f of fs) put(f, [...anc, ...at]); }   // a view given on as an argument: where that component shows it
             break;
           }
           { const c = this.shows(m.tag, env); if (c) { if (c.view === "children") sh.childrenAt.push(anc); else ((sh.viewsAt ??= {})[c.view] ??= []).push(anc); break; } }

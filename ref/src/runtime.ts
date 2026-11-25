@@ -11,7 +11,7 @@ import { RuleError, CheckError } from "./errors.ts";
 import { checkModules, unwrapServer } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
-import { singleModule, shownAll, shownIn, heldReads, type ModuleSet, type Shown } from "./modules.ts";
+import { singleModule, shownAll, shownIn, heldReads, viewsAll, type ModuleSet, type Shown } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
@@ -178,10 +178,27 @@ export class Runtime {
   private shown: Map<unknown, Map<string, Shown>>;   // RG-4c
   providing: Node | null = null;                       // RG-7b: the provision being computed reads what is above it
   private held: Set<unknown>;                          // RG-4c: the readers that show a component's children
+  private views: Map<unknown, Set<string>>;            // RG-4c: each component's props declared `View`
+  /** RG-4c: of a component's props, whether an argument that is declared a view was written, whatever its value is: a
+   *  literal answers by what it is (`undefined`), anything else that is written was given; a spread hands on what its props say. */
+  private written = new WeakMap<object, (k: string) => true | undefined>();
+  private alias = new WeakMap<Node, { e: Expr; region: Region }>();   // an equation's expression: a name for a view is asked as the view is
+  /** Whether a view was given, where its value does not say (`written`): `true`, or undefined for the value's own truth. */
+  private asks(c: Expr, region: Region, env: Map<string, unknown> | undefined, bare: boolean): boolean | undefined {
+    if (bare && c.k === "id") { if (env?.has(c.name)) return undefined; const b = region.lookup(c.name); const a = b instanceof Node ? this.alias.get(b) : undefined; return a ? this.asks(a.e, a.region, undefined, true) : undefined; }
+    if (bare && c.k === "member") { if (c.o.k !== "id" && c.o.k !== "member") return undefined; const o = this.ev(c.o, region, env); return isObj(o) && this.written.get(o)?.(c.p) && !(c.p in o && o[c.p]) ? true : undefined; }
+    if (c.k === "un" && c.op === "!") { const a = this.asks(c.e, region, env, true); return a === undefined ? undefined : !a; }
+    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null) { const a = this.asks(c.l, region, env, true); return a === undefined ? undefined : c.op === "==" ? !a : a; }
+    if (!bare) return undefined;
+    if (c.k === "if") { const cv = this.asks(c.c, region, env, true) ?? this.ev(c.c, region, env); return isAbsent(cv) ? undefined : this.asks(cv ? c.t : c.f, region, env, true); }
+    if (c.k === "bin" && (c.op === "??" || c.op === "||")) { if (this.asks(c.l, region, env, true)) return true; const l = this.ev(c.l, region, env); return isAbsent(l) || (c.op === "??" ? l != null : !!l) ? undefined : this.asks(c.r, region, env, true); }
+    if (c.k === "bin" && c.op === "&&") { const la = this.asks(c.l, region, env, true); if (la === false) return false; const l = la ?? this.ev(c.l, region, env); if (isAbsent(l) || !l) return undefined; const ra = this.asks(c.r, region, env, true); if (ra !== undefined || !la) return ra; const r = this.ev(c.r, region, env); return isAbsent(r) ? undefined : !!r; }
+    return undefined;
+  }
   constructor(input: Program | ModuleSet) {
     const set = "programs" in input ? input : singleModule(input);
     const program = set.programs.get(set.entry)!;
-    this.program = program; this.shown = shownAll(set); this.held = heldReads(set);
+    this.program = program; this.shown = shownAll(set); this.held = heldReads(set); this.views = viewsAll(set);
     this.root = new Region(null, this, null);
     const { diags } = checkModules(set); if (diags.length) throw new CheckError(diags);   // 08: the checker runs first; every static diagnostic is an error
     for (const path of set.order) { if (path === set.entry) continue; const r = new Region(this.root, this, null); this.modules.set(path, r); this.declare(set.programs.get(path)!.decls, r); }
@@ -207,7 +224,7 @@ export class Runtime {
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) this.serverNames.set(sf, d.name); }   // SF-1d: its flights are named by the equation
       if (d.k === "fn") region.scope.set(d.name, { fn: d, home: region }); if (d.k === "component") region.scope.set(d.name, { comp: d, home: region }); if (d.k === "action") region.scope.set(d.name, { action: d, home: region }); }
     for (const d of decls) {                                           // E-7: equations are a system
-      if (d.k === "eq" && !this.instantiates(d.e, region)) { for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x); const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.ownPre = readsOwn(d.e, d.name); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
+      if (d.k === "eq" && !this.instantiates(d.e, region)) { for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x); const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.ownPre = readsOwn(d.e, d.name); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); if (!d.deferred && !d.key) this.alias.set(n, { e: d.e, region }); }
       if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(this.ctxNamed(d.name, region), b instanceof Node && b.kind === "source" ? b : ((): Node => { const n: Node = this.mkNode("eq", `provide ${d.name}`, region, rt => { const was = rt.providing; rt.providing = n; try { return rt.evalExpr(d.e, region); } finally { rt.providing = was; } }); return n; })()); }   // a provided source is the source (O-4)
       if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
       else if (d.k === "source") { const n = this.mkNode("source", d.name, region); n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
@@ -903,7 +920,7 @@ export class Runtime {
         }
         return open(n.heldBy);
       }
-      case "if": { const c = this.ev(e.c, region, env); if (isAbsent(c)) return c; return this.ev(c ? e.t : e.f, region, env); }
+      case "if": { const c = this.asks(e.c, region, env, true) ?? this.ev(e.c, region, env); if (isAbsent(c)) return c; return this.ev(c ? e.t : e.f, region, env); }
       case "serverfn": { let f = this.serverFns.get(e); if (!f) this.serverFns.set(e, (f = this.serverFn({ name: this.serverNames.get(e) ?? "server fn", params: e.params, body: e.body }, region))); return f; }   // SF-1d
       case "throw": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; throw v; }   // R-f-3: in reactive scope the equation's value is the error (E-12)
       case "catch": {                                                  // R-f-4: a matching failure becomes a value; pending and other failures pass
@@ -913,8 +930,9 @@ export class Runtime {
         const en = new Map(env); if (e.name) en.set(e.name, v.err);
         return this.ev(e.alt, region, en);
       }
-      case "un": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; return e.op === "!" ? !v : -(v as number); }
+      case "un": { const a = this.asks(e, region, env, false); if (a !== undefined) return a; const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; return e.op === "!" ? !v : -(v as number); }
       case "bin": {                                                    // R-5: inputs are static — an absent operand does not erase the others
+        { const a = this.asks(e, region, env, false); if (a !== undefined) return a; if (e.op === "&&" && this.asks(e.l, region, env, true)) return this.ev(e.r, region, env); }   // RG-4c: asked
         const l = this.ev(e.l, region, env);
         if (e.op === "&&") { if (isAbsent(l)) return l; return l ? this.ev(e.r, region, env) : l; }
         if (e.op === "||") { if (isAbsent(l)) return l; return l ? l : this.ev(e.r, region, env); }
@@ -925,7 +943,7 @@ export class Runtime {
       }
       case "arr": { const items: unknown[] = []; let bad: unknown; for (const i of e.items) { if (i.k === "spread") { const v = this.ev(i.e, region, env); if (isAbsent(v)) bad ??= v; else items.push(...(v as unknown[])); } else { const v = this.ev(i, region, env); if (isAbsent(v)) bad ??= v; items.push(v); } } return bad ?? items; }
       case "spread": throw new RuleError("SYNTAX", "spread outside an array literal");
-      case "omit": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; const o: Record<string, unknown> = {}; if (isObj(v)) for (const k of Object.keys(v)) if (!e.keys.includes(k)) { this.track(v, k); o[k] = v[k]; } return o; }   // RG-4b: an object rest
+      case "omit": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; const o: Record<string, unknown> = {}; if (isObj(v)) { for (const k of Object.keys(v)) if (!e.keys.includes(k)) { this.track(v, k); o[k] = v[k]; } const w = this.written.get(v); if (w) this.written.set(o, k => e.keys.includes(k) ? undefined : w(k)); } return o; }   // RG-4b: an object rest
       case "rec": { const o: Record<string, unknown> = {}; let bad: unknown; for (const f of e.fields) { if ("spread" in f) { const v = this.ev(f.spread, region, env); if (isAbsent(v)) bad ??= v; else if (isObj(v)) { for (const k of Object.keys(v)) { this.track(v, k); o[k] = v[k]; } } continue; } const v = this.ev(f.v, region, env); if (isAbsent(v)) bad ??= v; o[f.key] = v; } return bad ?? o; }
       case "draft": {                                                  // ST-3: a copy of the seed, written only along `d`, is the value
         const seed = this.ev(e.seed, region, env); if (isAbsent(seed)) return seed;
@@ -976,6 +994,8 @@ export class Runtime {
   }
   /** RG-7: a context by its name in scope (lexical) — its identity is the declaration. */
   private ctxNamed(name: string, region: Region): CtxBinding { const b = region.lookup(name); if (!b || !("context" in b)) throw new RuleError("RG-7", `${name} is not a context`); return b; }
+  /** A condition of a view: `asks`, where conditions are evaluated in a demand (as `evalExpr` is). */
+  asksAt(c: Expr, region: Region): boolean | undefined { return this.asks(c, region, undefined, true); }
   /** RG-7b: the nearest provision of a context above `region`, else its default. */
   private provisionOf(name: string, region: Region): Node {
     const c = this.ctxNamed(name, region);
@@ -1235,7 +1255,7 @@ export class Runtime {
         return { k: "read", node: this.mkNode("reader", "reader", region, rt => {
           const v = rt.evalExpr(m.e, region);
           if (held && held.of !== v) { held.view.region.dispose(); held = null; }
-          if (!(v instanceof ViewFn) || !v.plain) return v === undefined && this.held.has(m) ? "" : v;   // children that were not given show nothing
+          if (!(v instanceof ViewFn) || !v.plain) return (v === undefined || typeof v === "boolean") && this.held.has(m) ? "" : v;   // children that were not given show nothing
           if (!held) { const cr = new Region(region, this, region.boundary, v.region); held = { of: v, view: new ViewValue(cr, v.m.body.map(c => this.inst1(c, cr))) }; }
           return held.view;
         }), shown: null };
@@ -1257,7 +1277,12 @@ export class Runtime {
           const comp = b.comp; const r = new Region(region, this, region.boundary, b.home);   // owned at the application, names from the declaration (RG-7a, MO-6)
           const written = m.children.some(c => c.k === "mview" ? !c.prop : c.k !== "text" || !!c.s.trim()) || !!this.shown.get(comp)?.get("children");   // RG-4c: content that is written is the children; with none, a spread may give them
           const views = new Set(written ? ["children"] : []); for (const c of m.children) if (c.k === "mview" && c.prop) views.add(c.prop);
-          const props = this.spread({}, this.parts(m, region), views);
+          const parts = this.parts(m, region), props = this.spread({}, parts, views);
+          { const vs = this.views.get(comp); if (vs?.size) this.written.set(props, k => {
+            if (!vs.has(k)) return undefined;
+            for (let i = m.attrs.length - 1; i >= 0; i--) { const a = m.attrs[i]; if (a.name === k) return a.e.k === "lit" ? undefined : true; if (a.name === "...") { const v = this.readNode(parts[i].node); if (v !== null && typeof v === "object" && k in v) return this.written.get(v)?.(k); } }
+            return undefined;
+          }); }
           for (const c of m.children) if (c.k === "mview" && c.prop) Object.defineProperty(props, c.prop, { enumerable: true, configurable: true, value: new ViewFn(c, region) });
           const takes = this.shown.get(comp)?.get("children"), content = m.children.filter(c => c.k !== "mview");
           if (takes) {                                             // RG-4c: a view; plain content, where it is taken, is one that asks nothing
@@ -1271,7 +1296,7 @@ export class Runtime {
         }
         return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, (/^on[A-Z:]/.test(a.name) || a.name === "ref") ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
       }
-      case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
+      case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.asksAt(m.c, region) ?? rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
       case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };
       case "loading": case "errored": {
         const item: BoundaryItem = { classes: m.k === "errored" ? this.classValues(m.classes, region) : undefined, k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false, armedBy: Math.max(this.instant, 0), laneAttached: false, bornCandidates: 0 };

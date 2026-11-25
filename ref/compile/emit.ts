@@ -6,7 +6,7 @@
 import { inPrelude, language, scalar } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { instantiates, keptParts } from "../src/ast.ts";
-import { singleModule, isRx, madeComponent, ViewProps, typeOnly, given, defaulted, bindGiven, viewFields, shownIn, shown, typesOf, type Given, type ModuleSet } from "../src/modules.ts";
+import { singleModule, isRx, madeComponent, ViewProps, typeOnly, given, defaulted, bindGiven, viewsOf, shownIn, shown, typesOf, type Given, type ModuleSet } from "../src/modules.ts";
 export { madeComponent };
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
@@ -411,9 +411,16 @@ class Gen {
   /** RG-4c: whether a view was given, asked without making it: `props.children`, a name for it, one with a default. */
   private asked(e: Expr, env: Env): string | undefined {
     const look = (n: string) => env.lookup(n)?.given;
-    if (e.k === "id") { const b = env.lookup(e.name); return b?.given?.held ? b.asked : undefined; }
-    if (e.k === "member" && given(e, look)?.held) return `__rt.given(${this.expr(e.o, env, { imp: false })}, ${J(e.p)})`;
-    if (e.k === "if" && defaulted(e, look)) return "true";
+    if (e.k === "id") { const b = env.lookup(e.name); return b?.given?.held && b.given.view ? b.asked : undefined; }
+    if (e.k === "member") { const g = given(e, look); return g?.held && g.view ? `__rt.given(${this.expr(e.o, env, { imp: false })}, ${J(e.p)})` : undefined; }   // a prop declared `View`: of anything else, the question is its value's
+    // a choice, a default: what its arms answer, a value's own truth where an arm is one
+    const x = (y: Expr) => this.asked(y, env) ?? this.expr(y, env, { imp: false });
+    if (e.k === "if") { if (!this.asked(e.t, env) && !this.asked(e.f, env)) return undefined; return `(${this.asks(e.c, env, true) ?? this.expr(e.c, env, { imp: false })} ? ${x(e.t)} : ${x(e.f)})`; }
+    if (e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&")) {
+      const l = this.asked(e.l, env), r = this.asked(e.r, env); if (!l && !r) return undefined;
+      if (e.op === "&&") return `(${l ?? this.asks(e.l, env, true) ?? this.expr(e.l, env, { imp: false })} && ${x(e.r)})`;
+      return l ? `(${l} || ${x(e.r)})` : `(${this.expr(e.l, env, { imp: false })} ${e.op} ${r})`;
+    }
     return undefined;
   }
   /** … and a condition that asks it: `!v`, `v == undefined`, `a && b`, `a || b`. `bare`: the view itself is one (an `if`, a `?:`, the left of `&&`). */
@@ -511,7 +518,7 @@ class Gen {
   private component(d: Extract<Decl, { k: "component" }>, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
     const shows = new Map([...shown(d, typesOf(this.mods?.set, this.file))].map(([f, v]) => [f, v.mixed] as const));
-    const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props), shows, given: { props: { less: [], views: viewFields(d.propsType, this.modDecls) } } });
+    const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props), shows, given: { props: { less: [], views: viewsOf(d.propsType, typesOf(this.mods?.set, this.file), this.modDecls) } } });
     const was = this.shown; this.shown = new Set([...shows.keys()].map(f => `${d.props}.${f}`));
     try { return `${pad}function ${cm(d.name)}(${mg(d.props)}) {\n${this.owned(d.decls, d.view, inner, ind + 1, true)}\n${pad}}`; } finally { this.shown = was; }
   }
@@ -755,6 +762,30 @@ class Gen {
   }
   private region(decls: Decl[], view: Markup[], env: Env, ind: number): string { return `{(${this.regionFn(decls, view, env, ind)})()}`; }
   private attr(name: string, e: Expr, env: Env): string { return name === "..." ? `{...${this.expr(e, env, { imp: false })}}` : `${name}={${this.expr(e, env, { imp: isHandler(name), ref: name === "ref" })}}`; }   // 07 §4: a spread is Solid's
+  /** RG-4c: an argument of a component. Whether a view was given is read off the prop: a value JSX keeps as it is (a
+   *  literal) answers by what it is, anything else that is written was given. What Solid's compiler would keep as a value
+   *  though it is no literal (a parameter, a sum of constants) is made a read, so that it answers as written. */
+  private arg(name: string, e: Expr, env: Env): string {
+    if (name === "..." || name === "ref" || isHandler(name) || e.k === "lit" || e.k === "arr" || e.k === "rec" || e.k === "fn" || !this.asValue(e, env)) return this.attr(name, e, env);
+    return `${name}={__rt.v(${this.expr(e, env, { imp: false })})}`;
+  }
+  /** Whether what an expression compiles to has no call and no member in it: Solid's compiler gives such a prop as a value. */
+  private asValue(e: Expr, env: Env): boolean {
+    const k = (x: Expr) => this.asValue(x, env);
+    switch (e.k) {
+      case "lit": case "fn": case "stylemap": case "serverfn": return true;
+      case "id": { const b = env.lookup(e.name); return !b || (b.kind !== "acc" && b.kind !== "src"); }
+      case "member": return !!e.opt && k(e.o);
+      case "index": return !!e.opt && k(e.o) && k(e.i);
+      case "un": return k(e.e);
+      case "bin": return e.op !== "==" && e.op !== "!=" && k(e.l) && k(e.r);
+      case "if": return k(e.c) && k(e.t) && k(e.f);
+      case "tpl": return e.parts.every(p => typeof p === "string" || k(p));
+      case "arr": return e.items.every(x => k(x.k === "spread" ? x.e : x));
+      case "rec": return e.fields.every(f => k("spread" in f ? f.spread : f.v));
+      default: return false;   // a call, a read of a context, an await, a probe: each compiles to a call
+    }
+  }
   /** RG-4c: the view a tag shows, `<props.f … />` in a component that does. */
   private shownFrom(tag: string, env: Env): { view: string; mixed: boolean } | undefined { const n = shownIn(tag), b = n && env.lookup(n[0]), mixed = b?.shows?.get(n![1]); return mixed === undefined ? undefined : { view: `${b!.js}.${n![1]}`, mixed }; }
   private child(m: Markup, env: Env, ind: number): string {
@@ -773,7 +804,7 @@ class Gen {
         if (/^[A-Z]/.test(m.tag)) {
           const dot = m.tag.indexOf("."); const head = dot > 0 && !env.lookup(m.tag) ? env.lookup(m.tag.slice(0, dot)) : undefined;   // MO-11q: `<Dialog.Root>`, a member of a declared JS object
           const b = head ? { kind: "comp" as const, js: `${head.js}${m.tag.slice(dot)}`, shape: "comp" as const } : env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
-          const attrs = m.attrs.map(a => { const given = this.views.given(m.tag, a.name, a.e); return " " + (given ? `${a.name}={${this.child({ k: "el", tag: given, attrs: [], children: [], line: m.line }, env, ind + 1).trim()}}` : this.attr(a.name, a.e, env)); }).join("");   // MO-11t: a component given by name to a prop typed `View` is applied there, with no arguments: the element, made where the library reads the prop (JSX's `fallback={<Empty />}`, a getter)
+          const attrs = m.attrs.map(a => { const given = this.views.given(m.tag, a.name, a.e); return " " + (given ? `${a.name}={${this.child({ k: "el", tag: given, attrs: [], children: [], line: m.line }, env, ind + 1).trim()}}` : this.arg(a.name, a.e, env)); }).join("");   // MO-11t: a component given by name to a prop typed `View` is applied there, with no arguments: the element, made where the library reads the prop (JSX's `fallback={<Empty />}`, a getter)
           const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
           const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
           const props = attrs + named.map(v => ` ${v.prop}={${this.regionFn(v.decls, v.body, env, ind + 1, b.shape === "comp" ? v.params.map(mg).join(", ") : viewParam(v), e => { for (const p of v.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}`).join("");
