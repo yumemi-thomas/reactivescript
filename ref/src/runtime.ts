@@ -4,7 +4,7 @@ import { inPrelude, language } from "./names.ts";
 import { classMap } from "./style.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
-import { instantiates, keptParts, readsOwn } from "./ast.ts";
+import { instantiates, keptParts, ownUses, readsOwn } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
 
 import { RuleError, CheckError } from "./errors.ts";
@@ -100,6 +100,7 @@ type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change:
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
   scope = new Map<string, Binding>();
+  providedBy = new Map<CtxBinding, object>();          // RG-7b: the declaration each was provided by
   provided = new Map<CtxBinding, Node>();              // RG-7: provisions by context, found through the instantiation chain
   alive = true;
   parent: Region | null; rt: Runtime; boundary: BoundaryItem | null;
@@ -176,7 +177,7 @@ export class Runtime {
   /** 09 MO-1: each imported module's region, instantiated once, dependencies first; its state is app state. */
   modules = new Map<string, Region>();
   private shown: Map<unknown, Map<string, Shown>>;   // RG-4c
-  providing: Node | null = null;                       // RG-7b: the provision being computed reads what is above it
+  above = new WeakMap<object, object>();               // RG-7b: a `use c` written in what `provide c` is given, and that provision: it reads what is above it
   private held: Set<unknown>;                          // RG-4c: the readers that show a component's children
   private viewCtxs = new Set<unknown>();                // RG-4c: the contexts that hold a view
   /** RG-4c: what answers when a view is asked whether it was given. A view is a value that is not made until it is
@@ -222,7 +223,7 @@ export class Runtime {
       if (d.k === "fn") region.scope.set(d.name, { fn: d, home: region }); if (d.k === "component") region.scope.set(d.name, { comp: d, home: region }); if (d.k === "action") region.scope.set(d.name, { action: d, home: region }); }
     for (const d of decls) {                                           // E-7: equations are a system
       if (d.k === "eq" && !this.instantiates(d.e, region)) { for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x); const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.ownPre = readsOwn(d.e, d.name); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
-      if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(this.ctxNamed(d.name, region), b instanceof Node && b.kind === "source" ? b : ((): Node => { const n: Node = this.mkNode("eq", `provide ${d.name}`, region, rt => { const was = rt.providing; rt.providing = n; try { return rt.evalExpr(d.e, region); } finally { rt.providing = was; } }); return n; })()); }   // a provided source is the source (O-4)
+      if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; const c = this.ctxNamed(d.name, region); for (const u of ownUses(d.name, d.e)) this.above.set(u, d); region.providedBy.set(c, d); region.provided.set(c, b instanceof Node && b.kind === "source" ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
       if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
       else if (d.k === "source") { const n = this.mkNode("source", d.name, region); n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
     }
@@ -865,7 +866,7 @@ export class Runtime {
         return e.init ? this.ev(e.init, region, env) : undefined;
       }
       case "peek": return this.demandMode ? this.unsubscribed(() => this.ev(e.e, region, env)) : this.untracked(() => this.ev(e.e, region, env));   // E-5: in reactive scope, the pass's own values with no input; imperative reads see σ (H-10)
-      case "use": return this.readNode(this.provisionOf(e.name, region));   // RG-7b: the nearest provision of the context through the instantiation chain
+      case "use": return this.readNode(this.provisionOf(e.name, region, this.above.get(e)));   // RG-7b: the nearest provision of the context through the instantiation chain
       case "await": {                                                  // R-1, R-6, R-7
         const v = this.ev(e.e, region, env); if (isAbsent(v)) return v;
         if (!(v instanceof Flight)) return v;                          // a value: same instant, no tick
@@ -994,9 +995,9 @@ export class Runtime {
   /** RG-7: a context by its name in scope (lexical) — its identity is the declaration. */
   private ctxNamed(name: string, region: Region): CtxBinding { const b = region.lookup(name); if (!b || !("context" in b)) throw new RuleError("RG-7", `${name} is not a context`); return b; }
   /** RG-7b: the nearest provision of a context above `region`, else its default. */
-  private provisionOf(name: string, region: Region): Node {
+  private provisionOf(name: string, region: Region, own?: object): Node {
     const c = this.ctxNamed(name, region);
-    for (let r: Region | null = region; r; r = r.parent) { const n = r.provided.get(c); if (n && n !== this.providing) return n; }   // `provide c = use c`: what is above it
+    for (let r: Region | null = region; r; r = r.parent) { const n = r.provided.get(c); if (!n) continue; if (own && r.providedBy.get(c) === own) { own = undefined; continue; } return n; }   // `provide c = … use c …`: what is above that provision
     if (c.context.dflt) { const de = c.context.dflt; return c.dflt ??= this.mkNode("eq", `${name} (default)`, c.home, rt => rt.evalExpr(de, c.home)); }
     throw new RuleError("RG-7b", `no provision for ${name}`);
   }

@@ -4,7 +4,7 @@
 // site, never its caller — RG-7a); provisions resolve through the static application tree (RG-7b).
 import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
-import { hasRegion, instantiates } from "./ast.ts";
+import { hasRegion, instantiates, ownUses, usesNow } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import { expandType, otherMention, shown, shownIn, usedIn, typesOf, viewUses, viewNotShown, takesView, viewCtx, type ViewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
 import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
@@ -62,6 +62,8 @@ type PFEntry = { chain: Step[]; term: null | { line: number; name: string } };
 const caught = (c: Catch, cls: string) => c === "all" || (cls !== "Error" && c.has(cls));
 const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f, cls));
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
+/** RG-7b: the same for a `use` written in its own provision: the first provision on its way up is that one, and is not its. */
+const escAbove = (chain: Step[], name: string) => { const i = chain.findIndex(s => s.p && (s.p === "all" || s.p.has(name))); return i < 0 || escP(chain.slice(i + 1), name); };
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
 export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; view?: { optional: boolean; mixed: boolean; values: string[]; type?: string }; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean; }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; through?: boolean };   // through: MO-14f (2026-11-25), in a host's view — the component's view applies a component the host renders through, so it renders its applier's children there (not printed: a host's view is checked from source)   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
@@ -79,7 +81,7 @@ const noFails = (): Fails => ({ cls: new Set(), props: [] });
 const JS_GLOBALS = new Set("Math JSON Date Number String Boolean Array Object Promise Set Map WeakMap WeakSet Symbol RegExp BigInt Intl URL console document window globalThis navigator localStorage sessionStorage location history setTimeout setInterval clearTimeout clearInterval requestAnimationFrame queueMicrotask structuredClone parseInt parseFloat isNaN crypto performance alert".split(" "));
 /** A type's text on one line, as a signature's row is (MO-9b): a line's end between two members is their `;`. */
 const oneLine = (t: string) => t.split("\n").map(x => x.trim()).filter(Boolean).reduce((a, b) => a === "" ? b : a + (/[{([<|&,;:>]$/.test(a) || /^[})\]>|&]/.test(b) ? " " : "; ") + b, "");
-type Use = { region: Region; name: string; line: number; display: string };
+type Use = { region: Region; name: string; line: number; display: string; above?: boolean };   // above (RG-7b): written in its own provision — what is above that provision
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
 const addF = (a: Fails, b: Fails) => { for (const x of b.cls) a.cls.add(x); a.props.push(...b.props); return a; };
 const catchOf = (classes?: string[]): Catch => classes ? new Set(classes) : "all";
@@ -718,6 +720,7 @@ class Checker {
   private actions: { name: string; body: Stmt[]; env: Env; line: number }[] = [];
   private scalarAliases = new Set<string>();
   private handlers: { attrs: { name: string; e: Expr }[]; kids: Markup[]; h: Expr; env: Env; region: Region; line: number; what: string }[] = [];   // AC-3a: element handlers, by where they are
+  private ownCtx: string[] = [];   // RG-7b: the contexts whose provision's expression is being read: a `use` of one there is what is above it
   private provisions: { key: string; e: Expr; env: Env; block?: Region }[] = [];   // block: of a context that holds a view, the region of its `provide`
   private textGiven = new Set<string>();                                                   // RG-4c: the contexts that hold a view and are given a value somewhere: text
   private carriedFns: { key: string; comp: Sym; view: string; block: Region }[] = [];       // RG-4c: `provide item = props.f` of a view with a parameter: the component, its prop, the block
@@ -1297,13 +1300,32 @@ class Checker {
   private cycles(decls: Decl[], env: Env) {
     const eqs = new Map<string, { e: Expr; line: number }>();
     for (const d of decls) { if (d.k === "eq") eqs.set(d.name, { e: d.e, line: d.line }); if (d.k === "source" && d.question) eqs.set(d.name, { e: d.init, line: d.line }); }
+    // RG-7b: a block's provision is the block's own too — what uses the context beside it, where it stands, reads that
+    // provision. Only a `use` written in what the provision is given is what is above it. (`provide c`: a name no
+    // equation has.)
+    const provs = new Map<string, Set<object>>();
+    for (const d of decls) if (d.k === "provide" && !eqs.has(`provide ${d.name}`)) { eqs.set(`provide ${d.name}`, { e: d.e, line: d.line }); provs.set(d.name, ownUses(d.name, d.e)); }
+    // … and a context's default is computed where the context is declared: a `use` there of a context this block
+    // declares and does not provide is that default (`default c`)
+    for (const d of decls) if (d.k === "context" && d.dflt) eqs.set(`default ${d.name}`, { e: d.dflt, line: d.line });
     const color = new Map<string, 1 | 2>(); const reported = new Set<string>();
     const visit = (n: string, stack: string[]) => {
       if (color.get(n) === 2) return;
-      if (color.get(n) === 1) { const cyc = [...stack.slice(stack.indexOf(n)), n]; const key = [...cyc].sort().join(); if (!reported.has(key)) { reported.add(key); this.line = eqs.get(n)!.line; this.err("CYCLE", "C-1", `instantaneous cycle: ${cyc.join(" → ")} (break it with \`pre\`, C-2)`); } return; }
+      if (color.get(n) === 1) {
+        const cyc = [...stack.slice(stack.indexOf(n)), n]; const key = [...cyc].sort().join(); if (reported.has(key)) return; reported.add(key);
+        const p = cyc.find(x => x.startsWith("provide ")), df = cyc.find(x => x.startsWith("default ")); this.line = eqs.get(p ?? df ?? n)!.line;
+        if (!p && df) this.err("CYCLE", "C-1", `instantaneous cycle: ${cyc.join(" → ")} — the default of context ${df.slice(8)} is computed where the context is declared, and nothing provides it there: a \`use\` of it there is that default`);
+        else if (!p) this.err("CYCLE", "C-1", `instantaneous cycle: ${cyc.join(" → ")} (break it with \`pre\`, C-2)`);
+        else { const c = p.slice(8); this.err("CYCLE", "C-1", `instantaneous cycle: ${cyc.join(" → ")} — \`use ${c}\` beside \`provide ${c}\` is that provision (it is the block's, wherever it is written); what is above it is read in the provision itself: \`provide ${c} = … (use ${c}) …\``); }
+        return;
+      }
       color.set(n, 1);
       const names = new Set<string>(); freeNames(eqs.get(n)!.e, new Set(), names);
       for (const m0 of names) { const own = m0 === `pre:${n}`; const m = m0.startsWith("pre:") ? m0.slice(4) : m0; if (own) continue; if (eqs.has(m) && env.vars.get(m) && env.vars.get(m)!.region === env.region) visit(m, [...stack, n]); }
+      for (const c of usesNow(eqs.get(n)!.e)) {
+        if (provs.has(c)) { if (`provide ${c}` !== n) visit(`provide ${c}`, [...stack, n]); else if (eqs.has(`default ${c}`)) visit(`default ${c}`, [...stack, n]); }   // (its own: what is above it — here, the default)
+        else if (eqs.has(`default ${c}`)) visit(`default ${c}`, [...stack, n]);
+      }
       color.set(n, 2);
     };
     for (const n of eqs.keys()) visit(n, []);
@@ -1378,7 +1400,7 @@ class Checker {
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
       }
       case "provide": {
-        this.comp("provide", env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env);
+        this.comp("provide", env, { name: d.name }, () => { this.ownCtx.push(d.name); try { this.expr(d.e, env, reactive); } finally { this.ownCtx.pop(); } }); this.keep(d.e, env);
         const c = this.ctxOf(d.name, env); if (!c) return;
         env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env, ...(c.ctx!.view && env.region.component ? { block: env.region } : {}) });
         if (c.ctx!.view && !c.ctx!.view.fn) {                                              // RG-4c: given what is no view of the component alone (a value, a choice with one), it may hold text
@@ -2370,7 +2392,7 @@ class Checker {
       case "lit": return;
       case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.draftHere(s, e.name); if (s?.updater && !this.updaterOk.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} is a draft callback (it is given to a function that hands its parameter a library's draft, and writes it): it is used only there, \`setStore(${e.name})\` — called by hand, passed elsewhere or stored, it would be given something that is no draft, or keep one`);   /* MO-10i: a named draft callback is given to what hands it a draft, and used for nothing else */ if (s?.drafts?.length && !this.calleeIds.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} hands its callback a library's draft: it is called by this name, with the callback written in the call (\`${e.name}((d) => { … })\`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action`);   /* MO-10i: such a function is called by its own name, where the callback is written */ if (s) this.wholeUse(e, env); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes one: a JS component's prop typed \`Component\` or \`View\` (or, where its type holds components, the record or the array written there), or a JS fn's arguments (MO-11c, MO-11t, MO-11f, MO-11s)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
       case "pre": { const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", true); if (s && (!reactiveKinds.has(s.kind) || s.kind === "props")) this.err("PRE_OF_NON_REACTIVE", "C-2", s.kind === "props" ? `pre of ${e.name}: props are not a value of their own — name the field, \`x = ${e.name}.x\`, and read \`pre x\`` : `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
-      case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c?.ctx!.view && (c.ctx!.view.fn || e !== this.shownUse)) this.err("VIEW_NOT_SHOWN", "RG-4c", `context ${e.name} holds a view, and a view is only shown: ${c.ctx!.view.fn ? `\`<use.${e.name} … />\`` : `\`{use ${e.name}}\``} in a view, where it is made and owned — it is not read as a value, asked, kept, given on or provided again`); if (c) { this.model.read(c, ctx.scope === "imperative"); } if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
+      case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c?.ctx!.view && (c.ctx!.view.fn || e !== this.shownUse)) this.err("VIEW_NOT_SHOWN", "RG-4c", `context ${e.name} holds a view, and a view is only shown: ${c.ctx!.view.fn ? `\`<use.${e.name} … />\`` : `\`{use ${e.name}}\``} in a view, where it is made and owned — it is not read as a value, asked, kept, given on or provided again`); if (c) { this.model.read(c, ctx.scope === "imperative"); } if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name, ...(this.ownCtx.includes(e.name) ? { above: true } : {}) }); return; }
       case "peek": this.model.snap++; go(e.e); this.model.snap--; return;                  // E-5: a snapshot
       case "latest": case "pending": { const save = this.model.probe; this.model.probe = e.k; go(e.e); this.model.probe = save; return; }   // R-9, R-12: probes
       case "un": this.wholeOk.add(e.e); go(e.e); return;                                  // `!q`, `typeof q`: no field of it is read
@@ -3529,7 +3551,7 @@ class Checker {
       const pushF = (it: Item) => { const k = `F${it.cls}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); fails.push(it); } };
       const pushR = (it: Req) => { const k = `R${it.name}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); reqs.push(it); } };
       for (const r of readerF) if (compOf(r.region) === C) for (const cls of r.f.cls) if (routes(r.region).some(q => escF(q, cls))) pushF({ cls, line: r.line, what: show(r.e) });
-      for (const u of this.uses) if (compOf(u.region) === C) if (routes(u.region).some(q => escP(q, u.name))) pushR({ name: u.name, line: u.line, what: u.name === HOLD ? `a reader of ${u.display}` : `use ${u.display}` });
+      for (const u of this.uses) if (compOf(u.region) === C) if (routes(u.region).some(q => (u.above ? escAbove : escP)(q, u.name))) pushR({ name: u.name, line: u.line, what: u.name === HOLD ? `a reader of ${u.display}` : `use ${u.display}` });
       for (const a of argR) if (compOf(a.app.site) === C) for (const p of PF(a.app.comp, a.field)) if (!p.term && routes(a.app.site).some(q => escP([...p.chain, ...q], HOLD))) { pushR({ name: HOLD, line: a.app.line, what: `<${a.app.tag} ${a.field === "*" ? "{...…}" : `${a.field}={…}`}>, read in ${a.app.tag},` }); break; }   // SV-7b through a prop
       for (const a of this.apps) if (compOf(a.site) === C) {
         const e = esc(a.comp);

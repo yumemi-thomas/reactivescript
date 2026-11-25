@@ -210,6 +210,54 @@ fn deps(e: &Value, self_name: &str, out: &mut IndexSet<String>) {
         _ => {}
     }
 }
+/// RG-7b: a `use` of the context `name` written in what its provision is given — not in a block there that provides it
+/// itself (ref/src/ast.ts `ownUses`).
+fn own_use(e: &Value, name: &str) -> bool {
+    match e {
+        Value::Array(xs) => xs.iter().any(|x| own_use(x, name)),
+        Value::Object(o) => {
+            let k = o.get("k").and_then(Value::as_str);
+            if k == Some("use") {
+                return o.get("name").and_then(Value::as_str) == Some(name);
+            }
+            if let Some(Value::Array(ds)) = o.get("decls") {
+                if ds.iter().any(|d| d.get("k").and_then(Value::as_str) == Some("provide") && d.get("name").and_then(Value::as_str) == Some(name)) {
+                    return false;
+                }
+            }
+            o.iter().any(|(key, v)| key != "k" && own_use(v, name))
+        }
+        _ => false,
+    }
+}
+/// C-1: the contexts an expression uses where it stands — not in a closure, which runs later, unless a call has it
+/// (ref/src/ast.ts `usesNow`). `skip`: a context whose uses are not counted (a provision's own).
+pub(crate) fn uses_now(e: &Value, called: bool, skip: Option<&str>, out: &mut IndexSet<String>) {
+    match e {
+        Value::Array(xs) => xs.iter().for_each(|x| uses_now(x, called, skip, out)),
+        Value::Object(o) => {
+            let k = o.get("k").and_then(Value::as_str);
+            if k == Some("use") {
+                if let Some(n) = o.get("name").and_then(Value::as_str) {
+                    if skip != Some(n) {
+                        out.insert(n.to_string());
+                    }
+                }
+                return;
+            }
+            if k == Some("serverfn") || (k == Some("fn") && !called) {
+                return;
+            }
+            let inner = k == Some("call") || (called && k != Some("fn"));
+            for (key, v) in o {
+                if key != "k" {
+                    uses_now(v, inner, skip, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
 fn has_await_json(v: &Value) -> bool {
     serde_json::to_string(v).unwrap().contains("\"k\":\"await\"")
 }
@@ -336,6 +384,10 @@ struct Gen<'p> {
     /// module-level code: hoisted server functions and the module's error classes
     top: Vec<S>,
     top_fns: HashSet<String>,
+    /// RG-7b: the contexts whose `use` is, where emission stands, written in their own provision (the name of what is
+    /// above it), or in a block that provides them (None: that block's provision, found as any).
+    above: Vec<(String, Option<String>)>,
+    up_seq: usize,
     /// a module-level server fn → its hoisted function
     server_names: IndexMap<String, String>,
     mod_decls: &'p [Decl],
@@ -393,6 +445,8 @@ impl<'p> Gen<'p> {
             css: vec![],
             top: vec![],
             top_fns: HashSet::new(),
+            above: vec![],
+            up_seq: 0,
             server_names: IndexMap::new(),
             mod_decls: &[],
             views: Default::default(),
@@ -615,6 +669,19 @@ impl<'p> Gen<'p> {
 
     // ---- blocks: a region's declarations, then its view
     fn block(&mut self, decls: &[Decl], view: &[Markup], env: Env, exports_tail: Option<E>, style_root: bool) -> R<Vec<S>> {
+        // RG-7b: a `use` in a block that provides its context is that block's provision, not what an enclosing provision's
+        // expression reads above
+        let n = self.above.len();
+        for d in decls {
+            if let Decl::Provide { name, .. } = d {
+                self.above.push((name.clone(), None));
+            }
+        }
+        let out = self.block_styled(decls, view, env, exports_tail, style_root);
+        self.above.truncate(n);
+        out
+    }
+    fn block_styled(&mut self, decls: &[Decl], view: &[Markup], env: Env, exports_tail: Option<E>, style_root: bool) -> R<Vec<S>> {
         let prev = self.style_hash.clone();
         if style_root {
             // a component's view (or the program's) has its own scope; a branch keeps its view's
@@ -1029,10 +1096,22 @@ impl<'p> Gen<'p> {
                 _ => unreachable!(),
             };
             let mut ds = IndexSet::new();
-            deps(&e.to_json(), self_name, &mut ds);
+            let j = e.to_json();
+            deps(&j, self_name, &mut ds);
             for n in &ds {
                 if local.contains(n.as_str()) && n != self_name {
                     if let Some(t) = vals.iter().find(|x| !matches!(x, Decl::Provide { .. }) && x.name() == Some(n.as_str())) {
+                        visit(t, vals, local, key, done, busy, order);
+                    }
+                }
+            }
+            // RG-7b: a block's provision is the block's, wherever it is written in it: what uses it here is made after it
+            let own = if let Decl::Provide { name, .. } = d { Some(name.as_str()) } else { None };
+            let mut us = IndexSet::new();
+            uses_now(&j, false, own, &mut us);
+            for c in &us {
+                for t in vals.iter() {
+                    if matches!(t, Decl::Provide { name, .. } if name == c) {
                         visit(t, vals, local, key, done, busy, order);
                     }
                 }
@@ -1148,20 +1227,29 @@ impl<'p> Gen<'p> {
         if let Decl::Provide { name, e, .. } = d {
             let b = if let ExprKind::Id(n) = &e.k { self.lookup(env, n) } else { None };
             let src = b.as_ref().filter(|b| b.kind == Kind::Src);
-            let mut out = if src.is_some() { vec![] } else { self.hoist_all(&[e], env)? };
-            let entry = match src {
-                Some(b) => obj(vec![("get", id(b.js.clone())), ("w", id(b.w.clone().unwrap()))]),
-                None => {
-                    let get = if self.given(e, env).is_some_and(|g| g.held()) { self.held(e, env)? } else {
-                        // RG-7b: what it reads of its own context is what is above it
-                        let x = thunk(self.expr(e, env, &reactive())?);
-                        let j = e.to_json().to_string();
-                        let f = if j.contains("\"k\":\"use\"") || j.contains("\"k\":\"call\"") { rtc("over", vec![self.reference(name, env, &reactive())?, x]) } else { x };
-                        rtc("memo", vec![E::Null, f])
-                    };
-                    obj(vec![("get", get)])
-                }
-            };
+            // RG-7b: a `use` of its own context, written in what it is given, is what is above it: read before it is provided
+            let n = self.above.len();
+            let mut out = vec![];
+            if own_use(&e.to_json(), name) {
+                let v = format!("up${}", self.up_seq);
+                self.up_seq += 1;
+                out.push(konst(v.clone(), rtc("above", vec![self.reference(name, env, &reactive())?, id("__o")])));
+                self.above.push((name.clone(), Some(v)));
+            }
+            let made = (|| -> R<(Vec<S>, E)> {
+                let hoisted = if src.is_some() { vec![] } else { self.hoist_all(&[e], env)? };
+                let entry = match src {
+                    Some(b) => obj(vec![("get", id(b.js.clone())), ("w", id(b.w.clone().unwrap()))]),
+                    None => {
+                        let get = if self.given(e, env).is_some_and(|g| g.held()) { self.held(e, env)? } else { rtc("memo", vec![E::Null, thunk(self.expr(e, env, &reactive())?)]) };
+                        obj(vec![("get", get)])
+                    }
+                };
+                Ok((hoisted, entry))
+            })();
+            self.above.truncate(n);
+            let (mut hoisted, entry) = made?;
+            out.append(&mut hoisted);
             let c = self.reference(name, env, &reactive())?;
             out.push(sexpr(rtc("provide", vec![c, entry])));
             return Ok(out);
@@ -2018,7 +2106,10 @@ impl<'p> Gen<'p> {
                 // made, where Solid's development build reports a read nothing tracks
                 if ctx.is_ref { E::Arrow { params: own, body: Body::Expr(Box::new(rtc("untrack", vec![f]))), is_async: false } } else { f }
             }
-            ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
+            ExprKind::Use(n) => match self.above.iter().rev().find(|(c, _)| c == n) {
+                Some((_, Some(up))) => call(id(up.clone()), vec![]),
+                _ => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
+            },
             ExprKind::Bin { op, l, r } => {
                 // RG-4c: a view asked for is not made
                 {

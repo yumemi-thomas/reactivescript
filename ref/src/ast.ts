@@ -83,6 +83,32 @@ export const instantiates = (f: Extract<Decl, { k: "fn" }>): boolean => f.params
 /** RG-6a: its call is a region of its own. */
 export const hasRegion = (f: Extract<Decl, { k: "fn" }>): boolean => f.decls.length > 0 || readsContext(f.tail);
 
+/** RG-7b: the `use c` written in what `provide c = e` is given — they read what is above that provision, wherever they
+ *  run (a closure in e too: it is written above the provision). Not those of a block inside e that provides c itself:
+ *  they are that block's. */
+export function ownUses(name: string, e: unknown, out = new Set<object>()): Set<object> {
+  if (!e || typeof e !== "object") return out;
+  if (Array.isArray(e)) { for (const x of e) ownUses(name, x, out); return out; }
+  const o = e as Record<string, unknown>;
+  if (o.k === "use" && o.name === name) { out.add(o); return out; }
+  if (Array.isArray(o.decls) && o.decls.some(d => (d as { k?: string; name?: string })?.k === "provide" && (d as { name?: string }).name === name)) return out;
+  for (const [k, v] of Object.entries(o)) if (k !== "k") ownUses(name, v, out);
+  return out;
+}
+/** C-1: the contexts an expression uses where it stands — not in a closure, which runs later, unless a call has it: its
+ *  callee, or what it is given, which the call may run. `skip`: uses that are not counted (a provision's own). */
+export function usesNow(e: unknown, skip?: Set<object>, out = new Set<string>()): Set<string> {
+  const go = (n: unknown, called: boolean): void => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { for (const x of n) go(x, called); return; }
+    const o = n as Record<string, unknown>;
+    if (o.k === "use") { if (!skip?.has(o)) out.add(o.name as string); return; }
+    if (o.k === "serverfn" || (o.k === "fn" && !called)) return;
+    const inner = o.k === "call" || (called && o.k !== "fn");
+    for (const [k, v] of Object.entries(o)) if (k !== "k") go(v, inner);
+  };
+  go(e, false); return out;
+}
 /** C-2: `pre self` somewhere in it. */
 export const readsOwn = (x: unknown, self: string): boolean => x !== null && typeof x === "object" && (((x as { k?: string }).k === "pre" && (x as { name?: string }).name === self) || Object.values(x).some(v => readsOwn(v, self)));
 /** C-2: the places of an equation that builds on its own last value (`pre self`) whose value the result may hold: an item,

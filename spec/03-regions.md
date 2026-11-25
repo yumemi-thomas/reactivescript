@@ -257,6 +257,19 @@ palette = (use theme).palette           // used: in any region beneath — the n
   default, `context density: number = 1`, which is the value where nothing
   above provides it. A component body sees the caller's provisions, never
   the caller's locals.
+  *A provision given from what is above it (2026-11-26).* A block's
+  provision is the block's too, wherever it is written in it: `use c` beside
+  `provide c` reads that provision, before it in the text or after. What is
+  above it is read in the provision itself — a `use c` written in what
+  `provide c` is given is what is above that provision, in a closure there
+  too (it is written above it): `provide theme = { ...(use theme), fg:
+  props.fg }`, `provide level = (use level) + 1`, `provide log = (s) =>
+  (use log)(tag + s)`. A provision that comes back to itself where it
+  stands — through a name (`up = use c; provide c = up`), or through a
+  second context of the block, each given from the other — is `CYCLE`
+  (C-1), as is a context's default given from itself; with nothing above
+  and no default, the `use` in the provision is `CONTEXT_NOT_FOUND`
+  (S-context-9).
   *In a fn (2026-11-24).* A call of a fn is a region of the caller's
   (RG-6a), so its `use` reads above each place it is called: `fn useForm() {
   f = use form; f }` is checked at its calls, through other fns, modules and

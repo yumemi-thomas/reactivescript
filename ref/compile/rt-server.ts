@@ -128,7 +128,6 @@ function noApi(name: string) {
   if (unanswered.has(name)) return; unanswered.add(name);
   console.error(`[reactivescript] ${name}(…), imported from "./api", will never answer: "./api" is the app's injected API, not a file (a ./api.js or ./api.ts beside the module is not read), and this app was given none. Give it one, createApp({ api: { ${name} } }) (a whole module: import * as api from "./api.js"; createApp({ api })), or import a module of your own by another spelling, "./api.js" for one.`);
 }
-let OVER: { c: unknown; o: unknown; up: any } | null = null;   // RG-7b: the provision being computed
 /** RG-4c: the question "was a view given" being asked, if one is: shared by every copy of the runtime on the page. */
 const ASK: { on: { owner: unknown } | null } = ((globalThis as any)[Symbol.for("rx.ask")] ??= { on: null });
 /** A view that is written: made where it is read. While it is only asked for (by the computation that asks: a memo of
@@ -368,16 +367,17 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     provide(c: Ctx, e: Entry) { const o = getOwner() as any; if (!o) throw new Error(`[reactivescript] provide ${c.name}: no owner. A component is rendered by one copy of Solid and @reactivescript/runtime runs on another — under a dev server, the app's modules on Vite's and the runtime on Node's. Solid's Vite plugin loads the runtime with the app's Solid when it finds it from the app's package.json: list @reactivescript/compiler there (the runtime is its dependency), or the runtime itself, or add @reactivescript/runtime to ssr.noExternal (11 CP-4a)`); o._context = { ...o._context, [c.id]: e }; },
     use(c: Ctx, owner: Owner): Entry {
       let e = ((owner ?? getOwner()) as any)?._context?.[c.id];
-      if (OVER && OVER.c === c && e !== undefined && e === (OVER.o as any)?._context?.[c.id]) e = OVER.up;   // its own provision, being computed: what is above it
       if (e) return e;
       if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
     },
     /** RG-7b: a provision's own expression reads what is above it (`provide c = (use c) + "!"`), each time it is
      *  computed: the provision it is about to be is not above itself. Called before `provide`, where what is above is still what `use` finds. */
-    over<T>(c: Ctx, f: () => T): () => T {
-      const o = getOwner(), up = (getOwner() as any)?._context?.[c.id];
-      return () => { const was = OVER; OVER = { c, o, up }; try { return f(); } finally { OVER = was; } };
+    /** RG-7b: what is above a block for a context it is about to provide (`provide c = … use c …` reads it): asked
+     *  before the provision is there; a context nothing provides above, with no default, fails where it is read. */
+    above(c: Ctx, owner: Owner): () => unknown {
+      let e: Entry; try { e = app.use(c, owner); } catch (err) { return () => { throw err; }; }
+      return () => e.get ? e.get() : e.value;
     },
     useGet(c: Ctx, owner: Owner) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,

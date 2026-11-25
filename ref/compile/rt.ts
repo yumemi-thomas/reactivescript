@@ -212,7 +212,6 @@ function lent(v: unknown, to: string): unknown {
   };
   return wrap(v);
 }
-let OVER: { c: unknown; o: unknown; up: any } | null = null;   // RG-7b: the provision being computed
 /** RG-4c: the question "was a view given" being asked, if one is: shared by every copy of the runtime on the page. */
 const ASK: { on: { owner: unknown } | null } = ((globalThis as any)[Symbol.for("rx.ask")] ??= { on: null });
 /** A view that is written: made where it is read. While it is only asked for (by the computation that asks: a memo of
@@ -445,16 +444,17 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     provide(c: Ctx, e: Entry) { setContext(c.ctx, e); },
     use(c: Ctx, owner: ReturnType<typeof getOwner>): Entry {
       let e = getContext(c.ctx, owner ?? undefined);
-      if (OVER && OVER.c === c && e !== NO_PROVISION && e === getContext(c.ctx, OVER.o ?? undefined)) e = OVER.up;   // its own provision, being computed: what is above it
       if (e && e !== NO_PROVISION) return e;
       if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
     },
     /** RG-7b: a provision's own expression reads what is above it (`provide c = (use c) + "!"`), each time it is
      *  computed: the provision it is about to be is not above itself. Called before `provide`, where what is above is still what `use` finds. */
-    over<T>(c: Ctx, f: () => T): () => T {
-      const o = getOwner(), up = getContext(c.ctx, getOwner() ?? undefined);
-      return () => { const was = OVER; OVER = { c, o, up }; try { return f(); } finally { OVER = was; } };
+    /** RG-7b: what is above a block for a context it is about to provide (`provide c = … use c …` reads it): asked
+     *  before the provision is there; a context nothing provides above, with no default, fails where it is read. */
+    above(c: Ctx, owner: ReturnType<typeof getOwner>): () => unknown {
+      let e: Entry; try { e = app.use(c, owner); } catch (err) { return () => { throw err; }; }
+      return () => e.get ? e.get() : e.value;
     },
     useGet(c: Ctx, owner: ReturnType<typeof getOwner>) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,

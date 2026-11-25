@@ -5,7 +5,7 @@
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import { inPrelude, language, scalar } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
-import { instantiates, keptParts } from "../src/ast.ts";
+import { instantiates, keptParts, ownUses, usesNow } from "../src/ast.ts";
 import { singleModule, isRx, madeComponent, ViewProps, typeOnly, given, defaulted, bindGiven, viewsOf, viewCtx, shownIn, usedIn, shown, typesOf, type Given, type ModuleSet } from "../src/modules.ts";
 export { madeComponent };
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
@@ -303,8 +303,10 @@ class Gen {
     const done = new Set<string>(); const order: Decl[] = []; const busy = new Set<string>();
     const visit = (d: Decl) => {
       const k = key(d); if (done.has(k) || busy.has(k)) return; busy.add(k);
-      const self = d.k === "provide" ? "" : (d as { name: string }).name;
-      for (const n of deps(d.k === "eq" ? d.e : d.k === "source" ? d.init : d.e, self)) if (local.has(n) && n !== self) { const t = vals.find(x => x.k !== "provide" && (x as { name: string }).name === n); if (t) visit(t); }
+      const self = d.k === "provide" ? "" : (d as { name: string }).name, e = d.k === "eq" ? d.e : d.k === "source" ? d.init : d.e;
+      for (const n of deps(e, self)) if (local.has(n) && n !== self) { const t = vals.find(x => x.k !== "provide" && (x as { name: string }).name === n); if (t) visit(t); }
+      // RG-7b: a block's provision is the block's, wherever it is written in it: what uses it here is made after it
+      for (const c of usesNow(e, d.k === "provide" ? ownUses(d.name, d.e) : undefined)) for (const t of vals) if (t.k === "provide" && t.name === c && t !== d) visit(t);
       busy.delete(k); done.add(k); order.push(d);
     };
     vals.forEach(visit);
@@ -318,15 +320,19 @@ class Gen {
     out.push(exportsTail ? `${pad}return ${exportsTail};` : `${pad}return ${this.markup(view, env, ind)};`);
     return out.join("\n");
   }
+  private above = new Map<object, string>(); private upSeq = 0;   // RG-7b: a `use` written in its own provision, and the name of what is above it
   private params(env: Env, ps: string[]) { const e = new Env(env); for (const p of ps) e.vars.set(p, { kind: "val", js: mg(p) }); return e; }
 
   private value(d: Decl, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
     if (d.k === "provide") {
       const b = d.e.k === "id" ? env.lookup(d.e.name) : undefined;
-      const hoisted = b?.kind === "src" ? "" : this.hoistAll([d.e], env, pad).map(x => x + "\n").join("");
-      const entry = b?.kind === "src" ? `{ get: ${b.js}, w: ${b.w} }` : given(d.e, n => env.lookup(n)?.given)?.held ? `{ get: ${this.held(d.e, env)} }` : `{ get: __rt.memo(null, ${/"k":"(use|call)"/.test(JSON.stringify(d.e)) ? `__rt.over(${this.ref(d.name, env, { imp: false })}, () => ${this.expr(d.e, env, { imp: false })})` : `() => ${this.expr(d.e, env, { imp: false })}`}) }`;   // RG-7b: what it reads of its own context is what is above it
-      return `${hoisted}${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
+      // RG-7b: a `use` of its own context, written in what it is given, is what is above it: read before it is provided
+      const own = ownUses(d.name, d.e); let up = "";
+      if (own.size) { const v = `up$${this.upSeq++}`; for (const u of own) this.above.set(u, v); up = `${pad}const ${v} = __rt.above(${this.ref(d.name, env, { imp: false })}, __o);\n`; }
+      const hoisted = b?.kind === "src" ? "": this.hoistAll([d.e], env, pad).map(x => x + "\n").join("");
+      const entry = b?.kind === "src" ? `{ get: ${b.js}, w: ${b.w} }` : given(d.e, n => env.lookup(n)?.given)?.held ? `{ get: ${this.held(d.e, env)} }` : `{ get: __rt.memo(null, () => ${this.expr(d.e, env, { imp: false })}) }`;
+      return `${up}${hoisted}${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
     }
     const b = env.vars.get((d as { name: string }).name)!;
     if (d.k === "eq" && d.e.k !== "draft") this.updaterClosure(d.name, d.line, d.e, env);
@@ -644,7 +650,8 @@ class Gen {
         if (e.stmts) { const async = this.hasAwait(e.stmts); return `${once}${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}${end}`; }
         return `${once}(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}${end}`;
       }
-      case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
+      case "use": if (this.above.has(e)) return `${this.above.get(e)}()`;
+        return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
         { const a = this.asks(e, env, false); if (a) return a; if (e.op === "&&") { const l = this.asks(e.l, env, true); if (l) return `(${l} ? ${go(e.r)} : ${go(e.l)})`; } }   // RG-4c: asked, not made; one that was not given is the nothing it is
         if (e.op !== "??" && e.op !== "||" && e.op !== "&&") { this.raw.add(e.l); this.raw.add(e.r); }   // MO-10i: an operator that makes a primitive keeps nothing of what it reads

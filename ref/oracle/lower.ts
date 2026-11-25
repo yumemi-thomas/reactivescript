@@ -6,7 +6,7 @@ import { inPrelude, language } from "../src/names.ts";
 import { classMap } from "../src/style.ts";
 import { inferredAction } from "../src/infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
-import { instantiates, keptParts } from "../src/ast.ts";
+import { instantiates, keptParts, ownUses, usesNow } from "../src/ast.ts";
 import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
 import { getObserver } from "@solidjs/signals";
@@ -180,6 +180,7 @@ class Scope {
   vars = new Map<string, Binding>(); givens = new Map<string, Given>();
   given = (n: string): Given | undefined => this.vars.has(n) || this.givens.has(n) ? this.givens.get(n) : this.parent?.given(n);
   parent: Scope | null; owner: ReturnType<typeof getOwner>;
+  ups?: Map<object, unknown>;   // RG-7b: what was above this block for a context it provides from itself (`provide c = … use c …`), by provision
   constructor(parent: Scope | null) { this.parent = parent; this.owner = getOwner(); Scope.all.push(this); }   // the owner at declaration: provisions are read against it (RG-7)
   lookup(n: string): Binding | undefined { return this.vars.get(n) ?? this.parent?.lookup(n); }
 }
@@ -211,11 +212,11 @@ export class Oracle {
   contexts = new Map<string, ReturnType<typeof createContext<Binding | undefined>>>();
   private ctxNamed(name: string, scope: Scope) { const c = scope.lookup(name); if (!c || c.k !== "ctx") throw new Error(`RG-7: ${name} is not a context`); return c; }
   /** RG-7b: the nearest provision of the context named `name` (lexically) above the scope's owner, else its default. */
-  private over: { ctx: unknown; o: unknown; up: unknown } | null = null;   // RG-7b: the provision being computed
-  provision(name: string, scope: Scope): Binding {
+  private above = new WeakMap<object, object>();   // RG-7b: a `use c` written in what `provide c` is given, and that provision
+  provision(name: string, scope: Scope, own?: object): Binding {
     const c = this.ctxNamed(name, scope);
     let b = getContext(c.ctx, scope.owner ?? undefined);
-    if (this.over && this.over.ctx === c.ctx && b !== NO_PROVISION && b === getContext(c.ctx, (this.over.o ?? undefined) as never)) b = this.over.up as Binding;
+    if (own) for (let s: Scope | null = scope; s; s = s.parent) if (s.ups?.has(own)) { b = s.ups.get(own) as Binding; break; }   // written in its own provision: what was above the block
     if (b && b !== NO_PROVISION) return b;
     if (c.dflt) { const de = c.dflt; return c.dv ??= { k: "memo", get: runWithOwner(c.home.owner ?? null, () => createMemo(() => this.ev(de, c.home)))! }; }
     throw new Error(`RG-7b: no provision for ${name}`);
@@ -334,6 +335,23 @@ export class Oracle {
     return undefined;
   }
   private held(e: Expr, scope: Scope) { return () => { if (e.k !== "if" || !defaulted(e, scope.given)) return this.ev(e, scope); const v = this.ev(e.f, scope); return v === undefined ? this.ev(e.t, scope) : v; }; }
+  /** RG-7b: a block's provision is the block's, wherever it is written in it: it is made before what uses it there (and
+   *  what it is given from, by name, before it). The rest stays in the written order. */
+  private provisionsFirst(decls: Decl[]): Decl[] {
+    if (!decls.some(d => d.k === "provide")) return decls;
+    const ids = (e: unknown, out = new Set<string>()): Set<string> => { if (e && typeof e === "object") { if ((e as { k?: string }).k === "id") out.add((e as { name: string }).name); for (const v of Object.values(e)) ids(v, out); } return out; };
+    const out: Decl[] = [], seen = new Set<Decl>();
+    const visit = (d: Decl) => {
+      if (seen.has(d)) return; seen.add(d);
+      if (d.k === "eq" || d.k === "source" || d.k === "provide") {
+        const e = d.k === "source" ? d.init : d.e;
+        for (const n of ids(e)) { const t = decls.find(x => (x.k === "eq" || x.k === "source") && x.name === n); if (t) visit(t); }
+        for (const c of usesNow(e, d.k === "provide" ? ownUses(d.name, d.e) : undefined)) for (const t of decls) if (t.k === "provide" && t.name === c && t !== d) visit(t);
+      }
+      out.push(d);
+    };
+    decls.forEach(visit); return out;
+  }
   // ---- declarations ----
   declare(decls: Decl[], scope: Scope) {
     for (const d of decls) if (d.k === "eq" || d.k === "source") scope.givens.set(d.name, {});
@@ -350,13 +368,13 @@ export class Oracle {
       if (d.k === "component") scope.vars.set(d.name, { k: "comp", decl: d, home: scope });
       if (d.k === "action") scope.vars.set(d.name, { k: "action", run: this.lowerAction(d.params, d.body, scope) });
     }
-    for (const d of decls) {
+    for (const d of this.provisionsFirst(decls)) {
       switch (d.k) {
         case "provide": {                                               // RG-7a: setContext on the current owner; a provided source is the source
           const ctx = this.ctxNamed(d.name, scope).ctx;
           const b = d.e.k === "id" ? scope.lookup(d.e.name) : undefined;
           if (b && (b.k === "sig" || b.k === "store")) setContext(ctx, b);
-          else { this.hoistAwaits(null, d.e, scope, false); const o = getOwner(), up = getContext(ctx, o ?? undefined); const get = given(d.e, scope.given)?.held ? this.held(d.e, scope) : createMemo(() => { const was = this.over; this.over = { ctx, o, up }; try { return this.ev(d.e, scope); } finally { this.over = was; } }); setContext(ctx, { k: "memo", get } as Binding); }   // RG-7b: its own expression reads what is above it, each time it is computed
+          else { this.hoistAwaits(null, d.e, scope, false); const own = ownUses(d.name, d.e); if (own.size) { for (const u of own) this.above.set(u, d); (scope.ups ??= new Map()).set(d, getContext(ctx, getOwner() ?? undefined)); } const get = given(d.e, scope.given)?.held ? this.held(d.e, scope) : createMemo(() => this.ev(d.e, scope)); setContext(ctx, { k: "memo", get } as Binding); }   // RG-7b: a `use` of it written in what it is given reads what was above (`up`)
           break;
         }
         case "source": {
@@ -622,7 +640,7 @@ export class Oracle {
         return f.apply(self, args);
       }
       case "draft": throw new Unsupported("draft outside an equation");
-      case "use": { const b = this.provision(e.name, scope); return b.k === "const" ? b.value : (b as { get: () => unknown }).get(); }
+      case "use": { const b = this.provision(e.name, scope, this.above.get(e)); return b.k === "const" ? b.value : (b as { get: () => unknown }).get(); }
       case "spread": throw new Error("spread outside an array literal");
       case "omit": return omit(this.ev(e.e, scope, env) as Record<string, unknown>, ...e.keys);
     }

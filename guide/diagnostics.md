@@ -504,6 +504,10 @@ export default component App() {
 Equations that read each other in one instant have no value (C-1). Break the loop with `pre`, the value before the
 last change (C-2), or make one side a source written by an event.
 
+A provision can be one side of the loop. `use theme` beside `provide theme` is that provision — it is the block's,
+wherever it is written — so `up = use theme` followed by `provide theme = { ...up, fg: props.fg }` reads itself. What
+is above a provision is read in the provision: `provide theme = { ...(use theme), fg: props.fg }` (RG-7b).
+
 ```rx before
 export default component App() {
   source s := 0

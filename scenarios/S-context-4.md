@@ -80,8 +80,7 @@ export default component App() {
 ```rx
 context cfg: { dir: string; size: string } = { dir: "ltr", size: "m" }
 component Cfg(props: { size?: string; children: View }) {
-  o = use cfg
-  provide cfg = { ...o, size: props.size ?? o.size }
+  provide cfg = { ...(use cfg), size: props.size ?? (use cfg).size }
   <div>{props.children}</div>
 }
 component Page() { <i>{(use cfg).size}</i> }

@@ -1665,6 +1665,18 @@ fn esc_p(chain: &[Step], name: &str) -> bool {
         None => false,
     })
 }
+/// RG-7b: the same for a `use` written in its own provision: the first provision on its way up is that one, and is not its.
+fn esc_above(chain: &[Step], name: &str) -> bool {
+    let at = chain.iter().position(|s| match &s.p {
+        Some(Catch::All) => true,
+        Some(Catch::Set(p)) => p.contains(name),
+        None => false,
+    });
+    match at {
+        None => true,
+        Some(i) => esc_p(&chain[i + 1..], name),
+    }
+}
 /// MO-11u: a list of places in the order a signature prints (by key, then by what each discharges and provides).
 fn sort_sites(m: IndexMap<String, Vec<HostSite>>) -> IndexMap<String, Vec<HostSite>> {
     let mut m: Vec<(String, Vec<HostSite>)> = m.into_iter().collect();
@@ -1743,6 +1755,8 @@ struct UseRec {
     name: String,
     line: i64,
     display: String,
+    /// RG-7b: written in its own provision — what is above that provision
+    above: bool,
 }
 struct ReaderRec<'a> {
     region: RId,
@@ -2008,6 +2022,8 @@ pub struct Checker<'a> {
     line: i64,
     seq: usize,
     uses: Vec<UseRec>,
+    /// RG-7b: the contexts whose provision's expression is being read
+    own_ctx: Vec<String>,
     /// the calls of fns that instantiate, each in its region (RG-6a)
     hook_calls: Vec<(RId, SId, i64, String)>,
     parts_memo: HashMap<SId, IndexSet<String>>,
@@ -2495,6 +2511,7 @@ impl<'a> Checker<'a> {
             line: 1,
             seq: 0,
             uses: vec![],
+            own_ctx: vec![],
             hook_calls: vec![],
             parts_memo: HashMap::new(),
             results: HashMap::new(),
@@ -3818,6 +3835,18 @@ impl<'a> Checker<'a> {
                 _ => {}
             }
         }
+        // RG-7b: a block's provision is the block's own too (`provide c`: a name no equation has)
+        let provs: Vec<(String, &'a Expr, i64)> = decls.iter().filter_map(|d| if let Decl::Provide { name, e, .. } = d { Some((format!("provide {name}"), e, d.line() as i64)) } else { None }).collect();
+        for (k, e, line) in &provs {
+            if !eqs.contains_key(k.as_str()) {
+                eqs.insert(k.as_str(), (e, *line));
+            }
+        }
+        // … and a context's default is computed where the context is declared (`default c`)
+        let dflts: Vec<(String, &'a Expr, i64)> = decls.iter().filter_map(|d| if let Decl::Context { name, dflt: Some(e), line, .. } = d { Some((format!("default {name}"), e, *line as i64)) } else { None }).collect();
+        for (k, e, line) in &dflts {
+            eqs.insert(k.as_str(), (e, *line));
+        }
         let mut color: HashMap<String, u8> = HashMap::new();
         let mut reported: HashSet<String> = HashSet::new();
         let names: Vec<&str> = eqs.keys().copied().collect();
@@ -3838,8 +3867,22 @@ impl<'a> Checker<'a> {
             sorted.sort();
             let key = sorted.join(",");
             if reported.insert(key) {
-                self.line = eqs[n].1;
-                self.err("CYCLE", "C-1", format!("instantaneous cycle: {} (break it with `pre`, C-2)", cyc.join(" → ")));
+                let df = cyc.iter().find(|x| x.starts_with("default "));
+                match (cyc.iter().find(|x| x.starts_with("provide ")), df) {
+                    (None, Some(df)) => {
+                        self.line = eqs[df.as_str()].1;
+                        self.err("CYCLE", "C-1", format!("instantaneous cycle: {} — the default of context {} is computed where the context is declared, and nothing provides it there: a `use` of it there is that default", cyc.join(" → "), &df[8..]));
+                    }
+                    (None, None) => {
+                        self.line = eqs[n].1;
+                        self.err("CYCLE", "C-1", format!("instantaneous cycle: {} (break it with `pre`, C-2)", cyc.join(" → ")));
+                    }
+                    (Some(p), _) => {
+                        let c = &p[8..];
+                        self.line = eqs[p.as_str()].1;
+                        self.err("CYCLE", "C-1", format!("instantaneous cycle: {} — `use {c}` beside `provide {c}` is that provision (it is the block's, wherever it is written); what is above it is read in the provision itself: `provide {c} = … (use {c}) …`", cyc.join(" → ")));
+                    }
+                }
             }
             return;
         }
@@ -3855,6 +3898,19 @@ impl<'a> Checker<'a> {
                 let mut st = stack.to_vec();
                 st.push(n.to_string());
                 self.visit_cycle(m, &st, eqs, env, color, reported);
+            }
+        }
+        // RG-7b: what uses, where it stands, a context this block provides reads that provision
+        // (its own provision's: what is above it — here, the default.) … and a context's default, where nothing provides it
+        if eqs.keys().any(|k| k.starts_with("provide ") || k.starts_with("default ")) {
+            let mut us = IndexSet::new();
+            crate::emit::uses_now(&eqs[n].0.to_json(), false, None, &mut us);
+            for c in us {
+                let (p, d) = (format!("provide {c}"), format!("default {c}"));
+                let k = if eqs.contains_key(p.as_str()) && p != n { p } else if eqs.contains_key(d.as_str()) { d } else { continue };
+                let mut st = stack.to_vec();
+                st.push(n.to_string());
+                self.visit_cycle(&k, &st, eqs, env, color, reported);
             }
         }
         color.insert(n.to_string(), 2);
@@ -4084,7 +4140,11 @@ impl<'a> Checker<'a> {
                 self.row_check(name, ty.as_deref(), env);
             }
             Decl::Provide { name, e, .. } => {
-                self.comp("provide", env, Some(name.clone()), None, |c| c.expr(e, env, reactive, None));
+                self.comp("provide", env, Some(name.clone()), None, |c| {
+                    c.own_ctx.push(name.clone());
+                    c.expr(e, env, reactive, None);
+                    c.own_ctx.pop();
+                });
                 self.keep(e, env);
                 let Some(c) = self.ctx_of(name, env) else { return };
                 let info = self.syms[c].ctx.clone().unwrap();
@@ -6292,7 +6352,8 @@ impl<'a> Checker<'a> {
                     let info = self.syms[c].ctx.clone().unwrap();
                     if !info.dflt {
                         let region = self.reg(env);
-                        self.uses.push(UseRec { region, name: info.key, line: self.line, display: name.clone() });
+                        let above = self.own_ctx.contains(name);
+                        self.uses.push(UseRec { region, name: info.key, line: self.line, display: name.clone(), above });
                     }
                 }
             }
@@ -6874,7 +6935,7 @@ impl<'a> Checker<'a> {
                         if let Some(c) = self.ctx_of(&target.name, env) {
                             self.model.write(Some(c), op, !target.path.is_empty());
                             let info = self.syms[c].ctx.clone().unwrap();
-                        self.uses.push(UseRec { region, name: info.key.clone(), line: self.line, display: target.name.clone() });
+                        self.uses.push(UseRec { region, name: info.key.clone(), line: self.line, display: target.name.clone(), above: false });
                             if !info.source {
                                 self.err("WRITE_TO_NON_SOURCE", "O-4", format!("context {} is read beneath its provision: call an action it provides that writes it", target.name));
                             }
@@ -7401,7 +7462,7 @@ impl<'a> Checker<'a> {
         }
         self.read(c.unwrap(), Ctx::reactive(), false, None);
         if !info.dflt {
-            self.uses.push(UseRec { region, name: info.key.clone(), line: self.line, display: name.to_string() });
+            self.uses.push(UseRec { region, name: info.key.clone(), line: self.line, display: name.to_string(), above: false });
         }
         let handles = |n: &str| n != "ref" && is_handler(n);
         for a in attrs {
@@ -9668,7 +9729,7 @@ impl<'a> Checker<'a> {
                 let keys: Vec<String> = self.syms[*f].needs.iter().cloned().chain(asked.get(f).into_iter().flatten().cloned()).collect();
                 for k in keys {
                     let shown = if k == HOLD { display.clone() } else { format!("{} (in {})", key_name(&k), display) };
-                    more |= self.ask_use(UseRec { region: *region, name: k, line: *line, display: shown }, &mut asked);
+                    more |= self.ask_use(UseRec { region: *region, name: k, line: *line, display: shown, above: false }, &mut asked);
                 }
             }
             if !more {
@@ -9711,7 +9772,7 @@ impl<'a> Checker<'a> {
         let mut memo = HashMap::new();
         for &(region, e, env, line) in &readers {
             if self.rows_of(e, env).contains("client") || (self.opts.spa && self.expr_absent(e, env, None, true, &mut memo, &mut HashSet::new())) {
-                self.uses.push(UseRec { region, name: HOLD.into(), line, display: show(e) });
+                self.uses.push(UseRec { region, name: HOLD.into(), line, display: show(e), above: false });
             }
         }
         self.hook_uses();
@@ -10072,12 +10133,12 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        let uses: Vec<(RId, String, i64, String)> = self.uses.iter().map(|u| (u.region, u.name.clone(), u.line, u.display.clone())).collect();
-        for (region, name, line, display) in uses {
+        let uses: Vec<(RId, String, i64, String, bool)> = self.uses.iter().map(|u| (u.region, u.name.clone(), u.line, u.display.clone(), u.above)).collect();
+        for (region, name, line, display, above) in uses {
             if comp_of(self, region) != c {
                 continue;
             }
-            if self.routes(region).iter().any(|q| esc_p(q, &name)) {
+            if self.routes(region).iter().any(|q| if above { esc_above(q, &name) } else { esc_p(q, &name) }) {
                 let what = if name == HOLD { format!("a reader of {}", display) } else { format!("use {}", display) };
                 push_r(&mut res, &mut seen, Req { name, line, what });
             }
