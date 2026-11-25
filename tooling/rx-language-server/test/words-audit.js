@@ -172,44 +172,43 @@ fs.writeFileSync(path.join(ws, "lib.d.rx"), [
   const v = (name, word) => { const w = rows.find(x => x.name === name)?.words.find(x => x.word === word); return w ? `${w.verdict}: ${w.why}` : `no such word (${a.stdout.slice(0, 200)}${a.stderr.slice(0, 300)})`; };
   const is = (name, word, verdict, says) => ok(`${name}: ${word} is ${verdict}`, v(name, word).startsWith(`${verdict}:`) && (!says || says.test(v(name, word))), v(name, word));
   is("sortedCopy", "pure", "proven");
-  is("sortedInPlace", "pure", "contradicted", /it changes in place a list that is not its own \(\.sort\(\)\) \[lib\.js:7\]/);
+  is("sortedInPlace", "pure", "unproven", /it may change in place a list that is not its own \(\.sort\(\)\) \[lib\.js:7\]/);
   is("loads", "pure", "unproven", /code that is not read: .*kit.*no ES module/);
   is("onLater", "handler(cb)", "proven");
-  is("onNow", "handler(cb)", "contradicted", /called while the call runs/);
+  is("onNow", "handler(cb)", "unproven", /called while the call runs/);
   is("onUnknown", "handler(cb)", "unproven", /not followed/);
   is("moves", "draft(list)", "proven");
   is("reads", "draft(list)", "unproven");
   is("finds", "rejects(NotFound)", "proven");
-  is("findsOther", "rejects(NotFound)", "contradicted", /it throws Stale, which the row does not name/);
+  is("findsOther", "rejects(NotFound)", "unproven", /it may throw Stale, which the row does not name/);
   is("useIt", "uses(it)", "proven");
   is("useNone", "uses(it)", "unproven", /no context is shown/);
   is("Gives", "provides(it)", "proven");
   is("GivesBeside", "provides(it)", "unproven", /no provider whose children are read/);
-  // what is contradicted is what the code shows the opposite of — not what the reading merely does not follow
   is("GivesAFunction", "provides(it)", "unproven");
   is("patches", "pure", "unproven", /an argument that is no data/);
   is("useOwnScope", "uses(scope)", "unproven", /no context is shown/);
-  ok("rx-declare --audit exits 1 where a word is contradicted", a.status === 1, String(a.status));
+  ok("rx-declare --audit answers: what it does not prove is unproven, not false", a.status === 0, String(a.status));
   const text = declare("--audit", "lib.d.rx").stdout;
-  ok("…and lists what is not proven, with what to check", /lib\.d\.rx:5: sortedInPlace: pure CONTRADICTED/.test(text) && /lib\.d\.rx:6: loads: pure unproven — it uses code that is not read/.test(text) && /lib\.d\.rx: 9 words read from the code, 3 contradicted by it, 9 it neither shows nor refutes/.test(text), text);
+  ok("…and lists what is not proven, with what to check", /lib\.d\.rx:5: sortedInPlace: pure unproven — it may change/.test(text) && /lib\.d\.rx:6: loads: pure unproven — it uses code that is not read/.test(text) && /lib\.d\.rx: 9 words read from the code, 12 it does not show/.test(text), text);
 }
 
 // ---- rx-verify ----
 console.log("rx-verify tells the words the code proves from the ones written by hand, and runs each");
 {
-  fs.writeFileSync(path.join(ws, "lib.probe.mjs"), "let last;\nexport const probes = { sortedCopy: { args: () => [() => [3, 1, 2]] }, onLater: { args: () => [(last = new EventTarget()), () => {}], act: () => last.dispatchEvent(new Event(\"x\")) }, finds: { args: () => [\"1\"], fail: () => [\"\"] } };\n");
+  fs.writeFileSync(path.join(ws, "lib.probe.mjs"), "let last;\nexport const probes = { sortedCopy: { args: () => [() => [3, 1, 2]] }, sortedInPlace: { args: () => { const list = [3, 1, 2]; return [() => list, { dirty: true }]; } }, onNow: { args: () => [new EventTarget(), () => {}] }, onLater: { args: () => [(last = new EventTarget()), () => {}], act: () => last.dispatchEvent(new Event(\"x\")) }, finds: { args: () => [\"1\"], fail: () => [\"\"] } };\n");
   const v = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "lib.d.rx"], { cwd: ws, encoding: "utf8" });
   const said = v.stdout + v.stderr; if (process.env.VERBOSE) console.log(said);
-  ok("a word the code contradicts is a mismatch, with what the code does", /MISMATCH\s+sortedInPlace: pure is contradicted by the code: it changes in place a list that is not its own/.test(said) && /MISMATCH\s+onNow: handler\(cb\) is contradicted by the code/.test(said) && v.status === 1, said.slice(0, 1500));
+  ok("a word that is false is a mismatch where the probe runs it", /MISMATCH\s+sortedInPlace: declared pure, but when it is called it changes what it is given \(\[3,1,2\] to \[1,2,3\]\)/.test(said) && /MISMATCH\s+onNow: /.test(said) && v.status === 1, said.slice(0, 1500));
   ok("a `pure` the code proves is run against what the reading claims, with no mark in the file", /sortedCopy: pure is read from the code \(its own code only computes[^)]*\), and no run contradicts it/.test(said), said.split("\n").filter(l => /sortedCopy/.test(l)).join("\n"));
   ok("…a `handler` and a `rejects(E)` too", /onLater: callback cb holds/.test(said) && /finds: under the probe's failing arguments it rejects with NotFound, as its row says/.test(said), said.split("\n").filter(l => /onLater|finds:/.test(l)).join("\n"));
-  ok("…and the file's words are counted", /words: 9 read from the code .* 3 contradicted by it, 9 it neither shows nor refutes/.test(said), said.split("\n").filter(l => /words:/.test(l)).join("\n"));
+  ok("…and the file's words are counted", /words: 9 read from the code .* 12 it does not show/.test(said), said.split("\n").filter(l => /words:/.test(l)).join("\n"));
   // (a module that ships JSX is run compiled, by the project's Solid compiler — a native addon: where it is not built,
   // the draft is not run here, and says so)
   let compiles = false; try { compiles = typeof require(require.resolve("@solidjs/compiler", { paths: [ws] })).transform("const a = <p>x</p>;", { filename: "a.jsx" }).code === "string"; } catch { compiles = false; }
   const draftRun = compiles ? spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "tabs.d.rx"], { cwd: ws, encoding: "utf8" }) : { stdout: "" };
   if (!compiles) { pass++; console.log("  ✓ (the draft of a JSX module is not run here: @solidjs/compiler is not built in this checkout)"); }
-  else ok("the draft of a module, run: no word it read is contradicted (its components need a page to mount: --dom)", !/MISMATCH.*(read from|contradicted by the code)/.test(draftRun.stdout) && /useTabs: uses\(tabs\) (holds: with no provider it fails|is proven by the code)/.test(draftRun.stdout) && /words: \d+ read from the code\s*, 0 contradicted/.test(draftRun.stdout.replace(/\([^)]*\)/g, "")), draftRun.stdout + draftRun.stderr);
+  else ok("the draft of a module, run: no word it read is contradicted (its components need a page to mount: --dom)", !/MISMATCH.*read from/.test(draftRun.stdout) && /useTabs: uses\(tabs\) (holds: with no provider it fails|is proven by the code)/.test(draftRun.stdout) && /words: \d+ read from the code/.test(draftRun.stdout.replace(/\([^)]*\)/g, "")), draftRun.stdout + draftRun.stderr);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

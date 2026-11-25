@@ -188,7 +188,7 @@ console.log("rx-verify runs each word the code proves: an observation against it
   const line = n => said.split("\n").filter(l => new RegExp(`\\b${n}:`).test(l)).join("\n");
   ok("a `pure` that asks the clock: mismatch", /stamps: read from its code as pure\b.*Date\.now\(\)/.test(said) && /✗|MISMATCH|mismatch/i.test(line("stamps")), line("stamps") || said.slice(0, 600));
   ok("a `pure` that asks for a random number: mismatch", /rolls: read from its code as pure\b.*Math\.random\(\)/.test(said), line("rolls"));
-  ok("a `pure` that changes its argument: mismatch", /pushes: read from its code as pure\b.*changed what it was given/.test(said), line("pushes"));
+  ok("a `pure` that changes its argument: mismatch", /pushes: read from its code as pure\b.*changes what it is given/.test(said), line("pushes"));
   ok("a `pure` that leaves a global: mismatch", /leaks: read from its code as pure\b.*__leaked/.test(said), line("leaks"));
   ok("an honest one is not contradicted", /honest: pure is read from the code \(its own code only computes[^)]*\), and no run contradicts it/.test(said), line("honest"));
   ok("a `handler` called while the call runs: mismatch", /callsNow: cb was read from the code as a handler\b.*while the call itself runs/.test(said), line("callsNow"));

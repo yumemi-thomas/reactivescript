@@ -2,4 +2,4 @@
 export type PointerDownOutsideEvent = import("@solid-primitives/interaction").PointerDownOutsideEvent
 export type FocusOutsideEvent = import("@solid-primitives/interaction").FocusOutsideEvent
 export type InteractOutsideEvent = import("@solid-primitives/interaction").InteractOutsideEvent
-export pure fn createInteractOutside<T extends Element>(options: { disabled?: import("@solid-primitives/utils").MaybeAccessor<boolean | undefined>; shouldExcludeElement?: (element: Element) => boolean; onPointerDownOutside?: (event: PointerDownOutsideEvent) => void; onFocusOutside?: (event: FocusOutsideEvent) => void; onInteractOutside?: handler (event: InteractOutsideEvent) => void }, ref ref_: T | undefined): void
+export fn createInteractOutside<T extends Element>(options: { disabled?: import("@solid-primitives/utils").MaybeAccessor<boolean | undefined>; shouldExcludeElement?: (element: Element) => boolean; onPointerDownOutside?: (event: PointerDownOutsideEvent) => void; onFocusOutside?: (event: FocusOutsideEvent) => void; onInteractOutside?: handler (event: InteractOutsideEvent) => void }, ref ref_: T | undefined): void

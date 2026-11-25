@@ -1,12 +1,11 @@
 // MO-8w: a declaration's words, held against what the code shows. `rx-declare` writes a word only where the code proves it
 // (src/words.js: compiler/words). This asks the same proof about the words a `.d.rx` already has, whoever wrote them, and
-// sorts each into one of three:
+// sorts each into one of two:
 //   proven        the code shows it: the word is one `rx-declare` would write (it is counted as read from the code,
 //                 and `rx-verify` holds it to what the proof claims);
-//   contradicted  the code shows the opposite — a `pure` fn that changes data it was given, a `handler` that is called
-//                 while the fn runs, a `rejects(E)` beside another class of the module;
-//   unproven      neither: the reading stops at something it cannot see through, and says what (the thing a reviewer
-//                 should check).
+//   unproven      it does not: the reading stops at something it cannot see through, and says what (the thing a reviewer
+//                 should check). It never says a word is false: a change of what a fn was given, on a line the reading
+//                 reaches, may be on a path no call takes. A run shows that (rx-verify: a mismatch).
 // Which words were read from the code is not written in the file:
 // it is what this answers, from the code as it is installed now.
 const path = require("node:path");
@@ -50,13 +49,13 @@ function audit(spec, from, rowsIn, text) {
     const f = r.unread ? { unread: r.unread } : r.exports[row.name] ?? { unread: "no code of that name" };
     if (f.unread) { for (const n of w.all) say(n, "unproven", `not read: ${f.unread}`); continue; }
     const why = f.pure?.why;
-    if (w.pure) say("pure", f.pure?.ok ? "proven" : /^it changes (?:what it was given|in place a list that is not its own)/.test(why?.why ?? "") ? "contradicted" : "unproven", `${why?.why ?? "not read"}${at(why)}`);
-    for (const h of w.handlers) { const v = f.handlers?.[h.field === undefined ? String(h.index) : `${h.index}.${h.field}`]; say(`handler(${h.label})`, v?.ok ? "proven" : /^called (?:while the call runs|in a computation|as the module loads)/.test(v?.why ?? "") ? "contradicted" : "unproven", `${v?.why ?? f.unplaced ?? "not read"}${at(v)}`); }
+    if (w.pure) say("pure", f.pure?.ok ? "proven" : "unproven", `${why?.why ?? "not read"}${at(why)}`);
+    for (const h of w.handlers) { const v = f.handlers?.[h.field === undefined ? String(h.index) : `${h.index}.${h.field}`]; say(`handler(${h.label})`, v?.ok ? "proven" : "unproven", `${v?.why ?? f.unplaced ?? "not read"}${at(v)}`); }
     for (const d of w.drafts) { const v = f.draft?.[d.index]; say(`draft(${d.name})`, v ? "proven" : "unproven", v ? `${v.why}${at(v)}` : "a write that not every path makes, a part of it read, or a use that may keep it"); }
     if (w.rejects) {
       const names = w.rejects, got = f.rejects, word = `rejects(${names.join(" | ")})`;
       if (!got?.length) say(word, "unproven", got ? "the code reaches no throw of a class" : "what it throws is not shown to be of a class of the module's");
-      else { const extra = got.filter(n => !names.includes(n)), missing = names.filter(n => !got.includes(n) && n !== "Error"); say(word, !extra.length && !missing.length ? "proven" : "contradicted", extra.length ? `it throws ${extra.join(", ")}, which the row does not name` : missing.length ? `every throw the code reaches is read, and none is of ${missing.join(", ")}` : `every throw the code reaches is of ${got.join(", ")}`); }
+      else { const extra = got.filter(n => !names.includes(n)), missing = names.filter(n => !got.includes(n) && n !== "Error"); say(word, !extra.length && !missing.length ? "proven" : "unproven", extra.length ? `it may throw ${extra.join(", ")}, which the row does not name` : missing.length ? `every throw the code reaches is read, and none is of ${missing.join(", ")}` : `every throw the code reaches is of ${got.join(", ")}`); }
     }
     if (w.instantiates) say("instantiates", f.instantiates?.ok ? "proven" : "unproven", `${f.instantiates?.why ?? f.unplaced ?? "not read"}${at(f.instantiates)}`);
     if (w.uses.length || w.provides.length) pending.push({ w, f, row, say });

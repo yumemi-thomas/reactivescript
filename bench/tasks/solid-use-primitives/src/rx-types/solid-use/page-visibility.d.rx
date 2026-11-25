@@ -1,4 +1,4 @@
 //@ for solid-use ^1.0.0
 // solid-use/page-visibility in rows, as `rx-declare solid-use/page-visibility` drafts it: the module's default export, a row named
 // `default` (09 MO-8u). Read from the code by rx-declare (09 MO-8v; it was by hand): `pure` (it makes its own signal and writes nothing else).
-export pure fn default(): ref boolean
+export fn default(): ref boolean

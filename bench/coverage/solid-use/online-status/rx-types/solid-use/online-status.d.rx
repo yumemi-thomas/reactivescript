@@ -1,3 +1,3 @@
 //@ for solid-use ^1.0.0
 // solid-use/online-status in rows: the module's default export, a row named `default` (09 MO-8u). Read from the code by rx-declare (09 MO-8v; it was by hand): `pure`.
-export pure fn default(): ref boolean
+export fn default(): ref boolean

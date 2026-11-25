@@ -2,5 +2,5 @@
 // As `rx-declare solid-use/media-query` drafts it, kept to what the app uses. Read from the code by rx-declare (09 MO-8v; it was by hand): `pure` — each makes a signal of its
 // own and listens to the media query once the page has settled (`rx-declare --source`: src/media-query.ts:26, :28), and
 // writes nothing else.
-export pure fn useMediaQuery(query: string): ref boolean instantiates
-export pure fn usePrefersDark(): ref boolean
+export fn useMediaQuery(query: string): ref boolean
+export fn usePrefersDark(): ref boolean

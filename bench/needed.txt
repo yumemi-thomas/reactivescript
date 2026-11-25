@@ -1,63 +1,123 @@
 Hand-written words no tool has shown, in the declarations of the tasks and of the coverage entries (bench/needed.mjs): each is the app author's own claim, in the app's own declaration. None is in a generated declaration, which holds only words the code proves.
 
-29 a correct program is refused without (14 pure, 11 instantiates, 4 provides; by diagnostic: 24 IO_IN_REACTIVE, 4 CONTEXT_NOT_FOUND, 2 SNAPSHOT_KEPT):
+59 a correct program is refused without (25 instantiates, 20 pure, 10 handler, 4 provides; by diagnostic: 44 IO_IN_REACTIVE, 10 REACTIVE_WRITE_IN_OWNED_SCOPE, 5 CONTEXT_NOT_FOUND, 2 SNAPSHOT_KEPT, 1 SNAPSHOT_ARGUMENT, 1 UNHANDLED_FAILURE):
+  cover-primitives-analytics/rx-types/@solid-primitives/analytics.d.rx: createAnalytics: instantiates — without it: IO_IN_REACTIVE main.rx:5
+      not proven: no call that needs an owner is made on every path
+  cover-primitives-controlled-props/control.d.rx: TextControl: handler(onChange) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:7
+      not proven: it is handed to code that is not followed [control.js:5]
   cover-primitives-deep/rx-types/@solid-primitives/deep.d.rx: trackDeep: pure — without it: IO_IN_REACTIVE main.rx:7
-      not proven: it calls traverse, which is not proven: it calls .has(…), a method that is not read [@solid-primitives/deep/dist/track-deep.js:29]
+      not proven: it converts a value that may run code (`toString`, `valueOf`) [@solid-primitives/deep/dist/track-deep.js:29]
+  cover-primitives-event-bus/rx-types/@solid-primitives/event-bus.d.rx: createEventBus: instantiates — without it: IO_IN_REACTIVE main.rx:6
+      not proven: no call that needs an owner is made on every path
   cover-primitives-event-dispatcher/rx-types/@solid-primitives/event-dispatcher.d.rx: createEventDispatcher: instantiates — without it: SNAPSHOT_KEPT main.rx:5
-      not proven: it returns without making what its owner keeps [@solid-primitives/event-dispatcher/dist/index.js:15]
+      not proven: no call that needs an owner is made on every path
+  cover-primitives-event-listener/rx-types/@solid-primitives/event-listener.d.rx: createEventListener: handler(handler) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:7
+      not proven: it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:22]
+  cover-primitives-event-props/rx-types/@solid-primitives/event-props.d.rx: createEventProps: instantiates — without it: IO_IN_REACTIVE main.rx:6
+      not proven: no call that needs an owner is made on every path
   cover-primitives-filesystem/rx-types/@solid-primitives/filesystem.d.rx: createFileSystem: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: it returns without making what its owner keeps [@solid-primitives/filesystem/dist/reactive.js:195]
+      not proven: no call that needs an owner is made on every path
   cover-primitives-filesystem/rx-types/@solid-primitives/filesystem.d.rx: makeVirtualFileSystem: pure — without it: IO_IN_REACTIVE main.rx:5
-      not proven: it calls .getItem(…), a method that is not read [@solid-primitives/filesystem/dist/adapter-vfs.js:14]
+      not proven: it calls .getItem() of a primitive [@solid-primitives/filesystem/dist/adapter-vfs.js:14]
+  cover-primitives-flux-store/counter.d.rx: createCounter: instantiates — without it: IO_IN_REACTIVE main.rx:5
+      not proven: no call that needs an owner is made on every path
+  cover-primitives-idle/rx-types/@solid-primitives/idle.d.rx: createIdleTimer: handler(__0.onActive) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:6
+      not proven: a default, or `arguments`, may call it [@solid-primitives/idle/dist/createIdleTimer.js:50]
   cover-primitives-input-mask/rx-types/@solid-primitives/input-mask.d.rx: createInputMask: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: it returns without making what its owner keeps [@solid-primitives/input-mask/dist/index.js:67]
+      not proven: no call that needs an owner is made on every path
+  cover-primitives-keyboard/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: handler(callback) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:7
+      not proven: it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:7]
+  cover-primitives-keyboard/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: instantiates — without it: IO_IN_REACTIVE main.rx:7
+      not proven: no call that needs an owner is made on every path
   cover-primitives-map/map.d.rx: makeMap: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: it returns without making what its owner keeps [map.js:2]
+      not proven: no call that needs an owner is made on every path
+  cover-primitives-masonry/rx-types/@solid-primitives/masonry.d.rx: createMasonry: instantiates — without it: IO_IN_REACTIVE main.rx:7
+      not proven: no call that needs an owner is made on every path
   cover-primitives-mutable/cart.d.rx: createCart: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: it returns without making what its owner keeps [cart.js:2]
+      not proven: no call that needs an owner is made on every path
+  cover-primitives-refs/rx-types/@solid-primitives/refs.d.rx: Refs: handler(ref) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:6
+      not proven: it is handed to code that is not followed [@solid-primitives/refs/dist/index.js:104]
+  cover-primitives-resize-observer/rx-types/@solid-primitives/resize-observer.d.rx: createWindowSize: instantiates — without it: IO_IN_REACTIVE main.rx:5
+      not proven: no call that needs an owner is made on every path
+  cover-primitives-scheduled/rx-types/@solid-primitives/scheduled.d.rx: debounce: instantiates — without it: IO_IN_REACTIVE main.rx:7
+      not proven: no call that needs an owner is made on every path
   cover-primitives-set/set.d.rx: makeSet: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: it returns without making what its owner keeps [set.js:2]
+      not proven: no call that needs an owner is made on every path
   cover-primitives-static-store/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — without it: IO_IN_REACTIVE main.rx:5
-      not proven: it calls a call through a computed member [@solid-primitives/static-store/dist/index.js:38]
+      not proven: it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
   cover-primitives-url/rx-types/@solid-primitives/url.d.rx: createURL: instantiates — without it: IO_IN_REACTIVE main.rx:5
-      not proven: it returns without making what its owner keeps [@solid-primitives/url/dist/url.js:74]
+      not proven: no call that needs an owner is made on every path
+  cover-solid-use-props/rx-types/solid-use/props.d.rx: pickProps: pure — without it: IO_IN_REACTIVE main.rx:6
+      not proven: it calls Object.defineProperty [solid-use/dist/props.js:23]
   cover-solid-use-server-value/ticket.d.rx: useTicket: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: it returns without making what its owner keeps [ticket.js:2]
-  cover-ui-sdk-utilities/rx-types/@ui-sdk/solid/date.d.rx: addDays: pure — without it: IO_IN_REACTIVE main.rx:9
-      not proven: it calls clampDays, which is not proven: it reads firstDay, a value made by code that runs when the module loads: not known to be a constant [@ui-sdk/core/dist/foundation/date/plain-date.js:130]
+      not proven: no call that needs an owner is made on every path
   cover-ui-sdk-utilities/rx-types/@ui-sdk/solid/date.d.rx: formatDate: pure — without it: IO_IN_REACTIVE main.rx:9
-      not proven: it reads longDate, a value of the module that is used in a way that is not followed [format.js:36]: state that changes [@ui-sdk/core/dist/foundation/date/format.js:36]
+      not proven: longDate is an object of the module that code may change or let go [@ui-sdk/core/dist/foundation/date/format.js:79]
   cover-ui-sdk-utilities/rx-types/@ui-sdk/solid/number.d.rx: formatNumber: pure — without it: IO_IN_REACTIVE main.rx:8
-      not proven: it calls numberFormatter, which is not proven: it reads formatters, a value of the module that is changed in place (.set()) [format.js:9]: state that changes [@ui-sdk/core/dist/foundation/number/format.js:6]
+      not proven: it calls a value the row does not show to be a function [@ui-sdk/core/dist/foundation/number/format.js:40]
   cover-wardic-easing/rx-types/@wardic/solid.d.rx: easeInOut: pure — without it: IO_IN_REACTIVE main.rx:7
-      not proven: not read: easeInOut is not a function the code shows (a value made by a call that is not followed, or assigned again) in Easing.ts
+      not proven: NAMES is a value made as the module loads [@wardic/core/dist/Easing.js:262]
   file-routes/src/people.d.rx: getPerson: pure — without it: IO_IN_REACTIVE [id].rx:6, IO_IN_REACTIVE [id].rx:6
-      not proven: it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
+      not proven: a node made as the module loads [@solidjs/router/dist/index.js:2005]
   file-routes/src/router.d.rx: Router: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:10, CONTEXT_NOT_FOUND host.d.rx:10
-      not proven: children is read outside the provider: children is read [@solidjs/router/dist/routers/factory.jsx:254] — check that children holds no view, or (a function) is called only among the provider's children
+      not proven: which context the name stands for is not shown
+  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: createForm: instantiates — without it: IO_IN_REACTIVE main.rx:12
+      not proven: no call that needs an owner is made on every path
+  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: Form: handler(onSubmit) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:13
+      not proven: the record it is in goes where it is not followed [@formisch/solid/dist/v2/index.js:603]
+  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: createForm: instantiates — without it: IO_IN_REACTIVE main.rx:12
+      not proven: no call that needs an owner is made on every path
+  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: Form: handler(onSubmit) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:13
+      not proven: the record it is in goes where it is not followed [@formisch/solid/dist/v2/index.js:603]
+  formisch-field-path/rx-types/valibot.d.rx: email: pure — without it: IO_IN_REACTIVE main.rx:5, SNAPSHOT_ARGUMENT main.rx:12
+      not proven: EMAIL_REGEX is an object of the module that code may change or let go [valibot/dist/index.mjs:764]
+  primitives-listeners/rx-types/@solid-primitives/event-bus.d.rx: createEventBus: instantiates — without it: IO_IN_REACTIVE main.rx:15
+      not proven: no call that needs an owner is made on every path
+  primitives-listeners/rx-types/@solid-primitives/scheduled.d.rx: debounce: instantiates — without it: IO_IN_REACTIVE main.rx:16
+      not proven: no call that needs an owner is made on every path
+  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: handler(callback) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:15
+      not proven: it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:7]
+  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: instantiates — without it: IO_IN_REACTIVE main.rx:15
+      not proven: no call that needs an owner is made on every path
   primitives-state/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — without it: IO_IN_REACTIVE main.rx:14
-      not proven: it calls a call through a computed member [@solid-primitives/static-store/dist/index.js:38]
+      not proven: it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
+  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: createEventListener: handler(handler) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:14
+      not proven: it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:22]
+  primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: makeResizeObserver: handler(callback) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:17
+      not proven: it goes where it is not followed [@solid-primitives/resize-observer/dist/index.js:22]
   query-mutation/api.d.rx: dehydrated: pure — without it: IO_IN_REACTIVE main.rx:20
       not proven: it reads document: the environment [api.js:24]
   query-mutation/api.d.rx: fetchTodo: pure — without it: IO_IN_REACTIVE main.rx:10
-      not proven: it reads seen, a value made by code that runs when the module loads: not known to be a constant [api.js:8]
+      not proven: it reads globalThis: the environment [api.js:6]
   query-mutation/api.d.rx: makeClient: instantiates — without it: IO_IN_REACTIVE main.rx:25
-      not proven: it returns without making what its owner keeps [api.js:20]
+      not proven: no call that needs an owner is made on every path
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRootRoute: pure — without it: IO_IN_REACTIVE main.rx:27
+      not proven: a class made in the call [@tanstack/solid-router/dist/esm/route.js:141]
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRoute: pure — without it: IO_IN_REACTIVE main.rx:28, IO_IN_REACTIVE main.rx:29
+      not proven: a class made in the call [@tanstack/solid-router/dist/esm/route.js:76]
   router-code-routes/rx-types/@tanstack/solid-router.d.rx: createRouter: instantiates — without it: IO_IN_REACTIVE main.rx:30, SNAPSHOT_KEPT main.rx:30
-      not proven: it returns without making what its owner keeps [@tanstack/solid-router/dist/source/router.js:8]
+      not proven: no call that needs an owner is made on every path
   router-data/people.d.rx: getPerson: pure — without it: IO_IN_REACTIVE main.rx:18
-      not proven: it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
+      not proven: a node made as the module loads [@solidjs/router/dist/index.js:2005]
+  router-data/rx-types/@solidjs/router.d.rx: defineRoute: pure — without it: IO_IN_REACTIVE main.rx:32, UNHANDLED_FAILURE main.rx:21, UNHANDLED_FAILURE main.rx:22, CONTEXT_NOT_FOUND main.rx:19
+      not proven: its code is another under another host, and it answers data
   router-provider/src/router.d.rx: AppRouter: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:9, CONTEXT_NOT_FOUND host.d.rx:9
-      not proven: it renders a component that is not read, or its props go where they are not followed
+      not proven: it takes no props [router.tsx:10]
+  router-rx-routes/src/people.d.rx: fetchPeople: pure — without it: IO_IN_REACTIVE index.rx:8, IO_IN_REACTIVE index.rx:8, IO_IN_REACTIVE index.rx:8, IO_IN_REACTIVE index.rx:8
+      not proven: people is an object of the module that code may change or let go [people.js:2]
+  router-rx-routes/src/people.d.rx: fetchPerson: pure — without it: IO_IN_REACTIVE people.$id.rx:13, IO_IN_REACTIVE people.$id.rx:13, IO_IN_REACTIVE people.$id.rx:13, IO_IN_REACTIVE people.$id.rx:13
+      not proven: people is an object of the module that code may change or let go [people.js:2]
   router-rx-routes/src/router.d.rx: AppRouter: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:11, CONTEXT_NOT_FOUND host.d.rx:11, CONTEXT_NOT_FOUND host.d.rx:11, CONTEXT_NOT_FOUND host.d.rx:11
-      not proven: it renders a component that is not read, or its props go where they are not followed
+      not proven: it takes no props [router.tsx:10]
   solid-use-primitives/use.d.rx: useTicket: instantiates — without it: IO_IN_REACTIVE main.rx:20
-      not proven: it returns without making what its owner keeps [use.js:6]
+      not proven: no call that needs an owner is made on every path
   ssr-divergence/env.d.rx: whereAmI: pure — without it: IO_IN_REACTIVE main.rx:6
-      not proven: it tests where it runs (typeof window) and answers data: what it answers may differ between the server and the browser (10 SV-7c) [env.js:2]
+      not proven: it asks where it runs, and answers data
   start-mode/src/people.d.rx: getPerson: pure — without it: IO_IN_REACTIVE [id].rx:6, IO_IN_REACTIVE [id].rx:6, IO_IN_REACTIVE [id].rx:6
-      not proven: it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
+      not proven: a node made as the module loads [@solidjs/router/dist/index.js:2005]
   start-mode/src/router.d.rx: Router: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:10, CONTEXT_NOT_FOUND host.d.rx:10, CONTEXT_NOT_FOUND host.d.rx:10
-      not proven: children is read outside the provider: children is read [@solidjs/router/dist/routers/factory.jsx:254] — check that children holds no view, or (a function) is called only among the provider's children
+      not proven: which context the name stands for is not shown
+  wardic-motion/rx-types/@wardic/solid.d.rx: ward: instantiates — without it: IO_IN_REACTIVE main.rx:11
+      not proven: no call that needs an owner is made on every path
 
 0 no program needs.

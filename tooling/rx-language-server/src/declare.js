@@ -805,7 +805,7 @@ function paramText(ts, checker, p, at, generic = false, here) {
   // `?` already says it may be absent; a type that is nothing but absent, or that is not known, is written as it is
   const bare = checker.getNonNullableType(t), F = ts.TypeFlags;
   if (t.flags & F.Unknown) return `${name}${opt}: unknown`;
-  if (opt && bare.flags & F.Never && t.flags & (F.Null | F.Union)) return `${name}${opt}: null`;
+  if (opt && bare.flags & F.Never && (t.flags & F.Null || (t.flags & F.Union && t.types.some(x => x.flags & F.Null)))) return `${name}${opt}: null`;
   return `${name}${opt}: ${opt ? nullable(ts, t, opt, text(ts, checker, bare, present(checker, t, here), node)) : text(ts, checker, t, here, node)}`;
 }
 

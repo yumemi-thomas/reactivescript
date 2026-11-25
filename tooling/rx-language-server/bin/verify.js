@@ -185,12 +185,11 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
   // MO-11q: `Dialog.Trigger` is a member of `Dialog`. MO-8t: and `toaster.show` a method of `toaster`, called on it
   const at = n => { const ks = n.split("."); let o = ks[0] in mod ? mod : mod.default ?? mod, of; for (const k of ks)   /* (a CommonJS build's re-exports are its default's) */ { of = o; o = o?.[k]; } return ks.length > 1 && typeof o === "function" && !/^[A-Z]/.test(ks[ks.length - 1]) ? o.bind(of) : o; };
   // MO-8w: which of the file's words the code proves is read from the code (src/declare-audit.js): a word that is proven
-  // is held, below, to what the reading claims; one the code contradicts is a mismatch as it stands; the rest are a
-  // person's, and are run as any row is
+  // is held, below, to what the reading claims; the rest are a person's, and are run as any row is
   let read = null;
   if (process.env.RX_VERIFY_READ !== "0" && !mutation) { try { read = given(file) ?? require("../src/declare-audit.js").auditFile(file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
   const proven = new Map();   // export → claim → why the code proves it
-  const audit = { proven: 0, contradicted: 0, unproven: 0 };
+  const audit = { proven: 0, unproven: 0 };
   for (const row of read?.rows ?? []) for (const w of row.words) {
     audit[w.verdict]++;
     const ob = claimOf(w.word);
@@ -241,13 +240,13 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
       let own;   // the providers of the contexts the row names, where this file or the probe has each
 
       // pure: refuted by running, never shown by it (RFC 28)
-      if (!mutation && x.pure && runnable && (obs.has("pure") || read.has("pure"))) {
+      if (!mutation && x.pure && runnable) {
         const bad = []; called.add(`${line}:pure`);
-        if (read.has("pure")) {   // MO-8v: what a `pure` read from the code says it does not do
-          const seen = watched(createRoot, v, args());
-          try { await seen.result; } catch { /* what it rejects with is the row's rejects(…) */ }
-          bad.push(...seen.done().map(b => `read from its code as pure, but when it is called ${b}: the reading is wrong — remove the word, and report it`));
-        }
+        // MO-8v: what a `pure` read from the code says it does not do; of one declared by hand, that it changes nothing it is given
+        const seen = watched(createRoot, v, args(), x.params.flatMap((p, i) => p.ref ? [i] : []));
+        if (obs.has("pure") || read.has("pure")) try { await seen.result; } catch { /* what it rejects with is the row's rejects(…) */ }
+        if (read.has("pure")) bad.push(...seen.done().map(b => `read from its code as pure, but when it is called ${b}: the reading is wrong — remove the word, and report it`));
+        else bad.push(...seen.done().filter(b => b.startsWith("it changes what it is given")).map(b => `declared pure, but when it is called ${b}`));
         let ran = false;
         if (obs.has("pure") && !bad.length) {   // (a fn that makes something each call is not alike on two calls by design)
           let a, b, threw = null, across = null, asked = false;
@@ -443,9 +442,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
   // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its draft callbacks
   out.push(...(await place.verifyPlacement({ rows: checked, mod, probeMod, solid, resolve })));
 
-  // MO-8w: a word the code contradicts is a mismatch whoever wrote it; a claim the code proves and no run refuted is
-  // held by that proof, where running showed nothing of it
-  for (const row of read?.rows ?? []) for (const w of row.words) if (w.verdict === "contradicted") out.push({ line: row.line, ob: claimOf(w.word) ?? "exists", status: "mismatch", what: `${row.name}: ${w.word} is contradicted by the code: ${w.why} — the word is false as the module is installed: take it off, or declare what is true (MO-8w)` });
+  // MO-8w: a claim the code proves and no run refuted is held by that proof, where running showed nothing of it
   for (const row of checked) for (const [ob, why] of proven.get(row.name) ?? []) {
     const mine = out.filter(r => r.line === row.line && [].concat(r.ob).includes(ob));
     if (mine.some(r => r.status === "mismatch" || r.status === "held")) continue;
@@ -461,8 +458,10 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
 
 /** Calls `fn(...args)` under a root, watching what a `pure` read from the code says it does not do: `done()` lists what
  *  was seen — an argument changed, a global left behind, the clock or a random number asked for while it was called. */
-function watched(createRoot, fn, args) {
-  const snap = () => { try { return JSON.stringify(args, (k, v) => typeof v === "function" ? undefined : v); } catch { return undefined; } };
+function watched(createRoot, fn, args, refs = []) {
+  // (what it is given: its data, and what the accessors among its arguments answer, where asked twice they answer alike)
+  const data = () => { try { return [...args, ...refs.map(i => typeof args[i] === "function" && !args[i].length ? args[i]() : null)].map(x => JSON.stringify(x, (k, v) => typeof v === "function" ? undefined : v)); } catch { return undefined; } };
+  const still = String(data()) === String(data()), snap = () => still ? data() : undefined;
   const before = snap(); const globals = new Set(Reflect.ownKeys(globalThis)); const asked = new Set();
   const saved = [Date.now, Math.random, globalThis.performance?.now];
   Date.now = function () { asked.add("Date.now()"); return saved[0].call(Date); };
@@ -473,7 +472,8 @@ function watched(createRoot, fn, args) {
   finally { Date.now = saved[0]; Math.random = saved[1]; if (saved[2]) performance.now = saved[2]; }
   return { result, threw, done: () => {
     const out = []; const after = snap();
-    if (before !== undefined && after !== undefined && before !== after) out.push(`it changed what it was given (${String(before).slice(0, 30)} to ${String(after).slice(0, 30)})`);
+    const i = before && after ? before.findIndex((x, i) => x !== after[i]) : -1;
+    if (i >= 0) out.push(`it changes what it is given (${String(before[i]).slice(0, 30)} to ${String(after[i]).slice(0, 30)})`);
     const left = Reflect.ownKeys(globalThis).filter(k => !globals.has(k)); if (left.length) out.push(`it left ${left.map(String).slice(0, 3).join(", ")} on the global object`);
     if (asked.size) out.push(`it asked ${[...asked].join(" and ")}`);
     return out;
@@ -552,7 +552,7 @@ const LABEL = { held: "held      ", read: "read      ", mismatch: "MISMATCH  ", 
       if (!r.quiet) say(`${path.relative(process.cwd(), f)}:${r.line} ${LABEL[r.status]} ${r.what}\n`);
     }
     // (said, not recorded: it is about no claim)
-    if (audit) say(`${path.relative(process.cwd(), f)}: words: ${audit.proven} read from the code (each run against what the reading claims, where there are arguments to call with), ${audit.contradicted} contradicted by it, ${audit.unproven} it neither shows nor refutes (\`rx-declare --audit\` lists them, with what to check)\n`);
+    if (audit) say(`${path.relative(process.cwd(), f)}: words: ${audit.proven} read from the code (each run against what the reading claims, where there are arguments to call with), ${audit.unproven} it does not show (\`rx-declare --audit\` lists them, with what to check)\n`);
     if (record) { const at = require("../src/strict.js").writeRecord(f, results); say(`${path.relative(process.cwd(), at)}: recorded\n`); }
     all.push({ file: f, results: results.flatMap(r => [].concat(r.ob).map(ob => ({ line: r.line, name: r.name, ob, status: r.status, ...(r.by ? { by: r.by } : {}), what: r.what }))), ...(audit ? { audit } : {}) });
   }

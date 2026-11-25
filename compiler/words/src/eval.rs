@@ -927,7 +927,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             match a {
                 a if flat(a) => {}
                 Atom::Obj(i) => {
-                    if self.objs[i as usize].module && !self.acts[self.cur as usize].init { return self.stop(at, "it changes an object the module made as it loaded"); }
+                    if self.objs[i as usize].module && !self.acts[self.cur as usize].init { return self.stop(at, "it may change an object the module made as it loaded"); }
                     match (&key, &self.objs[i as usize].kind) {
                         (Ok(k), Kind::Plain | Kind::Error) => { if reserved(k) || self.objs[i as usize].getters.contains(k) || self.objs[i as usize].wild { return self.stop(at, format!("it writes .{k}")); } let k = k.clone(); self.put_field(i, &k, w); }
                         (Ok(k), Kind::Array) if k == "length" => {}
@@ -937,12 +937,12 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                             self.put_items(i, w);
                         }
                         (Err((k, _)), Kind::Plain) => { if *k != num() && !prims(w) && !self.objs[i as usize].wild { self.objs[i as usize].wild = true; self.changed = true; } self.put_items(i, w); }
-                        _ => return self.stop(at, "it changes a value that is not followed there"),
+                        _ => return self.stop(at, "it may change a value that is not followed there"),
                     }
                 }
-                Atom::Param(t, _) if matches!(self.ty(t), Ty::Other) => return self.stop(at, "it changes an object it was given: a class's, or the platform's"),
-                Atom::Param(..) => return self.stop(at, "it changes what it was given"),
-                _ => return self.stop(at, "it changes a value that is not of the call"),
+                Atom::Param(t, _) if matches!(self.ty(t), Ty::Other) => return self.stop(at, "it may change an object it was given: a class's, or the platform's"),
+                Atom::Param(..) => return self.stop(at, "it may change what it was given"),
+                _ => return self.stop(at, "it may change a value that is not of the call"),
             }
         }
         Ok(())
@@ -1238,7 +1238,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         if rest.is_some() && !matches!(name, "push" | "unshift" | "concat" | "splice" | "toSpliced") { return self.stop(at, "a spread among a list's method's arguments"); }
         let mutates = matches!(name, "push" | "pop" | "shift" | "unshift" | "splice" | "sort" | "reverse" | "fill" | "copyWithin");
         if mutates {
-            if !own { return self.stop(at, format!("it changes in place a list that is not its own (.{name}())")); }
+            if !own { return self.stop(at, format!("it may change in place a list that is not its own (.{name}())")); }
             let Atom::Obj(o) = recv else { return self.stop(at, "a list that is not followed") };
             self.drop_places(o);
             let mut put = vec![];
@@ -1322,7 +1322,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                 Ok(one(Atom::Obj(o)))
             }
             "set" | "add" | "delete" | "clear" => {
-                if !own { return self.stop(at, format!("it changes in place what it was given, or the module's (.{name}())")); }
+                if !own { return self.stop(at, format!("it may change in place what it was given, or the module's (.{name}())")); }
                 let Atom::Obj(o) = recv else { return self.stop(at, "a map that is not followed") };
                 match name { "set" if map => { if join(&mut self.objs[o as usize].keys, &arg(0)) { self.changed = true; } self.put_items(o, &arg(1)); Ok(one(recv)) } "add" if !map => { self.put_items(o, &arg(0)); Ok(one(recv)) } "delete" => Ok(prim()), "clear" => Ok(undef()), _ => self.stop(at, format!("it calls .{name}()")) }
             }
