@@ -12,3 +12,4 @@ compiler/wasi-worker.mjs
 compiler/wasi-worker-browser.mjs
 compiler/guide/
 /.out/
+/runtime/*.tgz
