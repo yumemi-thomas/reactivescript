@@ -1,4 +1,4 @@
-// MO-8v, MO-8w: the words the code proves, written into a draft's rows. The proof is the crate's (compiler/src/words,
+// MO-8v, MO-8w: the words the code proves, written into a draft's rows. The proof is the crate's (compiler/words,
 // DESIGN.md there says what each word's is); this asks it once for the whole draft and writes the answers into the text of
 // the rows: `pure` before `fn`, `handler` before a callback's function type (a parameter's, a field's of a record parameter,
 // a prop's of a component), `draft` before a parameter, `rejects(A | B)`, `instantiates`, `uses(c)`, `provides(c)` after the

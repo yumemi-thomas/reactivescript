@@ -1261,7 +1261,7 @@ function draft(T, spec, from, how) {
   const unshaped = (line, name, reads) => [...shapedBy.get(name) ?? []].reduce((l, at) => reads(at) ? l : withWaits(l, { [at]: "" }), line);
   if (how.infer === false) lines = lines.map(l => { const n = exportedIn(l); return n && l.startsWith("export ") ? unshaped(l, n, () => false) : l; });
   // MO-8v: the words the code that runs proves — `pure`, `handler`, `draft`, `rejects(E)` — written into the rows
-  // (declare-infer.js, compiler/src/words), and what is left to a person asked (questions.js): of a draft a person keeps
+  // (declare-infer.js, compiler/words), and what is left to a person asked (questions.js): of a draft a person keeps
   let r = { facts: () => undefined };
   if (how.infer !== false) {
     r = require("./declare-infer.js").apply(spec, from, lines, how.why, { unshaped, contexts, written: how.written });

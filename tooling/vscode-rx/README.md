@@ -42,6 +42,7 @@ One `.vsix` serves every platform: the compiler comes in it as WebAssembly
 
 ```sh
 cargo build --lib --release --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml
+cargo build -p rx-words --release --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml
 npm --prefix tooling/rx-language-server install
 cd tooling/vscode-rx && npm install && npm run package   # dist/, then reactivescript-<version>.vsix
 ```

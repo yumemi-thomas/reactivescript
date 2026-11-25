@@ -2,7 +2,7 @@
 // should, the hook gets its TODO, and the draft is a declaration rx-tsc accepts against the same types (TY-6).
 //   node test/declare.js            VERBOSE=1 prints the draft
 // (MO-8v) The modules these tests draft are stand-ins for their types: a body of one line that does nothing. What the code
-// proves is test/infer.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
+// proves is test/words.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
 process.env.RX_DECLARE_INFER = "0";
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");

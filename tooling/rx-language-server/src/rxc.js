@@ -20,7 +20,17 @@ function wasmPath() {
   return undefined;
 }
 
-/** The crate in process, over `src/wasm.rs`'s ABI. */
+/** The reading of JavaScript `rx-declare` asks (compiler/words, a crate beside the compiler's): `$RX_WORDS_WASM`, else the
+ *  one bundled beside this file, else the repository's (`cargo build -p rx-words …`). A program is checked without it. */
+function wordsPath() {
+  if (process.env.RX_WORDS_WASM) return process.env.RX_WORDS_WASM;
+  const at = [path.join(__dirname, "words.wasm"), path.join(repo, "compiler/target/wasm32-unknown-unknown/release/rx_words.wasm")];
+  const f = at.find(existsSync);
+  if (!f) throw new Error(`no ${at[1]}: cargo build -p rx-words --release --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml`);
+  return f;
+}
+
+/** A crate in process, over `src/wasm.rs`'s ABI (compiler/words's is the same). */
 function loadWasm(file) {
   let x;
   const enc = new TextEncoder(), dec = new TextDecoder();
@@ -34,7 +44,7 @@ function loadWasm(file) {
   const env = {
     rx_read(ptr, len) {
       const f = dec.decode(new Uint8Array(x.memory.buffer, ptr, len));
-      if (f[0] === "\0") { try { return put(enc.encode(realpathSync(f.slice(1)))); } catch { return 0; } }   // a path's real one (src/words/resolve.rs)
+      if (f[0] === "\0") { try { return put(enc.encode(realpathSync(f.slice(1)))); } catch { return 0; } }   // a path's real one (compiler/words/src/resolve.rs)
       try { if (!statSync(f).isFile()) return 0; return put(readFileSync(f)); } catch { return 0; }
     },
   };
@@ -59,7 +69,7 @@ function viaProcess(method, params) {
   return JSON.parse(line).result;
 }
 
-let wasm;
+let wasm, reader;
 /** RX_TRACE=<file>: each request and its answer, a line each (what a result of a tool depended on: scripts/lib/cache.mjs). */
 function ask(method, params) {
   const result = answer(method, params);
@@ -67,6 +77,9 @@ function ask(method, params) {
   return result;
 }
 function answer(method, params) {
+  if (method === "words") {
+    try { return (reader ??= loadWasm(wordsPath()))(method, params); } catch (e) { reader = undefined; throw e; }
+  }
   if (process.env.RXC || !wasmPath()) return viaProcess(method, params);
   try {
     return (wasm ??= loadWasm(wasmPath()))(method, params);

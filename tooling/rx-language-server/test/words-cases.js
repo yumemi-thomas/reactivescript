@@ -3,7 +3,7 @@
 //                           (`lost`: honest, and no form the reading lists: no word, and why)
 //   words/adversarial.json  packages whose fact was established by RUNNING them (`fact`): the row that `rx-declare` drafts may
 //                           not match `not`. Two reviews wrote them against the reading that was here before, and 757 were
-//                           written against this one (compiler/src/words)
+//                           written against this one (compiler/words)
 //   node test/words-cases.js [--shard i/n]
 const fs = require("node:fs"), path = require("node:path");
 const { ask } = require("../src/rxc.js");

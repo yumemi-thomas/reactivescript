@@ -32,6 +32,7 @@ target/release/rxc project ../examples/todo.rx   # the TSX projection, with mapp
 target/release/rxc model ../examples/todo.rx     # the resolved model, as JSON
 target/release/rxc serve                         # a language server's requests, a JSON line each (CP-8e)
 cargo build --lib --release --target wasm32-unknown-unknown   # … the same requests as WebAssembly (src/wasm.rs), what the server loads
+cargo build -p rx-words --release --target wasm32-unknown-unknown   # words/: the words rx-declare proves from a JS module's code (words/DESIGN.md), a module of its own
 target/release/rxc compile ../examples/todo.rx --out out   # modules (dom; --target ssr|universal), source maps onto .rx, style.css
 target/release/rxc app ../examples/todo.rx       # the same as JSON, imports by .rx path: what the Vite front end gets
 target/release/rxc check --spa ../examples/todo.rx   # a client-only build: a first load nothing holds is an error (08 CN-3d); also compile, app

@@ -996,8 +996,6 @@ dependencies = [
  "napi-derive",
  "oxc_allocator",
  "oxc_ast",
- "oxc_parser",
- "oxc_semantic",
  "oxc_sourcemap",
  "oxc_span",
  "oxc_syntax",
@@ -1055,6 +1053,19 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "rx-words"
+version = "0.3.1"
+dependencies = [
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_span",
+ "oxc_syntax",
+ "serde_json",
+]
 
 [[package]]
 name = "scopeguard"

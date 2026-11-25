@@ -1,4 +1,4 @@
-// MO-8v: the words `rx-declare` writes from the code's proof (src/words.js, compiler/src/words): the rows, the questions that
+// MO-8v: the words `rx-declare` writes from the code's proof (src/words.js, compiler/words): the rows, the questions that
 // are no longer asked, `--why`; a package's hosts; both checkers reading the rows, with a program accepted only because of a
 // proven word and one refused because a word was withheld; rx-verify over rows that claim what their code does not do; the
 // `ref` of a part. The cases a word must not be written over are test/words-cases.js's.

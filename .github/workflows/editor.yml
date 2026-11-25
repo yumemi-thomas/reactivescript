@@ -39,6 +39,7 @@ jobs:
         run: |
           cargo build --release --manifest-path compiler/Cargo.toml
           cargo build --lib --release --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml
+          cargo build -p rx-words --release --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml
       - name: Solid next (the types the tests check against)
         uses: ./.github/actions/solid-next
       - name: ref/'s packages
@@ -49,11 +50,11 @@ jobs:
         working-directory: tooling/rx-language-server
         run: |
           npm ci
-          # over the WebAssembly build, then (test/run.js) over rxc. infer: the words rx-declare reads from the code (09
+          # over the WebAssembly build, then (test/run.js) over rxc. words: what rx-declare reads from the code (09
           # MO-8v, MO-8w) — every function that does what a word must not cover is refused it, and its honest twin is
           # given it; the audit; the draft; rx-verify
           # (not test/generate.js, which runs `vite build` and needs the Node-API build this job does not make)
-          RX_JOBS=4 node ../../scripts/parallel.mjs "node test/checker.js" "node test/tsc.js" "node test/declare.js" "node test/verify.js" "node test/infer.js" "node test/infer-view.js" "node test/infer-called.js" "node test/run.js"
+          RX_JOBS=4 node ../../scripts/parallel.mjs "node test/checker.js" "node test/tsc.js" "node test/declare.js" "node test/verify.js" "node test/words.js" "node test/words-audit.js" "node test/words-cases.js --shard 1/2" "node test/words-cases.js --shard 2/2" "node test/run.js"
           RXC=$GITHUB_WORKSPACE/compiler/target/release/rxc node test/run.js
       - name: Package the extension
         working-directory: tooling/vscode-rx

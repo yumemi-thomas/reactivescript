@@ -27,10 +27,6 @@ fn stateless(set: &crate::modules::ModuleSet) -> Vec<String> {
 }
 
 pub fn read_disk(p: &str) -> Option<String> {
-    // a path's real one (words/resolve.rs)
-    if let Some(f) = p.strip_prefix('\0') {
-        return std::fs::canonicalize(f).ok().map(|f| f.to_string_lossy().into_owned());
-    }
     if Path::new(p).is_file() {
         std::fs::read_to_string(p).ok()
     } else {

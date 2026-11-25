@@ -7,7 +7,7 @@
 //     written, for `draft`; a context every call reads that no row is shown to provide, for `uses` and `provides`. Where
 //     it was not read, the words whose absence refuses a correct program are: `pure`, `handler`, `draft`.
 // Each says what the row does now, what the word changes and why it is not proven (file:line). Of one row, the words
-// whose absence refuses a correct program come first. test/infer.js and bench/generated.mjs (`readings`) hold it.
+// whose absence refuses a correct program come first. test/words.js and bench/generated.mjs (`readings`) hold it.
 const { rowsOf } = require("./rows.js");
 const { named, records } = require("./declare-infer.js");
 

@@ -1,4 +1,4 @@
-//! The words `rx-declare` writes, proved from the code (DESIGN.md): `rxc serve`'s `words`.
+//! The words `rx-declare` writes, proved from the code (DESIGN.md): `src/words.js` of the language server asks.
 //!   `{ spec, from, exports: [{ name, kind: "fn" | "component", params: [type], handlers: [[index, field?]], refs: [path],
 //!   prims: [index], plain: [prop] }] }`  →  `{ unread? , exports: { name: { … } }, contexts: { exportName: key } }`.
 //! A word holds under every host that can load the module (resolve.rs); one that loads what is not read leaves it unread.
@@ -7,6 +7,8 @@ pub mod eval;
 pub mod graph;
 pub mod place;
 pub mod resolve;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 
 use eval::{Eval, Facts, Stop, Types};
 use graph::{Modules, Origin};

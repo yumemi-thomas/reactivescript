@@ -1,0 +1,21 @@
+[package]
+name = "rx-words"
+version = "0.3.1"
+edition = "2021"
+description = "The words rx-declare writes, proved from a JS module's code (DESIGN.md): a crate of its own, so that rxc and the language server's module do not carry it"
+license = "MIT"
+publish = false
+
+[lib]
+name = "rx_words"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+oxc_allocator = "0.144"
+oxc_ast = "0.144"
+oxc_parser = "0.144"
+oxc_semantic = "0.144"
+oxc_span = "0.144"
+oxc_syntax = "0.144"

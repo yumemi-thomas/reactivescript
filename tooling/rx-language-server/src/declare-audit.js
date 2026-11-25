@@ -1,5 +1,5 @@
 // MO-8w: a declaration's words, held against what the code shows. `rx-declare` writes a word only where the code proves it
-// (src/words.js: compiler/src/words). This asks the same proof about the words a `.d.rx` already has, whoever wrote them, and
+// (src/words.js: compiler/words). This asks the same proof about the words a `.d.rx` already has, whoever wrote them, and
 // sorts each into one of three:
 //   proven        the code shows it: the word is one `rx-declare` would write (it is counted as read from the code,
 //                 and `rx-verify` holds it to what the proof claims);

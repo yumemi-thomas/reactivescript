@@ -34,7 +34,7 @@ const steps = [
   { id: "npm-runtime", dir: "runtime", run: ci("runtime"), quick: true, skipQuietly: true },
   { id: "npm-language-server", dir: LS, run: ci(LS), quick: true, skipQuietly: true },
   { id: "crate", dir: "compiler", run: "cargo build --release", uses: ["cargo"], n: jobs, quick: true },
-  { id: "wasm", dir: "compiler", run: "cargo build --lib --release --target wasm32-unknown-unknown", uses: ["cargo"], n: jobs, after: ["crate"], quick: true, not: () => targets.includes("wasm32-unknown-unknown") ? null : "no wasm32-unknown-unknown target (rustup target add)" },
+  { id: "wasm", dir: "compiler", run: "cargo build --lib --release --target wasm32-unknown-unknown && cargo build -p rx-words --release --target wasm32-unknown-unknown", uses: ["cargo"], n: jobs, after: ["crate"], quick: true, not: () => targets.includes("wasm32-unknown-unknown") ? null : "no wasm32-unknown-unknown target (rustup target add)" },
   { id: "cargo-test", dir: "compiler", run: "cargo test --release", uses: ["cargo"], n: jobs, after: ["wasm"], quick: true },
   { id: "node-build", dir: "compiler", run: napi, uses: ["cargo", "binding"], n: jobs, after: ["npm-compiler", "cargo-test"], quick: true },
   { id: "runtime", dir: "runtime", run: "npm run -s build", after: ["npm-runtime"], quick: true },

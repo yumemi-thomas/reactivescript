@@ -1,4 +1,4 @@
-// What a module's types say of its exports' parameters, for the reading of their code (compiler/src/words): read through
+// What a module's types say of its exports' parameters, for the reading of their code (compiler/words): read through
 // tsrs, a level at a time, every request of a level in one batch. A type is said as a tree — `{ k: "num" | "prim" | "any" |
 // "param" | "fn" | "arr" | "rest" | "tuple" | "map" | "set" | "promise" | "rec" | "union" | "other" }` — and what is not one
 // of those is `any`, of which the reading takes nothing but that it may be passed on.

@@ -34,6 +34,7 @@ From the repository:
 
 ```sh
 cargo build --lib --release --target wasm32-unknown-unknown --manifest-path ../../compiler/Cargo.toml
+cargo build -p rx-words --release --target wasm32-unknown-unknown --manifest-path ../../compiler/Cargo.toml
 npm install
 node bin/server.js --stdio
 ```

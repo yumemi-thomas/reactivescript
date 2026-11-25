@@ -62,7 +62,7 @@ function shared() {
     // (the copies a program runs with, not what they were copied from: `workspace()` makes them again, a task run alone does not)
     runtime: cache.treeHash(path.join(nm, "@reactivescript/runtime")),
     // what a task that runs a build, or a process of its own, may reach: the compiler as it is built, and ref/
-    builds: cache.inputs(rxc, ...["index.js", "vite.mjs", "lib.mjs", "package.json", "scripts", "target/wasm32-unknown-unknown/release/reactivescript.wasm"].map(f => at("compiler", f)), ...(existsSync(at("compiler")) ? readdirSync(at("compiler")).filter(f => f.endsWith(".node")).map(f => at("compiler", f)) : []), ...["src", "compile", "check.ts", "disk.ts", "types"].map(f => at("ref", f))),
+    builds: cache.inputs(rxc, ...["index.js", "vite.mjs", "lib.mjs", "package.json", "scripts", "target/wasm32-unknown-unknown/release/reactivescript.wasm", "target/wasm32-unknown-unknown/release/rx_words.wasm"].map(f => at("compiler", f)), ...(existsSync(at("compiler")) ? readdirSync(at("compiler")).filter(f => f.endsWith(".node")).map(f => at("compiler", f)) : []), ...["src", "compile", "check.ts", "disk.ts", "types"].map(f => at("ref", f))),
     browser: cache.browser(pw()),
   };
   cache.saveIndex();
