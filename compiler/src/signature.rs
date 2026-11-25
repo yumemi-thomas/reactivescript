@@ -56,6 +56,9 @@ pub struct PropSig {
     /// MO-10f: the fields of this prop its type says hold or fail where they are read (path, holds, classes): a JS
     /// result with such fields may be given whole
     pub takes: Vec<(String, bool, Vec<String>)>,
+    /// RG-4c: a view the component shows: whether it is optional, and the fields it is shown with that hold no closure of the
+    /// component's (O-3)
+    pub view: Option<(bool, Vec<String>)>,
 }
 #[derive(Debug, Clone)]
 pub struct Own {
@@ -439,6 +442,10 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                         let ts: Vec<String> = v.takes.iter().map(|(p, holds, fails)| format!("{p}{}{}", if *holds { " pending" } else { "" }, if fails.is_empty() { String::new() } else { format!(" fails({})", fails.join(" | ")) })).collect();
                         parts.push(format!("takes({})", ts.join(", ")));
                     }
+                    if let Some((optional, values)) = &v.view {
+                        // RG-4c: a view it shows; `value(…)`: what it shows it with that holds no closure of its own (O-3)
+                        parts.push(format!("view{}{}", if *optional { "?" } else { "" }, if values.is_empty() { String::new() } else { format!(" value({})", values.join(", ")) }));
+                    }
                     if !v.rendered {
                         parts.push("unrendered".to_string());
                     } else {
@@ -523,6 +530,7 @@ re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
 re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(([^)]*)\)");
 re!(P_UNRENDERED, r"(^|[^A-Za-z0-9_])unrendered([^A-Za-z0-9_]|$)");
 re!(P_TAKES, r"(^|[^A-Za-z0-9_])takes\(((?:[^()]|\([^()]*\))*)\)");
+re!(P_VIEW, r"^view(\??)(?:\s+value\(([^)]*)\))?(?:\s|$)");
 re!(P_PENDING, r"(^|\s)pending(\s|$)");
 re!(P_FAILS, r"fails\(([^)]*)\)");
 re!(P_CATCHES, r"(^|[^A-Za-z0-9_])catches\(([^)]*)\)");
@@ -723,7 +731,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     None => (crate::parse::js_trim(&f).to_string(), String::new()),
                 };
                 let fname = if fname0 == "...props" { "*".to_string() } else { fname0 };
-                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, components: false, takes: vec![] };
+                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, components: false, takes: vec![], view: None };
                 let a = P_ACTION.captures(&spec);
                 let rest = match &a {
                     Some(a) => {
@@ -747,7 +755,11 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                         }
                     }
                 }
-                let rest = P_TAKES.replace(&rest, "$1").to_string();
+                let mut rest = P_TAKES.replace(&rest, "$1").to_string();
+                if let Some(m) = P_VIEW.captures(rest.js_trim()) {
+                    v.view = Some((!m[1].is_empty(), m.get(2).map(|x| x.as_str().split(',').map(|x| x.js_trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default()));
+                    rest = rest.js_trim()[m.get(0).unwrap().end()..].to_string();
+                }
                 if P_UNRENDERED.is_match(&rest) {
                     v.rendered = false;
                     v.f = Catch::All;

@@ -11,7 +11,7 @@ import { RuleError, CheckError } from "./errors.ts";
 import { checkModules, unwrapServer } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
-import { singleModule, type ModuleSet } from "./modules.ts";
+import { singleModule, shownIn, showsView, type ModuleSet } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
@@ -23,12 +23,15 @@ const NOT_YET = Symbol("until: not yet");                 // AC-6: thrown out of
 export class Flight { key: string; state: "pending" | "resolved" | "rejected" = "pending"; value: unknown; first: { state: "resolved" | "rejected"; value: unknown } | null = null; constructor(key: string) { this.key = key; } }
 export class ViewValue { region: Region; items: VItem[]; constructor(region: Region, items: VItem[]) { this.region = region; this.items = items; } }
 
+/** RG-4c: a view given to a component that shows it (`view (s) { … }`): the caller's names, an instance at each place it is shown. */
+export class ViewFn { m: Extract<Markup, { k: "mview" }>; region: Region; constructor(m: Extract<Markup, { k: "mview" }>, region: Region) { this.m = m; this.region = region; } }
+
 type Path = string;
 const join = (p: Path, k: string | number) => (p === "" ? String(k) : `${p}.${k}`);
 type Target = Node | object;
 const isErr = (v: unknown): v is ErrVal => v instanceof ErrVal;
 const isAbsent = (v: unknown) => v instanceof ErrVal || v instanceof PendingVal;
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !(v instanceof ErrVal) && !(v instanceof PendingVal) && !(v instanceof Flight) && !(v instanceof ViewValue);
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !(v instanceof ErrVal) && !(v instanceof PendingVal) && !(v instanceof Flight) && !(v instanceof ViewValue) && !(v instanceof ViewFn);
 
 /** Whether a difference between a guess and the truth touches a key the guess wrote (AC-3: a path guess is per key, Solid's per-node override). */
 function guessedAt(n: { guessPaths: Path[] }, diff: Set<Path>): boolean {
@@ -1223,6 +1226,15 @@ export class Runtime {
       case "portal": { const r = new Region(region, this, region.boundary); this.declare(m.decls, r); return { k: "comp", portal: true, inst: this.instantiate(m.body, r) }; }   // RG-8: owned here (its boundary, its provisions), shown elsewhere
       case "read": return { k: "read", node: this.mkNode("reader", "reader", region, rt => rt.evalExpr(m.e, region)), shown: null };
       case "el": {
+        const shown = shownIn(m.tag) === undefined ? undefined : region.lookup(shownIn(m.tag)!);
+        const view = shown && "constant" in shown ? (shown.constant as { children?: unknown } | undefined)?.children : undefined;
+        if (view instanceof ViewFn) {                              // RG-4c: owned where it is shown, names from where it is written
+          const r = new Region(region, this, region.boundary, view.region), s: Record<string, unknown> = {};
+          for (const a of m.attrs) { const node = this.mkNode("eq", `${m.tag}.${a.name}`, region, rt => rt.evalExpr(a.e, region)); Object.defineProperty(s, a.name, { enumerable: true, get: () => this.readNode(node) }); }
+          for (const p of view.m.params) r.scope.set(p, { constant: s });
+          this.declare(view.m.decls, r);
+          return { k: "comp", inst: { region: r, items: view.m.body.map(c => this.inst1(c, r)) } };
+        }
         if (/^[A-Z]/.test(m.tag)) {
           const b = region.lookup(m.tag);
           if (!b || !("comp" in b)) throw new RuleError("SCOPE", `unknown component ${m.tag}`);
@@ -1242,8 +1254,10 @@ export class Runtime {
               getOwnPropertyDescriptor: (t, k) => typeof k === "string" && k !== "children" ? (find(k) ? { enumerable: true, configurable: true, value: read(k) } : undefined) : Reflect.getOwnPropertyDescriptor(t, k),
             });
           }
+          const view = m.children.find(c => c.k === "mview");
+          if (view || (!m.children.length && showsView(comp))) Object.defineProperty(props, "children", { enumerable: true, value: view?.k === "mview" ? new ViewFn(view, region) : undefined });
           let children: ViewValue | null = null;                   // RG-4c: instantiated where first read — owned by the reader's region, named by the caller's
-          Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, m.children.map(c => this.inst1(c, cr))); } return children; } });
+          if (!Object.hasOwn(props, "children")) Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, m.children.map(c => this.inst1(c, cr))); } return children; } });
           r.scope.set(comp.props, { constant: props });
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };

@@ -8,7 +8,7 @@ use crate::ast::{instantiates, kept_parts, Decl, Expr, ExprKind, Field, Lit, Mar
 use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
-use crate::modules::{defaulted, given, type_only, view_fields, Given, ModuleSet};
+use crate::modules::{defaulted, given, shown_in, shows_view, type_only, view_fields, Given, ModuleSet};
 use crate::names::{in_prelude, language, scalar, Lang};
 use crate::parse::{JsDecl, Part, Shape as FShape};
 use crate::signature::ExportSig;
@@ -73,6 +73,8 @@ struct Bind {
     js: String,
     /// RG-4b: a component's props, or a projection of them that holds a view
     given: Option<Given>,
+    /// RG-4c: a component's props, where it shows its children as a view (`<props.children … />`)
+    shows: bool,
     w: Option<String>,
     f: Option<FnRef>,
     prev: Option<String>,
@@ -93,7 +95,7 @@ struct Bind {
     draft_args: Vec<usize>,
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), given: None, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
+    Bind { kind, js: js.into(), given: None, shows: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -343,6 +345,8 @@ struct Gen<'p> {
     hoist_seq: usize,
     frames: Vec<Frame>,
     style_ids: u32,
+    /// RG-4c: `props.children`, in a component that shows its view
+    shown: Option<String>,
 }
 
 /// MO-10: the scenario prelude's `./prims`, a JS module of Solid primitives (`ref/compile/prims-solid.ts`).
@@ -389,6 +393,7 @@ impl<'p> Gen<'p> {
             hoist_seq: 0,
             frames: vec![],
             style_ids: 0,
+            shown: None,
             raw: HashSet::new(),
             kept: HashSet::new(),
             made: vec![],
@@ -642,6 +647,7 @@ impl<'p> Gen<'p> {
                     MarkupKind::Text(_) | MarkupKind::Style(_) | MarkupKind::Portal { .. } => {}
                     MarkupKind::Read(_) => out.push(Item::Container(vec![])),
                     MarkupKind::El { tag, attrs, children } if tag.is_empty() => out.extend(tree(g, children)),
+                    MarkupKind::El { tag, .. } if g.shown.as_ref() == Some(tag) => out.push(Item::Container(vec![])),   // RG-4c: the caller's
                     MarkupKind::El { tag, attrs, children } => {
                         g.style_ids += 1;
                         let kind = if tag.as_bytes()[0].is_ascii_lowercase() { ElementKind::Native(tag.clone()) } else { ElementKind::Component };
@@ -1635,8 +1641,12 @@ impl<'p> Gen<'p> {
             view_fields(t, self.mod_decls, 0, &mut views);
         }
         pb.given = Some(Given::Props { less: vec![], views: views.into() });
+        pb.shows = shows_view(props, decls, view);
+        let was = std::mem::replace(&mut self.shown, pb.shows.then(|| format!("{props}.children")));
         self.set(inner, props, pb);
-        let body = self.owned(decls, view, inner, true)?;
+        let body = self.owned(decls, view, inner, true);
+        self.shown = was;
+        let body = body?;
         Ok(S::Func(Func { name: Some(cm(name)), params: vec![P::Id(mg(props))], directives: vec![], body, is_async: false, generator: false }))
     }
 
@@ -2219,7 +2229,7 @@ impl<'p> Gen<'p> {
         for p in params {
             self.set(inner, p, val(mg(p)));
         }
-        let pre = self.block(decls, body, inner, None, false)?;
+        let pre = self.owned(decls, body, inner, false)?;
         Ok(arrow_block(params.iter().map(|p| P::Id(mg(p))).collect(), pre, false))
     }
     fn kids(&mut self, ms: &[Markup], env: Env) -> R<Vec<Child>> {
@@ -2259,6 +2269,10 @@ impl<'p> Gen<'p> {
         let f = self.region_fn(decls, view, env, None, None, None)?;
         Ok(Child::Expr(call(f, vec![])))
     }
+    /// RG-4c: the props a tag shows the view of, `<props.children … />` in a component that does.
+    fn shown_from(&self, tag: &str, env: Env) -> Option<String> {
+        self.lookup(env, shown_in(tag)?).filter(|b| b.shows).map(|b| b.js)
+    }
     fn attr(&mut self, name: &str, e: &Expr, env: Env) -> R<(String, AttrValue)> {
         let x = self.expr(e, env, &Ctx { imp: is_handler(name), is_ref: name == "ref", ..Ctx::default() })?;
         Ok((name.to_string(), AttrValue::Expr(x)))
@@ -2283,6 +2297,15 @@ impl<'p> Gen<'p> {
                 } else {
                     Child::Jsx(Jsx::Frag(self.kids(children, env)?, line))
                 }
+            }
+            // RG-4c: the view the component was given, applied
+            MarkupKind::El { tag, attrs, .. } if self.shown_from(tag, env).is_some() => {
+                let props = self.shown_from(tag, env).unwrap();
+                let mut xs = vec![];
+                for a in attrs {
+                    xs.push(self.attr(&a.name, &a.e, env)?);
+                }
+                el(JsxName::Member(props, "children".into()), xs, vec![], true)
             }
             MarkupKind::El { tag, attrs, children } if tag.as_bytes()[0].is_ascii_uppercase() => {
                 // MO-11q: `<Dialog.Root>`, a member of a declared JS object
@@ -2366,7 +2389,18 @@ impl<'p> Gen<'p> {
                     (n, nb)
                 });
                 let tf = self.region_fn(t_decls, t, env, Some("__item".into()), narrow, None)?;
-                let when = self.expr(c, env, &re)?;
+                // RG-4c: a view left out is whatever the caller writes for nothing (`children: []`)
+                let asked = match &c.k {
+                    ExprKind::Member { o, p, .. } => match &o.k {
+                        ExprKind::Id(n) => self.shown_from(&format!("{n}.{p}"), env),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let when = match asked {
+                    Some(p) => bin("===", E::Un("typeof", Box::new(dot(id(p), "children"))), str("function")),
+                    None => self.expr(c, env, &re)?,
+                };
                 let fb = self.region_fn(f_decls, f, env, None, None, None)?;
                 el(JsxName::Ident("Show".into()), vec![("when".into(), AttrValue::Expr(when)), ("fallback".into(), AttrValue::Expr(call(fb, vec![])))], vec![Child::Expr(tf)], false)
             }

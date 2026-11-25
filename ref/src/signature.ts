@@ -123,6 +123,7 @@ function line(file: string, name: string, x: ExportSig): string {
       const props = Object.entries(s.props).map(([f, v]) => {
         const parts: string[] = [];
         if (v.takes?.length) parts.push(`takes(${v.takes.map(([p, holds, fails]) => `${p}${holds ? " pending" : ""}${fails.length ? ` fails(${fails.join(" | ")})` : ""}`).join(", ")})`);   // MO-10f: the fields it reads as ones that hold or fail
+        if (v.view) parts.push(`view${v.view.optional ? "?" : ""}${v.view.values.length ? ` value(${v.view.values.join(", ")})` : ""}`);   // RG-4c: a view it shows; `value(…)`: what it shows it with that holds no closure of its own (O-3)
         if (!v.rendered) parts.push("unrendered");
         else {
           if (!(v.f instanceof Set && v.f.size === 0)) parts.push(`catches(${cls(v.f)})`);
@@ -225,6 +226,7 @@ export function parseSignature(src: string, file: string): ModSig {
           v.takes = split(tk[2], ",").flatMap(part => { const path = part.trim().split(/\s+/)[0] ?? ""; const fl = /fails\(([^)]*)\)/.exec(part); return path ? [[path, /(^|\s)pending(\s|$)/.test(part.trim()), fl ? fl[1].split("|").map(c => c.trim()).filter(Boolean) : []] as [string, boolean, string[]]] : []; });
           rest = rest.replace(tk[0], tk[1]);
         }
+        { const vw = /^view(\??)(?:\s+value\(([^)]*)\))?(?:\s|$)/.exec(rest.trim()); if (vw) { v.view = { optional: !!vw[1], values: (vw[2] ?? "").split(",").map(x => x.trim()).filter(Boolean) }; rest = rest.trim().slice(vw[0].length); } }
         if (/\bunrendered\b/.test(rest)) { v.rendered = false; v.f = "all"; v.p = "all"; }
         const c = /\bcatches\(([^)]*)\)/.exec(rest); if (c) v.f = catchOf(c[1]);
         const p = /\bprovides\(([^)]*)\)/.exec(rest); if (p) v.p = p[1].trim() === "*" ? "all" : new Set(p[1].split(",").map(k => absKey(file, k.trim())).filter(Boolean));

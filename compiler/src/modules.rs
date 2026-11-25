@@ -2,7 +2,7 @@
 //! parses every module once, and orders them dependencies first (MO-1). A cycle is refused (MO-5).
 
 use crate::parse::JsTrim;
-use crate::ast::{decls_json, markups_json, Decl, Expr, ExprKind, Lit, Program};
+use crate::ast::{decls_json, markups_json, Decl, Expr, ExprKind, Lit, Markup, MarkupKind, Program};
 use crate::check::Diagnostic;
 use crate::parse::{field_name, is_view_type, parse_declarations, parse_program, split_top, JsDecl, ParseError};
 use crate::signature::{parse_signature, ModSig};
@@ -751,6 +751,119 @@ pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<Stri
             view_fields(b.trim().trim_end_matches(';'), decls, depth + 1, out);
         }
     }
+}
+
+/// RG-4c: the view a `.rx` component shows, when it takes one: its `children` are declared a function giving a `View`, of one
+/// parameter or none, and its view shows them as `<props.children … />`. Whether they are optional.
+pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &[Decl]) -> Option<bool> {
+    let (t, optional) = children_type(props_type?, types, 0)?;
+    (view_type(&t) && shows_view(props, decls, view)).then_some(optional)
+}
+/// Whether a component shows its children as a view, whatever their type says.
+pub fn shows_view(props: &str, decls: &[Decl], view: &[Markup]) -> bool {
+    applies(decls, view, &format!("{props}.children"))
+}
+/// `<props.children … />`: the name of the props.
+pub fn shown_in(tag: &str) -> Option<&str> {
+    let name = tag.strip_suffix(".children")?;
+    let first = name.bytes().next()?;
+    ((first.is_ascii_lowercase() || first == b'_' || first == b'$') && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')).then_some(name)
+}
+fn applies(decls: &[Decl], view: &[Markup], tag: &str) -> bool {
+    let ms = |ms: &[Markup]| applies(&[], ms, tag);
+    decls.iter().any(|d| matches!(d, Decl::Component { decls, view, .. } if applies(decls, view, tag)))
+        || view.iter().any(|m| match &m.kind {
+            MarkupKind::El { tag: t, children, .. } => t == tag || ms(children),
+            MarkupKind::Mif { t, t_decls, f, f_decls, .. } => applies(t_decls, t, tag) || applies(f_decls, f, tag),
+            MarkupKind::Mfor { decls, body, .. } | MarkupKind::Mview { decls, body, .. } | MarkupKind::Portal { decls, body, .. } => applies(decls, body, tag),
+            MarkupKind::Loading { fallback, decls, body, .. } | MarkupKind::Errored { fallback, decls, body, .. } => ms(fallback) || applies(decls, body, tag),
+            _ => false,
+        })
+}
+fn children_type(t: &str, decls: &[Decl], depth: usize) -> Option<(String, bool)> {
+    if depth > 8 {
+        return None;
+    }
+    for part in split_top(t, "&") {
+        let part = part.trim();
+        if let Some(body) = part.strip_prefix('{').and_then(|p| p.strip_suffix('}')) {
+            for f in split_top(body, ",;\n") {
+                if let Some((k, ty)) = f.split_once(':') {
+                    if !k.is_empty() && field_name(k) == "children" {
+                        return Some((ty.trim().to_string(), k.trim().ends_with('?')));
+                    }
+                }
+            }
+            continue;
+        }
+        let n: String = part.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let Some(text) = decls.iter().find_map(|d| match d { Decl::TypeDecl { name, text, .. } if *name == n => Some(text), _ => None }) else { continue };
+        let text = text.trim_start_matches("export").trim_start();
+        let body = if text.starts_with("interface") { text.find('{').map(|i| &text[i..]) } else { text.find('=').map(|i| &text[i + 1..]) };
+        if let Some(r) = body.and_then(|b| children_type(b.trim().trim_end_matches(';'), decls, depth + 1)) {
+            return Some(r);
+        }
+    }
+    None
+}
+/// `(s: T) => View`, `() => View`.
+fn view_type(t: &str) -> bool {
+    let t = t.trim();
+    let Some(end) = t.starts_with('(').then(|| crate::parse::closes(t, 0)).flatten() else { return false };
+    if t[end..].trim_start().strip_prefix("=>").map(str::trim) != Some("View") {
+        return false;
+    }
+    let ps: Vec<String> = split_top(&t[1..end - 1], ",").into_iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+    match &ps[..] {
+        [] => true,
+        [p] => p.split_once(':').is_some_and(|(n, ty)| {
+            let n = n.trim_end();
+            !ty.trim().is_empty() && n.bytes().next().is_some_and(|b| !b.is_ascii_digit()) && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
+        }),
+        _ => false,
+    }
+}
+/// What names the view a component shows anywhere but where it is shown or asked for (`if props.children`): its line. A
+/// projection that takes it out of a rest (`{ children: rest0, ...rest } = props`) and is not named again is none.
+pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup]) -> Option<usize> {
+    use serde_json::Value;
+    fn is_children(v: &Value, p: &str) -> bool {
+        v["k"] == "member" && v["p"] == "children" && v["o"]["k"] == "id" && v["o"]["name"] == p
+    }
+    fn mentions(v: &Value, n: &str) -> bool {
+        match v {
+            Value::Array(xs) => xs.iter().any(|x| mentions(x, n)),
+            Value::Object(o) => {
+                let k = o.get("k").and_then(Value::as_str);
+                (matches!(k, Some("id" | "pre")) && v["name"] == n) || (k == Some("el") && v["tag"].as_str().is_some_and(|t| t == n || t.strip_prefix(n).is_some_and(|r| r.starts_with('.')))) || o.values().any(|x| mentions(x, n))
+            }
+            _ => false,
+        }
+    }
+    fn walk(v: &Value, p: &str, line: usize) -> Option<usize> {
+        match v {
+            Value::Array(xs) => xs.iter().find_map(|x| walk(x, p, line)),
+            Value::Object(o) => {
+                let line = o.get("line").and_then(Value::as_u64).map(|l| l as usize).unwrap_or(line);
+                let k = o.get("k").and_then(Value::as_str);
+                let of_props = |f: &str| v[f]["k"] == "id" && v[f]["name"] == p;
+                if k == Some("member") && of_props("o") {
+                    return (v["p"] == "children").then_some(line);
+                }
+                if k == Some("omit") && of_props("e") && v["keys"].as_array().is_some_and(|ks| ks.iter().any(|x| x == "children")) {
+                    return None;
+                }
+                if matches!(k, Some("id" | "pre")) && v["name"] == p {
+                    return Some(line);
+                }
+                o.iter().find_map(|(f, x)| if k == Some("mif") && f == "c" && is_children(x, p) { None } else { walk(x, p, line) })
+            }
+            _ => None,
+        }
+    }
+    let all: Vec<Value> = decls.iter().map(|d| d.to_json()).chain(view.iter().map(|m| m.to_json())).collect();
+    let out = |d: &Value| d["k"] == "eq" && is_children(&d["e"], props) && !all.iter().any(|x| mentions(x, d["name"].as_str().unwrap_or_default()));
+    all.iter().find_map(|d| if out(d) { None } else { walk(d, props, 0) })
 }
 
 #[cfg(test)]

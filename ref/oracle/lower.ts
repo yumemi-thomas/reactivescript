@@ -17,7 +17,7 @@ import {
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failure.ts";
-import { singleModule, given, defaulted, bindGiven, viewFields, type Given, type ModuleSet } from "../src/modules.ts";
+import { singleModule, given, defaulted, bindGiven, viewFields, shownIn, showsView, type Given, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { unwrapServer } from "../src/check.ts";
 import { primsSolid, isPrims } from "../src/prims.ts";
@@ -733,6 +733,11 @@ export class Oracle {
       case "read": { const g = () => { const v = this.ev(m.e, scope); return isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; }   // a view value (children) is inserted as structure
       case "el": {
         if (m.tag === "") return this.fragment(m.children, scope, inEl);     // `<>…</>`
+        const shown = shownIn(m.tag) === undefined ? undefined : scope.lookup(shownIn(m.tag)!);
+        if (shown?.k === "const" && typeof (shown.value as { children?: unknown } | undefined)?.children === "function") {   // RG-4c: the view it was given, applied
+          const s: Record<string, unknown> = {}; for (const a of m.attrs) Object.defineProperty(s, a.name, { enumerable: true, get: () => this.ev(a.e, scope) });
+          return R.createComponent((shown.value as { children: any }).children, s);
+        }
         if (/^[A-Z]/.test(m.tag)) {
           const b = scope.lookup(m.tag); if (!b || b.k !== "comp") throw new Error(`unknown component ${m.tag}`);
           const comp = b.decl, home = b.home;
@@ -742,7 +747,8 @@ export class Oracle {
             if (!run) { run = {}; parts.push(run); }
             Object.defineProperty(run, a.name, { enumerable: true, get: () => this.ev(a.e, scope) });
           }
-          const kids = {}; Object.defineProperty(kids, "children", { enumerable: true, get: () => this.fragment(m.children, scope) }); parts.push(kids);
+          const view = m.children.find(c => c.k === "mview");
+          const kids = {}; Object.defineProperty(kids, "children", view?.k === "mview" || (!m.children.length && showsView(comp)) ? { enumerable: true, value: view?.k === "mview" ? (p: unknown) => { const s2 = new Scope(scope); for (const n of view.params) s2.vars.set(n, { k: "const", value: p }); return this.region(view.decls, view.body, s2); } : undefined } : { enumerable: true, get: () => this.fragment(m.children, scope) }); parts.push(kids);
           const props = parts.length === 1 ? kids : (merge as (...xs: unknown[]) => Record<string, unknown>)(...parts);
           return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); s2.givens.set(comp.props, { props: { less: [], views: viewFields(comp.propsType, this.typeDecls) } }); return this.region(comp.decls, comp.view, s2); }, props);
         }
