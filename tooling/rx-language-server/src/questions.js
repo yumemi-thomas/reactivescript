@@ -81,7 +81,7 @@ function ask(lines, factsOf, more = {}) {
       const as = pure ? { ...x, pure: true } : owned ? { ...x, instantiates: true } : x;
       handlers(x.callbacks.filter(c => !c.handler && acts(x.params[c.index]?.type, c.field) && changes(as, asHandler(as, c.name))).map(c => ({ label: c.name, index: c.index, field: c.field ?? undefined })));
       // ---- draft
-      const given = (said("draft")?.params ?? []).map(n => [n, x.params.findIndex(p => p.name === n || p.name === `${n}_`)]).filter(([, i]) => i >= 0 && !x.params[i].draft && (!f || (/^it changes (?:what it was given|in place)/.test(f.pure?.why?.why ?? "") && !f.draft?.[i])));
+      const given = (said("draft")?.params ?? []).map(n => [n, x.params.findIndex(p => p.name === n || p.name === `${n}_`)]).filter(([, i]) => i >= 0 && !x.params[i].draft && (!f ? !/=>/.test(x.params[i].type ?? "") : (/^it changes (?:what it was given|in place)/.test(f.pure?.why?.why ?? "") && !f.draft?.[i])));
       if (given.length) q.push(`${list(given.map(g => g[0]))}: a store's draft is refused there. \`draft ${given[0][0]}\` if the fn changes it in place${because(f && { why: "a write that may reach it" })}`);
       // ---- renders, nests: where a component it is given is placed
       const r = comps && x.shape !== "comp" && !x.renders && (said("renders")?.params ?? []).map(n => [n, x.params.findIndex(p => p.name === n || p.name === `${n}_`)]).filter(([, i]) => i < 0 || !f || !/^called (?:while the call runs|in a computation)/.test(f.handlers?.[i]?.why ?? ""));

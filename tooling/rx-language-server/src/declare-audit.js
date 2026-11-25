@@ -26,12 +26,12 @@ function wordsOf(x) {
 }
 
 /** @param {object[]} rowsIn the declaration's rows (src/rows.js)  @returns {{ rows: { name, line, words: { word, verdict, why }[] }[], unread?: string }} */
-function audit(spec, from, rowsIn) {
+function audit(spec, from, rowsIn, text) {
   const { words } = require("./words.js");
   const rel = f => path.relative(from, f).split(path.sep).join("/").replace(/^(?:\.\.\/)+node_modules\//, "").replace(/^node_modules\//, "");
   const at = w => w?.file ? ` [${rel(w.file)}:${w.line}]` : "";
   const asked = rowsIn.filter(r => (r.kind === "fn" || r.kind === "component") && r.facts.side !== "server").map(r => ({ row: r, w: wordsOf(r) })).filter(x => x.w.all.length);
-  let r; try { r = words(spec, from, asked.map(({ row, w }) => ({ name: row.name, kind: row.kind, handlers: w.handlers.map(h => [h.index, h.field ?? null]), refs: [] }))); } catch (e) { r = { unread: `the code could not be read (${String(e?.message ?? e).slice(0, 120)})`, exports: {} }; }
+  let r; try { r = words(spec, from, asked.map(({ row, w }) => ({ name: row.name, kind: row.kind, handlers: w.handlers.map(h => [h.index, h.field ?? null]), refs: [] })), [], text); } catch (e) { r = { unread: `the code could not be read (${String(e?.message ?? e).slice(0, 120)})`, exports: {} }; }
   // a context's name in the file ↔ the context the code makes: fixed by the first row that pairs them, held by the rest
   const ctxOfName = new Map(), nameOfCtx = new Map();
   const pair = (names, ctxs) => {
@@ -87,7 +87,7 @@ function auditFile(file) {
   if (/^\s*export\s+default\s+component\b/m.test(raw) || /^\s*\/\/@\s*signature\b/m.test(raw)) return undefined;
   const d = declares(file); if (!d) return undefined;
   let rows; try { rows = require("./rows.js").rowsOf(file); } catch { return undefined; }
-  return { ...audit(d.spec, d.from, rows), spec: d.spec, from: d.from };
+  return { ...audit(d.spec, d.from, rows, () => require("./rxc.js").declaration(file).code), spec: d.spec, from: d.from };
 }
 
 module.exports = { audit, auditFile };

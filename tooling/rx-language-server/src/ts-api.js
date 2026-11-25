@@ -96,7 +96,12 @@ function wrap(ts, program) {
     getTypeOfSymbolAtLocation: memo(s => ty(ch.getTypeOfSymbol(s.raw))),
     getDeclaredTypeOfSymbol: memo(s => ty(ch.getDeclaredTypeOfSymbol(s.raw))),
     getAliasedSymbol: memo(s => sy(ch.getAliasedSymbol(s.raw))),
-    getExportsOfModule: memo(s => ch.getExportsOfModule(s.raw).map(sy)),
+    // in the order they are written: the module's own, then what it hands on whole, a file at a time
+    getExportsOfModule: memo(s => {
+      const rank = new Map([[s.raw.declarations?.[0]?.path, -1]]); program.getSourceFileNames().forEach((f, i) => { const k = f; if (!rank.has(k)) rank.set(k, i); });
+      const at = e => e.declarations?.[0], of = e => rank.get(at(e)?.path) ?? 1e9;
+      return [...ch.getExportsOfModule(s.raw)].sort((a, b) => of(a) - of(b) || (at(a)?.index ?? 0) - (at(b)?.index ?? 0) || (a.name < b.name ? -1 : 1)).map(sy);
+    }),
     getSymbolAtLocation: memo(n => n.pos < 0 ? undefined : sy(quiet(() => ch.getSymbolAtLocation(n))), nodeKey),
     getSymbolOfDeclaration: n => sy(quiet(() => ch.getSymbolOfDeclaration(n))),
     getTypeFromTypeNode: memo(n => ty(ch.getTypeFromTypeNode(n)), nodeKey),

@@ -319,11 +319,17 @@ const WORDS = /\b(?:handler|pending|ref|draft)\s+[\w({[]|\bfails\s*\(/;
  *  some part cannot be named. A record or a function type is not such a text where the checker would read it as a row
  *  (the whole type, or a member of its union): those are written a step at a time by what calls this. */
 function leaf(ts, checker, t, open = false) {
-  let node;
-  node = checker.typeToTypeNode(t, CTX.sf, ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.IgnoreErrors);
-  if (!node) return { why: "named-type" };
-  const was = CTX.writing; CTX.writing = t;
-  try { return print(ts, checker, node, open); } finally { CTX.writing = was; }
+  const F = ts.NodeBuilderFlags, was = CTX.writing; CTX.writing = t;
+  try {
+    // by the names its aliases have; where one has none a row can write, as what it stands for — unless tsrs cut that short
+    // (a type that goes on for ever is written `any` there, which is nobody's)
+    const node = checker.typeToTypeNode(t, CTX.sf, F.NoTruncation | F.IgnoreErrors | F.UseAliasDefinedOutsideCurrentScope);
+    if (!node) return { why: "named-type" };
+    const r = print(ts, checker, node, open); if (r.text) return r;
+    const out = checker.typeToTypeNode(t, CTX.sf, F.NoTruncation | F.IgnoreErrors), x = out && print(ts, checker, out, open);
+    const anys = y => (y.match(/\bany\b/g) ?? []).length;
+    return x?.text && anys(x.text) <= anys(checker.typeToString(t, CTX.sf, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope)) ? x : r;
+  } finally { CTX.writing = was; }
 }
 /** Whether two types are one: the same, or each assignable to the other with the same text. */
 const sameType = (ts, checker, a, b) => a === b || (checker.typeToString(a, undefined, ts.TypeFormatFlags.NoTruncation) === checker.typeToString(b, undefined, ts.TypeFormatFlags.NoTruncation) && checker.isTypeAssignableTo(a, b) && checker.isTypeAssignableTo(b, a));

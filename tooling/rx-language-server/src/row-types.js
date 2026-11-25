@@ -5,14 +5,15 @@
 const path = require("node:path");
 const { checker, tsrs } = require("./checker.js");
 
-const OPTIONS = { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: 100, allowImportingTsExtensions: true, module: 99, target: 9, jsx: 1, jsxImportSource: "@solidjs/web", allowJs: true, types: [] };
+const OPTIONS = { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: 100, allowImportingTsExtensions: true, module: 99, target: 9, jsx: 1, jsxImportSource: "@solidjs/web", types: [] };
 const DEPTH = 5;
 const LIB = /(?:^|[\\/])lib\.[\w.]+\.d\.ts$/;
 
-/** @param {{ name: string, kind: "fn" | "component" }[]} rows  @returns {Map<string, { params: object[], prims: number[], plain: string[] }>} */
-function rowTypes(spec, from, rows) {
+/** @param {string} [text] the module's types, where it has none of its own (a declaration's `.d.ts`, TY-4b)
+ *  @param {{ name: string, kind: "fn" | "component" }[]} rows  @returns {Map<string, { params: object[], prims: number[], plain: string[] }>} */
+function rowTypes(spec, from, rows, text) {
   const out = new Map();
-  let opened; try { opened = open(spec, from); } catch (e) { if (process.env.RX_DEBUG) console.error(e); return out; }
+  let opened; try { opened = open(spec, from, text); } catch (e) { if (process.env.RX_DEBUG) console.error(e); return out; }
   const { api, ch, mod, dispose } = opened;
   try {
     if (!mod) return out;
@@ -129,9 +130,9 @@ function answers(run, ch, TF, types) {
   return out;
 }
 
-function open(spec, from) {
-  const ck = checker(from), file = path.join(from, "__rx_words__.ts"), code = `import * as m from ${JSON.stringify(spec)};\nexport { m };\n`;
-  const { program, dispose } = ck.program({ roots: [file], files: new Map([[file, code]]), options: OPTIONS });
+function open(spec, from, text) {
+  const ck = checker(from), file = path.join(from, "__rx_words__.ts"), types = path.join(from, "__rx_row_types__.d.ts"), code = `import * as m from ${JSON.stringify(text === undefined ? spec : "./__rx_row_types__")};\nexport { m };\n`;
+  const { program, dispose } = ck.program({ roots: [file], files: new Map([[file, code], ...(text === undefined ? [] : [[types, text]])]), options: OPTIONS });
   const ch = program.checker ?? program.getProject().checker, sf = program.getSourceFile(file);
   return { api: ck.api, ch, program, dispose, mod: ch.getSymbolAtLocation(sf.statements[0].moduleSpecifier) };
 }
