@@ -27,8 +27,10 @@ pub enum Ty {
 pub struct Types(pub Vec<Ty>);
 pub const ANY: u32 = 0;
 pub const OTHER: u32 = 1;
+/// The platform's own event target (an `Other` to the reading of a call).
+pub const TARGET: u32 = 2;
 impl Types {
-    pub fn new() -> Self { Types(vec![Ty::Any, Ty::Other]) }
+    pub fn new() -> Self { Types(vec![Ty::Any, Ty::Other, Ty::Other]) }
     pub fn read(&mut self, v: &Value) -> u32 {
         let t = match v["k"].as_str().unwrap_or("any") {
             "num" => Ty::Num,
@@ -43,7 +45,7 @@ impl Types {
             "promise" => Ty::Promise(self.read(&v["e"])),
             "rec" => Ty::Rec(v["f"].as_object().into_iter().flatten().map(|(k, x)| (k.clone(), self.read(x))).collect()),
             "union" => Ty::Union(v["m"].as_array().into_iter().flatten().map(|x| self.read(x)).collect()),
-            "other" => return OTHER,
+            "other" => return if v["t"] == true { TARGET } else { OTHER },
             _ => return ANY,
         };
         self.0.push(t);

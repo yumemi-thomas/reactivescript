@@ -3,10 +3,12 @@
 //!   prims: [index], plain: [prop] }] }`  →  `{ unread? , exports: { name: { … } }, contexts: { exportName: key } }`.
 //! A word holds under every host that can load the module (resolve.rs); one that loads what is not read leaves it unread.
 pub mod constant;
+pub mod dispatch;
 pub mod eval;
 pub mod graph;
 pub mod place;
 pub mod resolve;
+pub mod target;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
@@ -82,7 +84,7 @@ fn export(mods: &Modules, loaded: &[Loaded], x: &Value, name: &str) -> Value {
     place::PRIMS.with(|p| *p.borrow_mut() = x["prims"].as_array().into_iter().flatten().filter_map(|n| n.as_u64().map(|n| n as usize)).collect());
     let origins: Vec<Origin> = loaded.iter().map(|l| mods.exported(l.host, l.hi, l.entry, name, &mut vec![])).collect();
     for o in &origins { if let Origin::Unknown(w) = o { return json!({ "unread": w }); } }
-    let places: Vec<Place> = loaded.iter().map(|l| Place { mods, h: l.host, hi: l.hi }).collect();
+    let places: Vec<Place> = loaded.iter().map(|l| Place::new(mods, l.host, l.hi, l.entry, &types)).collect();
     let fns: Option<Vec<eval::FnAt>> = places.iter().zip(&origins).map(|(p, o)| p.function(o)).collect();
     let mut out = Map::new();
 
@@ -155,7 +157,7 @@ fn export(mods: &Modules, loaded: &[Loaded], x: &Value, name: &str) -> Value {
     let mut hs = Map::new();
     for h in x["handlers"].as_array().into_iter().flatten() {
         let (i, field) = (h[0].as_u64().unwrap_or(0) as usize, h[1].as_str());
-        let rs: Vec<Result<Vec<Why>, Why>> = places.iter().zip(&fns).map(|(p, f)| p.handler(*f, i, field)).collect();
+        let rs: Vec<Result<Vec<Why>, Why>> = places.iter().zip(&fns).map(|(p, f)| p.handler(*f, i, field, &params)).collect();
         let v = match rs.iter().find_map(|r| r.as_ref().err()) { Some(w) => { let mut v = said(mods, w); v["ok"] = json!(false); v } None => { let mut v = rs[0].as_ref().ok().and_then(|l| l.first()).map(|w| said(mods, w)).unwrap_or(json!({})); v["ok"] = json!(true); v } };
         hs.insert(match field { Some(f) => format!("{i}.{f}"), None => i.to_string() }, v);
     }

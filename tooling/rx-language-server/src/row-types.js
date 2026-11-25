@@ -53,7 +53,7 @@ function rowTypes(spec, from, rows, text) {
       const members = run(unions.map(x => x.type.getTypes.gen()));
       unions.forEach((x, i) => { x.node.k = "union"; x.node.m = members[i].map(y => push(y, x.d)); });
       const cons = run(params.map(x => ch.getBaseConstraintOfType.gen(x.type)));
-      params.forEach((x, i) => { const c = cons[i]; if (!c || c.flags & (TF.Unknown | TF.TypeParameter)) x.node.k = "param"; else if (c.flags & TF.Any) x.node.k = "any"; else { x.node.k = "union"; x.node.m = [push(c, x.d + 1)]; x.node.of = "param"; } });
+      params.forEach((x, i) => { const c = cons[i]; if (!c || c.flags & (TF.Unknown | TF.TypeParameter)) x.node.k = "param"; else if (c.flags & TF.Any) x.node.k = "any"; else { x.node.k = "union"; x.node.m = [push(c, x.d)]; x.node.of = "param"; } });
       const objects = rest.filter(x => x.type.flags & (TF.Object | TF.Intersection));
       for (const x of rest) if (!objects.includes(x)) x.node.k = "any";
       const calls = run(objects.map(x => ch.getSignaturesOfType.gen(x.type, t.SignatureKind.Call))), news = run(objects.map(x => ch.getSignaturesOfType.gen(x.type, t.SignatureKind.Construct)));
@@ -61,10 +61,17 @@ function rowTypes(spec, from, rows, text) {
       const refs = objects.map((x, i) => i).filter(i => arr[i] || tup[i] || (isLib(sym[i]) && /^(Readonly)?(Map|Set)$|^Promise$/.test(sym[i].name)));
       const args = run(refs.map(i => ch.getTypeArguments.gen(objects[i].type))); const argsOf = new Map(refs.map((i, k) => [i, args[k]]));
       const tups = objects.map((x, i) => i).filter(i => tup[i]), targets = run(tups.map(i => objects[i].type.getTarget.gen())), open2 = new Set(tups.filter((i, k) => targets[k].elementFlags.some(f => f & ~3)));
+      // the platform's event targets: its own type, or several of them at once, whose `addEventListener` is lib's (`t`)
+      const listens = objects.map((x, i) => i).filter(i => !calls[i].length && !arr[i] && !tup[i] && (sym[i] ? isLib(sym[i]) : objects[i].type.flags & TF.Intersection));
+      const lists = run(listens.map(i => ch.getPropertyOfType.gen(objects[i].type, "addEventListener"))), inter = listens.filter((i, k) => lists[k] && isLib(lists[k]) && !sym[i]);
+      const parts = run(inter.map(i => objects[i].type.getTypes.gen())), partSyms = run(parts.flat().map(y => y.getSymbol.gen())); let at0 = 0;
+      const whole = new Set(inter.filter((i, k) => parts[k].map(() => partSyms[at0++]).every(y => y && (y.name === "globalThis" || isLib(y)))));
+      const target = new Set(listens.filter((i, k) => lists[k] && isLib(lists[k]) && (sym[i] || whole.has(i))));
       const fns = [], recs = [];
       objects.forEach((x, i) => {
         const n = x.node, a = argsOf.get(i);
         if (calls[i].length) { n.k = "fn"; fns.push({ x, sigs: calls[i] }); }
+        else if (target.has(i)) { n.k = "other"; n.t = true; }
         else if (news[i].length) n.k = "other";
         else if (arr[i]) { n.k = "arr"; n.e = push(a[0], x.d + 1); }
         else if (tup[i]) { n.k = "tuple"; n.e = a.map(y => push(y, x.d + 1)); if (open2.has(i)) { n.k = "any"; delete n.e; } }

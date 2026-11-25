@@ -1,9 +1,11 @@
 //! What the place of a call shows (DESIGN.md): `instantiates`, `uses`, `provides`, `handler`, `draft`, and the `ref` of a
 //! part. Each is a list of the forms that show it; a form that is not listed shows nothing.
 use super::constant::{static_key, unwrap};
-use super::eval::FnAt;
-use super::graph::{each_binding, Module, Modules, Origin};
+use super::eval::{FnAt, Types};
+use super::graph::{Module, Modules, Origin};
 use super::resolve::Host;
+use super::target::Bind;
+use std::cell::{Cell, RefCell};
 use oxc_ast::{ast::*, AstKind};
 use oxc_semantic::NodeId;
 use oxc_span::{GetSpan, Span};
@@ -19,12 +21,19 @@ pub struct Hit { pub api: String, pub module: usize, pub at: Span, pub arg: Opti
 pub struct Why { pub why: String, pub module: usize, pub at: u32 }
 fn why(m: usize, at: Span, w: impl Into<String>) -> Why { Why { why: w.into(), module: m, at: at.start } }
 
-pub struct Place<'m, 'a, 'r> { pub mods: &'m Modules<'a, 'r>, pub h: Host, pub hi: usize }
+pub struct Place<'m, 'a, 'r> {
+    pub mods: &'m Modules<'a, 'r>, pub h: Host, pub hi: usize, pub entry: usize, pub types: &'m Types,
+    pub steps: Cell<u32>,
+    pub spent: Cell<u32>,
+    /// Where what the import loads sends events (dispatch.rs), once asked.
+    pub sent: RefCell<Option<Vec<super::dispatch::Place0>>>,
+}
 
 type Body<'m, 'a> = Result<&'m [Statement<'a>], &'m Expression<'a>>;
 
 impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
-    fn m(&self, mi: usize) -> &'m Module<'a> { self.mods.get(mi) }
+    pub fn new(mods: &'m Modules<'a, 'r>, h: Host, hi: usize, entry: usize, types: &'m Types) -> Self { Place { mods, h, hi, entry, types, steps: Cell::new(0), spent: Cell::new(0), sent: RefCell::new(None) } }
+    pub fn m(&self, mi: usize) -> &'m Module<'a> { self.mods.get(mi) }
     pub fn line(&self, m: usize, at: u32) -> (String, usize) { let x = self.m(m); (x.path.clone(), x.line(at)) }
 
     /// The function an export is: one written out under a name nothing writes.
@@ -59,28 +68,28 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         Some(self.m(mi).scoping.get_node_id(sc))
     }
     /// What an identifier is, past imports.
-    fn name(&self, mi: usize, i: &IdentifierReference) -> Option<Origin<'a>> {
+    pub fn name(&self, mi: usize, i: &IdentifierReference) -> Option<Origin<'a>> {
         let m = self.m(mi);
         if m.banned.is_some() { return None; }
         let s = m.symbol(i)?;
         Some(self.mods.symbol(self.h, self.hi, mi, s, &mut vec![]))
     }
     /// The Solid API a callee is.
-    fn solid(&self, mi: usize, e: &Expression<'a>) -> Option<String> {
+    pub fn solid(&self, mi: usize, e: &Expression<'a>) -> Option<String> {
         match unwrap(e) {
             Expression::Identifier(i) => match self.name(mi, i)? { Origin::Solid(n) => Some(n.to_string()), _ => None },
             Expression::StaticMemberExpression(p) if !p.optional => match unwrap(&p.object) { Expression::Identifier(i) => match self.name(mi, i)? { Origin::SolidNs => Some(p.property.name.to_string()), _ => None }, _ => None },
             _ => None,
         }
     }
-    fn parts(&self, f: FnAt) -> Option<(&'m FormalParameters<'a>, Body<'m, 'a>, bool, bool)> {
+    pub fn parts(&self, f: FnAt) -> Option<(&'m FormalParameters<'a>, Body<'m, 'a>, bool, bool)> {
         match self.m(f.module).nodes.kind(f.node) {
             AstKind::Function(x) => Some((&x.params, Ok(&x.body.as_ref()?.statements[..]), x.generator, x.r#async)),
             AstKind::ArrowFunctionExpression(x) => Some((&x.params, match &x.body { ArrowFunctionBody::FunctionBody(b) => Ok(&b.statements[..]), b => Err(b.to_expression()) }, false, x.r#async)),
             _ => None,
         }
     }
-    fn called(&self, mi: usize, e: &Expression<'a>) -> Option<FnAt> {
+    pub fn called(&self, mi: usize, e: &Expression<'a>) -> Option<FnAt> {
         match unwrap(e) {
             Expression::Identifier(i) => match self.name(mi, i)? { Origin::Symbol(m, s) => self.symbol_function(m, s), o @ Origin::Default(..) => self.function(&o), _ => None },
             e => self.literal(mi, e).map(|node| FnAt { module: mi, node }),
@@ -339,54 +348,126 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
     }
 
     // ---- handler ----
-    /// Whether a callback is only ever called where Solid has no owner and no observer, once at least.
-    pub fn handler(&self, f: FnAt, index: usize, field: Option<&str>) -> Result<Vec<Why>, Why> {
+    /// Whether a callback is only ever called where Solid has no owner and no observer, or by the platform as a listener's is;
+    /// once at least. (`params`: the types the row gives the parameters.)
+    pub fn handler(&self, f: FnAt, index: usize, field: Option<&str>, params: &[u32]) -> Result<Vec<Why>, Why> {
         let (mi, m) = (f.module, self.m(f.module));
         let at0 = m.nodes.kind(f.node).span();
         let no = |at: Span, w: &str| Err(why(mi, at, w));
         if m.banned.is_some() { return no(at0, "the module is not read"); }
-        let Some((params, ..)) = self.parts(f) else { return no(at0, "it is not read") };
-        let Some(p) = params.items.get(index) else { return no(at0, "it has no such parameter") };
-        if p.initializer.is_some() || uses_arguments(m, f.node) { return no(p.span, "a default, or `arguments`, may call it"); }
-        let mut c = Calls { later: vec![], seen: BTreeSet::new(), listens: false, root: f };
+        let Some((fps, ..)) = self.parts(f) else { return no(at0, "it is not read") };
+        let Some(p) = fps.items.get(index) else { return no(at0, "it has no such parameter") };
+        if uses_arguments(m, f.node) { return no(p.span, "`arguments` may call it"); }
+        let mut c = Calls { bind: self.bind_row(f, params), ..Calls::anyone() };
+        c.root = f; c.any = false;
+        self.spent.set(0);
         match (&p.pattern, field) {
             (BindingPattern::BindingIdentifier(b), None) => self.name_later(mi, b.symbol_id.get(), b.span, &mut c)?,
             (pat, Some(field)) => self.field_later(mi, pat, field, &mut c)?,
             _ => return no(p.span, "its parameter is taken apart"),
         }
         if c.later.is_empty() { return no(at0, "never called in the code that was read"); }
-        if c.listens { self.quiet(f)?; }
+        if c.listens { self.quiet(f, &c.events)?; }
         Ok(c.later)
     }
+    /// A record that holds the callback under `field`.
     fn field_later(&self, mi: usize, pat: &'m BindingPattern<'a>, field: &str, c: &mut Calls) -> Result<(), Why> {
         let m = self.m(mi);
         match pat {
+            BindingPattern::AssignmentPattern(a) => self.field_later(mi, &a.left, field, c),
             BindingPattern::ObjectPattern(o) => {
                 if o.rest.is_some() { return Err(why(mi, o.span, "the rest of the record may hold it")); }
                 for x in &o.properties {
-                    match static_key(&x.key, x.computed) { None => return Err(why(mi, x.span, "a name that is computed")), Some(k) if k == field => match &x.value { BindingPattern::BindingIdentifier(b) => self.name_later(mi, b.symbol_id.get(), b.span, c)?, _ => return Err(why(mi, x.span, "it is taken apart, or has a default")) }, Some(_) => {} }
+                    match static_key(&x.key, x.computed) { None => return Err(why(mi, x.span, "a name that is computed")), Some(k) if k == field => match bound(&x.value) { Some(b) => self.name_later(mi, b.symbol_id.get(), b.span, c)?, None => return Err(why(mi, x.span, "it is taken apart")) }, Some(_) => {} }
                 }
                 Ok(())
             }
             BindingPattern::BindingIdentifier(b) => {
                 let Some(s) = b.symbol_id.get().filter(|s| m.known_symbol(*s)) else { return Err(why(mi, b.span, "the record's name is written again")) };
-                for r in m.references(s) {
-                    let o = m.outer(r);
-                    let (pid, span) = (m.nodes.parent_id(o), m.nodes.kind(o).span());
-                    match m.nodes.kind(pid) {
-                        AstKind::StaticMemberExpression(k) if k.object.span() == span => { if m.is_written(pid) { return Err(why(mi, span, "the record is changed")); } if k.property.name == field { self.use_later(mi, pid, c)?; } }
-                        AstKind::VariableDeclarator(d) if d.init.as_ref().is_some_and(|i| i.span() == span) => self.field_later(mi, &d.id, field, c)?,
-                        _ => return Err(why(mi, span, "the record it is in goes where it is not followed")),
-                    }
-                }
+                for r in m.references(s) { self.record_at(mi, r, field, c)?; }
                 Ok(())
             }
             _ => Err(why(mi, pat.span(), "the record is taken apart in a way that is not followed")),
         }
     }
+    /// One place the record stands at.
+    fn record_at(&self, mi: usize, r: NodeId, field: &str, c: &mut Calls) -> Result<(), Why> {
+        let m = self.m(mi);
+        self.spend(mi, m.nodes.kind(r).span())?;
+        let o = m.outer(r);
+        let (pid, span) = (m.nodes.parent_id(o), m.nodes.kind(o).span());
+        let bad = |w: &str| Err(why(mi, span, w));
+        match m.nodes.kind(pid) {
+            AstKind::StaticMemberExpression(k) if k.object.span() == span => { if m.is_written(pid) { return bad("the record is changed"); } if k.property.name == field { self.use_later(mi, pid, c)?; } Ok(()) }
+            // (any of its fields: the callback may be it)
+            AstKind::ComputedMemberExpression(k) if k.object.span() == span => { if m.is_written(pid) { return bad("the record is changed"); } self.use_later(mi, pid, c) }
+            AstKind::VariableDeclarator(d) if d.init.as_ref().is_some_and(|i| i.span() == span) => self.field_later(mi, &d.id, field, c),
+            AstKind::UnaryExpression(u) if matches!(u.operator, UnaryOperator::Typeof | UnaryOperator::LogicalNot) => Ok(()),
+            AstKind::IfStatement(i) if i.test.span() == span => Ok(()),
+            AstKind::ConditionalExpression(k) if k.test.span() == span => Ok(()),
+            AstKind::LogicalExpression(l) if l.operator == LogicalOperator::And && l.left.span() == span => Ok(()),
+            AstKind::BinaryExpression(b) if nullish(&b.left) || nullish(&b.right) => Ok(()),
+            AstKind::CallExpression(k) if k.callee.span() != span => {
+                let Some(i) = k.arguments.iter().position(|a| a.span() == span) else { return bad("a spread of the record") };
+                if let Some(which) = self.reads_record(mi, &k.callee) {
+                    if i != 0 || which == "keys" { return if i == 0 { Ok(()) } else { bad("the record it is in goes where it is not followed") }; }
+                    return self.items_later(mi, pid, which == "entries", c);
+                }
+                if let Some(g) = self.called(mi, &k.callee) {
+                    let Some((params, _, gen, _)) = self.parts(g) else { return bad("it is handed to a function that is not followed") };
+                    if gen || uses_arguments(self.m(g.module), g.node) || k.arguments.iter().take(i).any(|a| a.is_spread()) { return bad("it is handed to a function that is not followed"); }
+                    let Some(p) = params.items.get(i) else { return if params.rest.is_none() { Ok(()) } else { bad("it is handed to a function that is not followed") } };
+                    return self.inside(mi, k, g, i, span, c, &mut |d| self.field_later(g.module, &p.pattern, field, d));
+                }
+                bad("the record it is in goes where it is not followed")
+            }
+            _ => bad("the record it is in goes where it is not followed"),
+        }
+    }
+    fn reads_record(&self, mi: usize, e: &Expression<'a>) -> Option<&'static str> {
+        if !self.object_reader(mi, e) { return None; }
+        let name = match unwrap(e) {
+            Expression::StaticMemberExpression(p) => p.property.name.as_str(),
+            Expression::Identifier(i) => { let Some(Origin::Symbol(m2, s2)) = self.name(mi, i) else { return None }; let m2 = self.m(m2); let AstKind::VariableDeclarator(v) = m2.nodes.kind(m2.scoping.symbol_declaration(s2)) else { return None }; match v.init.as_ref().map(unwrap) { Some(Expression::StaticMemberExpression(p)) => p.property.name.as_str(), _ => return None } }
+            _ => return None,
+        };
+        ["keys", "values", "entries"].into_iter().find(|n| *n == name)
+    }
+    /// What `Object.entries(record)` or `Object.values(record)` answers: a loop over it, or a list's method.
+    fn items_later(&self, mi: usize, call: NodeId, entries: bool, c: &mut Calls) -> Result<(), Why> {
+        let m = self.m(mi);
+        let o = m.outer(call);
+        let span = m.nodes.kind(o).span();
+        let item = |p: &'m BindingPattern<'a>, c: &mut Calls| -> Result<(), Why> {
+            let p = match (entries, p) {
+                (false, p) => p,
+                (true, BindingPattern::ArrayPattern(a)) if a.rest.is_none() => match a.elements.get(1) { Some(Some(x)) => x, _ => return Ok(()) },
+                _ => return Err(why(mi, span, "an entry that is not taken apart")),
+            };
+            match bound(p) { Some(b) => self.name_later(mi, b.symbol_id.get(), b.span, c), None => Err(why(mi, span, "it is taken apart")) }
+        };
+        match m.nodes.parent_kind(o) {
+            AstKind::ForOfStatement(f) if f.right.span() == span && !f.r#await => match &f.left {
+                ForStatementLeft::VariableDeclaration(d) if d.declarations.len() == 1 => item(&d.declarations[0].id, c),
+                _ => Err(why(mi, span, "a loop's name that is not its own")),
+            },
+            AstKind::StaticMemberExpression(p) if p.property.name == "forEach" && p.object.span() == span => {
+                let q = m.nodes.parent_id(o);
+                let AstKind::CallExpression(k) = m.nodes.parent_kind(q) else { return Err(why(mi, span, "it goes where it is not followed")) };
+                let f = k.arguments.first().and_then(|a| a.as_expression()).filter(|_| k.callee.span() == m.nodes.kind(q).span()).and_then(|a| self.literal(mi, a));
+                let Some((params, ..)) = f.and_then(|node| self.parts(FnAt { module: mi, node })) else { return Err(why(mi, span, "it goes where it is not followed")) };
+                if params.items.len() != 1 || params.rest.is_some() || uses_arguments(m, f.unwrap()) { return Err(why(mi, span, "it goes where it is not followed")); }
+                item(&params.items[0].pattern, c)
+            }
+            _ => Err(why(mi, span, "it goes where it is not followed")),
+        }
+    }
+    fn spend(&self, mi: usize, at: Span) -> Result<(), Why> { self.spent.set(self.spent.get() + 1); if self.spent.get() > 60_000 { Err(why(mi, at, "it goes too far to be followed")) } else { Ok(()) } }
     fn name_later(&self, mi: usize, s: Option<SymbolId>, at: Span, c: &mut Calls) -> Result<(), Why> {
         let m = self.m(mi);
+        self.spend(mi, at)?;
         let Some(s) = s.filter(|s| m.known_symbol(*s)) else { return Err(why(mi, at, "its name is written again")) };
+        if m.handed_out.contains(&s) && (c.any || m.at_top(s)) { return Err(why(mi, at, "the module exports it")); }
         if !c.seen.insert((mi, s.index(), 0)) { return Ok(()); }
         for r in m.references(s) { self.use_later(mi, r, c)?; }
         Ok(())
@@ -397,20 +478,40 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         let at = m.outer(id);
         let span = m.nodes.kind(at).span();
         let bad = |w: &str| Err(why(mi, span, w));
+        self.spend(mi, span)?;
         if m.is_written(at) { return bad("its name is written"); }
         let pid = m.nodes.parent_id(at);
         match m.nodes.kind(pid) {
             AstKind::CallExpression(k) if k.callee.span() == span => self.call_later(mi, pid, span, c),
             AstKind::CallExpression(k) => {
                 let Some(i) = k.arguments.iter().position(|a| a.span() == span) else { return bad("a spread") };
-                self.handed(mi, k, i, span, c)
+                self.handed(mi, k, pid, i, span, c)
+            }
+            AstKind::NewExpression(k) => {
+                let i = k.arguments.iter().position(|a| a.span() == span);
+                if i == Some(0) && matches!(unwrap(&k.callee), Expression::Identifier(g) if ["ResizeObserver", "IntersectionObserver", "MutationObserver", "PerformanceObserver", "ReportingObserver"].iter().any(|n| m.is_global(g, n))) { c.later.push(why(mi, span, "given to an observer")); return Ok(()); }
+                bad("it is handed to code that is not followed")
+            }
+            AstKind::ChainExpression(_) => self.use_later(mi, pid, c),
+            // the same function, with arguments before
+            AstKind::StaticMemberExpression(p) if p.object.span() == span && p.property.name == "bind" => {
+                let o = m.outer(pid);
+                let q = m.nodes.parent_id(o);
+                match m.nodes.kind(q) { AstKind::CallExpression(k) if k.callee.span() == m.nodes.kind(o).span() => self.use_later(mi, q, c), _ => bad("it goes where it is not followed") }
             }
             AstKind::UnaryExpression(u) if matches!(u.operator, UnaryOperator::Typeof | UnaryOperator::LogicalNot) => Ok(()),
             AstKind::BinaryExpression(b) if matches!(b.operator, BinaryOperator::StrictEquality | BinaryOperator::StrictInequality | BinaryOperator::Equality | BinaryOperator::Inequality) && (nullish(&b.left) || nullish(&b.right) || b.operator == BinaryOperator::StrictEquality || b.operator == BinaryOperator::StrictInequality) => Ok(()),
             AstKind::IfStatement(i) if i.test.span() == span => Ok(()),
             AstKind::ConditionalExpression(k) if k.test.span() == span => Ok(()),
+            AstKind::ConditionalExpression(_) => self.use_later(mi, pid, c),
             AstKind::LogicalExpression(l) if l.operator == LogicalOperator::And && l.left.span() == span => Ok(()),
-            AstKind::VariableDeclarator(d) if d.init.as_ref().is_some_and(|i| i.span() == span) => match &d.id { BindingPattern::BindingIdentifier(b) => self.name_later(mi, b.symbol_id.get(), span, c), _ => bad("it is taken apart") },
+            AstKind::LogicalExpression(_) => self.use_later(mi, pid, c),
+            // `el.onclick = cb`
+            AstKind::AssignmentExpression(a) if a.operator == AssignmentOperator::Assign && a.right.span() == span && matches!(m.nodes.parent_kind(m.outer(pid)), AstKind::ExpressionStatement(_)) => match &a.left {
+                AssignmentTarget::StaticMemberExpression(p) if p.property.name.len() > 2 && p.property.name.starts_with("on") && p.property.name.as_str().bytes().all(|b| b.is_ascii_lowercase()) && self.target(mi, &p.object, &c.bind) => { let n = p.property.name[2..].to_string(); c.listen(Some(n)); c.later.push(why(mi, span, "an event handler of the platform's")); Ok(()) }
+                _ => bad("it is kept where it is not followed"),
+            },
+            AstKind::VariableDeclarator(d) if d.init.as_ref().is_some_and(|i| i.span() == span) => match bound(&d.id) { Some(b) => self.name_later(mi, b.symbol_id.get(), span, c), None => bad("it is taken apart") },
             AstKind::JSXExpressionContainer(_) => self.listener_attribute(mi, pid, span, c),
             AstKind::ReturnStatement(_) | AstKind::ArrowFunctionExpression(_) => bad("it is handed back"),
             _ => bad("it goes where it is not followed"),
@@ -423,8 +524,8 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         if let AstKind::JSXAttribute(x) = m.nodes.kind(a) {
             if let (JSXAttributeName::Identifier(n), AstKind::JSXOpeningElement(e)) = (&x.name, m.nodes.parent_kind(a)) {
                 let name = n.name.as_str();
-                if matches!(&e.name, JSXElementName::Identifier(_)) && name.len() > 2 && name.starts_with("on") && name.as_bytes()[2].is_ascii_uppercase() && e.attributes.iter().all(|a| matches!(a, JSXAttributeItem::Attribute(_))) {
-                    c.listens = true;
+                if matches!(&e.name, JSXElementName::Identifier(t) if !t.name.contains('-')) && name.len() > 2 && name.starts_with("on") && name.as_bytes()[2].is_ascii_uppercase() && e.attributes.iter().all(|a| matches!(a, JSXAttributeItem::Attribute(_))) {
+                    c.listen(Some(name[2..].to_ascii_lowercase()));
                     c.later.push(why(mi, span, format!("{name} of an element")));
                     return Ok(());
                 }
@@ -433,33 +534,36 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         Err(why(mi, span, "it goes into JSX that is no element's event"))
     }
     /// A callback handed to a call: what runs it, and when.
-    fn handed(&self, mi: usize, k: &'m CallExpression<'a>, i: usize, span: Span, c: &mut Calls) -> Result<(), Why> {
+    fn handed(&self, mi: usize, k: &'m CallExpression<'a>, id: NodeId, i: usize, span: Span, c: &mut Calls) -> Result<(), Why> {
         let m = self.m(mi);
         let bad = |w: &str| Err(why(mi, span, w));
         match unwrap(&k.callee) {
             Expression::Identifier(f) => {
                 for g in ["setTimeout", "setInterval", "queueMicrotask", "requestAnimationFrame", "requestIdleCallback"] { if m.is_global(f, g) { return if i == 0 { c.later.push(why(mi, span, format!("given to {g}"))); Ok(()) } else { bad("an argument of a timer") }; } }
-                if m.is_global(f, "addEventListener") || m.is_global(f, "removeEventListener") { return self.listening(mi, f.name == "addEventListener", i, span, c); }
+                if m.is_global(f, "addEventListener") || m.is_global(f, "removeEventListener") { return self.listening(mi, k, f.name == "addEventListener", i, span, c); }
             }
             Expression::StaticMemberExpression(p) => {
                 let n = p.property.name.as_str();
                 if let Expression::Identifier(o) = unwrap(&p.object) {
-                    let platform = ["window", "document", "globalThis"].iter().any(|g| m.is_global(o, g));
-                    if platform && matches!(n, "addEventListener" | "removeEventListener") { return self.listening(mi, n == "addEventListener", i, span, c); }
                     if (m.is_global(o, "window") || m.is_global(o, "globalThis")) && matches!(n, "setTimeout" | "setInterval" | "queueMicrotask" | "requestAnimationFrame" | "requestIdleCallback") && i == 0 { c.later.push(why(mi, span, format!("given to {n}"))); return Ok(()); }
                 }
+                if matches!(n, "addEventListener" | "removeEventListener") && self.target(mi, &p.object, &c.bind) { return self.listening(mi, k, n == "addEventListener", i, span, c); }
+                // `el.removeEventListener.bind(el, type, cb)`
+                if n == "bind" && i == 2 { if let Expression::StaticMemberExpression(q) = unwrap(&p.object) { if q.property.name == "removeEventListener" && self.target(mi, &q.object, &c.bind) { return Ok(()); } } }
+                if matches!(n, "watchPosition" | "getCurrentPosition") && i <= 1 && matches!(unwrap(&p.object), Expression::StaticMemberExpression(q) if q.property.name == "geolocation" && matches!(unwrap(&q.object), Expression::Identifier(g) if m.is_global(g, "navigator"))) { c.later.push(why(mi, span, format!("given to {n}"))); return Ok(()); }
                 if matches!(n, "then" | "catch" | "finally") && i <= 1 && self.promise(mi, &p.object) { c.later.push(why(mi, span, "given to a promise")); return Ok(()); }
             }
             _ => {}
         }
         if let Some(n) = self.solid(mi, &k.callee) { if i == 0 && matches!(n.as_str(), "createMemo" | "createEffect" | "createRenderEffect" | "createProjection") { return bad("called in a computation"); } }
+        let _ = id;
         // a function of the code: its parameter
         if let Some(g) = self.called(mi, &k.callee) {
             if k.arguments.iter().take(i).any(|a| a.is_spread()) { return bad("after a spread"); }
             if let Some((params, _, gen, _)) = self.parts(g) {
                 if gen || uses_arguments(self.m(g.module), g.node) { return bad("it is handed to a function that is not followed"); }
                 return match params.items.get(i) {
-                    Some(p) if p.initializer.is_none() => match &p.pattern { BindingPattern::BindingIdentifier(b) => { let mut d = Calls { later: vec![], seen: std::mem::take(&mut c.seen), listens: false, root: c.root }; let r = self.name_later(g.module, b.symbol_id.get(), b.span, &mut d); c.seen = d.seen; r?; if d.listens { return bad("it is handed to a function that listens with it"); } c.later.extend(d.later); Ok(()) } _ => bad("it is taken apart") },
+                    Some(p) => match bound(&p.pattern) { Some(b) => self.inside(mi, k, g, i, span, c, &mut |d| self.name_later(g.module, b.symbol_id.get(), b.span, d)), None => bad("it is taken apart") },
                     None if params.rest.is_none() => Ok(()),
                     _ => bad("it is handed to a function that is not followed"),
                 };
@@ -467,9 +571,28 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         }
         bad("it is handed to code that is not followed")
     }
-    fn listening(&self, mi: usize, adds: bool, i: usize, span: Span, c: &mut Calls) -> Result<(), Why> {
+    /// The call of a function of the code that is given the callback: its parameters hold what the call gives them.
+    #[allow(clippy::too_many_arguments)]
+    fn inside(&self, mi: usize, k: &'m CallExpression<'a>, g: FnAt, i: usize, span: Span, c: &mut Calls, f: &mut dyn FnMut(&mut Calls) -> Result<(), Why>) -> Result<(), Why> {
+        self.steps.set(0);
+        let own = self.bind_call(mi, k, g, &c.bind, 0).unwrap_or_default();
+        let key = (g.module, g.node.index(), i, { let mut v: Vec<_> = own.iter().map(|(k, v)| format!("{:?}{v:?}", k)).collect(); v.sort(); v.join(",") });
+        // the same call of itself, deeper: what it does is being read
+        if c.within.contains(&key) { return Ok(()); }
+        if c.within.len() > 10 { return Err(why(mi, span, "it is handed on too far to be followed")); }
+        let mut bind = c.bind.clone();
+        bind.extend(own);
+        let mut within = c.within.clone();
+        within.push(key);
+        let mut d = Calls { later: vec![], seen: BTreeSet::new(), listens: false, events: Some(BTreeSet::new()), bind, within, root: c.root, any: c.any };
+        f(&mut d)?;
+        c.later.extend(d.later);
+        if d.listens { match d.events { Some(e) => for n in e { c.listen(Some(n)); }, None => c.listen(None) } }
+        Ok(())
+    }
+    fn listening(&self, mi: usize, k: &'m CallExpression<'a>, adds: bool, i: usize, span: Span, c: &mut Calls) -> Result<(), Why> {
         if i != 1 { return Err(why(mi, span, "an argument of a listener")); }
-        if adds { c.listens = true; c.later.push(why(mi, span, "given to addEventListener")); }
+        if adds { let n = k.arguments[0].as_expression().and_then(|e| self.text(mi, e, &c.bind)); c.listen(n); c.later.push(why(mi, span, "given to addEventListener")); }
         Ok(())
     }
     /// A promise of the language's, made there.
@@ -485,7 +608,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         }
     }
     /// A call of the callback: when the function it is written in runs.
-    fn call_later(&self, mi: usize, call: NodeId, span: Span, c: &mut Calls) -> Result<(), Why> {
+    pub fn call_later(&self, mi: usize, call: NodeId, span: Span, c: &mut Calls) -> Result<(), Why> {
         let m = self.m(mi);
         let Some(f) = m.function_of(call) else { return Err(why(mi, span, "called as the module loads")) };
         let inside = FnAt { module: mi, node: f };
@@ -535,36 +658,6 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
             Statement::VariableDeclaration(d) => d.declarations.iter().any(|x| x.init.as_ref().is_some_and(always_waits)),
             _ => false,
         })
-    }
-    /// A function that listens makes no call that could dispatch what it listens to.
-    fn quiet(&self, f: FnAt) -> Result<(), Why> {
-        let (mi, m) = (f.module, self.m(f.module));
-        let span = m.nodes.kind(f.node).span();
-        for n in m.nodes.iter() {
-            let k = n.kind();
-            if !span.contains_inclusive(k.span()) || k.span() == span { continue; }
-            let ok = match k {
-                AstKind::CallExpression(c) => match unwrap(&c.callee) {
-                    Expression::Identifier(i) => ["setTimeout", "setInterval", "clearTimeout", "clearInterval", "queueMicrotask", "requestAnimationFrame", "cancelAnimationFrame", "addEventListener", "removeEventListener"].iter().any(|g| m.is_global(i, g)) || matches!(self.solid(mi, &c.callee).as_deref(), Some("onCleanup" | "useContext" | "createSignal" | "createContext" | "omit" | "merge" | "getOwner" | "createUniqueId")) || self.param_of(f, mi, i),
-                    Expression::StaticMemberExpression(p) => matches!(unwrap(&p.object), Expression::Identifier(o) if ["window", "document", "globalThis"].iter().any(|g| m.is_global(o, g)) && matches!(p.property.name.as_str(), "addEventListener" | "removeEventListener")),
-                    _ => false,
-                },
-                AstKind::NewExpression(_) | AstKind::TaggedTemplateExpression(_) | AstKind::Class(_) | AstKind::YieldExpression(_) | AstKind::ImportExpression(_) => false,
-                AstKind::JSXOpeningElement(e) => matches!(e.name, JSXElementName::Identifier(_)),
-                AstKind::StaticMemberExpression(_) | AstKind::ComputedMemberExpression(_) => !m.is_written(n.id()),
-                _ => true,
-            };
-            if !ok { return Err(why(mi, k.span(), "it listens, and calls what could dispatch what it listens to")); }
-        }
-        Ok(())
-    }
-    fn param_of(&self, f: FnAt, mi: usize, i: &IdentifierReference) -> bool {
-        let Some((params, ..)) = self.parts(f) else { return false };
-        let Some(s) = self.m(mi).symbol(i) else { return false };
-        // (the callback itself, in a function shown to run later)
-        let mut hit = false;
-        for p in &params.items { each_binding(&p.pattern, &mut |b| hit |= b.symbol_id.get() == Some(s)); }
-        hit && self.m(mi).references(s).iter().all(|r| self.m(mi).function_of(*r) != Some(f.node) || !matches!(self.m(mi).nodes.parent_kind(self.m(mi).outer(*r)), AstKind::CallExpression(c) if c.callee.span() == self.m(mi).nodes.kind(self.m(mi).outer(*r)).span()))
     }
 
     // ---- draft ----
@@ -713,7 +806,25 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
 thread_local! { /** The parameters whose type is a primitive, of the fn `draft` is asked about. */ pub static PRIMS: std::cell::RefCell<BTreeSet<usize>> = const { std::cell::RefCell::new(BTreeSet::new()) }; }
 
 struct View { provided: Vec<(usize, SymbolId)>, values: Vec<Span>, views: Vec<Span> }
-struct Calls { later: Vec<Why>, seen: BTreeSet<(usize, usize, u8)>, listens: bool, root: FnAt }
+/// What was found of a callback: where it is called, under which names of its parameters' values.
+pub struct Calls {
+    pub later: Vec<Why>,
+    seen: BTreeSet<(usize, usize, u8)>,
+    /// It is a listener's; of which events (`None`: one whose name is not known).
+    listens: bool,
+    events: Option<BTreeSet<String>>,
+    bind: Bind,
+    within: Vec<(usize, usize, usize, String)>,
+    root: FnAt,
+    /// Anyone's call is asked about, not one callback's: a name the module exports is everyone's.
+    any: bool,
+}
+impl Calls {
+    pub fn anyone() -> Self { Calls { later: vec![], seen: BTreeSet::new(), listens: false, events: Some(BTreeSet::new()), bind: Bind::new(), within: vec![], root: FnAt { module: usize::MAX, node: NodeId::ROOT }, any: true } }
+    fn listen(&mut self, event: Option<String>) { self.listens = true; match event { Some(e) => { if let Some(s) = &mut self.events { s.insert(e); } } None => self.events = None } }
+}
+/// The name a pattern binds, whatever its default.
+fn bound<'b, 'a>(p: &'b BindingPattern<'a>) -> Option<&'b BindingIdentifier<'a>> { match p { BindingPattern::BindingIdentifier(b) => Some(b), BindingPattern::AssignmentPattern(a) => bound(&a.left), _ => None } }
 
 fn nullish(e: &Expression) -> bool { matches!(unwrap(e), Expression::NullLiteral(_)) || matches!(unwrap(e), Expression::Identifier(i) if i.name == "undefined") }
 fn uses_arguments(m: &Module, f: NodeId) -> bool {
