@@ -208,6 +208,21 @@ export function freeNames(e: Expr, bound: Set<string>, out: Set<string>): void {
     case "catch": go(e.e); freeNames(e.alt, e.name ? new Set([...bound, e.name]) : bound, out); return;
   }
 }
+/** C-1: an expression uses a context (`is`) where it stands — not in a closure, which runs later, unless a call has it: its
+ *  callee, or what it is given, which the call may run. */
+function usesNow(e: Expr, is: (name: string) => boolean): boolean {
+  const go = (n: Expr | Stmt, called: boolean): boolean => {
+    if (n.k === "use") return is(n.name);
+    if (n.k === "serverfn" || (n.k === "fn" && !called)) return false;
+    const inner = n.k === "call" || (called && n.k !== "fn");
+    return Object.values(n as object).flatMap(v => Array.isArray(v) ? v : [v]).some(v => {
+      if (!v || typeof v !== "object") return false;
+      if ("k" in v) return go(v as Expr, inner);
+      return "v" in v ? go((v as { v: Expr }).v, inner) : "spread" in v ? go((v as { spread: Expr }).spread, inner) : false;
+    });
+  };
+  return go(e, false);
+}
 /** C-3a: what a value written by an apply block is computed from — the names its expression reads, and the names it
  *  calls. Not what is under `peek(…)` (a reading said to be taken once), nor what a statement-bodied closure reads (it
  *  runs later, as an event of its own). */
@@ -715,7 +730,7 @@ class Checker {
   private actions: { name: string; body: Stmt[]; env: Env; line: number }[] = [];
   private scalarAliases = new Set<string>();
   private handlers: { attrs: { name: string; e: Expr }[]; kids: Markup[]; h: Expr; env: Env; region: Region; line: number; what: string }[] = [];   // AC-3a: element handlers, by where they are
-  private provisions: { key: string; e: Expr; env: Env }[] = [];
+  private provisions: { key: string; e: Expr; env: Env; name: string; line: number; dflt?: boolean }[] = [];
   private importSyms = new Set<Sym>();                                                     // MO-1d: what imports bound; a nested block may not shadow it
   private later: (() => void)[] = [];
   private compSyms = new Map<Region, Sym>();
@@ -748,6 +763,7 @@ class Checker {
     for (const f of this.later) f();
     this.retained();
     this.resolveTree();
+    this.provisionCycles();
     this.loadingOnOutside();
     this.guessWhileLoading();
     this.keptPeekCheck();
@@ -971,7 +987,7 @@ class Checker {
         const contract = (d.type && ROW_WORDS.test(d.type)) || d.exported ? this.contractOf(d.type) : null;   // RG-7e: written rows, or exported (its type is then the contract: no row words, no rows)
         if (d.source) this.err("SOURCE_CONTEXT", "O-4", `context ${d.name}: source … is withdrawn (RG-7c, 2026-10-31): what is provided is read beneath it — provide the writes you allow, as actions (\`context ${d.name}: { current: T; set: (v: T) => void }\`)`);
         this.bind(env, d.name, { kind: "context", name: d.name, region: env.region, line: d.line, ctx: { key: `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${this.seq++}` : ""}`, source: d.source, dflt: !!d.dflt, contract, ...(d.type !== undefined ? { ty: fieldRows(d.type.replace(ROW_WORDS, "")).text } : {}) } });
-        if (d.dflt) this.provisions.push({ key: env.vars.get(d.name)!.ctx!.key, e: d.dflt, env });
+        if (d.dflt) this.provisions.push({ key: env.vars.get(d.name)!.ctx!.key, e: d.dflt, env, name: d.name, line: d.line, dflt: true });
         continue;
       }
       if (env.vars.has(d.name) && env.vars.get(d.name)!.kind !== "import") this.err("DUPLICATE_DECLARATION", "E-7", `${d.name} is declared twice in one block`);
@@ -1267,6 +1283,25 @@ class Checker {
     for (const n of eqs.keys()) visit(n, []);
   }
 
+  /** C-1 (RG-7b): provisions of one region each given from the next, the last from the first — `provide c = use c`. A `use`
+   *  in the region that provides reads that provision, which is being computed. Only where it is used in its place, and
+   *  read without a name between: a name's value is another computation. */
+  private provisionCycles() {
+    const seen = new Set<string>();
+    const from = (c: number[]) => { const i = c.indexOf(Math.min(...c)); return [...c.slice(i), ...c.slice(0, i)]; };
+    const order = (a: number[], b: number[]) => { const i = a.findIndex((x, n) => x !== b[n]); return i < 0 ? a.length - b.length : i >= b.length ? 1 : a[i] - b[i]; };
+    for (const at of this.provCycles.map(from).sort(order)) {
+      const cyc = at.map(i => this.provisions[i]);
+      if (cyc.some(p => p.env.region !== cyc[0].env.region)) continue;
+      if (!cyc.every((p, i) => usesNow(p.e, n => p.env.lookup(n)?.ctx?.key === cyc[(i + 1) % cyc.length].key))) continue;
+      const key = [...at].sort((a, b) => a - b).join(); if (seen.has(key)) continue; seen.add(key);
+      this.line = cyc[0].line;
+      const names = cyc.map(p => p.name);
+      if (cyc.some(p => p.dflt)) { this.err("CYCLE", "C-1", `instantaneous cycle: ${[...names, names[0]].join(" → ")}, a context's default among them, each uses the next`); continue; }
+      this.err("CYCLE", "C-1", `instantaneous cycle: ${cyc.length === 1 ? `what this provides for context ${names[0]} uses ${names[0]}` : `what is provided here for contexts ${names.join(" → ")} → ${names[0]}, each uses the next`}, and \`use ${names[0]}\` in the region that provides it is that provision: read it above (\`above = use ${names[0]}\`) and provide in a block below (\`{if true { provide ${names[0]} = … above …\`)`);
+    }
+  }
+
   private rowsThunk(e: Expr, env: Env): () => Set<string> {
     const busyKeys = this.rowsBusy;
     let cache: Set<string> | null = null; let busy = false;
@@ -1338,7 +1373,7 @@ class Checker {
       case "provide": {
         this.comp("provide", env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env);
         const c = this.ctxOf(d.name, env); if (!c) return;
-        env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env });
+        env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env, name: d.name, line: d.line });
         const contract = c.ctx!.contract; const line = this.line;
         if (contract) this.later.push(() => {                                              // RG-7e: a provision is checked against the declared rows
           const rows = this.rowsThunk(d.e, env)(); const f = this.failsOf(d.e, env, false, new Map());
@@ -3076,9 +3111,12 @@ class Checker {
   // ---- R-f: failures ----
   /** The contexts being read, since the name now resolved: what is kept of a name is never cut short by who asked first. */
   private failsIn = new Set<string>();
+  /** The provisions those are read through, and where the last of them comes back to its first context. */
+  private failsVia: number[] = [];
+  private provCycles: number[][] = [];
   private failsThunk(e: Expr, env: Env): () => Fails {
     let cache: Fails | null = null; let busy = false;
-    return () => { if (cache) return cache; if (busy) return noFails(); busy = true; const from = this.failsIn; this.failsIn = new Set(); const f = this.failsOf(e, env, false, new Map()); this.failsIn = from; busy = false; cache = f; return f; };
+    return () => { if (cache) return cache; if (busy) return noFails(); busy = true; const from = this.failsIn, via = this.failsVia; this.failsIn = new Set(); this.failsVia = []; const f = this.failsOf(e, env, false, new Map()); this.failsIn = from; this.failsVia = via; busy = false; cache = f; return f; };
   }
   /** R-f-2/3/4: the failures an expression's evaluation can produce. `imp`: imperative scope, where closures are not run now.
    *  `bound`: catch bindings in scope and what they caught (for a rethrow). */
@@ -3106,7 +3144,10 @@ class Checker {
       case "use": {                                                                        // RG-7e: the declared rows, else what this module's provisions of it can fail with
         const c = env.lookup(e.name)?.ctx; if (!c) return out;
         if (c.contract) { for (const x of c.contract.fails) out.cls.add(x); return out; }
-        for (const p of this.provisions) if (p.key === c.key && !this.failsIn.has(c.key)) { this.failsIn.add(c.key); addF(out, this.failsOf(p.e, p.env, false, new Map())); this.failsIn.delete(c.key); } return out;   // `provide c = use c`: it adds nothing to what it is made of
+        if (this.failsIn.has(c.key)) { this.provCycles.push(this.failsVia.slice(this.failsVia.findIndex(i => this.provisions[i].key === c.key))); return out; }   // `provide c = use c`: it adds nothing to what it is made of (`provisionCycles` says it)
+        this.failsIn.add(c.key);
+        this.provisions.forEach((p, i) => { if (p.key === c.key) { this.failsVia.push(i); addF(out, this.failsOf(p.e, p.env, false, new Map())); this.failsVia.pop(); } });
+        this.failsIn.delete(c.key); return out;
       }
       case "await": go(e.e); if (e.init) go(e.init); for (const c of this.rejects(e.e, env, new Set())) out.cls.add(c); return out;
       case "throw": go(e.e); out.cls.add(this.classOf(e.e, env, bound)); return out;

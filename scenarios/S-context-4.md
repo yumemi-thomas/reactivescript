@@ -1,9 +1,9 @@
-# S-context-4 — a context given what it has: what it can fail with
+# S-context-4 — a context given what it has
 
-Rules: RG-7b, RG-7e, R-f-5.
+Rules: C-1, RG-7b, RG-7e, R-f-5.
 
-A context's failures are its provisions', and a provision may use the context: it adds nothing to itself. Both checkers
-overflowed the stack (proposals/bugs/40, which says what such a provision reads when it runs: not decided).
+A provision that uses, in its place, the context it provides in the same region is a cycle: `use` in a region that
+provides is that provision. Both checkers overflowed the stack on it (proposals/bugs/40).
 
 ## Program
 
@@ -32,8 +32,68 @@ export default component App() {
 
 ## Accepted variants
 
+A name's value is another computation (what it reads in each runner: proposals/bugs/40):
+
 ```rx
 -- accept
+context c: string = "out"
+component P(props: { children: View }) {
+  o = use c
+  provide c = o
+  <b>{props.children}</b>
+}
+component Leaf() { <i>{use c}</i> }
+export default component App() { <P><Leaf /></P> }
+```
+
+Merged with what is above, in a block below:
+
+```rx
+-- accept
+context cfg: { size: string, dark: boolean } = { size: "m", dark: false }
+component Dark(props: { children: View }) {
+  o = use cfg
+  <b>{if true { provide cfg = { ...o, dark: true }
+    {props.children} }}</b>
+}
+component Leaf() { <i>{(use cfg).size}</i> }
+export default component App() { <Dark><Dark><Leaf /></Dark></Dark> }
+```
+
+Two contexts given from each other, in two regions (what a context can fail with is read through both):
+
+```rx
+-- accept
+context c: string = "c"
+context d: string = "d"
+component P() {
+  provide d = (use c) + "!"
+  <b>{if true { provide c = (use d) + "?"
+    <Leaf /> }}</b>
+}
+component Leaf() { <i>{use c}</i> }
+export default component App() { <P /> }
+```
+
+A closure runs later, and `use` is then what its region has:
+
+```rx
+-- accept
+context c: { n: number, twice: () => number } = { n: 1, twice: () => 2 }
+component P(props: { children: View }) {
+  provide c = { n: 2, twice: () => (use c).n * 2 }
+  <b>{props.children}</b>
+}
+component Leaf() { <i>{(use c).twice()}</i> }
+export default component App() { <P><Leaf /></P> }
+```
+
+## Rejected variants
+
+What is above is not read where it is provided:
+
+```rx
+-- reject: CYCLE
 context c: string = "out"
 component P(props: { children: View }) {
   provide c = (use c) + "!"
@@ -43,40 +103,85 @@ component Leaf() { <i>{use c}</i> }
 export default component App() { <P><Leaf /></P> }
 ```
 
-Two contexts, each given from the other:
+… nor with `latest`:
 
 ```rx
--- accept
-context c: string = "c"
+-- reject: CYCLE
+context c: string = "out"
+component P(props: { children: View }) {
+  provide c = latest(use c)
+  <b>{props.children}</b>
+}
+component Leaf() { <i>{use c}</i> }
+export default component App() { <P><Leaf /></P> }
+```
+
+… nor in one branch, beside a name:
+
+```rx
+-- reject: CYCLE
+context c: string = "out"
+component P(props: { children: View }) {
+  source k := true
+  o = use c
+  provide c = k ? o : use c
+  <b>{props.children}</b>
+}
+component Leaf() { <i>{use c}</i> }
+export default component App() { <P><Leaf /></P> }
+```
+
+… nor in a closure the value's own call runs:
+
+```rx
+-- reject: CYCLE
+context c: string = "out"
+component P(props: { children: View }) {
+  provide c = [1].map(x => (use c) + x).join("")
+  <b>{props.children}</b>
+}
+component Leaf() { <i>{use c}</i> }
+export default component App() { <P><Leaf /></P> }
+```
+
+Two contexts of one region, each given from the other:
+
+```rx
+-- reject: CYCLE
+context c: string = "out"
 context d: string = "d"
 component P(props: { children: View }) {
   provide c = use d
   provide d = use c
   <b>{props.children}</b>
 }
-component Leaf() { <i>{use c}{use d}</i> }
+component Leaf() { <i>{use c}</i> }
 export default component App() { <P><Leaf /></P> }
 ```
 
-## Rejected variants
-
-What the other provision can fail with is still the reader's:
+A block that provides is a region: what is above it is read above it.
 
 ```rx
--- reject: UNHANDLED_FAILURE
-context c: string
+-- reject: CYCLE
+context c: string = "out"
 component P(props: { children: View }) {
-  provide c = use c
-  <b>{props.children}</b>
+  <b>{if true { provide c = (use c) + "!"
+    {props.children} }}</b>
 }
 component Leaf() { <i>{use c}</i> }
-export default component App() {
-  provide c = await fetch("c")
-  <P><Leaf /></P>
-}
+export default component App() { <P><Leaf /></P> }
 ```
 
-… through the other context, and through a name:
+A default of itself:
+
+```rx
+-- reject: CYCLE
+context c: string = use d
+context d: string = use c
+export default component App() { <i>{use c}</i> }
+```
+
+Contexts given from each other: what another provision can fail with is the reader's.
 
 ```rx
 -- reject: UNHANDLED_FAILURE
@@ -84,8 +189,8 @@ context c: string
 context d: string
 component P(props: { children: View }) {
   provide c = use d
-  provide d = use c
-  <b>{props.children}</b>
+  <b>{if true { provide d = use c
+    {props.children} }}</b>
 }
 component Leaf() { <i>{use c}</i> }
 export default component App() {

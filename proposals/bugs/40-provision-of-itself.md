@@ -1,6 +1,6 @@
 # `provide c = use c`
 
-<!-- check branch=ok upstream=failed -->
+<!-- check branch=CYCLE upstream=failed says-branch="read it above (`above = use c`) and provide in a block below" -->
 ```rx
 context c: string = "out"
 component P(props: { children: View }) {
@@ -11,25 +11,98 @@ component Leaf() { <i>{use c}</i> }
 export default component App() { <P><Leaf /></P> }
 ```
 
-**On upstream (e650b85).** Both checkers overflow the stack: the crate's process aborts (a module of a build, the editor), the reference throws. So it is for `(use c) + "!"`, in a branch, at a module's root, and for two contexts given from each other, where `c` is the module's own and writes no rows (RG-7e). A `provide` of an equation that reads it (`o = use c; provide c = o`) is accepted.
+**On upstream (e650b85).** Both checkers overflow the stack: the crate's process aborts (a module of a build, the editor), the reference throws. So it is for `(use c) + "!"`, in a branch, at a module's root, and for two contexts given from each other, where `c` is the module's own, writes no rows (RG-7e) and is read by a view.
 
 **Cause.** What a `use` can fail with is what the context's provisions can; a provision that uses the context asked itself again, without end.
 
-**Fix in this branch.** A context whose failures are being read adds nothing to itself. Its rows were already read so. Every other program is read as before: the set is emptied where a name's failures are worked out, which are kept. **Test.** S-context-4.
+**Fix in this branch.** A context whose failures are being read adds nothing to itself, and what comes back to itself in one region is `CYCLE` (C-1). RG-7b makes `use` the nearest provision *above*, but a `use` in the region that provides reads that provision, in every runner (`provide c = "x"; o = use c` is `x`): so `provide c = use c` is computed from itself. bd09eb3f, for an hour, accepted it, and it froze:
 
-## What it reads when it runs
-
-Not fixed, and nothing is refused for it. RG-7b makes `e` the value *beneath* the region, and `use` the nearest provision *above*; but a `use` in the region that provides reads that provision, in every runner (`provide c = "x"; o = use c` is `x`), and 08 counts a region's own provisions among those available in it. So the text does not say what a provision's own value reads. Only what is above makes sense of it, and no runner has quite that:
-
-| | mount | after what is above changes |
+| `provide c = use c` | mount | after what is above changes |
 | --- | --- | --- |
-| interpreter, `provide c = use c` | `#error` (its own) | throws: the stack |
-| oracle and compiled, `provide c = use c` | what is above | does not end: its own by then |
-| interpreter, `o = use c; provide c = o` | `#error` | throws: the stack |
-| oracle, the same | what is above | what is above |
-| compiled, the same | what is above | does not end |
+| interpreter | `#error` | throws: the stack |
+| oracle and compiled | what is above | does not end |
 
-The last three rows are as on e650b85, which accepts that program. With nothing above and no default, the checkers find the provision itself and accept; compiled, it throws *no provision for c*.
+**What is refused.** Only what overflowed: provisions of one region, each using the next where it stands (under `latest` and `peek`, in one branch, in a closure that a call is given or is), with no name between. A default of itself too.
+
+<!-- check branch=CYCLE upstream=failed -->
+```rx
+context c: string = "out"
+context d: string = "d"
+component P(props: { children: View }) {
+  provide c = use d
+  provide d = use c
+  <b>{props.children}</b>
+}
+component Leaf() { <i>{use c}</i> }
+export default component App() { <P><Leaf /></P> }
+```
+
+<!-- check branch=CYCLE upstream=failed -->
+```rx
+context c: string = "out"
+component P(props: { children: View }) {
+  <b>{if true { provide c = (use c) + "!"
+    {props.children} }}</b>
+}
+component Leaf() { <i>{use c}</i> }
+export default component App() { <P><Leaf /></P> }
+```
+
+**What is not.** Two regions, and a closure that runs later. They overflowed too, and are right in every runner:
+
+<!-- frames branch=pass upstream=fail -->
+```rx
+context c: string = "c"
+context d: string = "d"
+component P(props: { v: string }) {
+  provide d = (use c) + props.v
+  <b>{if true { provide c = (use d) + "?"
+    <Leaf /> }}</b>
+}
+component Leaf() { <i>{use c}</i> }
+export default component App() {
+  source k := "a"
+  <P v={k} />
+}
+```
+
+| instant | action | frame |
+| --- | --- | --- |
+| 0 | mount | `ca?` |
+| 1 | handler `k := "b"` | `cb?` |
+
+<!-- frames branch=pass upstream=fail -->
+```rx
+context c: { n: number, twice: () => number } = { n: 1, twice: () => 2 }
+component P(props: { n: number, children: View }) {
+  provide c = { n: props.n, twice: () => (use c).n * 2 }
+  <b>{props.children}</b>
+}
+component Leaf() { <i>{(use c).twice()}</i> }
+export default component App() {
+  source k := 2
+  <P n={k}><Leaf /></P>
+}
+```
+
+| instant | action | frame |
+| --- | --- | --- |
+| 0 | mount | `4` |
+| 1 | handler `k := 3` | `6` |
+
+**Test.** S-context-4.
+
+## Accepted on upstream, and wrong when it runs
+
+Not refused here, for they are accepted there: the same through a name, whose value is another computation; the same for a context that is exported or writes rows, and for one read only by a handler or an effect.
+
+| `o = use c; provide c = o` | mount | after what is above changes |
+| --- | --- | --- |
+| interpreter | `#error` | throws: the stack |
+| oracle | what is above | what is above |
+| compiled | what is above | does not end |
+
+With nothing above and no default, the checkers find the provision itself and accept; compiled, it throws *no provision for c*.
 
 <!-- frames branch=pass upstream=pass -->
 ```rx
@@ -63,7 +136,18 @@ export default component App() { <P><Leaf /></P> }
 | --- | --- | --- |
 | 0 | mount | `out!` |
 
-**Why not here.** Reading `use c` above only where it is written in the `provide` would give `provide c = use c` and `o = use c; provide c = o` two meanings, and reading every `use` of a region above it changes programs on which all runners agree. Which is upstream's to say.
+<!-- check branch=ok upstream=ok -->
+```rx
+export context c: string = "out"
+component P(props: { children: View }) {
+  provide c = use c
+  <b>{props.children}</b>
+}
+component Leaf() { <i>{use c}</i> }
+export default component App() { <P><Leaf /></P> }
+```
+
+**Why not here.** Reading every `use` of a region above it changes programs on which all runners agree, and refusing these refuses what upstream accepts. Which is upstream's to say.
 
 **Instead.** Read above, provide in a block below. Right in every runner, and live:
 
@@ -86,3 +170,24 @@ export default component App() {
 | --- | --- | --- |
 | 0 | mount | `a` |
 | 1 | handler `k := "b"` | `b` |
+
+<!-- frames branch=pass upstream=pass -->
+```rx
+context cfg: { size: string, dark: boolean } = { size: "m", dark: false }
+component Dark(props: { children: View }) {
+  o = use cfg
+  <b>{if true { provide cfg = { ...o, dark: true }
+    {props.children} }}</b>
+}
+component Leaf() { <i>{(use cfg).size}{(use cfg).dark ? "!" : "?"}</i> }
+export default component App() {
+  source k := "s"
+  provide cfg = { size: k, dark: false }
+  <Dark><Leaf /></Dark>
+}
+```
+
+| instant | action | frame |
+| --- | --- | --- |
+| 0 | mount | `s!` |
+| 1 | handler `k := "l"` | `l!` |

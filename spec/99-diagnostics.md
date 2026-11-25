@@ -87,7 +87,7 @@ named.
 | --------------------------------- | --- | ----- | -------- |
 | `DUPLICATE_DECLARATION`           | S   | E-7   | S-check-1 |
 | `SHADOWED_IMPORT` (new)           | S   | MO-1d; 09 MO-8t (2026-11-25): any second binding — a parameter, a local, a loop's variable — of an import whose methods have rows of their own, reported on the import's line | S-module-1, S-module-42 |
-| `CYCLE`                           | S   | C-1 (CN-3a: union of branches; only an equation's own `pre` breaks it) | S-check-1, S-core-1 |
+| `CYCLE`                           | S   | C-1 (CN-3a: union of branches; only an equation's own `pre` breaks it; a provision of itself, RG-7b) | S-check-1, S-core-1, S-context-4 |
 | `PRE_OF_NON_REACTIVE`             | S   | C-2   | S-check-1 |
 | `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a; `props` of a component that declares none, RG-4b) | S-check-1 |
 | `ARGUMENT_COUNT` (new)            | S   | AC-1f: a call of a declared action with another number of arguments than its parameters | S-check-1 |

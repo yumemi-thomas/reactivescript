@@ -418,7 +418,10 @@ Function application `f(e…)` covers both language functions and FFI imports;
 
 - **C-1 (No instantaneous cycle).** The input relation over equations, taken
   within one instant, must be acyclic. A program with a cycle `x → … → x` not
-  broken by `pre` is rejected.
+  broken by `pre` is rejected. *(2026-11-25)* So are provisions of one region
+  (RG-7b) each using the next where it stands, the last the first (`provide c =
+  use c`), read by a view with no name between: what is above is read above, and
+  provided in a block below.
 - **C-2 (pre).** [ruled 2026-10-23, DV-5: Solid's] `pre x` denotes the value
   `x` had **before its most recent change** — not in the previous frame.
   An unrelated write, equal or not, does not move it; it moves in the same

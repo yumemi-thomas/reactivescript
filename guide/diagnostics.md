@@ -502,7 +502,8 @@ export default component App() {
 ### CYCLE
 
 Equations that read each other in one instant have no value (C-1). Break the loop with `pre`, the value before the
-last change (C-2), or make one side a source written by an event.
+last change (C-2), or make one side a source written by an event. A provision of itself (`provide c = use c`) is one:
+read `c` above (`above = use c`) and provide it in a block below.
 
 ```rx before
 export default component App() {

@@ -709,6 +709,22 @@ pub(crate) fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<S
         ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => {}
     }
 }
+/// C-1: an expression uses a context (`is`) where it stands — not in a closure, which runs later, unless a call has it: its
+/// callee, or what it is given, which the call may run.
+fn uses_now(n: Node, called: bool, is: &dyn Fn(&str) -> bool) -> bool {
+    let inner = match n {
+        Node::E(e) => match &e.k {
+            ExprKind::Use(name) => return is(name),
+            ExprKind::ServerFn { .. } => return false,
+            ExprKind::Fn { .. } if !called => return false,
+            ExprKind::Fn { .. } => false,
+            ExprKind::Call { .. } => true,
+            _ => called,
+        },
+        Node::S(_) => called,
+    };
+    children(n, false).into_iter().any(|c| uses_now(c, inner, is))
+}
 /// C-3a: what a value written by an apply block is computed from — the names its expression reads, and the names it
 /// calls. Not what is under `peek(…)` (a reading said to be taken once), nor what a statement-bodied closure reads (it
 /// runs later, as an event of its own).
@@ -1753,6 +1769,9 @@ struct Provision<'a> {
     key: String,
     e: &'a Expr,
     env: EId,
+    name: &'a str,
+    line: i64,
+    dflt: bool,
 }
 enum Later<'a> {
     Content { ms: &'a [Markup], env: EId, anc: Vec<String> },
@@ -2064,6 +2083,9 @@ pub struct Checker<'a> {
     rows_busy: HashSet<String>,
     /// The contexts whose failures are being read, since the name now resolved.
     fails_in: HashSet<String>,
+    /// The provisions those are read through, and where the last of them comes back to its first context.
+    fails_via: Vec<usize>,
+    prov_cycles: Vec<Vec<usize>>,
     /// O-3: per component, the props it stores where they outlive it — "d:<depth>" (a source), "p:<key>" (a provision above)
     retains: HashMap<RId, IndexMap<String, IndexSet<String>>>,
     regions: Vec<Region>,
@@ -2482,6 +2504,8 @@ impl<'a> Checker<'a> {
             comp_syms: HashMap::new(),
             rows_busy: HashSet::new(),
             fails_in: HashSet::new(),
+            fails_via: vec![],
+            prov_cycles: vec![],
             retains: HashMap::new(),
             regions: vec![],
             syms: vec![],
@@ -2618,6 +2642,7 @@ impl<'a> Checker<'a> {
         }
         self.retained();
         self.resolve_tree();
+        self.provision_cycles();
         self.loading_on_outside();
         self.snapshot_guards();
         self.guess_while_loading();
@@ -2881,7 +2906,7 @@ impl<'a> Checker<'a> {
                     s.ctx = Some(CtxInfo { key: key.clone(), source: *source, dflt: dflt.is_some(), contract, ty: ty.as_ref().map(|t| field_rows(&ROW_WORDS.replace(t, "")).0) });
                     self.bind(env, name, s);
                     if let Some(e) = dflt {
-                        self.provisions.push(Provision { key, e, env });
+                        self.provisions.push(Provision { key, e, env, name, line: *line as i64, dflt: true });
                     }
                     continue;
                 }
@@ -3760,6 +3785,44 @@ impl<'a> Checker<'a> {
         color.insert(n.to_string(), 2);
     }
 
+    /// C-1 (RG-7b): provisions of one region each given from the next, the last from the first — `provide c = use c`. A
+    /// `use` in the region that provides reads that provision, which is being computed. Only where it is used in its
+    /// place, and read without a name between: a name's value is another computation.
+    fn provision_cycles(&mut self) {
+        let mut cycles = std::mem::take(&mut self.prov_cycles);
+        for cyc in &mut cycles {
+            let first = (0..cyc.len()).min_by_key(|&i| cyc[i]).unwrap_or(0);
+            cyc.rotate_left(first);
+        }
+        cycles.sort();
+        let mut seen: HashSet<Vec<usize>> = HashSet::new();
+        for cyc in cycles {
+            let region = self.reg(self.provisions[cyc[0]].env);
+            if cyc.iter().any(|&i| self.reg(self.provisions[i].env) != region) {
+                continue;
+            }
+            let now = cyc.iter().enumerate().all(|(n, &i)| {
+                let (e, env) = (self.provisions[i].e, self.provisions[i].env);
+                let next = &self.provisions[cyc[(n + 1) % cyc.len()]].key;
+                uses_now(Node::E(e), false, &|name| self.lookup(env, name).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|c| &c.key == next))
+            });
+            let mut key = cyc.clone();
+            key.sort();
+            if !now || !seen.insert(key) {
+                continue;
+            }
+            self.line = self.provisions[cyc[0]].line;
+            let names: Vec<&str> = cyc.iter().map(|&i| self.provisions[i].name).collect();
+            let n = names[0];
+            if cyc.iter().any(|&i| self.provisions[i].dflt) {
+                self.err("CYCLE", "C-1", format!("instantaneous cycle: {} → {n}, a context's default among them, each uses the next", names.join(" → ")));
+                continue;
+            }
+            let what = if names.len() == 1 { format!("what this provides for context {n} uses {n}") } else { format!("what is provided here for contexts {} → {n}, each uses the next", names.join(" → ")) };
+            self.err("CYCLE", "C-1", format!("instantaneous cycle: {what}, and `use {n}` in the region that provides it is that provision: read it above (`above = use {n}`) and provide in a block below (`{{if true {{ provide {n} = … above …`)"));
+        }
+    }
+
     // ---- rows (R-13) ----
     fn sym_rows(&mut self, s: SId) -> IndexSet<String> {
         let (e, env) = match &mut self.syms[s].rows {
@@ -3990,7 +4053,7 @@ impl<'a> Checker<'a> {
                 let info = self.syms[c].ctx.clone().unwrap();
                 let region = self.reg(env);
                 self.regions[region].provides.insert(info.key.clone());
-                self.provisions.push(Provision { key: info.key.clone(), e, env });
+                self.provisions.push(Provision { key: info.key.clone(), e, env, name, line: d.line() as i64, dflt: false });
                 if let Some(contract) = info.contract {
                     let line = self.line;
                     self.later.push(Later::Provide { name: name.clone(), e, env, line, contract });
@@ -8391,8 +8454,10 @@ impl<'a> Checker<'a> {
         };
         // what is kept of a name is never cut short by who asked first
         let from = std::mem::take(&mut self.fails_in);
+        let via = std::mem::take(&mut self.fails_via);
         let f = self.fails_of(e, env, false, &HashMap::new());
         self.fails_in = from;
+        self.fails_via = via;
         if let Some(FailsT::Expr { e: e2, cache, busy, .. }) = &mut self.syms[s].fails_t {
             if std::ptr::eq(*e2, e) {
                 *busy = false;
@@ -8502,17 +8567,23 @@ impl<'a> Checker<'a> {
                     out.cls.extend(fails.iter().cloned());
                     return out;
                 }
-                let mut i = 0;
-                while i < self.provisions.len() {
-                    let (pk, pe, penv) = (self.provisions[i].key.clone(), self.provisions[i].e, self.provisions[i].env);
-                    // `provide c = use c`: it adds nothing to what it is made of
-                    if pk == c.key && self.fails_in.insert(pk) {
+                // `provide c = use c`: it adds nothing to what it is made of (`provision_cycles` says it)
+                if !self.fails_in.insert(c.key.clone()) {
+                    if let Some(at) = self.fails_via.iter().position(|&i| self.provisions[i].key == c.key) {
+                        self.prov_cycles.push(self.fails_via[at..].to_vec());
+                    }
+                    return out;
+                }
+                for i in 0..self.provisions.len() {
+                    if self.provisions[i].key == c.key {
+                        let (pe, penv) = (self.provisions[i].e, self.provisions[i].env);
+                        self.fails_via.push(i);
                         let f = self.fails_of(pe, penv, false, &HashMap::new());
-                        self.fails_in.remove(&c.key);
+                        self.fails_via.pop();
                         out.add(f);
                     }
-                    i += 1;
                 }
+                self.fails_in.remove(&c.key);
                 out
             }
             ExprKind::Await { e: inner, init, .. } => {
