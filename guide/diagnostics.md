@@ -538,8 +538,11 @@ export default component App() {
 ### CYCLE
 
 Equations that read each other in one instant have no value (C-1). Break the loop with `pre`, the value before the
-last change (C-2), or make one side a source written by an event. A provision of itself (`provide c = use c`) is one:
-read `c` above (`above = use c`) and provide it in a block below.
+last change (C-2), or make one side a source written by an event.
+
+A provision can be one side of the loop. `use theme` beside `provide theme` is that provision — it is the block's,
+wherever it is written — so `up = use theme` followed by `provide theme = { ...up, fg: props.fg }` reads itself. What
+is above a provision is read in the provision: `provide theme = { ...(use theme), fg: props.fg }` (RG-7b).
 
 ```rx before
 export default component App() {
@@ -1815,6 +1818,39 @@ export default component App() {
 }
 ```
 
+### VIEW_NOT_SHOWN
+
+A component reads a view it was given (its children, or a prop typed `View`) as a value (RG-4c). A view is only shown:
+`{props.children}` in the component's view, at as many places as it likes, each with its own, made there; given on to
+another component, as content or as an argument typed `View`; or asked for, `if props.children { … }`,
+`props.children ?? …`. It is not kept by `peek`, a source or `pre`, carried by a context, read by an effect or a handler,
+answered by a closure, held in a record or a list, given to a fn, or given to a prop whose type is a value's. The
+message says what to write for the one it found. The rule is of a prop declared `View` (children declared `number` are a
+number) and of the names bound to it: a parameter or an inner equation of the same spelling is another name.
+"Was it given" is asked of the argument as it was written, and makes nothing: content was given, a view given on asks
+its giver (through an argument, a spread, a rest or a default alike), a choice follows its branch, and a value answers as
+JavaScript has it (`0`, `""` and `undefined` are nothing under `if`; only `undefined` is under `??`).
+
+```rx before
+component Reveal(props: { children: View }) {
+  source kept := null
+  <button onClick={() => { kept := props.children }}>show</button><i>{kept}</i>
+}
+export default component App() {
+  <Reveal><b>x</b></Reveal>
+}
+```
+
+```rx after
+component Reveal(props: { children: View }) {
+  source open := false
+  <button onClick={() => { open := true }}>show</button>{if open { <i>{props.children}</i> }}
+}
+export default component App() {
+  <Reveal><b>x</b></Reveal>
+}
+```
+
 ### CONTEXT_NOT_FOUND
 
 `use x` reads the nearest provision of context `x` above the region, and some path that renders it has none (RG-7b).
@@ -2387,7 +2423,8 @@ export pure fn twice(n: number): number
 
 The component's declaration types `children` as a function giving a `View` (a render prop): it calls its children for
 each thing it renders, so they are written as a view lambda, its only child (MO-11k). A render prop declared optional
-(`children?: …`) may be left out: `<Select.Listbox />` renders its items by itself.
+(`children?: …`) may be left out: `<Select.Listbox />` renders its items by itself. An `.rx` component that shows its
+children with what it knows, `<props.children on={lit} />` (RG-4c), takes the same.
 
 ```rx before
 -- module: ./list.d.rx
@@ -2415,6 +2452,10 @@ export default component App() {
 
 A `view (…) { … }` is a render prop: the only child of a JS component whose declaration types `children` as a function
 giving a `View`. Anywhere else, write the markup itself, or a `for` over the list (MO-11k).
+
+An `.rx` component takes one where its `children` are typed so and it shows them, `<props.children on={lit} />` (RG-4c). It
+then names `props.children` nowhere else: it is not read, called, stored, passed or spread. Optional ones are shown under
+`if props.children { … }`.
 
 ```rx before
 export default component App() {

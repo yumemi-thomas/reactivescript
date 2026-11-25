@@ -39,6 +39,7 @@ export interface Ctx<T> { readonly __ctx: T }
 export declare function ctx<T>(d?: T): Ctx<T>;
 export declare function use<T>(c: Ctx<T>): T;
 export declare function provide<T>(c: Ctx<T>, v: NoInfer<T>): void;
+export declare function provideOr<T>(c: Ctx<T>, v: NoInfer<T> | undefined): void;
 export declare function effect(f: () => void | (() => void)): void;
 export declare function draft<S, T = S>(seed: S, f: (d: T) => void): T;   // ST-3: the draft has the equation's type where one is written, else its seed's
 export declare function len(x: unknown): number;
@@ -54,3 +55,4 @@ export declare function sum(xs: readonly number[]): number;
 export declare function fail(msg: string): never;
 export declare function fetch(key: string): Promise<any>;
 export declare function log(...a: unknown[]): void;
+export declare function view<T>(v: T): Extract<T, (s: any) => any>;   // RG-4c: `<props.children … />` where it is optional, or plain content is taken as well

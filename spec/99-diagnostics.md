@@ -87,12 +87,12 @@ named.
 | --------------------------------- | --- | ----- | -------- |
 | `DUPLICATE_DECLARATION`           | S   | E-7   | S-check-1 |
 | `SHADOWED_IMPORT` (new)           | S   | MO-1d; 09 MO-8t (2026-11-25): any second binding — a parameter, a local, a loop's variable — of an import whose methods have rows of their own, reported on the import's line | S-module-1, S-module-42 |
-| `CYCLE`                           | S   | C-1 (CN-3a: union of branches; only an equation's own `pre` breaks it; a provision of itself, RG-7b) | S-check-1, S-core-1, S-context-4 |
+| `CYCLE`                           | S   | C-1 (CN-3a: union of branches; only an equation's own `pre` breaks it; a provision of itself, RG-7b) | S-check-1, S-core-1, S-context-9, S-context-11 |
 | `PRE_OF_NON_REACTIVE`             | S   | C-2   | S-check-1 |
 | `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a; `props` of a component that declares none, RG-4b) | S-check-1 |
 | `ARGUMENT_COUNT` (new)            | S   | AC-1f: a call of a declared action with another number of arguments than its parameters | S-check-1 |
 | `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a; MO-11a, MO-11c, MO-11f for JS components and factories; MO-11q, `<wardic.div>` where wardic is a name of the module (a member component is applied through a name with a capital) is `UNKNOWN_COMPONENT`; MO-11s, a component given to JS that says nothing of where it renders it, is checked under a root of its own; MO-11c (2026-11-24), a component in a record or an array given to a JS component's prop whose type holds one is a value there, and so is one in a record or an array bound to a name where every mention of the name is such a prop (2026-11-25: read elsewhere, exported or given to none, the binding is `COMPONENT_AS_VALUE`) | S-check-1, S-region-5, S-module-5, S-module-6, S-module-24, S-module-27, S-module-39 |
-| `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k (render props) | S-module-14 |
+| `VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED` | S | MO-11k (render props), RG-4c (a view an `.rx` component shows) | S-module-14, S-view-3 to S-view-7 |
 | `NESTED_NOT_RENDERED` (new, 2026-11-23) | S | 09 MO-11i, MO-14f: a component a record nests others in (a factory's tree, a host declaration's view) renders none of its children — no `{props.children}`, no component the host renders through, itself or through the `.rx` components it applies (2026-11-25) | S-module-38, S-module-40 |
 | `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
 | `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |
@@ -118,6 +118,7 @@ named.
 | `INVALID_REFRESH_TARGET`, `INVALID_AFFECTS_TARGET` | S | AC-4, AC-5 | S-check-1 |
 | `REGION_ESCAPE`                   | S   | O-3, O-3a, O-3b | S-check-1 (seven shapes), S-module-1 |
 | `UNSTABLE_LIST_IDENTITY`          | S   | ST-4b (narrow form: `map` into fresh records, unkeyed) | S-store-3 |
+| `VIEW_NOT_SHOWN` (proposed, 2026-11-25) | S | RG-4c: a view a component is given (its children, a prop typed `View`) read as a value — kept by `peek` or a source, carried by a context, read by an effect or a handler, answered by a closure, held in a record or a list, given to a fn, kept by `pre`, given on to a prop whose declared type is a value's. A view is a prop declared `View` where the type is read, under the names bound to it. It is shown, given on, named by a projection, or asked for (proposals/26). Also a context that holds a view (`context item: View`) read as a value, exported, or given what is no view of its type (proposals/27) | S-context-4, S-context-5, S-context-6, S-context-7, S-context-8 |
 | `CONTEXT_NOT_FOUND`               | S   | RG-7b (over the static application tree; a context with a default is always found); MO-12b for a JS hook; MO-11u, for a component given to a fn declared `renders(H)`: on the line of the call, where no provision is above some application of H in the program | S-check-1, S-region-7, S-ai-feed, S-context-1, S-module-7, S-module-22 |
 | `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written); R-f-9 for `fails(…)` | S-check-1, S-fail-1 |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3 (directly or through equations; not closures the apply creates) | S-check-2 |

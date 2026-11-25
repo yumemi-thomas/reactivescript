@@ -64,6 +64,17 @@ const type = run({ file: "cart.rx", text: t => t.replace("qtyOf(p.id)", 'qtyOf("
 const typeLine = original["cart.rx"].slice(0, original["cart.rx"].indexOf("qtyOf(p.id)")).split("\n").length;
 check("a type error fails, on the .rx line", type.status !== 0 && new RegExp(`cart\\.rx\\(${typeLine},\\d+\\): error TS2345`).test(type.out), type);
 
+// RG-4c: the view a context holds, shown without an argument its type asks for, is reported where it is shown, at its tag
+// (the error sat on a name of the projection that no place of the .rx stood for, and was not said); a view the component
+// may not have been given is provided as it is; one of another type is not
+const carried = body => `context item: (o: { v: string }) => View\ncomponent Part() {\n  <li>${body}</li>\n}\n`;
+const lacks = run({ file: "carried.rx", text: () => carried("<use.item />") + "export component Root(p: { item: (o: { v: string }) => View; children?: View }) {\n  provide item = p.item\n  <ul>{p.children}<Part /></ul>\n}\n" });
+check("<use.item /> without the argument its context's type asks for fails, at its tag", lacks.status !== 0 && /carried\.rx\(3,8\): error TS2322/.test(lacks.out), lacks);
+const optional = run({ file: "carried.rx", text: () => carried('<use.item v="a" />') + "export component Root(p: { item?: (o: { v: string }) => View; children?: View }) {\n  provide item = p.item\n  <ul>{p.children}<Part /></ul>\n}\n" });
+check("a view the component may not have been given is provided to a context as it is", optional.status === 0 && optional.out.trim() === "", optional);
+const other = run({ file: "carried.rx", text: () => carried('<use.item v="a" />') + "export component Root(p: { item?: (o: { v: number }) => View; children?: View }) {\n  provide item = p.item\n  <ul>{p.children}<Part /></ul>\n}\n" });
+check("...and one of another type is refused, on its line", other.status !== 0 && /carried\.rx\(6,\d+\): error TS2345/.test(other.out), other);
+
 const parse = run({ file: "catalog.rx", text: t => t + "\nexport fn broken( {\n" });
 check("a parse error fails (no projection, so TypeScript alone would pass it)", parse.status !== 0 && /catalog\.rx:\d+:\d+ - error PARSE/.test(parse.out), parse);
 

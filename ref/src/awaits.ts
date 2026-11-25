@@ -14,7 +14,7 @@ export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
   const out: Hoisted[] = [];
   const walk = (x: Expr, tail: boolean, g: Guard[]): void => {
     switch (x.k) {
-      case "await": if (!tail) out.push({ node: x, guards: g }); walk(x.e, false, g); if (x.init) walk(x.init, false, g); return;
+      case "await": walk(x.e, false, g); if (x.init) walk(x.init, false, g); if (!tail) out.push({ node: x, guards: g }); return;   // one inside another's question first: the outer one reads it
       case "if": walk(x.c, false, g); walk(x.t, tail, [...g, { e: x.c }]); walk(x.f, tail, [...g, { e: x.c, neg: true }]); return;
       case "bin":
         walk(x.l, false, g);
@@ -38,16 +38,17 @@ export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
 
 /** 07 §3: the expressions a region's own view reads — readers, attributes (not handlers), `if` conditions, `for` collections,
  *  `loading on(…)` and fallbacks, `portal to(…)` — but not its sub-regions', which are hoisted where they are set up. Their
- *  awaits are hoisted with `nonTailAwaits(e, false)`. An `errored` fallback binds its error, so it stays out. */
-export function viewReaders(ms: Markup[]): Expr[] {
+ *  awaits are hoisted with `nonTailAwaits(e, false)`. An `errored` fallback binds its error, so it stays out.
+ *  `own`: a component whose content is a view (RG-4c), a block of its own. */
+export function viewReaders(ms: Markup[], own: (tag: string) => boolean): Expr[] {
   return ms.flatMap((m): Expr[] => {
     switch (m.k) {
       case "read": return [m.e];
-      case "el": return [...m.attrs.filter(a => !(/^on[A-Z:]/.test(a.name) || a.name === "ref")).map(a => a.e), ...viewReaders(m.children)];
+      case "el": return [...m.attrs.filter(a => !(/^on[A-Z:]/.test(a.name) || a.name === "ref")).map(a => a.e), ...(own(m.tag) ? [] : viewReaders(m.children, own))];
       case "mif": return [m.c];
       case "mfor": return [m.xs];
       case "mview": return [];
-      case "loading": return [...(m.on ? [m.on] : []), ...viewReaders(m.fallback)];
+      case "loading": return [...(m.on ? [m.on] : []), ...viewReaders(m.fallback, own)];
       case "portal": return m.to ? [m.to] : [];
       default: return [];
     }

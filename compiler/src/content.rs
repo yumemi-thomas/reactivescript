@@ -13,13 +13,15 @@ pub struct Shape {
     pub a: bool,
     pub form: bool,
     pub children_at: Vec<Vec<String>>,
+    /// RG-4c: a view of another name, where it shows it
+    pub views_at: std::collections::BTreeMap<String, Vec<Vec<String>>>,
 }
 
 fn words(s: &'static str) -> HashSet<&'static str> {
     s.split(' ').collect()
 }
 pub static P_CLOSERS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    words("address article aside blockquote center details dialog dir div dl fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr listing main menu nav ol p plaintext pre search section table ul xmp")
+    words("address article aside blockquote center details dialog dir div dl fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr li dd dt listing main menu nav ol p plaintext pre search section summary table ul xmp")
 });
 pub static P_SCOPE: LazyLock<HashSet<&str>> = LazyLock::new(|| words("applet button caption html marquee object table td template th"));
 static SPECIAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
@@ -44,6 +46,11 @@ fn heading(t: &str) -> bool {
 /// What the parser does with `t` (a tag, or `#text`) as the next child where `anc` are open (innermost last); `None`: it is
 /// placed there. An empty `anc` is an unknown place (a view's root): nothing is said.
 pub fn misnested(anc: &[String], t: &str) -> Option<String> {
+    // a portal's place is the end of the document: what is open above where it is written is not above it
+    let anc = match anc.iter().rposition(|x| x == "body") {
+        Some(b) if b > 0 => &anc[b..],
+        _ => anc,
+    };
     let p = anc.last()?.as_str();
     if p == "template" {
         return None;
@@ -126,6 +133,10 @@ pub fn misnested(anc: &[String], t: &str) -> Option<String> {
 }
 /// A component's `closes_p`, `a`, `form` against the places above its application.
 pub fn misnested_inside(anc: &[String], s: &Shape) -> Option<String> {
+    let anc = match anc.iter().rposition(|x| x == "body") {
+        Some(b) if b > 0 => &anc[b..],
+        _ => anc,
+    };
     if s.closes_p {
         for a in anc.iter().rev() {
             if a == "p" {
@@ -143,4 +154,10 @@ pub fn misnested_inside(anc: &[String], s: &Shape) -> Option<String> {
         return Some("contains a <form>, and forms do not nest".into());
     }
     None
+}
+
+/// RG-4c: `use:<key>`, the place a context that holds a view is shown, in a chain or as the name of one.
+pub const USE: &str = "use:";
+pub fn carried_by(chain: &[String]) -> Option<&str> {
+    chain.last().and_then(|t| t.strip_prefix(USE))
 }

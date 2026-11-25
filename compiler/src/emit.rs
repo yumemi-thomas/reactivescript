@@ -5,10 +5,10 @@
 //! module is a tree (`js.rs`), never text (CP-3).
 
 use crate::ast::{instantiates, kept_parts, Decl, Expr, ExprKind, Field, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind, TplPart};
-use crate::awaits::{children_read_context, inner_catches, is_handler, non_tail_awaits, view_readers};
+use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
-use crate::modules::{defaulted, given, type_only, view_fields, Given, ModuleSet};
+use crate::modules::{defaulted, given, shown, shown_in, type_only, types_of, views_of, Given, ModuleSet, Types};
 use crate::names::{in_prelude, language, scalar, Lang};
 use crate::parse::{JsDecl, Part, Shape as FShape};
 use crate::signature::ExportSig;
@@ -73,6 +73,12 @@ struct Bind {
     js: String,
     /// RG-4b: a component's props, or a projection of them that holds a view
     given: Option<Given>,
+    /// RG-4c: a context that holds a view
+    view_ctx: bool,
+    /// RG-4c: a component's props: the views it shows (`<props.f … />`), and whether it takes plain content as well
+    shows: Vec<(String, bool)>,
+    /// RG-4c: a component whose children are a view or plain content
+    plain: bool,
     w: Option<String>,
     f: Option<FnRef>,
     prev: Option<String>,
@@ -92,8 +98,12 @@ struct Bind {
     js_fn: bool,
     draft_args: Vec<usize>,
 }
+/// RG-4c: a component whose children are a view or plain content.
+fn takes_plain(d: &Decl, types: &Types) -> bool {
+    matches!(d, Decl::Component { props, props_type, decls, view, .. } if shown(props, props_type.as_deref(), decls, view, types).get("children").is_some_and(|v| v.mixed))
+}
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), given: None, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
+    Bind { kind, js: js.into(), given: None, view_ctx: false, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -194,6 +204,54 @@ fn deps(e: &Value, self_name: &str, out: &mut IndexSet<String>) {
             for (key, v) in o {
                 if key != "k" {
                     deps(v, self_name, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+/// RG-7b: a `use` of the context `name` written in what its provision is given — not in a block there that provides it
+/// itself (ref/src/ast.ts `ownUses`).
+fn own_use(e: &Value, name: &str) -> bool {
+    match e {
+        Value::Array(xs) => xs.iter().any(|x| own_use(x, name)),
+        Value::Object(o) => {
+            let k = o.get("k").and_then(Value::as_str);
+            if k == Some("use") {
+                return o.get("name").and_then(Value::as_str) == Some(name);
+            }
+            if let Some(Value::Array(ds)) = o.get("decls") {
+                if ds.iter().any(|d| d.get("k").and_then(Value::as_str) == Some("provide") && d.get("name").and_then(Value::as_str) == Some(name)) {
+                    return false;
+                }
+            }
+            o.iter().any(|(key, v)| key != "k" && own_use(v, name))
+        }
+        _ => false,
+    }
+}
+/// C-1: the contexts an expression uses where it stands — not in a closure, which runs later, unless a call has it
+/// (ref/src/ast.ts `usesNow`). `skip`: a context whose uses are not counted (a provision's own).
+pub(crate) fn uses_now(e: &Value, called: bool, skip: Option<&str>, out: &mut IndexSet<String>) {
+    match e {
+        Value::Array(xs) => xs.iter().for_each(|x| uses_now(x, called, skip, out)),
+        Value::Object(o) => {
+            let k = o.get("k").and_then(Value::as_str);
+            if k == Some("use") {
+                if let Some(n) = o.get("name").and_then(Value::as_str) {
+                    if skip != Some(n) {
+                        out.insert(n.to_string());
+                    }
+                }
+                return;
+            }
+            if k == Some("serverfn") || (k == Some("fn") && !called) {
+                return;
+            }
+            let inner = k == Some("call") || (called && k != Some("fn"));
+            for (key, v) in o {
+                if key != "k" {
+                    uses_now(v, inner, skip, out);
                 }
             }
         }
@@ -326,6 +384,10 @@ struct Gen<'p> {
     /// module-level code: hoisted server functions and the module's error classes
     top: Vec<S>,
     top_fns: HashSet<String>,
+    /// RG-7b: the contexts whose `use` is, where emission stands, written in their own provision (the name of what is
+    /// above it), or in a block that provides them (None: that block's provision, found as any).
+    above: Vec<(String, Option<String>)>,
+    up_seq: usize,
     /// a module-level server fn → its hoisted function
     server_names: IndexMap<String, String>,
     mod_decls: &'p [Decl],
@@ -333,8 +395,6 @@ struct Gen<'p> {
     views: crate::modules::ViewProps,
     /// what the module imports from JavaScript for its types alone
     type_only: HashSet<String>,
-    /// bug 36: whether children in the module read a context, once it was asked
-    kids_read: Option<bool>,
     /// an equation's hoisted awaits were just written, for its accessor to claim (`reg`)
     claims: bool,
     sf_seq: usize,
@@ -345,6 +405,10 @@ struct Gen<'p> {
     hoist_seq: usize,
     frames: Vec<Frame>,
     style_ids: u32,
+    /// RG-4c: `props.f`, in a component that shows that view
+    shown: Vec<String>,
+    /// by module
+    types: std::cell::RefCell<HashMap<String, std::rc::Rc<Types>>>,
 }
 
 const AWAIT_NOT_LOWERED: &str = "`await` outside an equation's result position is not lowered yet";
@@ -381,6 +445,8 @@ impl<'p> Gen<'p> {
             css: vec![],
             top: vec![],
             top_fns: HashSet::new(),
+            above: vec![],
+            up_seq: 0,
             server_names: IndexMap::new(),
             mod_decls: &[],
             views: Default::default(),
@@ -388,12 +454,13 @@ impl<'p> Gen<'p> {
             type_only: HashSet::new(),
             sf_seq: 0,
             style_hash: None,
-            kids_read: None,
             hoisted: HashMap::new(),
             hoisted_catch: HashMap::new(),
             hoist_seq: 0,
             frames: vec![],
             style_ids: 0,
+            shown: vec![],
+            types: Default::default(),
             raw: HashSet::new(),
             kept: HashSet::new(),
             made: vec![],
@@ -450,7 +517,6 @@ impl<'p> Gen<'p> {
         let decls = &p.decls[..];
         self.type_only = type_only(p, self.set);
         self.file = path.to_string();
-        self.kids_read = None;
         self.top = vec![];
         self.top_fns = HashSet::new();
         self.mod_decls = decls;
@@ -603,6 +669,19 @@ impl<'p> Gen<'p> {
 
     // ---- blocks: a region's declarations, then its view
     fn block(&mut self, decls: &[Decl], view: &[Markup], env: Env, exports_tail: Option<E>, style_root: bool) -> R<Vec<S>> {
+        // RG-7b: a `use` in a block that provides its context is that block's provision, not what an enclosing provision's
+        // expression reads above
+        let n = self.above.len();
+        for d in decls {
+            if let Decl::Provide { name, .. } = d {
+                self.above.push((name.clone(), None));
+            }
+        }
+        let out = self.block_styled(decls, view, env, exports_tail, style_root);
+        self.above.truncate(n);
+        out
+    }
+    fn block_styled(&mut self, decls: &[Decl], view: &[Markup], env: Env, exports_tail: Option<E>, style_root: bool) -> R<Vec<S>> {
         let prev = self.style_hash.clone();
         if style_root {
             // a component's view (or the program's) has its own scope; a branch keeps its view's
@@ -648,6 +727,7 @@ impl<'p> Gen<'p> {
                     MarkupKind::Text(_) | MarkupKind::Style(_) | MarkupKind::Portal { .. } => {}
                     MarkupKind::Read(_) => out.push(Item::Container(vec![])),
                     MarkupKind::El { tag, attrs, children } if tag.is_empty() => out.extend(tree(g, children)),
+                    MarkupKind::El { tag, .. } if g.shown.contains(tag) => out.push(Item::Container(vec![])),   // RG-4c: the caller's
                     MarkupKind::El { tag, attrs, children } => {
                         g.style_ids += 1;
                         let kind = if tag.as_bytes()[0].is_ascii_lowercase() { ElementKind::Native(tag.clone()) } else { ElementKind::Component };
@@ -728,7 +808,7 @@ impl<'p> Gen<'p> {
             }
             for n in names {
                 let is_type = self.set.programs.get(r).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name, .. } if *name == n.name)))
-                    || self.set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).is_some_and(|x| matches!(x, ExportSig::Type));
+                    || self.set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).is_some_and(|x| matches!(x, ExportSig::Type(_)));
                 if is_type {
                     continue; // a type binds nothing
                 }
@@ -787,9 +867,19 @@ impl<'p> Gen<'p> {
                     b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                     self.set(env, name, b);
                 }
-                Decl::Component { name, .. } => self.set(env, name, bind(Kind::Comp, cm(name))),
+                Decl::Component { name, .. } => {
+                    let mut b = bind(Kind::Comp, cm(name));
+                    b.plain = takes_plain(d, &self.types(&self.file));
+                    self.set(env, name, b)
+                }
                 Decl::Action { name, .. } => self.set(env, name, bind(Kind::Act, mg(name))),
-                Decl::Server { name, .. } | Decl::Error { name, .. } | Decl::Context { name, .. } => self.set(env, name, val(mg(name))),
+                Decl::Server { name, .. } | Decl::Error { name, .. } => self.set(env, name, val(mg(name))),
+                Decl::Context { name, ty, .. } => {
+                    // RG-4c: a context that holds a view
+                    let mut b = val(mg(name));
+                    b.view_ctx = crate::modules::view_ctx(ty.as_deref(), &self.types(&self.file)).is_some();
+                    self.set(env, name, b)
+                }
                 Decl::Source { name, .. } => {
                     let mut b = bind(Kind::Src, mg(name));
                     b.w = Some(format!("w${name}"));
@@ -1006,10 +1096,22 @@ impl<'p> Gen<'p> {
                 _ => unreachable!(),
             };
             let mut ds = IndexSet::new();
-            deps(&e.to_json(), self_name, &mut ds);
+            let j = e.to_json();
+            deps(&j, self_name, &mut ds);
             for n in &ds {
                 if local.contains(n.as_str()) && n != self_name {
                     if let Some(t) = vals.iter().find(|x| !matches!(x, Decl::Provide { .. }) && x.name() == Some(n.as_str())) {
+                        visit(t, vals, local, key, done, busy, order);
+                    }
+                }
+            }
+            // RG-7b: a block's provision is the block's, wherever it is written in it: what uses it here is made after it
+            let own = if let Decl::Provide { name, .. } = d { Some(name.as_str()) } else { None };
+            let mut us = IndexSet::new();
+            uses_now(&j, false, own, &mut us);
+            for c in &us {
+                for t in vals.iter() {
+                    if matches!(t, Decl::Provide { name, .. } if name == c) {
                         visit(t, vals, local, key, done, busy, order);
                     }
                 }
@@ -1048,7 +1150,7 @@ impl<'p> Gen<'p> {
         match exports_tail {
             Some(t) => out.push(S::Return(Some(t))),
             None => {
-                let mut h = self.hoist_all(&view_readers(view), env)?;
+                let mut h = self.hoist_all(&view_readers(view, &|t| t.starts_with(|c: char| c.is_ascii_uppercase())), env)?;
                 out.append(&mut h);
                 let m = self.markup(view, env)?;
                 out.push(S::Return(Some(m)));
@@ -1075,6 +1177,7 @@ impl<'p> Gen<'p> {
                         if sig.made {
                             b.shape = Some(FShape::Comp);
                         }
+                        b.plain = sig.props.get("children").and_then(|p| p.view.as_ref()).is_some_and(|v| v.mixed);
                         b
                     }
                     ExportSig::Action => bind(Kind::Act, js),
@@ -1090,7 +1193,11 @@ impl<'p> Gen<'p> {
                 b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                 b
             }
-            Decl::Component { .. } => bind(Kind::Comp, cm(alias)),
+            Decl::Component { .. } => {
+                let mut b = bind(Kind::Comp, cm(alias));
+                b.plain = takes_plain(d, &self.types(path));
+                b
+            }
             Decl::Action { .. } => bind(Kind::Act, js),
             Decl::Eq { .. } if made_component(&self.set.programs[path], name, &self.set.declarations) => {
                 // MO-11j: a JS component, applied as JSX's <X />
@@ -1120,14 +1227,29 @@ impl<'p> Gen<'p> {
         if let Decl::Provide { name, e, .. } = d {
             let b = if let ExprKind::Id(n) = &e.k { self.lookup(env, n) } else { None };
             let src = b.as_ref().filter(|b| b.kind == Kind::Src);
-            let mut out = if src.is_some() { vec![] } else { self.hoist_all(&[e], env)? };
-            let entry = match src {
-                Some(b) => obj(vec![("get", id(b.js.clone())), ("w", id(b.w.clone().unwrap()))]),
-                None => {
-                    let get = if self.given(e, env).is_some_and(|g| g.held()) { self.held(e, env)? } else { rtc("memo", vec![E::Null, thunk(self.expr(e, env, &reactive())?)]) };
-                    obj(vec![("get", get)])
-                }
-            };
+            // RG-7b: a `use` of its own context, written in what it is given, is what is above it: read before it is provided
+            let n = self.above.len();
+            let mut out = vec![];
+            if own_use(&e.to_json(), name) {
+                let v = format!("up${}", self.up_seq);
+                self.up_seq += 1;
+                out.push(konst(v.clone(), rtc("above", vec![self.reference(name, env, &reactive())?, id("__o")])));
+                self.above.push((name.clone(), Some(v)));
+            }
+            let made = (|| -> R<(Vec<S>, E)> {
+                let hoisted = if src.is_some() { vec![] } else { self.hoist_all(&[e], env)? };
+                let entry = match src {
+                    Some(b) => obj(vec![("get", id(b.js.clone())), ("w", id(b.w.clone().unwrap()))]),
+                    None => {
+                        let get = if self.given(e, env).is_some_and(|g| g.held()) { self.held(e, env)? } else { rtc("memo", vec![E::Null, thunk(self.expr(e, env, &reactive())?)]) };
+                        obj(vec![("get", get)])
+                    }
+                };
+                Ok((hoisted, entry))
+            })();
+            self.above.truncate(n);
+            let (mut hoisted, entry) = made?;
+            out.append(&mut hoisted);
             let c = self.reference(name, env, &reactive())?;
             out.push(sexpr(rtc("provide", vec![c, entry])));
             return Ok(out);
@@ -1370,6 +1492,41 @@ impl<'p> Gen<'p> {
             return Ok(thunk(rtc("preOr", vec![v, thunk(d)])));
         }
         Ok(thunk(self.expr(e, env, &reactive())?))
+    }
+    /// RG-4c: whether a view was given, asked without making it. The question is the argument as it was written, read
+    /// with each view in it standing for itself (`__rt.ask`: content, a view given on, a choice or a default of them);
+    /// a value in it answers as JavaScript has it. `some`: whether it is not `undefined` (`??`, `!= undefined`). Of a
+    /// prop that is not declared `View`, the question is its value's, and nothing is emitted here.
+    fn asked(&mut self, e: &Expr, env: Env, not_lit: Option<E>) -> R<Option<E>> {
+        if !self.given(e, env).is_some_and(|g| g.held() && g.view()) {
+            return Ok(None);
+        }
+        let v = rtc("ask", vec![thunk(self.expr(e, env, &reactive())?)]);
+        Ok(Some(match not_lit { Some(x) => bin("!==", v, x), None => v }))
+    }
+    /// … and a condition that asks it: the view itself or a choice of views (`bare`: an `if`, a `?:`, the left of
+    /// `&&`), `!v`, `v == undefined`, `a && b`, `a || b`.
+    fn asks(&mut self, c: &Expr, env: Env, bare: bool) -> R<Option<E>> {
+        if bare {
+            if let Some(a) = self.asked(c, env, None)? {
+                return Ok(Some(a));
+            }
+        }
+        Ok(match &c.k {
+            ExprKind::Un { op, e } if op == "!" => self.asks(e, env, true)?.map(not),
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "==" | "!=") && matches!(r.k, ExprKind::Lit(Lit::Undefined | Lit::Null)) => self.asked(l, env, Some(if matches!(r.k, ExprKind::Lit(Lit::Null)) { E::Null } else { undef() }))?.map(|a| if op == "==" { not(a) } else { a }),
+            ExprKind::Bin { op, l, r } if bare && matches!(op.as_str(), "&&" | "||") => {
+                let (a, b) = (self.asks(l, env, true)?, self.asks(r, env, true)?);
+                if a.is_none() && b.is_none() {
+                    None
+                } else {
+                    let a = match a { Some(a) => a, None => self.expr(l, env, &reactive())? };
+                    let b = match b { Some(b) => b, None => self.expr(r, env, &reactive())? };
+                    Some(bin(static_op(op), a, b))
+                }
+            }
+            _ => None,
+        })
     }
     /// SV-7b: a call into `client` JS — awaited, a client question: Solid's `ssrSource: "client"`, never asked on the server.
     fn client_call(&self, e: &Expr, env: Env) -> bool {
@@ -1632,17 +1789,21 @@ impl<'p> Gen<'p> {
         }
         Ok(call(id(b.js), out))
     }
+    fn types(&self, path: &str) -> std::rc::Rc<Types> {
+        self.types.borrow_mut().entry(path.to_string()).or_insert_with(|| std::rc::Rc::new(types_of(self.set, path))).clone()
+    }
     fn component(&mut self, d: &Decl, env: Env) -> R<S> {
         let Decl::Component { name, props, decls, view, props_type, .. } = d else { unreachable!() };
         let inner = self.new_env(Some(env));
         let mut pb = val(mg(props));
-        let mut views = HashSet::new();
-        if let Some(t) = props_type {
-            view_fields(t, self.mod_decls, 0, &mut views);
-        }
-        pb.given = Some(Given::Props { less: vec![], views: views.into() });
+        let types = self.types(&self.file);
+        pb.given = Some(Given::Props { less: vec![], views: views_of(props_type.as_deref(), &types, self.mod_decls).into() });
+        pb.shows = shown(props, props_type.as_deref(), decls, view, &types).into_iter().map(|(f, v)| (f, v.mixed)).collect();
+        let was = std::mem::replace(&mut self.shown, pb.shows.iter().map(|f| format!("{props}.{}", f.0)).collect());
         self.set(inner, props, pb);
-        let body = self.owned(decls, view, inner, true)?;
+        let body = self.owned(decls, view, inner, true);
+        self.shown = was;
+        let body = body?;
         Ok(S::Func(Func { name: Some(cm(name)), params: vec![P::Id(mg(props))], directives: vec![], body, is_async: false, generator: false }))
     }
 
@@ -1764,7 +1925,10 @@ impl<'p> Gen<'p> {
             ExprKind::Pending(x) => rtc("isPending", vec![thunk(self.expr(x, env, &sub)?)]),
             ExprKind::If { c, t, f } => {
                 self.raw.insert(&**c as *const Expr);
-                let c = self.expr(c, env, &sub)?;
+                let c = match self.asks(c, env, true)? {
+                    Some(a) => a,
+                    None => self.expr(c, env, &sub)?,
+                };
                 let t = self.expr(t, env, ctx)?;
                 let f = self.expr(f, env, ctx)?;
                 E::Cond(Box::new(c), Box::new(t), Box::new(f))
@@ -1942,8 +2106,24 @@ impl<'p> Gen<'p> {
                 // made, where Solid's development build reports a read nothing tracks
                 if ctx.is_ref { E::Arrow { params: own, body: Body::Expr(Box::new(rtc("untrack", vec![f]))), is_async: false } } else { f }
             }
-            ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
+            ExprKind::Use(n) => match self.above.iter().rev().find(|(c, _)| c == n) {
+                Some((_, Some(up))) => call(id(up.clone()), vec![]),
+                _ => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
+            },
             ExprKind::Bin { op, l, r } => {
+                // RG-4c: a view asked for is not made
+                {
+                    if let Some(a) = self.asks(e, env, false)? {
+                        return Ok(a);
+                    }
+                    if op == "&&" {
+                        if let Some(a) = self.asks(l, env, true)? {
+                            // one that was not given is the nothing it is
+                            let (r, l) = (self.expr(r, env, &sub)?, self.expr(l, env, &sub)?);
+                            return Ok(E::Cond(Box::new(a), Box::new(r), Box::new(l)));
+                        }
+                    }
+                }
                 // MO-10i: an operator that makes a primitive keeps nothing of what it reads
                 if !matches!(op.as_str(), "??" | "||" | "&&") {
                     self.raw.insert(&**l as *const Expr);
@@ -1958,6 +2138,9 @@ impl<'p> Gen<'p> {
                 }
             }
             ExprKind::Un { op, e: x } => {
+                if let Some(a) = self.asks(e, env, false)? {
+                    return Ok(a);
+                }
                 self.raw.insert(&**x as *const Expr);
                 E::Un(static_op(op), Box::new(self.expr(x, env, &sub)?))
             }
@@ -2220,14 +2403,16 @@ impl<'p> Gen<'p> {
         Ok(E::Jsx(Box::new(Jsx::Frag(self.kids(ms, env)?, None))))
     }
     /// MO-11k: a render prop, an arrow over the view, its parameters bound as values.
-    fn view_fn(&mut self, params: &[String], decls: &[Decl], body: &[Markup], env: Env) -> R<E> {
+    /// RG-4c: to an .rx component (`one`), a function of one parameter: where plain content is taken as well, it is told from a
+    /// thunk by it.
+    fn view_fn(&mut self, params: &[String], decls: &[Decl], body: &[Markup], env: Env, one: bool) -> R<E> {
         let inner = self.new_env(Some(env));
         for p in params {
             self.set(inner, p, val(mg(p)));
         }
-        // RG-7a: what it provides is for what is in it
         let pre = self.owned(decls, body, inner, false)?;
-        Ok(arrow_block(params.iter().map(|p| P::Id(mg(p))).collect(), pre, false))
+        let ps: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
+        Ok(arrow_block(if one && ps.is_empty() { vec![P::Id("__s".into())] } else { ps }, pre, false))
     }
     fn kids(&mut self, ms: &[Markup], env: Env) -> R<Vec<Child>> {
         let mut out = vec![];
@@ -2266,6 +2451,18 @@ impl<'p> Gen<'p> {
         let f = self.region_fn(decls, view, env, None, None, None)?;
         Ok(Child::Expr(call(f, vec![])))
     }
+    /// RG-4c: the view a tag shows, `<props.f … />` in a component that does: the props, the field.
+    /// RG-4c: the context a tag shows the view of, `<use.item … />`.
+    fn used_view(&self, tag: &str, env: Env) -> Option<String> {
+        let u = crate::modules::used_in(tag)?;
+        self.lookup(env, u).filter(|b| b.view_ctx).map(|_| u.to_string())
+    }
+    fn shown_from(&self, tag: &str, env: Env) -> Option<(E, bool)> {
+        let (n, f) = shown_in(tag)?;
+        let b = self.lookup(env, n)?;
+        let mixed = b.shows.iter().find(|x| x.0 == f)?.1;
+        Some((dot(id(b.js), f), mixed))
+    }
     fn attr(&mut self, name: &str, e: &Expr, env: Env) -> R<(String, AttrValue)> {
         let x = self.expr(e, env, &Ctx { imp: is_handler(name), is_ref: name == "ref", ..Ctx::default() })?;
         Ok((name.to_string(), AttrValue::Expr(x)))
@@ -2281,8 +2478,15 @@ impl<'p> Gen<'p> {
             // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another
             // value is formatted (a JS library hands a component its text as an array of strings)
             MarkupKind::Read(e) => {
-                let kids = self.given(e, env) == Some(Given::Children);
-                Child::Expr(rtc(if kids { "kids" } else { "show" }, vec![self.expr(e, env, &re)?]))
+                // RG-4c: a view that was not given shows nothing
+                let f = match self.given(e, env) {
+                    Some(Given::Children { .. }) => "kids",
+                    Some(g) if g.held() => "opt",
+                    // a context that holds a view, shown: one that was not given shows nothing
+                    _ if matches!(&e.k, ExprKind::Use(n) if self.lookup(env, n).is_some_and(|b| b.view_ctx)) => "opt",
+                    _ => "show",
+                };
+                Child::Expr(rtc(f, vec![self.expr(e, env, &re)?]))
             }
             MarkupKind::El { tag, children, .. } if tag.is_empty() => {
                 if children.is_empty() {
@@ -2290,6 +2494,24 @@ impl<'p> Gen<'p> {
                 } else {
                     Child::Jsx(Jsx::Frag(self.kids(children, env)?, line))
                 }
+            }
+            // RG-4c: the view the component was given, applied (plain content, as it is)
+            MarkupKind::El { tag, attrs, .. } if self.shown_from(tag, env).is_some() || self.used_view(tag, env).is_some() => {
+                // `<use.item … />`: the view a context holds
+                let (view, mixed) = match self.used_view(tag, env) {
+                    Some(u) => (rtc("useGet", vec![self.reference(&u, env, &reactive())?, id("__o")]), false),
+                    None => self.shown_from(tag, env).unwrap(),
+                };
+                let mut xs = vec![];
+                for a in attrs {
+                    xs.push(self.attr(&a.name, &a.e, env)?);
+                }
+                let applied = E::Jsx(Box::new(Jsx::El { name: JsxName::Ident("V$view".into()), attrs: xs, children: vec![], self_closing: true, line }));
+                let mut args = vec![view, arrow(&["V$view"], applied)];
+                if mixed {
+                    args.push(E::Bool(true));
+                }
+                Child::Expr(rtc("view", args))
             }
             MarkupKind::El { tag, attrs, children } if tag.as_bytes()[0].is_ascii_uppercase() => {
                 // MO-11q: `<Dialog.Root>`, a member of a declared JS object
@@ -2304,6 +2526,7 @@ impl<'p> Gen<'p> {
                 if let Some(None) = b {
                     return fail(format!("unknown component {tag}"));
                 }
+                let plain = matches!(&b, Some(Some(b)) if b.plain);
                 let (name, shape) = match (&member, b.flatten()) {
                     (Some((o, m)), _) => (JsxName::Member(o.clone(), m.clone()), Some(FShape::Comp)),
                     (None, Some(b)) => (JsxName::Ident(b.js), b.shape),
@@ -2316,7 +2539,7 @@ impl<'p> Gen<'p> {
                     if let Some(n) = self.views.given(tag, &a.name, &a.e) {
                         let applied = Markup { kind: MarkupKind::El { tag: n.to_string(), attrs: vec![], children: vec![] }, line: m.line, span: m.span };
                         if let Some(Child::Jsx(j)) = self.child(&applied, env)? {
-                            xs.push((a.name.clone(), AttrValue::Expr(E::Jsx(Box::new(j)))));
+                            xs.push((a.name.clone(), AttrValue::Expr(rtc("slot", vec![thunk(E::Jsx(Box::new(j)))]))));
                         }
                         continue;
                     }
@@ -2325,30 +2548,39 @@ impl<'p> Gen<'p> {
                 // MO-11k: named render props are attributes
                 for c in children {
                     if let MarkupKind::Mview { prop: Some(p), params, decls, body } = &c.kind {
-                        let f = self.view_fn(params, decls, body, env)?;
+                        let f = self.view_fn(params, decls, body, env, shape != Some(FShape::Comp))?;
                         xs.push((p.clone(), AttrValue::Expr(f)));
                     }
                 }
                 let rest: Vec<&Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
                 if rest.is_empty() {
                     // MO-11: a JS component gets JSX's own `<X />`, with no children prop
-                    if shape != Some(FShape::Comp) {
-                        xs.push(("children".into(), AttrValue::Expr(E::Arr(vec![]))));
-                    }
-                    el(name, xs, vec![], true)
-                } else {
-                    // bug 36: hoisted above what the component provides, it would ask, or show, what is not there
-                    let asks = |c: &&Markup| view_readers(std::slice::from_ref(*c)).into_iter().any(|e| !non_tail_awaits(e, false).is_empty());
-                    if rest.iter().any(asks) && *self.kids_read.get_or_insert_with(|| children_read_context(self.set, &self.file)) {
-                        return fail(AWAIT_NOT_LOWERED);
-                    }
-                    // each as it is in the program: an `await` in it was hoisted by its address (`hoisted`)
-                    let mut kids = vec![];
-                    for c in rest {
-                        kids.extend(self.child(c, env)?);
-                    }
-                    el(name, xs, kids, false)
+                    return Ok(Some(el(name, xs, vec![], true)));
                 }
+                if shape != Some(FShape::Comp) {
+                    // RG-4c: a view; what is given as plain content where a view is taken is one that asks nothing
+                    let f = match &rest[..] {
+                        [Markup { kind: MarkupKind::Mview { params, decls, body, .. }, .. }] => Some(self.view_fn(params, decls, body, env, true)?),
+                        _ if plain => Some(self.view_fn(&[], &[], children, env, true)?),
+                        _ => None,
+                    };
+                    if let Some(f) = f {
+                        return Ok(Some(el(name, xs, vec![Child::Expr(f)], false)));
+                    }
+                }
+                // RG-4c: content is a block of the caller's names, made and owned where it is shown. One `{e}` that asks
+                // nothing of its place (no `use`, no `await`) is given as the value it is: a function prop is one
+                let lone = matches!(&rest[..], [Markup { kind: MarkupKind::Read(e), .. }] if matches!(e.k, ExprKind::Fn { .. }) || !placed(&e.to_json()));
+                let blank = rest.iter().all(|c| matches!(&c.kind, MarkupKind::Text(t) if t.trim().is_empty()));
+                if !lone && !blank {
+                    let f = self.region_fn(&[], children, env, None, None, None)?; // a named view among them is an attribute: no child
+                    return Ok(Some(el(name, xs, vec![Child::Expr(rtc("slot", vec![f]))], false))); // asked whether it was given, it is not made
+                }
+                let mut kids = vec![];
+                for c in rest {
+                    kids.extend(self.child(c, env)?);
+                }
+                el(name, xs, kids, false)
             }
             MarkupKind::El { tag, attrs, children } => {
                 let mut xs = vec![];
@@ -2375,7 +2607,8 @@ impl<'p> Gen<'p> {
                 }
             }
             MarkupKind::Mif { c, t, t_decls, f, f_decls } => {
-                let narrowed = if let ExprKind::Id(n) = &c.k { self.lookup(env, n).filter(|b| matches!(b.kind, Kind::Acc | Kind::Src)).map(|b| (n.clone(), b)) } else { None };
+                let whether = self.asks(c, env, true)?; // RG-4c: a view asked for is not its answer
+                let narrowed = if let (ExprKind::Id(n), None) = (&c.k, &whether) { self.lookup(env, n).filter(|b| matches!(b.kind, Kind::Acc | Kind::Src)).map(|b| (n.clone(), b)) } else { None };
                 let narrow = narrowed.map(|(n, b)| {
                     let mut nb = bind(Kind::Acc, format!("n${n}"));
                     nb.w = b.w;
@@ -2383,11 +2616,26 @@ impl<'p> Gen<'p> {
                     (n, nb)
                 });
                 let tf = self.region_fn(t_decls, t, env, Some("__item".into()), narrow, None)?;
-                let when = self.expr(c, env, &re)?;
+                // RG-4c: a view left out is whatever the caller writes for nothing (`children: []`)
+                let asked = match &c.k {
+                    ExprKind::Member { o, p, .. } => match &o.k {
+                        ExprKind::Id(n) => self.shown_from(&format!("{n}.{p}"), env),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let when = match asked {
+                    Some((view, _)) => bin("===", E::Un("typeof", Box::new(view)), str("function")),
+                    None => match whether {
+                        Some(a) => a,
+                        None => self.expr(c, env, &re)?,
+                    },
+                };
                 let fb = self.region_fn(f_decls, f, env, None, None, None)?;
                 el(JsxName::Ident("Show".into()), vec![("when".into(), AttrValue::Expr(when)), ("fallback".into(), AttrValue::Expr(call(fb, vec![])))], vec![Child::Expr(tf)], false)
             }
-            MarkupKind::Mview { params, decls, body, .. } => Child::Expr(self.view_fn(params, decls, body, env)?),
+            MarkupKind::Mview { prop: Some(_), .. } => return Ok(None), // an attribute of the component it is given to
+            MarkupKind::Mview { params, decls, body, .. } => Child::Expr(self.view_fn(params, decls, body, env, false)?),
             MarkupKind::Mfor { name, xs, decls, body } => {
                 let b = self.region_fn(decls, body, env, Some(mg(name)), None, Some(name.clone()))?;
                 let each = self.expr(xs, env, &re)?;
@@ -2571,6 +2819,18 @@ fn constant(e: &Expr) -> bool {
         }),
         ExprKind::Arr(items) => items.iter().all(constant),
         ExprKind::Rec(fields) => fields.iter().all(|f| matches!(f, Field::Kv { v, .. } if constant(v))),
+        _ => false,
+    }
+}
+
+/// Whether an expression asks something of the place it is evaluated at: a `use`, an `await` (not in a closure, which is a value).
+fn placed(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Array(xs) => xs.iter().any(placed),
+        serde_json::Value::Object(o) => match o.get("k").and_then(|k| k.as_str()) {
+            Some("use" | "await") => true,
+            _ => o.values().any(placed),
+        },
         _ => false,
     }
 }

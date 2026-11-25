@@ -128,6 +128,18 @@ function noApi(name: string) {
   if (unanswered.has(name)) return; unanswered.add(name);
   console.error(`[reactivescript] ${name}(…), imported from "./api", will never answer: "./api" is the app's injected API, not a file (a ./api.js or ./api.ts beside the module is not read), and this app was given none. Give it one, createApp({ api: { ${name} } }) (a whole module: import * as api from "./api.js"; createApp({ api })), or import a module of your own by another spelling, "./api.js" for one.`);
 }
+/** RG-4c: the question "was a view given" being asked, if one is: shared by every copy of the runtime on the page. */
+const ASK: { on: { owner: unknown } | null } = ((globalThis as any)[Symbol.for("rx.ask")] ??= { on: null });
+/** A view that is written: made where it is read. While it is only asked for (by the computation that asks: a memo of
+ *  a JavaScript host in between holds what it reads, so there it is made) it answers its own maker, which says that it
+ *  was given and makes nothing — and which JavaScript that keeps what it read (`cached ??= props.children`) can show
+ *  later: a function is a child, made where it is shown. A JavaScript host that gives an .rx component a view it would
+ *  rather not have made to answer offers it so: `get icon() { return slot(() => <Icon />) }`. */
+export function slot<T>(make: () => T): T {
+  const a = ASK.on; if (!a) return make();
+  ASK.on = null;
+  try { return getOwner() !== a.owner ? make() : make as T; } finally { ASK.on = a; }
+}
 function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conformance?: boolean; request?: Request } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
@@ -354,9 +366,18 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     // to Node, which loads its own. Said in words: the bare failure was "Cannot read properties of null")
     provide(c: Ctx, e: Entry) { const o = getOwner() as any; if (!o) throw new Error(`[reactivescript] provide ${c.name}: no owner. A component is rendered by one copy of Solid and @reactivescript/runtime runs on another — under a dev server, the app's modules on Vite's and the runtime on Node's. Solid's Vite plugin loads the runtime with the app's Solid when it finds it from the app's package.json: list @reactivescript/compiler there (the runtime is its dependency), or the runtime itself, or add @reactivescript/runtime to ssr.noExternal (11 CP-4a)`); o._context = { ...o._context, [c.id]: e }; },
     use(c: Ctx, owner: Owner): Entry {
-      const e = ((owner ?? getOwner()) as any)?._context?.[c.id]; if (e) return e;
+      let e = ((owner ?? getOwner()) as any)?._context?.[c.id];
+      if (e) return e;
       if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
+    },
+    /** RG-7b: a provision's own expression reads what is above it (`provide c = (use c) + "!"`), each time it is
+     *  computed: the provision it is about to be is not above itself. Called before `provide`, where what is above is still what `use` finds. */
+    /** RG-7b: what is above a block for a context it is about to provide (`provide c = … use c …` reads it): asked
+     *  before the provision is there; a context nothing provides above, with no default, fails where it is read. */
+    above(c: Ctx, owner: Owner): () => unknown {
+      let e: Entry; try { e = app.use(c, owner); } catch (err) { return () => { throw err; }; }
+      return () => e.get ? e.get() : e.value;
     },
     useGet(c: Ctx, owner: Owner) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
@@ -382,6 +403,18 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     // a value is formatted, a view is inserted. The text is escaped by the compiled view, which wraps every hole in Solid's
     // `escape` (strings, and the strings of a list): escaping here as well showed `a < b` as `a &lt; b` (2026-11-24)
     show: (v: unknown) => isView(v) ? v : fmt(v),
+    /** RG-4c: a view a component was given, shown with what it knows. `plain`: plain content is taken as well, shown as it is, and a function of no parameter is a thunk, as JSX has it. */
+    view(c: unknown, f: (view: unknown) => unknown, plain?: boolean) { return typeof c === "function" && (!plain || c.length) ? f(c) : app.kids(c); },
+    /** RG-4c: whether a view was given, asked without making it. The argument is read as it was written, and while it
+     *  is, what would make a view (`slot`: content, a component given by name) stands for itself: a view given on
+     *  through any number of components, a spread, a rest or a default asks its giver, a choice follows its branch
+     *  (its condition is read here, and tracked), and a value answers as JavaScript has it (`0`, `""`, `undefined`).
+     *  A JavaScript host's getter is read, as Solid's `props.children ? … : …` reads it; one that would rather not be
+     *  made offers `slot` itself. */
+    ask<T>(f: () => T): T { const was = ASK.on; ASK.on = { owner: getOwner() }; try { return f(); } finally { ASK.on = was; } },
+    slot,
+    /** `{props.part}` of a prop declared `View`: one that was not given shows nothing. */
+    opt: (v: unknown) => v === undefined ? v : isView(v) ? v : fmt(v),
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
     kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. The

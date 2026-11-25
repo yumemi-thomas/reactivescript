@@ -756,7 +756,7 @@ function parseDecl(c: Cursor): Decl {
   if (c.keyword("context")) {                                         // RG-7: `context name: [source] Type [= default]`
     c.ws(); const name = c.ident() ?? c.fail("context name"); c.ws(false);
     let type: string | undefined; let source = false;
-    if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); source = c.keyword("source"); c.ws(); type = parseType(c); }
+    if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); source = c.keyword("source"); c.ws(); type = parseType(c, false, true); }   // a function's type is one: `context item: (row: T) => View`
     const save = c.i; c.ws(false);
     if (c.peek() === "=" && c.peek(1) !== "=" && c.peek(1) !== ">") { c.i++; c.ws(); return { k: "context", name, type, source, dflt: parseExpr(c), line }; }
     c.i = save;

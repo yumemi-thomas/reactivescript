@@ -30,6 +30,10 @@ component Leaf() {
   t = use theme
   <i>{t.text}</i>
 }
+component Shows(props: { rows: any[]; cell: (s: { row: any }) => View; children?: View | ((s: { on: boolean }) => View) }) {
+  source lit := false
+  <div onClick={() => { lit := !lit }}>{for r in props.rows { <props.cell row={r} /> }}<props.children on={lit} /></div>
+}
 export component Part() {
   x = make("component")
   source s := make("source")
@@ -47,6 +51,11 @@ export component Part() {
     {if on { z = make("branch"); <p>{z.text}</p> }}
     {loading fallback { <p>wait</p> } { <p>{q.text}</p> }}
     <Leaf />
+    <Shows rows={rows}>
+      {view cell (s) { c = make("named view"); <b ref={(e: Element) => { keep("named view element", e) }}>{s.row.text}{c.text}</b> }}
+      {view (s) { v = make("view"); source held := make("view source"); <b ref={(e: Element) => { keep("view element", e) }}>{v.text}{held.text}{s.on ? "on" : "off"}</b> }}
+    </Shows>
+    <Shows rows={[]}>{view cell () { <i /> }}{(use theme).text}</Shows>
   </section>
 }
 `;
@@ -67,7 +76,7 @@ const compile = target => {
 };
 compile("dom"); compile("ssr");
 let fail = 0; const check = (name, ok, got) => { if (!ok) fail++; console.log(`${ok ? "✓" : "✗"} ${name}${ok ? "" : `\n    ${JSON.stringify(got)}`}`); };
-const N = 20, KINDS = 14;
+const N = 20, KINDS = 19;
 const alive = ([what, made]) => {
   // the last part mounted may be held by the engine's own caches (an event's target): one is not a leak, N are
   const kinds = Object.entries(made).filter(([, [of]]) => of >= N), kept = kinds.filter(([, [, left]]) => left > 2);

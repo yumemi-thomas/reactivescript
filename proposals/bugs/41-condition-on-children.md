@@ -1,6 +1,6 @@
 # A condition on `children` breaks hydration
 
-<!-- frames branch=fail upstream=fail runner=ssr says-branch="Hydration key miss" says-upstream="Hydration key miss" -->
+<!-- frames branch=pass upstream=fail runner=ssr says-upstream="Hydration key miss" -->
 ```rx
 component Card(props: { children?: View }) {
   {if props.children { <div>{props.children}</div> }}
@@ -28,6 +28,6 @@ export default component App() { <Card>x</Card> }
 | --- | --- | --- |
 | 0 | mount | `x` |
 
-**Not fixed here.** A condition on children is asked whether there are any, and needs no view; reading them once, or testing presence, are both rules for what a read of `children` is, which [24](../24-view-functions.md) asks.
+**Fixed, by the rule of [26](../26-children-are-shown.md).** A condition on children asks whether there are any, and makes no view: the question is asked of the argument as it was written, and the children are made once, where they are shown. (It read: "not fixed here: reading them once, or testing presence, are both rules for what a read of `children` is, which [24](../24-view-functions.md) asks". 26 is that rule.)
 
 **Instead.** A prop that says so: `<Card filled>`, `{if props.filled { … }}`.

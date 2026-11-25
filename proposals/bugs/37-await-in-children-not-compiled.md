@@ -23,3 +23,5 @@ export default component App() {
 **Fix in this branch.** The children are emitted where they are. In a module whose children read a context they are refused as before: [36](36-await-by-a-childs-context.md).
 
 **Test.** S-view-1.
+
+**On `proto-children-rule` (2026-11-25).** [26](../26-children-are-shown.md): no module is refused any more for what its other children read.

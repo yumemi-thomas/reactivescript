@@ -178,7 +178,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), views: crate::modules::ViewProps::of(set, &set.programs[path].decls), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), views: crate::modules::ViewProps::of(set, &set.programs[path].decls), loose: HashSet::new(), props_of: None, types: crate::modules::types_of(set, path), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -216,7 +216,7 @@ fn signature_stub(sig: &ModSig) -> String {
     sig.exports
         .iter()
         .map(|(n, x)| match x {
-            ExportSig::Type => format!("export type {n} = any;"),
+            ExportSig::Type(_) => format!("export type {n} = any;"),
             ExportSig::Comp { .. } => format!("export declare function {n}(props: any): any;"),
             // a class is a value and the type of its instances (`errored fallback(e: NotFound)`)
             ExportSig::ErrClass { .. } => format!("export declare const {n}: any;\nexport type {n} = any;"),
@@ -375,6 +375,11 @@ struct Proj<'a> {
     ref_parts: HashMap<String, crate::parse::Shape>,
     /// MO-11t: the props of the JS components this module imports that take a view
     views: crate::modules::ViewProps,
+    /// RG-4c: what the component shows as a view that may be plain content, or nothing
+    loose: HashSet<String>,
+    /// the props of the component being projected: their name, and their type with its aliases read
+    props_of: Option<(String, String)>,
+    types: crate::modules::Types,
     prelude: Option<&'a str>,
 }
 
@@ -573,10 +578,15 @@ impl Proj<'_> {
                         None => Code::of(": any"),
                     };
                     self.w.emit(Code::of(ind).t(ex(d)).t("function ").c(nm).t("(").c(pn).c(pt).t(") {"), *line);
+                    let shown = crate::modules::shown(props, props_type.as_deref(), decls, view, &self.types);
+                    let was = std::mem::replace(&mut self.loose, shown.iter().filter(|(_, v)| v.mixed || v.optional).map(|(f, _)| format!("{props}.{f}")).collect());
+                    let was_props = std::mem::replace(&mut self.props_of, props_type.as_deref().map(|t| (props.clone(), crate::modules::expand_type(t, &self.types, 0))));
                     self.decls(decls, &format!("{ind}  "), false);
                     self.w.emit(Code::of(&format!("{ind}  return (")), *line);
                     self.markup(view, &format!("{ind}    "));
                     self.w.emit(Code::of(&format!("{ind}  );\n{ind}}}")), *line);
+                    self.loose = was;
+                    self.props_of = was_props;
                 }
                 Decl::Action { name, params, ptypes, body, line, .. } | Decl::Server { name, params, ptypes, body, line, .. } => {
                     let nm = self.name(name, sp, &mut at);
@@ -630,7 +640,15 @@ impl Proj<'_> {
                 Decl::Provide { name, e, line, .. } => {
                     let nm = self.name(name, sp, &mut at);
                     let v = self.expr(e, false, None);
-                    self.w.emit(Code::of(&format!("{ind}__.provide(")).c(nm).t(", ").c(v).t(");"), *line);
+                    // RG-4c: a view the component may not have been given is provided as it is — the context then holds none,
+                    // and what shows it shows nothing (`item?: (o) => View`, `provide item = props.item`)
+                    let optional = match (&e.k, &self.props_of) {
+                        (ExprKind::Member { o, p, .. }, Some((props, ty))) if matches!(&o.k, ExprKind::Id(n) if n == props) => {
+                            crate::modules::field_type(ty, p).is_some_and(|(t, opt)| opt && matches!(crate::modules::view_type(t.trim()), Some((false, _))))
+                        }
+                        _ => false,
+                    };
+                    self.w.emit(Code::of(&format!("{ind}__.provide{}(", if optional { "Or" } else { "" })).c(nm).t(", ").c(v).t(");"), *line);
                 }
                 _ => {}
             }
@@ -1080,6 +1098,19 @@ impl Proj<'_> {
                     if !matches!(at.e.k, ExprKind::Lit(Lit::Bool(true))) {
                         a = a.t("={").c(self.expr(&at.e, is_handler(&at.name), None)).t("}");
                     }
+                }
+                // RG-4c: optional, or plain content is taken as well
+                if self.loose.contains(tag) {
+                    let name = Code::of("V$").from(tag_at.map_or(Span::NONE, |at| Span { start: at as u32, end: (at + tag.len()) as u32 }));
+                    self.w.emit(Code::of(&format!("{ind}{{((V$) => <")).c(name).c(a).t(" />)(__.view(").at(tag, tag_at).t("))}"), line);
+                    return;
+                }
+                // RG-4c: the view a context holds, shown with what its type says
+                if let Some(u) = crate::modules::used_in(tag) {
+                    // (the tag stands where it was written: an argument it lacks is reported there)
+                    let name = Code::of("V$").from(tag_at.map_or(Span::NONE, |at| Span { start: at as u32, end: (at + tag.len()) as u32 }));
+                    self.w.emit(Code::of(&format!("{ind}{{((V$) => <")).c(name).c(a).t(" />)(__.use(").at(u, tag_at.map(|x| x + 4)).t("))}"), line);
+                    return;
                 }
                 let open = Code::of(&format!("{ind}<")).at(tag, tag_at).c(a);
                 // MO-11k: named render props are attributes

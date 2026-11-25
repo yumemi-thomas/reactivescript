@@ -1,6 +1,6 @@
 # 24 — A question: where does a `use` in children read?
 
-`<Toggle>{(use toggle).pressed ? "on" : "off"}</Toggle>` is accepted, and compiled it reads at the caller: [bug 33](bugs/33-use-in-children.md). A fix was tried and is held back, because the text says two things.
+`<Toggle>{(use toggle).pressed ? "on" : "off"}</Toggle>` is accepted, and compiled it reads at the caller: [bug 33](bugs/33-use-in-children.md). A fix was tried and is held back, because the text says two things. This branch chooses neither: it refuses the program where the two differ ([33](bugs/33-use-in-children.md), `AMBIGUOUS_CONTEXT`).
 
 - **RG-4c**: *`children` is a view value evaluated in the* caller's *region: its readers are the caller's, its lifetime is the caller's, and the child only decides where it is placed.*
 - **RG-7b**: a provision is for *every region* instantiated beneath *it — the instantiation chain (the tree of views), not the lexical one. `use name` reads the nearest provision above.*
@@ -24,7 +24,7 @@ A `use` in children's own place bound to the owner that reads them, in the crate
 
 **A context that forwards children.** Nothing is wrong with this program today, and no text says which it is:
 
-<!-- frames branch=pass upstream=pass -->
+<!-- frames branch=fail upstream=pass -->
 ```rx
 context c: string = "out"
 context child: View
@@ -43,7 +43,7 @@ export default component App() { <P>{use c}</P> }
 | --- | --- | --- |
 | 0 | mount | `out` |
 
-`out` on every runner today, the server and hydration included. With the fix, `q` compiled, in the oracle and served; `out` in the interpreter. *Placed* by Q, but *read* by the provision in P.
+`out` on every runner today, the server and hydration included. (On `proto-children-rule` with [27](27-a-context-that-holds-a-view.md), a context declared `View` holds a view, which is made where it is shown: `q` on every runner, so the frame above fails there. With 26 alone the program was refused.) With the fix, `q` compiled, in the oracle and served; `out` in the interpreter. *Placed* by Q, but *read* by the provision in P.
 
 **A read that nothing owns, or that is taken once.** P provides `c = "in"`, the caller has `out`, the children are `{use c}`:
 
@@ -63,7 +63,7 @@ Which sentence holds? If RG-4c's, then 08 and both checkers credit a provision t
 
 ## Why it is asked here
 
-A view function, `<Toggle>{view (state) { … }}</Toggle>`, is accepted where Toggle is JavaScript (MO-11k) and is `VIEW_FN_MISPLACED` where it is `.rx`. It is not proposed: a child component that reads a context gives a component's state to its children today.
+A view function, `<Toggle>{view (state) { … }}</Toggle>`, is accepted where Toggle is JavaScript (MO-11k) and is `VIEW_FN_MISPLACED` where it is `.rx`. It is proposed, applied and not called, in [25](25-views.md). A child component that reads a context gives a component's state to its children today.
 
 <!-- frames branch=pass upstream=pass -->
 ```rx
@@ -101,3 +101,5 @@ export default component App() {
 ```
 
 Related: [34](bugs/34-closure-as-a-child.md) (a closure as children), [35](bugs/35-children-in-a-record.md) (children in a record).
+
+**On `proto-children-rule` (2026-11-25).** [26](26-children-are-shown.md) decides it: a view is only shown, and is made where it is shown. The first program above is accepted and right in every runner; the one carried by a context is refused (`VIEW_NOT_SHOWN`), with what is written instead.

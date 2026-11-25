@@ -56,6 +56,18 @@ pub struct PropSig {
     /// MO-10f: the fields of this prop its type says hold or fail where they are read (path, holds, classes): a JS
     /// result with such fields may be given whole
     pub takes: Vec<(String, bool, Vec<String>)>,
+    /// RG-4c
+    pub view: Option<ViewSig>,
+}
+/// RG-4c: a view the component shows: whether it is optional, what its parameter's type says, and the fields it is shown with
+/// that hold no closure of the component's (O-3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ViewSig {
+    pub optional: bool,
+    /// plain content is taken as well
+    pub mixed: bool,
+    pub ty: Option<String>,
+    pub values: Vec<String>,
 }
 #[derive(Debug, Clone)]
 pub struct Own {
@@ -120,7 +132,8 @@ pub enum ExportSig {
     ErrClass { params: Vec<String> },
     Comp { sig: CompSig },
     Context { key: String, source: bool, dflt: bool, rows: Vec<String>, fails: Vec<String>, ty: Option<String> },
-    Type,
+    /// what it stands for (RG-4c), where a signature can hold it
+    Type(Option<String>),
 }
 /// MO-13i: what a fn's result is made of. An action; one value, read (`reader`: it changes, with the rows it is read with)
 /// or plain (made once), and the parts of it that are actions; a record or a tuple of such.
@@ -270,6 +283,11 @@ fn shape_text(s: &Option<Shape>) -> String {
     }
     for c in &s.children_at {
         parts.push(format!("children-at {}", c.join(" ")));
+    }
+    for (f, at) in &s.views_at {
+        for c in at {
+            parts.push(format!("{f}-at {}", c.join(" ")).trim_end().to_string());
+        }
     }
     if parts.is_empty() { String::new() } else { format!(" shape({})", parts.join("; ")) }
 }
@@ -422,7 +440,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
         ),
         ExportSig::Action => format!("export action {}", name),
         ExportSig::ErrClass { params } => format!("export error {}({})", name, params.join(", ")),
-        ExportSig::Type => format!("export type {}", name),
+        ExportSig::Type(t) => format!("export type {}{}", name, t.as_ref().map(|t| format!(" = {t}")).unwrap_or_default()),
         ExportSig::Context { source, dflt, rows: r, fails, ty, .. } => {
             let t: Vec<String> = [if *source { "source".to_string() } else { String::new() }, rows(r, fails), ty.clone().unwrap_or_default()].into_iter().filter(|x| !x.is_empty()).collect();
             let t = t.join(" ");
@@ -438,6 +456,10 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                         // MO-10f: the fields it reads as ones that hold or fail
                         let ts: Vec<String> = v.takes.iter().map(|(p, holds, fails)| format!("{p}{}{}", if *holds { " pending" } else { "" }, if fails.is_empty() { String::new() } else { format!(" fails({})", fails.join(" | ")) })).collect();
                         parts.push(format!("takes({})", ts.join(", ")));
+                    }
+                    if let Some(ViewSig { optional, mixed, ty, values }) = &v.view {
+                        // RG-4c: a view it shows; `value(…)`: what it shows it with that holds no closure of its own (O-3)
+                        parts.push(format!("view{}{}{}{}", if *optional { "?" } else { "" }, if *mixed { " | View" } else { "" }, ty.as_ref().map(|t| format!(" {t}")).unwrap_or_default(), if values.is_empty() { String::new() } else { format!(" value({})", values.join(", ")) }));
                     }
                     if !v.rendered {
                         parts.push("unrendered".to_string());
@@ -507,7 +529,7 @@ re!(LEAD_COMMENT, r"^//.*$");
 re!(T_RENDERS, r"^renders\s+(\S+)\s+from\s+([A-Za-z_$][A-Za-z0-9_$.]*):(\d+)\s*(?:fails\(([^)]*)\))?\s*(?:uses\(([^)]*)\))?$");
 re!(C_HOSTS, r"(^|\s)hosts\(");
 re!(R_HOSTS, r"\shosts\(");
-re!(T_TYPE, r"^type\s+([A-Za-z_$][A-Za-z0-9_$]*)");
+re!(T_TYPE, r"^type\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*=\s*(.+))?");
 re!(T_ACTION, r"^action\s+([A-Za-z_$][A-Za-z0-9_$]*)$");
 re!(T_ERROR, r"^error\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\(([^)]*)\))?$");
 re!(T_SOURCE, r"^source\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::([^=].*?)?)??\s*(:?=)\s*…$");
@@ -517,12 +539,15 @@ re!(T_FN_ROWS, r"^\s*(?::\s*(.*?))?\s*(?:\brejects\(([^)]*)\))?\s*(\binstantiate
 re!(P_FIELD, r"^([A-Za-z0-9_$-]+)\s*:\s*(.+)$");
 re!(P_LEAF, r"^(ref|value)(?:\s+(.*))?$");
 re!(T_CONTEXT, r"^context\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$");
-re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(props:\s*(\{.*?\}|\{\})\)(.*)$");
+re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(");
+re!(T_PROPS, r"^props:\s*(\{.*\})$");
 re!(P_PART, r"^([A-Za-z0-9_$.-]+)\s*:\s*io$");
 re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
 re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(([^)]*)\)");
 re!(P_UNRENDERED, r"(^|[^A-Za-z0-9_])unrendered([^A-Za-z0-9_]|$)");
 re!(P_TAKES, r"(^|[^A-Za-z0-9_])takes\(((?:[^()]|\([^()]*\))*)\)");
+re!(P_VIEW, r"^view(\??)(\s*\|\s*View)?(?:\s|$)");
+re!(P_VALUE, r"^value\(([^)]*)\)");
 re!(P_PENDING, r"(^|\s)pending(\s|$)");
 re!(P_FAILS, r"fails\(([^)]*)\)");
 re!(P_CATCHES, r"(^|[^A-Za-z0-9_])catches\(([^)]*)\)");
@@ -586,7 +611,7 @@ fn row_words(s: &str) -> RowWords {
     RowWords { rows, fails, rest: words[i..].join(" ") }
 }
 /// SV-7d's words (MO-9b; a JS component's, MO-11a).
-pub fn content_shape_of(s: Option<&str>) -> Result<Shape, String> {
+pub fn content_shape_of(s: Option<&str>, printed: bool) -> Result<Shape, String> {
     let mut sh = Shape::default();
     let Some(s) = s else { return Ok(sh) };
     for p in s.split(';').map(crate::parse::js_trim).filter(|x| !x.is_empty()) {
@@ -598,6 +623,7 @@ pub fn content_shape_of(s: Option<&str>) -> Result<Shape, String> {
             "a" => sh.a = true,
             "form" => sh.form = true,
             "children-at" => sh.children_at.push(rest),
+            _ if printed && w.ends_with("-at") => sh.views_at.entry(w[..w.len() - 3].to_string()).or_default().push(rest),
             _ => return Err(format!("shape: {}", p)),
         }
     }
@@ -649,7 +675,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             continue;
         }
         if let Some(m) = T_TYPE.captures(&s) {
-            exports.insert(m[1].to_string(), ExportSig::Type);
+            exports.insert(m[1].to_string(), ExportSig::Type(m.get(2).map(|t| crate::parse::js_trim(t.as_str()).to_string())));
             continue;
         }
         if let Some(m) = T_ACTION.captures(&s) {
@@ -714,7 +740,9 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             );
             continue;
         }
-        if let Some(m) = T_COMP.captures(&s) {
+        if let Some((m, ps)) = T_COMP.captures(&s).and_then(|m| balanced(&s, m.get(0).unwrap().end() - 1).filter(|p| T_PROPS.is_match(p)).map(|p| (m, p))) {
+            let props = T_PROPS.captures(ps).unwrap();
+            let m = [String::new(), m[1].to_string(), props[1].to_string(), s[m.get(0).unwrap().end() + ps.len() + 1..].to_string()];
             let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new(), hosts: IndexMap::new(), through: false };
             let inner = &m[2][1..m[2].len() - 1];
             for f in split(inner, ';') {
@@ -723,7 +751,24 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     None => (crate::parse::js_trim(&f).to_string(), String::new()),
                 };
                 let fname = if fname0 == "...props" { "*".to_string() } else { fname0 };
-                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, components: false, takes: vec![] };
+                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, components: false, takes: vec![], view: None };
+                let mut spec = spec;
+                if let Some(m) = P_VIEW.captures(&spec) {
+                    // RG-4c
+                    let mut view = ViewSig { optional: !m[1].is_empty(), mixed: m.get(2).is_some(), ty: None, values: vec![] };
+                    let mut at = spec[m.get(0).unwrap().end()..].js_trim().to_string();
+                    if at.starts_with('{') {
+                        let end = crate::parse::closes(&at, 0).unwrap_or(at.len());
+                        view.ty = Some(at[..end].to_string());
+                        at = at[end..].js_trim().to_string();
+                    }
+                    if let Some(x) = P_VALUE.captures(&at) {
+                        view.values = x[1].split(',').map(|x| x.js_trim().to_string()).filter(|x| !x.is_empty()).collect();
+                        at = at[x.get(0).unwrap().end()..].js_trim().to_string();
+                    }
+                    v.view = Some(view);
+                    spec = at;
+                }
                 let a = P_ACTION.captures(&spec);
                 let rest = match &a {
                     Some(a) => {
@@ -794,7 +839,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     sig.stored.entry(f).or_default().push(if t == "module" { t } else { abs_key(file, &t) });
                 }
             }
-            sig.shape = Some(content_shape_of(C_SHAPE.captures(tail).map(|x| x.get(2).unwrap().as_str())).map_err(|e| fail(&e))?);
+            sig.shape = Some(content_shape_of(C_SHAPE.captures(tail).map(|x| x.get(2).unwrap().as_str()), true).map_err(|e| fail(&e))?);
             exports.insert(m[1].to_string(), ExportSig::Comp { sig });
             continue;
         }

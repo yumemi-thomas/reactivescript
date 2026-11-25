@@ -137,11 +137,83 @@ A component is a function from a props value to a region whose tail is a view.
   form; destructuring covers the signature use. `component C()` declares no
   props: `props` is not a name in its body, and reading it is `UNBOUND`
   (S-check-1; before 2026-11-14 it read `undefined` silently).
-- **RG-4c (Children).** `children` is a view value evaluated in the *caller's*
-  region: its readers are the caller's, its lifetime is the caller's, and the
-  child only decides where it is placed. A child that needs to create its
-  content more than once, or conditionally own it, asks for a function prop
-  instead, which is ordinary.
+- **RG-4c (Children; proposed 2026-11-25, proposals/26).** `children` is a
+  view: a block of the *caller's* names, owned where it is *shown*. Each place
+  that shows it has its own, made there and disposed with that place; what it
+  reads from contexts (RG-7b), what it waits on and fails with are that
+  place's. So is a prop typed `View`: the rule is of a prop *declared* `View`
+  where the type is read (written out, a type of the module, one imported
+  from `.rx`), and of the names bound to it (a parameter, a loop's item or an
+  inner block's equation of the same spelling is another name); children
+  declared a number are a number. A component only shows a view it is
+  given: `{props.children}` in its view (also `props.children ?? e`, and under
+  a choice, `c ? props.children : e`); gives it on, as another component's
+  content or argument, or in a spread of its props; names it by a projection
+  of the props (RG-4b); or asks whether it was given (`if props.children`,
+  `!props.children`, `props.children != undefined`). That question makes
+  nothing, and is asked of the argument as it was *written*: it is read with
+  each view in it standing for itself. In one sentence: *a view was given
+  where something was written for it — content between the tags, or an
+  argument whose value is something — and a view given on answers as its
+  giver's does.* Content between the tags was given; a
+  view given on (an argument, content that is one `{e}` of a view the giver
+  was given, a spread, a rest, a default, a name, through any number of
+  components) asks its giver; a choice (`c ? a : b`, `a ?? b`, `a && b`)
+  follows its branch, whose condition is read where the question is asked,
+  and tracked; any other expression *given as an argument* is a value and
+  answers as JavaScript has it (`0`, `""`, `false`, `undefined`, `null`
+  under `if`, `!`, `&&`; `undefined` and `null` under `??`; `!= undefined`
+  asks that alone, as the language's `!=` does), which is what it answered
+  before this rule. A value
+  written *as content* is its text, as it is shown (`<Q>{0}</Q>`,
+  `<Q>{false}</Q>`, `<Q>{undefined}</Q>` show the words, and were given);
+  the text that is empty, `<Q>{""}</Q>`, is nothing given, and
+  `<Q><>{""}</></Q>` is content. So an explicit argument, a spread and a
+  rest answer alike, and `if p.label` agrees with `p.label ?? x`. What JavaScript gives as a value
+  answers so too, as Solid's `props.children ? … : …`; its getter (JSX
+  content) is read, as Solid reads it, unless the host offers the answer
+  (`slot(make)` of the runtime), which is then not made (S-context-7).
+  What is read of a view while it is asked for is its maker, a function:
+  JavaScript that keeps it shows the view where it shows it.
+  An argument's expression is a value of the caller (`title={use c}`
+  reads what is provided where it is written); only content, and a
+  `view name (…) { … }`, is a block of the place that shows it. Read as a
+  value — kept by `peek`, a source or `pre`, carried by a context, read by an
+  effect or a handler, answered by a closure, held in a record or a list,
+  given to a fn, or given on to a prop whose declared type is a value's — it
+  is `VIEW_NOT_SHOWN` (S-context-4, S-context-5, S-context-6, S-context-7).
+  A context whose declared type is `View`, or a function giving one
+  (`context item: (row: T) => View`), holds a view (proposed, proposals/27):
+  it is given one the component was given (`provide item = props.item`, of a
+  prop of the context's type) and shown, `{use item}` or `<use.item row={r} />`,
+  and nothing else; it is not exported. Each place that shows it has its own;
+  what the view uses, waits on and fails with goes up from that place to its
+  component's root, then from the block that provides it; its elements are
+  placed there (SV-7d), through content, forwards and portals (S-context-8). Content that takes what the component knows is
+  a view with a parameter, below. (Until this proposal: "evaluated in the
+  caller's region: its readers are the caller's, its lifetime is the caller's,
+  and the child only decides where it is placed", which 08 and RG-7b
+  contradicted, and compiled code followed for a `use` alone.)
+  One `{e}` given to a component whose `children` are declared a function is
+  that function, a value (S-view-2).
+  - **A view (proposed 2026-11-25).** The function prop that makes markup. A
+    prop declared a function giving a `View`, of one parameter or none
+    (`children: (s: { on: boolean }) => View`, `cell: () => View`), may be shown
+    as `<props.f a={e} … />`, in the component's own view, at any number of
+    places. It is then named nowhere else in it, but for `if props.f { … }`, under
+    which an optional one is shown, and a projection that takes it out of a rest.
+    What is given is one `{view (s) { … }}`, or for a prop of another name one
+    `{view f (s) { … }}`: a block of the caller's names, owned where it is shown,
+    an instance at each place. `s` is its props (RG-4b): `s.a` is the argument,
+    read where it is read, never written. For what it waits on and fails with, an
+    argument is checked as read where the view is shown. What the view stores
+    where it outlives it (O-3) is nothing the component's closures hold.
+    Children declared `View | ((s: T) => View)` are given plain content as well:
+    a view that asks nothing, as all plain content is. A spread gives no view: one that may hold
+    the field, by the record written and by its type, is refused. The types are
+    read through the names the module declares or imports from `.rx`. A component
+    so typed that never shows them this way is as it was: it reads and calls
+    them. (`VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED`; S-view-3 to S-view-7.)
 - **RG-4d (No return channel).** A component body evaluates to its view and
   nothing else. To expose a value upward, the caller passes a handler (or an
   action) the child calls: a source passed as a prop is read-only in the child
@@ -193,6 +265,19 @@ palette = (use theme).palette           // used: in any region beneath — the n
   default, `context density: number = 1`, which is the value where nothing
   above provides it. A component body sees the caller's provisions, never
   the caller's locals.
+  *A provision given from what is above it (2026-11-26).* A block's
+  provision is the block's too, wherever it is written in it: `use c` beside
+  `provide c` reads that provision, before it in the text or after. What is
+  above it is read in the provision itself — a `use c` written in what
+  `provide c` is given is what is above that provision, in a closure there
+  too (it is written above it): `provide theme = { ...(use theme), fg:
+  props.fg }`, `provide level = (use level) + 1`, `provide log = (s) =>
+  (use log)(tag + s)`. A provision that comes back to itself where it
+  stands — through a name (`up = use c; provide c = up`), or through a
+  second context of the block, each given from the other — is `CYCLE`
+  (C-1), as is a context's default given from itself; with nothing above
+  and no default, the `use` in the provision is `CONTEXT_NOT_FOUND`
+  (S-context-9).
   *In a fn (2026-11-24).* A call of a fn is a region of the caller's
   (RG-6a), so its `use` reads above each place it is called: `fn useForm() {
   f = use form; f }` is checked at its calls, through other fns, modules and

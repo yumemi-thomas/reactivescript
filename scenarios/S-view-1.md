@@ -157,3 +157,39 @@ export default component App() {
 | 0 | mount | ww | |
 | 1 | resolve "b" "2" | w2 | |
 | 2 | resolve "a" "1" | 12 | |
+
+## Variant: where no children read a context, whatever else is a value
+
+```rx
+import pure { fetch } from "./prelude"
+fn r() { source a := 0
+ a }
+fn id(x) { x }
+component P(p: { children: View }) { <b>{p.children}</b> }
+export default component App() {
+  spare = [r]
+  {loading fallback { <i>w</i> } { <P>{await fetch(id("q")) catch (e) => "bad"}</P> }}
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | w | |
+| 1 | resolve "q" "ok" | ok | |
+
+## Variant: … and where one is in them
+
+```rx
+import pure { fetch } from "./prelude"
+component P(p: { children: View }) { <b>{p.children}</b> }
+export default component App() {
+  fn ask() { source a := "q"
+    a }
+  {loading fallback { <i>w</i> } { <P>{await fetch("q") catch (e) => "bad"}{false ? ask : ""}</P> }}
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | w | |
+| 1 | resolve "q" "ok" | ok | |

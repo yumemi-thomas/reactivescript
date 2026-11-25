@@ -782,7 +782,8 @@ export default component App() {
   children. Other children of such a component are `VIEW_FN_EXPECTED`; one
   marked optional may be left out. A render prop under another name is a named
   view lambda among the children, `{view header (n) { … }}`. A view lambda
-  anywhere else, or naming a prop not so typed, is `VIEW_FN_MISPLACED`.
+  anywhere else, or naming a prop not so typed, is `VIEW_FN_MISPLACED`. An
+  `.rx` component takes one by RG-4c.
 - **MO-11m (A made component's properties).** `Router.paths` is a value read in
   the module that made the component, and may be exported. The component
   itself stays one, applied and never a value.
@@ -947,9 +948,9 @@ is the signature the compiler printed.
   | `export error C(a, b)` | an `.rx` error class with its constructor's parameters | a JS class, with the fields sent to the client (SV-5a) |
   | `export context c: T = …` | an `.rx` context: importable, `use`d and `provide`d by the importer, with `source`, rows and whether it has a default | a context the JavaScript owns (MO-12a) |
   | `uses(…)`, `provides(…)`, `retains(…)` | context *keys*, relative to the signature's own module, of any module; `uses(loading)` is SV-7b's need | names of contexts the same file declares |
-  | a component's props | the summary of MO-3, a row per prop: bare (rendered, discharging nothing), `catches(E)` / `catches(*)`, `provides(…)` for children, `unrendered`, `action go catches(…)`, `takes(…)`; no types | TypeScript's fields, with the words of MO-8i on them |
+  | a component's props | the summary of MO-3, a row per prop: bare (rendered, discharging nothing), `catches(E)` / `catches(*)`, `provides(…)` for children (`apart(…)`: of those, what is not around every place they are shown in the component's own view, RG-7b), `unrendered`, `action go catches(…)`, `takes(…)`, `view` for a prop shown as a view (RG-4c; `view | View` where it takes plain content as well, `view?` optional), with its parameter's type and `value(…)`, the fields that hold no closure of the component's (O-3), and `f-at` in its `shape(…)`; no other types | TypeScript's fields, with the words of MO-8i on them |
   | after a component | `made`, `fails(E)`, `uses`, `retains(…)`, `hosts(…)`, `shape(roots …; closes-p; a; form; children-at …)` | `fails(E)`, `uses`, `provides`, `shape(T)` |
-  | types | none: a row's types are the projection's, in the `.d.ts` beside it (MO-13d); `export type T` is a name | the row's text is the module's `.d.ts` (13 TY-4b) |
+  | types | none: a row's types are the projection's, in the `.d.ts` beside it (MO-13d); `export type T` is a name, with what it stands for where that is a record (`= { … }`: RG-4c reads a view's parameter through it) | the row's text is the module's `.d.ts` (13 TY-4b) |
   | type parameters, optional and rest parameters, `handler`, `draft`, `nests`, `renders(H)`, `const` | not written | MO-8d to MO-8o, MO-10, MO-11 |
   | what it is held to | nothing: the compiler inferred each row (no TY-6, no MO-8f, no MO-8j) | TY-6, MO-8f, MO-8j |
   | the import's own rows | `import pure` cannot lower an io row and `fails` is refused, with MO-4a's messages | MO-8b |

@@ -2,7 +2,7 @@
 //! parses every module once, and orders them dependencies first (MO-1). A cycle is refused (MO-5).
 
 use crate::parse::JsTrim;
-use crate::ast::{decls_json, markups_json, Decl, Expr, ExprKind, Lit, Program};
+use crate::ast::{decls_json, markups_json, Decl, Expr, ExprKind, Lit, Markup, MarkupKind, Program};
 use crate::check::Diagnostic;
 use crate::parse::{field_name, is_view_type, parse_declarations, parse_program, split_top, JsDecl, ParseError};
 use crate::signature::{parse_signature, ModSig};
@@ -685,16 +685,32 @@ pub fn type_only(p: &Program, set: &ModuleSet) -> HashSet<String> {
 #[derive(Clone, PartialEq)]
 pub enum Given {
     Props { less: Vec<String>, views: std::rc::Rc<HashSet<String>> },
-    Children,
-    View,
+    /// `view`: declared `View` where the type is read (`views`); the children of a type that is not read are held, and no
+    /// more is known of them. `field`: the prop it is, or the first of those a choice names.
+    Children { view: bool },
+    View { view: bool, field: Option<String> },
 }
 impl Given {
     pub fn held(&self) -> bool {
         !matches!(self, Given::Props { .. })
     }
+    /// A prop declared `View`: what the rule and the question "was it given" are of.
+    pub fn view(&self) -> bool {
+        matches!(self, Given::Children { view: true } | Given::View { view: true, .. })
+    }
+    pub fn field(&self) -> Option<String> {
+        match self {
+            Given::Children { .. } => Some("children".into()),
+            Given::View { field, .. } => field.clone(),
+            _ => None,
+        }
+    }
 }
 pub fn given(e: &Expr, look: &dyn Fn(&str) -> Option<Given>) -> Option<Given> {
-    let held = |x: &Expr| given(x, look).is_some_and(|g| g.held());
+    let either = |xs: [&Expr; 2]| {
+        let gs: Vec<Given> = xs.iter().filter_map(|x| given(x, look).filter(|g| g.held())).collect();
+        gs.first().map(|g| Given::View { view: gs.iter().any(|g| g.view()), field: g.field() })
+    };
     match &e.k {
         ExprKind::Id(n) => look(n),
         ExprKind::Omit { e, keys } => match given(e, look)? {
@@ -706,13 +722,13 @@ pub fn given(e: &Expr, look: &dyn Fn(&str) -> Option<Given>) -> Option<Given> {
         },
         ExprKind::Member { o, p, .. } => match given(o, look)? {
             Given::Props { less, views } if !less.contains(p) => match p.as_str() {
-                "children" => Some(Given::Children),
-                _ => views.contains(p).then_some(Given::View),
+                "children" => Some(Given::Children { view: views.contains(p) }),
+                _ => views.contains(p).then(|| Given::View { view: true, field: Some(p.clone()) }),
             },
             _ => None,
         },
-        ExprKind::If { t, f, .. } => defaulted(e, look).or_else(|| (held(t) || held(f)).then_some(Given::View)),
-        ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => (held(l) || held(r)).then_some(Given::View),
+        ExprKind::If { t, f, .. } => defaulted(e, look).or_else(|| either([t, f])),
+        ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => either([l, r]),
         _ => None,
     }
 }
@@ -724,11 +740,53 @@ pub fn defaulted(e: &Expr, look: &dyn Fn(&str) -> Option<Given>) -> Option<Given
         return None;
     }
     let g = given(f, look).filter(|g| g.held())?;
-    Some(if matches!(t.k, ExprKind::Lit(Lit::Str(_))) { g } else { Given::View })
+    Some(if matches!(t.k, ExprKind::Lit(Lit::Str(_))) { g.clone() } else { Given::View { view: g.view(), field: g.field() } })
+}
+/// The fields declared `View` of a component's props, where its type is read: written out, a type of the module, one
+/// imported from `.rx`. One classification for the checker and the compiled module. `ref/src/modules.ts` `viewsOf`.
+pub fn views_of(props_type: Option<&str>, types: &Types, decls: &[Decl]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    if let Some(t) = props_type {
+        view_fields(t, decls, 0, &mut out);
+        view_fields(&expand_type(t, types, 0), &[], 0, &mut out);
+    }
+    out
+}
+/// A type that is read and is a value's, with no view in it: `number`, `string | undefined`, `"a" | "b"`.
+pub fn value_type(t: &str) -> bool {
+    split_top(t, "|").iter().all(|a| {
+        let a = a.trim();
+        let n = a.strip_prefix('-').unwrap_or(a);
+        matches!(a, "string" | "number" | "boolean" | "bigint" | "null" | "undefined" | "true" | "false")
+            || (a.len() >= 2 && ((a.starts_with('"') && a.ends_with('"') && !a[1..a.len() - 1].contains('"')) || (a.starts_with('\'') && a.ends_with('\'') && !a[1..a.len() - 1].contains('\''))))
+            || (n.starts_with(|c: char| c.is_ascii_digit()) && n.chars().all(|c| c.is_ascii_digit() || c == '.'))
+    })
+}
+/// What a component's prop is declared: a view (`Some(true)`), a value's type that is read (`Some(false)`), or not known.
+pub fn takes_view(props_type: Option<&str>, types: &Types, field: &str) -> Option<bool> {
+    let (t, _) = field_type(&expand_type(props_type?, types, 0), field)?;
+    let w = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    if t.match_indices("View").any(|(i, _)| !t[..i].ends_with(w) && !t[i + 4..].starts_with(w)) {
+        Some(true)
+    } else if value_type(&t) {
+        Some(false)
+    } else {
+        None
+    }
 }
 /// The fields typed `View` of a component's props type: written out, or a type of the module (`type P = …`, `interface P`).
 pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<String>) {
     if depth > 8 {
+        return;
+    }
+    // a union of records: a field that is a view in one of them is one
+    let alts = split_top(t, "|");
+    if alts.iter().filter(|x| !x.trim().is_empty()).count() > 1 {
+        for a in &alts {
+            if !a.trim().is_empty() {
+                view_fields(a.trim(), decls, depth + 1, out);
+            }
+        }
         return;
     }
     for part in split_top(t, "&") {
@@ -751,6 +809,925 @@ pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<Stri
             view_fields(b.trim().trim_end_matches(';'), decls, depth + 1, out);
         }
     }
+}
+
+/// RG-4c: a view a component takes and shows: a field of its props declared a function giving a `View`, of one parameter or
+/// none, which its view shows as `<props.f … />`. `mixed`: `children` declared `View | ((s: T) => View)` take plain content as
+/// well. `param`: the parameter's type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shown {
+    pub optional: bool,
+    pub mixed: bool,
+    pub param: Option<String>,
+}
+pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types) -> IndexMap<String, Shown> {
+    let mut out = IndexMap::new();
+    let Some(t) = props_type else { return out };
+    let fields = shown_fields(props, decls, view);
+    if fields.is_empty() {
+        return out;
+    }
+    let t = expand_type(t, types, 0);
+    for f in fields {
+        let Some((ty, optional)) = field_type(&t, &f) else { continue };
+        if let Some((mixed, param)) = view_type(&ty).filter(|v| f != "ref" && (!v.0 || f == "children")) {
+            out.insert(f, Shown { optional, mixed, param });
+        }
+    }
+    out
+}
+/// The types a module names, its own and those it imports from `.rx` modules: what each stands for, in no name of a module.
+pub type Types = HashMap<String, String>;
+pub fn types_of(set: &ModuleSet, path: &str) -> Types {
+    fn named(set: &ModuleSet, path: &str, name: &str, busy: &mut Vec<(String, String)>) -> Option<String> {
+        let at = (path.to_string(), name.to_string());
+        if busy.contains(&at) || busy.len() > 8 {
+            return None; // a type that names itself is read as far as its name
+        }
+        for d in &set.programs.get(path)?.decls {
+            match d {
+                Decl::TypeDecl { name: n, text, .. } if n == name => {
+                    let text = text.trim_start_matches("export").trim_start();
+                    let body = if text.starts_with("interface") { &text[text.find('{')?..] } else { text[text.find('=')? + 1..].js_trim().trim_end_matches(';') };
+                    busy.push(at);
+                    let t = expand(body, 0, &mut |n: &str| named(set, path, n, busy));
+                    busy.pop();
+                    return Some(t);
+                }
+                Decl::Import { names, resolved: Some(r), .. } => {
+                    if let Some(n) = names.iter().find(|n| n.alias == name) {
+                        // MO-9: a signature says what it stands for
+                        return match set.programs.contains_key(r) {
+                            true => named(set, r, &n.name, busy),
+                            false => set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).and_then(|x| match x { crate::signature::ExportSig::Type(t) => t.clone(), _ => None }),
+                        };
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+    let Some(p) = set.programs.get(path) else { return Types::new() };
+    let mut out = Types::new();
+    for d in &p.decls {
+        let names: Vec<&str> = match d {
+            Decl::TypeDecl { name, .. } => vec![name],
+            Decl::Import { names, resolved: Some(_), .. } => names.iter().map(|n| n.alias.as_str()).collect(),
+            _ => continue,
+        };
+        for n in names {
+            if let Some(t) = named(set, path, n, &mut vec![]) {
+                out.insert(n.to_string(), t);
+            }
+        }
+    }
+    out
+}
+/// A type with what its names stand for written out: records, lists, unions, what a function answers; a name it does not
+/// know is left.
+pub fn expand_type(t: &str, types: &Types, depth: usize) -> String {
+    expand(t, depth, &mut |n: &str| types.get(n).cloned())
+}
+fn expand(t: &str, depth: usize, named: &mut dyn FnMut(&str) -> Option<String>) -> String {
+    let t = t.js_trim();
+    if depth > 8 || t.len() > 4000 {
+        return t.to_string();
+    }
+    let word = |s: &str| !s.is_empty() && !s.as_bytes()[0].is_ascii_digit() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
+    if t.starts_with('(') {
+        // a function's parameters and result; a parenthesis
+        if let Some(end) = crate::parse::closes(t, 0) {
+            if let Some(r) = t[end..].js_trim().strip_prefix("=>") {
+                let ps: Vec<String> = split_top(&t[1..end - 1], ",").into_iter().filter(|p| !p.js_trim().is_empty()).map(|p| match p.split_once(':') {
+                    Some((n, ty)) if !n.contains(['{', '[']) => format!("{}: {}", n.js_trim(), expand(ty, depth + 1, named)),
+                    _ => p.js_trim().to_string(),
+                }).collect();
+                return format!("({}) => {}", ps.join(", "), expand(r, depth + 1, named));
+            }
+            if end == t.len() {
+                return format!("({})", expand(&t[1..end - 1], depth + 1, named));
+            }
+        }
+    }
+    for sep in ["|", "&"] {
+        let parts: Vec<String> = split_top(t, sep).into_iter().filter(|x| !x.js_trim().is_empty()).collect();
+        if parts.len() > 1 {
+            let xs: Vec<String> = parts.iter().map(|x| expand(x, depth + 1, named)).collect();
+            let record = |x: &String| x.starts_with('{') && crate::parse::closes(x, 0) == Some(x.len());
+            if sep == "&" && xs.iter().all(record) {
+                return format!("{{ {} }}", xs.iter().map(|x| x[1..x.len() - 1].js_trim().trim_end_matches([',', ';']).to_string()).filter(|x| !x.is_empty()).collect::<Vec<_>>().join("; "));
+            }
+            return xs.join(&format!(" {sep} "));
+        }
+    }
+    if let Some(inner) = t.strip_prefix("readonly ") {
+        return format!("readonly {}", expand(inner, depth + 1, named));
+    }
+    if let Some(inner) = t.strip_suffix("[]") {
+        let x = expand(inner, depth + 1, named);
+        return if x.contains(['|', '&']) || x.contains("=>") { format!("({x})[]") } else { format!("{x}[]") };
+    }
+    for w in ["Array", "ReadonlyArray"] {
+        if let Some(inner) = t.strip_prefix(w).and_then(|r| r.strip_prefix('<')).and_then(|r| r.strip_suffix('>')) {
+            return format!("{w}<{}>", expand(inner, depth + 1, named));
+        }
+    }
+    if let Some(body) = t.strip_prefix('{').and_then(|r| r.strip_suffix('}')) {
+        let fields: Vec<String> = split_top(body, ",;\n").into_iter().filter(|f| !f.js_trim().is_empty()).map(|f| match f.split_once(':') {
+            Some((k, ty)) if !k.contains(['(', '[']) => format!("{}: {}", k.js_trim(), expand(ty, depth + 1, named)),
+            _ => f.js_trim().to_string(),
+        }).collect();
+        return if fields.is_empty() { "{}".into() } else { format!("{{ {} }}", fields.join("; ")) };
+    }
+    if word(t) {
+        if let Some(x) = named(t) {
+            return x;
+        }
+    }
+    t.to_string()
+}
+/// `<props.f … />`: the name of the props, and the field.
+/// RG-4c, a context that holds a view (proposals/27): its declared type, read, is `View` (`fn_: false`) or a function
+/// giving one, of one parameter or none (`fn_: true`; the parameter's type). `ref/src/modules.ts` `viewCtx`.
+pub fn view_ctx(ty: Option<&str>, types: &Types) -> Option<(bool, Option<String>)> {
+    let t = expand_type(ty?, types, 0);
+    let mut t = t.trim();
+    // a type in parentheses is that type: `((row: T) => View)`
+    while t.starts_with('(') && t.ends_with(')') {
+        let (mut d, mut whole) = (0i32, true);
+        for c in t[..t.len() - 1].chars() {
+            match c {
+                '(' => d += 1,
+                ')' => d -= 1,
+                _ => {}
+            }
+            if d == 0 {
+                whole = false;
+                break;
+            }
+        }
+        if !whole {
+            break;
+        }
+        t = t[1..t.len() - 1].trim();
+    }
+    if crate::parse::is_view_type(t) {
+        return Some((false, None));
+    }
+    match view_type(t) {
+        Some((false, param)) => Some((true, param)),
+        _ => None,
+    }
+}
+/// `<use.item … />`: the context whose view is shown.
+pub fn used_in(tag: &str) -> Option<&str> {
+    let n = tag.strip_prefix("use.")?;
+    let first = n.bytes().next()?;
+    (!first.is_ascii_digit() && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')).then_some(n)
+}
+pub fn shown_in(tag: &str) -> Option<(&str, &str)> {
+    let (n, f) = tag.split_once('.')?;
+    let word = |s: &str| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
+    let first = n.bytes().next()?;
+    let field = f.bytes().next().is_some_and(|b| !b.is_ascii_digit());
+    ((first.is_ascii_lowercase() || first == b'_' || first == b'$') && field && word(n) && word(f)).then_some((n, f))
+}
+/// The fields of its props a component shows so, whatever their types say.
+pub fn shown_fields(props: &str, decls: &[Decl], view: &[Markup]) -> indexmap::IndexSet<String> {
+    fn go(props: &str, decls: &[Decl], view: &[Markup], out: &mut indexmap::IndexSet<String>) {
+        for d in decls {
+            if let Decl::Component { decls, view, .. } = d {
+                go(props, decls, view, out);
+            }
+            // `provide item = props.f`: a context that holds a view carries it to where it is shown
+            if let Decl::Provide { e, .. } = d {
+                if let crate::ast::ExprKind::Member { o, p, .. } = &e.k {
+                    if matches!(&o.k, crate::ast::ExprKind::Id(n) if n == props) {
+                        out.insert(p.clone());
+                    }
+                }
+            }
+        }
+        for m in view {
+            match &m.kind {
+                MarkupKind::El { tag, children, .. } => {
+                    if let Some((_, f)) = shown_in(tag).filter(|(n, _)| *n == props) {
+                        out.insert(f.to_string());
+                    }
+                    go(props, &[], children, out);
+                }
+                MarkupKind::Mif { t, t_decls, f, f_decls, .. } => {
+                    go(props, &[], t, out);
+                    go(props, t_decls, &[], out);
+                    go(props, &[], f, out);
+                    go(props, f_decls, &[], out);
+                }
+                MarkupKind::Mfor { decls, body, .. } | MarkupKind::Mview { decls, body, .. } | MarkupKind::Portal { decls, body, .. } => go(props, decls, body, out),
+                MarkupKind::Loading { fallback, decls, body, .. } => {
+                    go(props, &[], fallback, out);
+                    go(props, decls, body, out);
+                }
+                MarkupKind::Errored { fallback, decls, body, .. } => {
+                    go(props, &[], fallback, out);
+                    go(props, decls, body, out);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut out = indexmap::IndexSet::new();
+    go(props, decls, view, &mut out);
+    out
+}
+/// A field of a record type written out: its type, and whether it is optional.
+pub fn field_type(t: &str, field: &str) -> Option<(String, bool)> {
+    let (mut found, mut last) = (None, 0);
+    for part in split_top(t, "&") {
+        let Some(body) = part.js_trim().strip_prefix('{').and_then(|p| p.strip_suffix('}')) else { continue };
+        for f in split_top(body, ",;\n") {
+            if let Some((k, ty)) = f.split_once(':') {
+                if !k.is_empty() && field_name(k) == field {
+                    found = Some((ty.js_trim().to_string(), k.js_trim().ends_with('?')));
+                    last += 1;
+                }
+            }
+        }
+    }
+    // in two records of an intersection, it is neither's
+    found.filter(|_| last == 1)
+}
+/// `(s: T) => View`, `() => View`; `View | ((s: T) => View)`, either way round. Whether plain content is taken; the parameter.
+pub fn view_type(t: &str) -> Option<(bool, Option<String>)> {
+    let alts: Vec<String> = split_top(t, "|").into_iter().map(|x| x.js_trim().to_string()).collect();
+    if let [a, b] = &alts[..] {
+        let f = if a == "View" { b } else if b == "View" { a } else { return None };
+        if !f.starts_with('(') || crate::parse::closes(f, 0) != Some(f.len()) {
+            return None;
+        }
+        return view_type(&f[1..f.len() - 1]).filter(|v| !v.0).map(|v| (true, v.1));
+    }
+    let t = t.js_trim();
+    let end = t.starts_with('(').then(|| crate::parse::closes(t, 0)).flatten()?;
+    if t[end..].js_trim().strip_prefix("=>").map(|r| r.js_trim()) != Some("View") {
+        return None;
+    }
+    let ps: Vec<String> = split_top(&t[1..end - 1], ",").into_iter().map(|p| p.js_trim().to_string()).filter(|p| !p.is_empty()).collect();
+    match &ps[..] {
+        [] => Some((false, None)),
+        [p] => p.split_once(':').and_then(|(n, ty)| {
+            let (n, ty) = (n.js_trim(), ty.js_trim());
+            let name = n.bytes().next().is_some_and(|b| !b.is_ascii_digit()) && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
+            (name && !ty.is_empty()).then(|| (false, Some(ty.to_string())))
+        }),
+        _ => None,
+    }
+}
+/// What names a view a component shows (`fields`) anywhere but where it is shown or asked for (`if props.f`, which plain
+/// content as well is not): the field, and its line. A projection that takes it out of a rest
+/// (`{ children: none, ...rest } = props`) and is not named again is none.
+pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup], fields: &IndexMap<String, Shown>, ctx: &dyn Fn(&str) -> bool) -> Option<(String, usize)> {
+    use serde_json::Value;
+    fn of<'v>(v: &'v Value, p: &str, fields: &IndexMap<String, Shown>) -> Option<&'v str> {
+        (v["k"] == "member" && v["o"]["k"] == "id" && v["o"]["name"] == p).then(|| v["p"].as_str()).flatten().filter(|f| fields.contains_key(*f))
+    }
+    fn mentions(v: &Value, n: &str) -> bool {
+        match v {
+            Value::Array(xs) => xs.iter().any(|x| mentions(x, n)),
+            Value::Object(o) => {
+                let k = o.get("k").and_then(Value::as_str);
+                (matches!(k, Some("id" | "pre")) && v["name"] == n) || (k == Some("el") && v["tag"].as_str().is_some_and(|t| t == n || t.strip_prefix(n).is_some_and(|r| r.starts_with('.')))) || o.values().any(|x| mentions(x, n))
+            }
+            _ => false,
+        }
+    }
+    fn walk(v: &Value, p: &str, fields: &IndexMap<String, Shown>, line: usize, ctx: &dyn Fn(&str) -> bool) -> Option<(String, usize)> {
+        match v {
+            Value::Array(xs) => xs.iter().find_map(|x| walk(x, p, fields, line, ctx)),
+            Value::Object(o) => {
+                let line = o.get("line").and_then(Value::as_u64).map(|l| l as usize).unwrap_or(line);
+                let k = o.get("k").and_then(Value::as_str);
+                let of_props = |f: &str| v[f]["k"] == "id" && v[f]["name"] == p;
+                // `provide item = props.f` of a context that holds a view with a parameter: carried to where it is shown
+                if k == Some("provide") && v["name"].as_str().is_some_and(ctx) && of(&v["e"], p, fields).is_some() {
+                    return None;
+                }
+                if k == Some("member") && of_props("o") {
+                    return of(v, p, fields).map(|f| (f.to_string(), line));
+                }
+                if k == Some("omit") && of_props("e") && v["keys"].as_array().is_some_and(|ks| fields.keys().all(|f| ks.iter().any(|x| x == f))) {
+                    return None;
+                }
+                if matches!(k, Some("id" | "pre")) && v["name"] == p {
+                    return fields.keys().next().map(|f| (f.clone(), line));
+                }
+                o.iter().find_map(|(f, x)| if k == Some("mif") && f == "c" && of(x, p, fields).is_some_and(|g| !fields[g].mixed) { None } else { walk(x, p, fields, line, ctx) })
+            }
+            _ => None,
+        }
+    }
+    let all: Vec<Value> = decls.iter().map(|d| d.to_json()).chain(view.iter().map(|m| m.to_json())).collect();
+    let out = |d: &Value| d["k"] == "eq" && of(&d["e"], props, fields).is_some() && !all.iter().any(|x| mentions(x, d["name"].as_str().unwrap_or_default()));
+    all.iter().find_map(|d| if out(d) { None } else { walk(d, props, fields, 0, ctx) })
+}
+
+/// RG-4c: what a component does with the views it is given: the props declared `View` where its type is read
+/// (`views_of`), its children among them. A view is only shown (`{props.children}`, also under a default or a choice),
+/// given on (as content or as an argument of another component that takes a view there, or in a spread of the props),
+/// named again by a projection of the props, or asked whether it was given (`if props.children`, `!`, `== undefined`).
+/// A name is the binding it is written under: a parameter, a loop's item, a local or an equation of an inner block of the
+/// same spelling is another name. `bad`: every other mention, in the order of the text (field, line, how, of). `at`: each
+/// reader that shows a view, each argument and each content that gives one on (by the address of the `Markup` or the
+/// `Attr`), and the props it is of. `skip`: the fields the component shows as `<props.f … />`, which have their own rule
+/// (`other_mention`). `dest`: what the prop `attr` of `<tag>` is declared (`takes_view`). `ref/src/modules.ts` `viewUses`.
+#[derive(Default)]
+pub struct ViewUses {
+    pub bad: Vec<(String, usize, String, String)>,
+    pub at: HashMap<usize, Vec<String>>,
+    /// each `provide item = props.f` of a context that holds a view: the context's name, the props it carries
+    pub carried: Vec<(String, Vec<String>)>,
+    /// the provisions of a context that holds a view whose every arm is a view of the component, or nothing: no text
+    pub only: HashSet<usize>,
+}
+pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String], dest: &dyn Fn(&str, &str) -> Option<bool>, ctx: &dyn Fn(&str) -> bool) -> ViewUses {
+    use crate::ast::{Attr, Field, MarkupKind, PathSeg, Stmt, StmtKind, TplPart};
+    #[derive(Default)]
+    struct Sc {
+        /// `None`: a name of this block that is no view
+        names: HashMap<String, Option<Given>>,
+        /// the props a name of this block stands for
+        fields: HashMap<String, Vec<String>>,
+        up: Option<usize>,
+    }
+    struct W<'a> {
+        scs: Vec<Sc>,
+        out: ViewUses,
+        dest: &'a dyn Fn(&str, &str) -> Option<bool>,
+        /// whether a context of that name holds a view (`context item: View`)
+        ctx: &'a dyn Fn(&str) -> bool,
+    }
+    fn near<'h>(how: &'h str, k: &'h str) -> &'h str {
+        // what reads it: the nearest, but a handler's or an effect's body whatever is in it
+        if how == "handler" || how == "effect" { how } else { k }
+    }
+    fn nothing(e: &Expr) -> bool {
+        matches!(e.k, ExprKind::Lit(Lit::Undefined | Lit::Null))
+    }
+    fn eq_op(op: &str) -> bool {
+        matches!(op, "==" | "!=" | "===" | "!==")
+    }
+    impl W<'_> {
+        fn sub(&mut self, up: usize, names: &[&str]) -> usize {
+            let mut sc = Sc { up: Some(up), ..Sc::default() };
+            for n in names {
+                sc.names.insert(n.to_string(), None);
+            }
+            self.scs.push(sc);
+            self.scs.len() - 1
+        }
+        fn look(&self, sc: usize, n: &str) -> Option<Given> {
+            let mut s = Some(sc);
+            while let Some(i) = s {
+                if let Some(g) = self.scs[i].names.get(n) {
+                    return g.clone();
+                }
+                s = self.scs[i].up;
+            }
+            None
+        }
+        fn given(&self, e: &Expr, sc: usize) -> Option<Given> {
+            given(e, &|n| self.look(sc, n))
+        }
+        fn view(&self, e: &Expr, sc: usize) -> Option<Given> {
+            self.given(e, sc).filter(|g| g.held() && g.view())
+        }
+        fn form(&self, e: &Expr, sc: usize) -> bool {
+            matches!(e.k, ExprKind::Id(_) | ExprKind::Member { .. }) && self.view(e, sc).is_some()
+        }
+        /// Whether an expression is a view of the component or nothing, whatever it chooses: no arm of it is a value,
+        /// which would be text where it is shown (`p.z ? p.b : undefined`, `p.b ?? p.c`).
+        fn views_only(&self, e: &Expr, sc: usize) -> bool {
+            // (`null` is shown as text)
+            if self.form(e, sc) || matches!(e.k, ExprKind::Lit(Lit::Undefined)) {
+                return true;
+            }
+            match &e.k {
+                ExprKind::If { t, f, .. } => self.views_only(t, sc) && self.views_only(f, sc),
+                ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||") => self.views_only(l, sc) && self.views_only(r, sc),
+                // (not `a && b`: where its left is false, or 0, it is that value, and `false` is shown as text)
+                _ => false,
+            }
+        }
+        fn left(&self, e: &Expr, sc: usize) -> Vec<String> {
+            match self.given(e, sc) {
+                Some(Given::Props { less, views }) => {
+                    let mut l: Vec<String> = views.iter().filter(|v| !less.contains(v)).cloned().collect();
+                    l.sort();
+                    l
+                }
+                _ => vec![],
+            }
+        }
+        fn is_props(&self, e: &Expr, sc: usize) -> bool {
+            matches!(self.given(e, sc), Some(Given::Props { .. }))
+        }
+        fn hit(&mut self, field: &str, line: usize, how: &str, of: &str) {
+            self.out.bad.push((field.to_string(), line, how.to_string(), of.to_string()));
+        }
+        fn held_name(g: &Given) -> &'static str {
+            if matches!(g, Given::Children { .. }) { "children" } else { "view" }
+        }
+        /// The view an expression shows, if it does: itself, an arm of a choice or of a default.
+        fn shows(&self, e: &Expr, sc: usize) -> Option<String> {
+            match &e.k {
+                ExprKind::Id(_) => self.view(e, sc).map(|g| Self::held_name(&g).to_string()),
+                ExprKind::Member { p, .. } => self.view(e, sc).map(|_| p.clone()),
+                ExprKind::If { t, f, .. } => self.shows(t, sc).or_else(|| self.shows(f, sc)),
+                ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => self.shows(l, sc).or_else(|| self.shows(r, sc)),
+                _ => None,
+            }
+        }
+        /// Every prop an expression shows.
+        fn fields(&self, e: &Expr, sc: usize) -> Vec<String> {
+            match &e.k {
+                ExprKind::Id(n) => {
+                    let Some(g) = self.view(e, sc) else { return vec![] };
+                    let mut s = Some(sc);
+                    while let Some(i) = s {
+                        if self.scs[i].names.contains_key(n) {
+                            return self.scs[i].fields.get(n).cloned().unwrap_or_else(|| g.field().into_iter().collect());
+                        }
+                        s = self.scs[i].up;
+                    }
+                    vec![]
+                }
+                ExprKind::Member { p, .. } => if self.view(e, sc).is_some() { vec![p.clone()] } else { vec![] },
+                ExprKind::If { t, f, .. } => [self.fields(t, sc), self.fields(f, sc)].concat(),
+                // the left of `&&` is asked: what it is where it was not given is nothing, placed nowhere
+                ExprKind::Bin { op, r, .. } if op == "&&" => self.fields(r, sc),
+                ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||") => [self.fields(l, sc), self.fields(r, sc)].concat(),
+                _ => vec![],
+            }
+        }
+        fn block(&mut self, ds: &[Decl], up: usize) -> usize {
+            let sc = self.sub(up, &[]);
+            for x in ds {
+                match x {
+                    Decl::Import { names, .. } => names.iter().for_each(|n| { self.scs[sc].names.insert(n.alias.clone(), None); }),
+                    Decl::Effect { .. } | Decl::Provide { .. } => {}
+                    _ => if let Some(n) = x.name() { self.scs[sc].names.insert(n.to_string(), None); },
+                }
+            }
+            // the equations that are projections of the props, in whatever order they are written
+            loop {
+                let mut more = false;
+                for d in ds {
+                    let Decl::Eq { name, e, deferred: false, key: None, .. } = d else { continue };
+                    if self.look(sc, name).is_some() {
+                        continue;
+                    }
+                    if let Some(g) = self.given(e, sc) {
+                        self.scs[sc].names.insert(name.clone(), Some(g));
+                        more = true;
+                    }
+                }
+                if !more {
+                    break;
+                }
+            }
+            loop {
+                let mut more = false;
+                for d in ds {
+                    let Decl::Eq { name, e, .. } = d else { continue };
+                    if !self.scs[sc].names.get(name).is_some_and(|g| g.as_ref().is_some_and(|g| g.held())) {
+                        continue;
+                    }
+                    let mut fs: Vec<String> = vec![];
+                    for f in self.fields(e, sc) {
+                        if !fs.contains(&f) {
+                            fs.push(f);
+                        }
+                    }
+                    if fs.len() != self.scs[sc].fields.get(name).map_or(0, Vec::len) {
+                        self.scs[sc].fields.insert(name.clone(), fs);
+                        more = true;
+                    }
+                }
+                if !more {
+                    break;
+                }
+            }
+            sc
+        }
+        fn plains(&mut self, xs: &[Expr], sc: usize, line: usize, how: &str) {
+            for x in xs {
+                self.plain(x, sc, line, how);
+            }
+        }
+        fn plain(&mut self, e: &Expr, sc: usize, line: usize, how: &str) {
+            match &e.k {
+                ExprKind::Id(n) => self.name(n, e, sc, line, how),
+                // what it was an instant ago is a value
+                ExprKind::Pre { name, init } => {
+                    let id = Expr::new(ExprKind::Id(name.clone()), e.span);
+                    self.name(name, &id, sc, line, how);
+                    if let Some(i) = init {
+                        self.plain(i, sc, line, how);
+                    }
+                }
+                ExprKind::Member { o, p, .. } => {
+                    if self.view(e, sc).is_some() {
+                        self.hit(p, line, how, "");
+                    } else if !self.is_props(o, sc) {
+                        self.plain(o, sc, line, how);
+                    }
+                }
+                ExprKind::Omit { e: inner, .. } => {
+                    if self.is_props(inner, sc) {
+                        let l = self.left(e, sc);
+                        if !l.is_empty() {
+                            self.hit("props", line, how, &l.join(", "));
+                        }
+                    } else {
+                        self.plain(inner, sc, line, how);
+                    }
+                }
+                // whether one was given is a value like another, wherever it is asked
+                ExprKind::Un { op, e: x } => {
+                    if !(op == "!" && self.form(x, sc)) {
+                        self.plain(x, sc, line, how);
+                    }
+                }
+                ExprKind::Bin { op, l, r } => {
+                    if eq_op(op) && self.form(l, sc) && nothing(r) {
+                        return;
+                    }
+                    if !(op == "&&" && self.form(l, sc)) {
+                        self.plain(l, sc, line, how);
+                    }
+                    self.plain(r, sc, line, how);
+                }
+                ExprKind::If { c, t, f } => {
+                    if !self.form(c, sc) {
+                        self.plain(c, sc, line, how);
+                    }
+                    self.plain(t, sc, line, how);
+                    self.plain(f, sc, line, how);
+                }
+                ExprKind::Peek(x) => self.plain(x, sc, line, near(how, "peek")),
+                ExprKind::Await { e: x, init, .. } => {
+                    self.plain(x, sc, line, how);
+                    if let Some(i) = init {
+                        self.plain(i, sc, line, how);
+                    }
+                }
+                ExprKind::Latest(x) | ExprKind::Pending(x) | ExprKind::Spread(x) | ExprKind::Throw(x) => self.plain(x, sc, line, how),
+                ExprKind::Tpl(parts) => {
+                    for p in parts {
+                        if let TplPart::Expr(x) = p {
+                            self.plain(x, sc, line, how);
+                        }
+                    }
+                }
+                ExprKind::Index { o, i, .. } => {
+                    self.plain(o, sc, line, how);
+                    self.plain(i, sc, line, how);
+                }
+                ExprKind::Call { f, args, .. } => {
+                    self.plain(f, sc, line, near(how, "argument"));
+                    self.plains(args, sc, line, near(how, "argument"));
+                }
+                ExprKind::Arr(items) => self.plains(items, sc, line, near(how, "list")),
+                ExprKind::Rec(fields) => {
+                    for f in fields {
+                        let (Field::Kv { v: x, .. } | Field::Spread(x)) = f;
+                        self.plain(x, sc, line, near(how, "record"));
+                    }
+                }
+                ExprKind::Fn { params, body, stmts, .. } => {
+                    let ps: Vec<&str> = params.iter().map(String::as_str).collect();
+                    let inner = self.sub(sc, &ps);
+                    match stmts {
+                        Some(ss) => self.stmts(ss, inner, line, near(how, "handler")),
+                        None => self.plain(body, inner, line, near(how, "closure")),
+                    }
+                }
+                ExprKind::Draft { seed, body } => {
+                    self.plain(seed, sc, line, how);
+                    let inner = self.sub(sc, &["d"]);
+                    self.stmts(body, inner, line, how);
+                }
+                ExprKind::Catch { e: x, name, alt, .. } => {
+                    self.plain(x, sc, line, how);
+                    let inner = self.sub(sc, &name.as_deref().into_iter().collect::<Vec<_>>());
+                    self.plain(alt, inner, line, how);
+                }
+                ExprKind::ServerFn { params, body, .. } => {
+                    let ps: Vec<&str> = params.iter().map(String::as_str).collect();
+                    let inner = self.sub(sc, &ps);
+                    self.stmts(body, inner, line, near(how, "handler"));
+                }
+                ExprKind::Lit(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } => {}
+            }
+        }
+        fn name(&mut self, n: &str, id: &Expr, sc: usize, line: usize, how: &str) {
+            match self.look(sc, n) {
+                Some(g) if g.held() && g.view() => self.hit(Self::held_name(&g), line, how, ""),
+                Some(Given::Props { .. }) => {
+                    let l = self.left(id, sc);
+                    if !l.is_empty() {
+                        self.hit("props", line, how, &l.join(", "));
+                    }
+                }
+                _ => {}
+            }
+        }
+        /// A condition: a view in it is asked for.
+        fn test(&mut self, c: &Expr, sc: usize, line: usize, how: &str) {
+            if self.form(c, sc) {
+                return;
+            }
+            // a choice or a default of views is asked as one is (`if p.l ?? p.r`): each of its arms answers
+            if matches!(&c.k, ExprKind::If { .. }) || matches!(&c.k, ExprKind::Bin { op, .. } if op == "??") {
+                if self.view(c, sc).is_some() {
+                    return self.ve(c, sc, line, how);
+                }
+            }
+            match &c.k {
+                ExprKind::Un { op, e } if op == "!" => self.test(e, sc, line, how),
+                ExprKind::Bin { op, l, r } if matches!(op.as_str(), "&&" | "||") => {
+                    self.test(l, sc, line, how);
+                    self.test(r, sc, line, how);
+                }
+                _ => self.plain(c, sc, line, how),
+            }
+        }
+        /// What is shown, given on or named again: a view, or a choice or a default whose every arm is one or a value.
+        fn ve(&mut self, e: &Expr, sc: usize, line: usize, how: &str) {
+            if self.form(e, sc) {
+                return;
+            }
+            match &e.k {
+                ExprKind::If { c, t, f } => {
+                    self.test(c, sc, line, how);
+                    self.ve(t, sc, line, how);
+                    self.ve(f, sc, line, how);
+                }
+                ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||") => {
+                    self.ve(l, sc, line, how);
+                    self.ve(r, sc, line, how);
+                }
+                ExprKind::Bin { op, l, r } if op == "&&" => {
+                    self.test(l, sc, line, how);
+                    self.ve(r, sc, line, how);
+                }
+                _ => self.plain(e, sc, line, how),
+            }
+        }
+        fn stmts(&mut self, ss: &[Stmt], up: usize, line: usize, how: &str) {
+            let sc = self.sub(up, &[]);
+            for s in ss {
+                let at = if s.line > 0 { s.line as usize } else { line };
+                match &s.k {
+                    StmtKind::Let { name, e, .. } => {
+                        self.plain(e, sc, at, how);
+                        self.scs[sc].names.insert(name.clone(), None);
+                    }
+                    StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                        for p in &target.path {
+                            if let PathSeg::Expr(x) = p {
+                                self.plain(x, sc, at, how);
+                            }
+                        }
+                        self.plain(e, sc, at, near(how, "source"));
+                    }
+                    StmtKind::Expr(e) | StmtKind::Throw(e) => self.plain(e, sc, at, how),
+                    StmtKind::Return(e) => {
+                        if let Some(e) = e {
+                            self.plain(e, sc, at, how);
+                        }
+                    }
+                    StmtKind::Action(body) => self.stmts(body, sc, at, near(how, "handler")),
+                    StmtKind::Sif { c, t, f } => {
+                        self.test(c, sc, at, how);
+                        self.stmts(t, sc, at, how);
+                        self.stmts(f, sc, at, how);
+                    }
+                    StmtKind::For { name, e, body } => {
+                        self.plain(e, sc, at, how);
+                        let inner = self.sub(sc, &[name.as_str()]);
+                        self.stmts(body, inner, at, how);
+                    }
+                    StmtKind::Try { body, catch_name, handler, fin, .. } => {
+                        self.stmts(body, sc, at, how);
+                        if let Some(h) = handler {
+                            let inner = self.sub(sc, &catch_name.as_deref().into_iter().collect::<Vec<_>>());
+                            self.stmts(h, inner, at, how);
+                        }
+                        if let Some(f) = fin {
+                            self.stmts(f, sc, at, how);
+                        }
+                    }
+                    StmtKind::Refresh(_) | StmtKind::Affects(_) => {}
+                }
+            }
+        }
+        fn dk(&mut self, ds: &[Decl], sc: usize, line: usize, how: &str) {
+            for x in ds {
+                let at = if x.line() > 0 { x.line() } else { line };
+                match x {
+                    // a projection: every arm of what it names
+                    Decl::Eq { name, e, .. } => {
+                        if self.scs[sc].names.get(name).is_some_and(Option::is_some) {
+                            if !self.is_props(e, sc) {
+                                self.ve(e, sc, at, how);
+                            }
+                        } else {
+                            self.plain(e, sc, at, how);
+                        }
+                    }
+                    Decl::Source { init, .. } => self.plain(init, sc, at, near(how, "source")),
+                    Decl::Fn { params, decls, tail, .. } => {
+                        let ps: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
+                        let inner = self.sub(sc, &ps);
+                        let b = self.block(decls, inner);
+                        self.dk(decls, b, at, near(how, "closure"));
+                        self.plain(tail, b, at, near(how, "closure"));
+                    }
+                    Decl::Component { props, decls, view, .. } => {
+                        let inner = self.sub(sc, &[props.as_str()]);
+                        let b = self.block(decls, inner);
+                        self.dk(decls, b, at, near(how, "closure"));
+                        self.mk(view, b, at);
+                    }
+                    Decl::Effect { inputs, body, .. } => {
+                        self.plains(inputs, sc, at, "effect");
+                        self.stmts(body, sc, at, "effect");
+                    }
+                    Decl::Action { params, body, .. } | Decl::Server { params, body, .. } => {
+                        let ps: Vec<&str> = params.iter().map(String::as_str).collect();
+                        let inner = self.sub(sc, &ps);
+                        self.stmts(body, inner, at, near(how, "handler"));
+                    }
+                    // a context that holds a view carries it to where it is shown (`{use item}`)
+                    Decl::Provide { name, e, .. } if (self.ctx)(name) => {
+                        self.ve(e, sc, at, how);
+                        let fs = self.fields(e, sc);
+                        if !fs.is_empty() {
+                            self.out.at.insert(x as *const Decl as usize, fs.clone());
+                            self.out.carried.push((name.clone(), fs));
+                            if self.views_only(e, sc) {
+                                self.out.only.insert(x as *const Decl as usize);
+                            }
+                        }
+                    }
+                    Decl::Provide { e, .. } => self.plain(e, sc, at, near(how, "context")),
+                    Decl::Context { dflt, .. } => {
+                        if let Some(d) = dflt {
+                            self.plain(d, sc, at, how);
+                        }
+                    }
+                    Decl::Error { params, msg, .. } => {
+                        if let Some(m) = msg {
+                            let ps: Vec<&str> = params.iter().map(String::as_str).collect();
+                            let inner = self.sub(sc, &ps);
+                            self.plain(m, inner, at, how);
+                        }
+                    }
+                    Decl::Import { .. } | Decl::TypeDecl { .. } => {}
+                }
+            }
+        }
+        fn inner(&mut self, ds: &[Decl], ms: &[Markup], up: usize, at: usize) {
+            let b = self.block(ds, up);
+            self.dk(ds, b, at, "value");
+            self.mk(ms, b, at);
+        }
+        fn to(&mut self, tag: &str, attr: &str, e: &Expr, key: usize, sc: usize, at: usize) {
+            let Some(f) = self.shows(e, sc) else { return };
+            let fs = self.fields(e, sc);
+            self.out.at.insert(key, fs);
+            if (self.dest)(tag, attr) == Some(false) {
+                self.hit(&f, at, "prop", &format!("{attr} of <{tag}>"));
+            }
+        }
+        fn mk(&mut self, ms: &[Markup], sc: usize, line: usize) {
+            for m in ms {
+                let at = m.line.unwrap_or(line);
+                match &m.kind {
+                    MarkupKind::Read(e) => {
+                        self.ve(e, sc, at, "value");
+                        if self.shows(e, sc).is_some() {
+                            let fs = self.fields(e, sc);
+                            self.out.at.insert(m as *const Markup as usize, fs);
+                        }
+                    }
+                    MarkupKind::El { tag, attrs, children } => {
+                        let comp = tag.starts_with(|c: char| c.is_ascii_uppercase()) || shown_in(tag).is_some();
+                        for a in attrs {
+                            let n = a.name.as_str();
+                            let handler = n.starts_with("on") && n[2..].starts_with(|c: char| c.is_ascii_uppercase() || c == ':');
+                            if n == "..." && comp && self.is_props(&a.e, sc) {
+                                // a spread gives each on under its own name
+                                let l = self.left(&a.e, sc);
+                                let i = attrs.iter().position(|x| std::ptr::eq(x, a)).unwrap_or(0);
+                                let content = children.iter().any(|x| !matches!(&x.kind, MarkupKind::Text(t) if t.trim().is_empty()));
+                                for f in &l {
+                                    if !attrs[i + 1..].iter().any(|x| x.name == *f) && !(f == "children" && content) && (self.dest)(tag, f) == Some(false) {
+                                        self.hit(f, at, "prop", &format!("{f} of <{tag}>"));
+                                    }
+                                }
+                                self.out.at.insert(a as *const Attr as usize, l);
+                            }
+                            if n == "..." {
+                                // a spread of the props gives the views on to a component; an element is none
+                                // (an element with no content of its own would be given the children, which one runner shows and another does not)
+                                let bare = !comp && self.left(&a.e, sc).iter().any(|f| f == "children") && children.iter().all(|x| matches!(&x.kind, MarkupKind::Text(t) if t.trim().is_empty()));
+                                if bare || !self.is_props(&a.e, sc) {
+                                    self.plain(&a.e, sc, at, "value");
+                                }
+                            } else if comp && !handler && n != "ref" {
+                                self.ve(&a.e, sc, at, "value");
+                                self.to(tag, n, &a.e, a as *const Attr as usize, sc, at);
+                            } else {
+                                self.plain(&a.e, sc, at, if handler { "handler" } else { "value" });
+                            }
+                        }
+                        if comp {
+                            let c: Vec<&Markup> = children.iter().filter(|x| !matches!(&x.kind, MarkupKind::Text(t) if t.trim().is_empty())).collect();
+                            if let [Markup { kind: MarkupKind::Read(e), .. }] = c[..] {
+                                self.to(tag, "children", e, m as *const Markup as usize, sc, at);
+                            }
+                        }
+                        self.mk(children, sc, at);
+                    }
+                    MarkupKind::Mif { c, t, t_decls, f, f_decls } => {
+                        self.test(c, sc, at, "value");
+                        self.inner(t_decls, t, sc, at);
+                        self.inner(f_decls, f, sc, at);
+                    }
+                    MarkupKind::Mfor { name, xs, decls, body } => {
+                        self.plain(xs, sc, at, "value");
+                        let s2 = self.sub(sc, &[name.as_str()]);
+                        self.inner(decls, body, s2, at);
+                    }
+                    MarkupKind::Mview { params, decls, body, .. } => {
+                        let ps: Vec<&str> = params.iter().map(String::as_str).collect();
+                        let s2 = self.sub(sc, &ps);
+                        self.inner(decls, body, s2, at);
+                    }
+                    MarkupKind::Loading { on, fallback, decls, body } => {
+                        if let Some(o) = on {
+                            self.plain(o, sc, at, "value");
+                        }
+                        self.mk(fallback, sc, at);
+                        self.inner(decls, body, sc, at);
+                    }
+                    MarkupKind::Errored { fallback, decls, body, err_name, .. } => {
+                        let s2 = self.sub(sc, &err_name.as_deref().into_iter().collect::<Vec<_>>());
+                        self.mk(fallback, s2, at);
+                        self.inner(decls, body, sc, at);
+                    }
+                    MarkupKind::Portal { to, decls, body } => {
+                        if let Some(t) = to {
+                            self.plain(t, sc, at, "value");
+                        }
+                        self.inner(decls, body, sc, at);
+                    }
+                    MarkupKind::Text(_) | MarkupKind::Style(_) => {}
+                }
+            }
+        }
+    }
+    let mut views = views_of(props_type, types, &[]);
+    views.retain(|f| !skip.contains(f));
+    let mut root = Sc::default();
+    root.names.insert(props.to_string(), Some(Given::Props { less: vec![], views: views.into() }));
+    let mut w = W { scs: vec![root], out: ViewUses::default(), dest, ctx };
+    w.inner(decls, view, 0, 0);
+    w.out
+}
+/// What refuses a view read as a value, and the way that is accepted, by what read it (`how`). `ref/src/modules.ts` `viewNotShown`.
+pub fn view_not_shown(comp: &str, props: &str, field: &str, how: &str, of: &str) -> String {
+    let v = if field == "props" || field == "view" { format!("{props}.children") } else { format!("{props}.{field}") };
+    if field == "props" {
+        let first = of.split(", ").next().unwrap_or_default();
+        return format!("{comp} is given views in {props} ({of}), and gives {props} whole to what is no component: a view is only shown — take them out first, `{{ {of}, ...rest }} = {props}`, and show each (`{{{first}}}`)");
+    }
+    let tail = match how {
+        "peek" => format!("`peek` keeps nothing of it — show it where it goes, `{{{v}}}`: each place it is shown has its own, made there"),
+        "source" => format!("a source does not hold it — show it, `{{{v}}}`; to show it later, keep a source that says when: `{{if open {{ {{{v}}} }}}}`"),
+        "effect" => format!("an effect cannot watch it — whether one was given is `{v} != undefined`"),
+        "handler" => format!("a handler or an action cannot read it — write a source there and show it under that: `{{if open {{ {{{v}}} }}}}`"),
+        "closure" => format!("a closure that answers it is not shown — show `{{{v}}}` there, or give it on as an argument typed `View`: `<Q part={{{v}}} />`"),
+        "record" => "a record does not hold it — give each on as an argument typed `View`: `<Q header={…} footer={…} />`".to_string(),
+        "list" => format!("a list does not hold it — write them one after the other: `{{{v}}}{{…}}`"),
+        "context" => format!("this context does not carry it — one that holds a view does (`context item: View`, `provide item = {v}`, shown by `{{use item}}`); or give it on as an argument typed `View` of the component that shows it (`<Q part={{{v}}} />`)"),
+        "argument" => format!("a fn does not take it — a component does: `<Q part={{{v}}} />`"),
+        "prop" => format!("{of} takes a value, not a view — give it on to a prop typed `View`, or show it: `{{{v}}}`"),
+        _ => format!("it is not read as a value (compared, written out, computed with, kept from one instant to the next) — `{{{v}}}` shows it, `{v} != undefined` asks whether one was given"),
+    };
+    format!("{comp} is given a view, {}, and a view is only shown: {tail}", if field == "view" { "a prop typed View" } else { field })
 }
 
 #[cfg(test)]

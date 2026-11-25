@@ -5,9 +5,19 @@
 - **Fixed: a view given to a JavaScript component that provides** (`{view (x) { provide c = x … }}`) had no owner of its own in the crate: the next view saw it (RG-7a;
   `compiler/test/js-host.mjs`; proposals/bugs/38).
 - **Fixed: a closure as a component's children** (`<T>{n => …}</T>`, `props.children(n)`) threw in the interpreter and the oracle (S-view-2; proposals/bugs/34).
-- **Fixed: `provide c = use c`** overflowed the stack of both checkers, and the crate's process aborted. It is `CYCLE` (C-1), and so are provisions of one
-  region given from each other: read above, provide in a block below (S-context-4; proposals/bugs/40, with what is accepted as before).
+- **Fixed: `provide c = use c`** overflowed the stack of both checkers, and the crate's process aborted. A `use c` written in what `provide c` is given
+  is what is above that provision (`provide theme = { ...(use theme), fg: props.fg }`), in every runner; beside the provision the same `use` is that
+  provision, so through a name (`up = use c; provide c = up`, which froze), a second context of the block or a default of itself it is `CYCLE` (C-1),
+  and with nothing above and no default `CONTEXT_NOT_FOUND` (RG-7b; S-context-9, S-context-11; proposals/bugs/40).
 - **Fixed: `NESTED_NOT_RENDERED`, twice on a line**, in the same order in both checkers, the written one (S-module-41; proposals/bugs/39).
+- **A view an `.rx` component shows with what it knows** (proposals/25): `children: (s: { on: boolean }) => View`, shown as `<props.children on={lit} />`,
+  given as `<Toggle>{view (s) { … }}</Toggle>`; a prop of another name as `{view cell (s) { … }}`; `View | (…)` takes plain content as well (RG-4c; S-view-3 to S-view-7). The crate gives a view that provides an owner of its own, as ref/ did (proposals/bugs/38).
+- **Fixed: a closure as a component's children** (`<T>{n => …}</T>`, `props.children(n)`) threw in the interpreter and the oracle (S-view-2; proposals/bugs/34).
+- **Fixed: `NESTED_NOT_RENDERED`, twice on a line**, in the same order in both checkers (S-module-41; proposals/bugs/39).
+- **Proposed: a view a component is given is only shown, and is made where it is shown** (RG-4c; `VIEW_NOT_SHOWN`; S-context-4, S-context-5; proposals/26).
+- **Proposed: a context that holds a view** (RG-4c; proposals/27; S-context-8): `context item: View`, or `(row: T) => View`, given a view the component was given (`provide item = props.item`) and shown by `{use item}` or `<use.item row={r} />`; shown and nothing else, not exported, checked at every place that shows it. Whether a view was given is asked of the argument as it was written (S-context-7).
+  A `use` or an `await` in a component's content is of the place that shows it, in every runner (proposals/bugs/33, 36); whether content was given
+  is asked without making it; `AMBIGUOUS_CONTEXT` and the crate's refusal of an `await` in content are gone. Read as a value, a view is refused.
 - **Fixed: an `await` in a component's children** was not compiled by the crate (S-view-1; proposals/bugs/37). It is still not, in a module where
   children read a context (proposals/bugs/36).
 

@@ -212,6 +212,18 @@ function lent(v: unknown, to: string): unknown {
   };
   return wrap(v);
 }
+/** RG-4c: the question "was a view given" being asked, if one is: shared by every copy of the runtime on the page. */
+const ASK: { on: { owner: unknown } | null } = ((globalThis as any)[Symbol.for("rx.ask")] ??= { on: null });
+/** A view that is written: made where it is read. While it is only asked for (by the computation that asks: a memo of
+ *  a JavaScript host in between holds what it reads, so there it is made) it answers its own maker, which says that it
+ *  was given and makes nothing — and which JavaScript that keeps what it read (`cached ??= props.children`) can show
+ *  later: a function is a child, made where it is shown. A JavaScript host that gives an .rx component a view it would
+ *  rather not have made to answer offers it so: `get icon() { return slot(() => <Icon />) }`. */
+function slot<T>(make: () => T): T {
+  const a = ASK.on; if (!a) return make();
+  ASK.on = null;
+  try { return getOwner() !== a.owner ? make() : make as T; } finally { ASK.on = a; }
+}
 export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
@@ -431,9 +443,18 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     context(name: string, dflt: (() => unknown) | null): Ctx { return { name, ctx: createContext<Entry | undefined>(NO_PROVISION, name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any) as Acc } : null }; },
     provide(c: Ctx, e: Entry) { setContext(c.ctx, e); },
     use(c: Ctx, owner: ReturnType<typeof getOwner>): Entry {
-      const e = getContext(c.ctx, owner ?? undefined); if (e && e !== NO_PROVISION) return e;
+      let e = getContext(c.ctx, owner ?? undefined);
+      if (e && e !== NO_PROVISION) return e;
       if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
+    },
+    /** RG-7b: a provision's own expression reads what is above it (`provide c = (use c) + "!"`), each time it is
+     *  computed: the provision it is about to be is not above itself. Called before `provide`, where what is above is still what `use` finds. */
+    /** RG-7b: what is above a block for a context it is about to provide (`provide c = … use c …` reads it): asked
+     *  before the provision is there; a context nothing provides above, with no default, fails where it is read. */
+    above(c: Ctx, owner: ReturnType<typeof getOwner>): () => unknown {
+      let e: Entry; try { e = app.use(c, owner); } catch (err) { return () => { throw err; }; }
+      return () => e.get ? e.get() : e.value;
     },
     useGet(c: Ctx, owner: ReturnType<typeof getOwner>) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
@@ -460,6 +481,18 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     // ---- views: compiled JSX (compile/jsx.ts) calls the renderer; these are the two helpers it calls on __rt ----
     /** `{e}`: a view is inserted as it is; any other value is formatted (the frame's text). */
     show: (v: unknown) => isView(v) ? v : fmt(v),
+    /** RG-4c: a view a component was given, shown with what it knows. `plain`: plain content is taken as well, shown as it is, and a function of no parameter is a thunk, as JSX has it. */
+    view(c: unknown, f: (view: unknown) => unknown, plain?: boolean) { return typeof c === "function" && (!plain || c.length) ? f(c) : app.kids(c); },
+    /** RG-4c: whether a view was given, asked without making it. The argument is read as it was written, and while it
+     *  is, what would make a view (`slot`: content, a component given by name) stands for itself: a view given on
+     *  through any number of components, a spread, a rest or a default asks its giver, a choice follows its branch
+     *  (its condition is read here, and tracked), and a value answers as JavaScript has it (`0`, `""`, `undefined`).
+     *  A JavaScript host's getter is read, as Solid's `props.children ? … : …` reads it; one that would rather not be
+     *  made offers `slot` itself. */
+    ask<T>(f: () => T): T { const was = ASK.on; ASK.on = { owner: getOwner() }; try { return f(); } finally { ASK.on = was; } },
+    slot,
+    /** `{props.part}` of a prop declared `View`: one that was not given shows nothing. */
+    opt: (v: unknown) => v === undefined ? v : isView(v) ? v : fmt(v),
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
     kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
