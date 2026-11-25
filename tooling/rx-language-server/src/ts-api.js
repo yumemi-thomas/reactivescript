@@ -17,6 +17,8 @@ function api() {
 }
 const OPTIONS = { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: 100, allowImportingTsExtensions: true, module: 99, target: 9, jsx: 1, jsxImportSource: "@solidjs/web", types: [] };
 
+/** The last program opened, kept until another is: tsrs parses a file again that no program it holds has. */
+let kept;
 /** A program over `spec` as imported from `from`: `{ ts, checker, program, mod, imp, entry, options, resolve, other, dispose }`. */
 function open(spec, from, more = {}) {
   const ts = api(), ck = checkerOf(from), options = { ...OPTIONS, ...more };
@@ -31,7 +33,7 @@ function open(spec, from, more = {}) {
     resolve: (s, lib) => (lib && bare(s) && ck.resolve(s, path.dirname(lib), options)) || ck.resolve(s, from, options),
     /** A program of its own over files (a package's other modules). */
     other: files => { const m = ck.program({ roots: files, options }); opened.push(m); return wrap(ts, m.program); },
-    dispose: () => { for (const m of opened) m.dispose(); },
+    dispose: () => { for (const m of opened.slice(1)) m.dispose(); try { kept?.dispose(); } catch { /* its process was closed */ } kept = made; },
   };
 }
 

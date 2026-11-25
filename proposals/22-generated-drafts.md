@@ -25,11 +25,11 @@ A row `pure` in a generated file grants permission to call the function in a vie
 
 ## Evidence (author-selected)
 
-193 modules of 104 packages drafted whole, 5,111 rows, 1,659 words, 660 questions left. 10,967 uses and programs are read again with a generated file: none is newly refused without a reason. Those are checks the author chose.
+193 modules of 104 packages drafted whole, 5,075 rows, 423 words, 718 questions left. 10,967 uses and programs are read again with a generated file: none is newly refused without a reason. Those are checks the author chose.
 
 ## Cost
 
-Drafting 1,917 lines; the reading of code 4,400 of Rust (`compiler/words`), for `pure` mostly. Step 1 alone needs none of the second.
+Drafting 1,917 lines; the reading of code 3,500 of Rust (`compiler/words`), for `pure` mostly. Step 1 alone needs none of the second.
 
 ## Prototype
 

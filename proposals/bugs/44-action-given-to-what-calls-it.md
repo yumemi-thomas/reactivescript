@@ -41,4 +41,4 @@ export default component App() {
 
 **Cause.** The checkers do not know that a parameter is called. JavaScript is bug 05's last program: an action given there may be called later, and refusing it would refuse correct code. These two are known to call now.
 
-**Not fixed here.** For JavaScript, this branch's generator no longer writes `pure` on a fn that runs a function it finds in its argument, so such a call is refused as an undeclared one is (09 MO-8j; `tooling/rx-language-server/test/infer-called.js`).
+**Not fixed here.** For JavaScript, this branch's generator no longer writes `pure` on a fn that runs a function it finds in its argument, so such a call is refused as an undeclared one is (09 MO-8j; `tooling/rx-language-server/test/words/cases.json`). What a rule would refuse is counted in `spec/archive/mo8j-action-by-name-2026-11-26.md`.

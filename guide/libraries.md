@@ -11,10 +11,10 @@ what the package's TypeScript types show, the words the package's code proves (b
 where an answer only you have changes what the checker does: what the row does now, what the word changes, and why the
 code does not prove it, with its place.
 
-**Words read from the code.** Six words are in no type: `pure`, `handler` on a callback, `draft` on a parameter a
-function changes in place, `rejects(E)`, and a context's `uses(c)` and `provides(c)`. `rx-declare` reads the
+**Words read from the code.** Seven words are in no type: `pure`, `handler` on a callback, `draft` on a parameter a
+function changes in place, `rejects(E)`, `instantiates`, and a context's `uses(c)` and `provides(c)`. `rx-declare` reads the
 JavaScript your import resolves to — your own module, a package's shipped ES module (its JSX source where it has a
-`solid` build), every build its export map has — and writes a word **only where the code proves it**:
+`solid` build), as Node and Vite load it — and writes a word **only where the code proves it**:
 
 ```rx
 // Read from the code that runs (MO-8v): 2 pure, 2 handler, 1 rejects, 1 draft, 1 uses, 1 provides — read, not guessed. …
@@ -30,22 +30,23 @@ export pure fn sortedBy<T>(ref list: T[], comparator: (a: T, b: T) => number): r
 - `pure`: the call only computes — no write outside what it makes, no clock, no randomness, no `window`, no
   `fetch`, no call into code it cannot read. (So a loader that really fetches is not *proven* pure, though it is
   `pure`: that word is still yours to write.)
-- `handler`: every call of the callback is behind a listener, a timer, an observer, a promise or an `await` — never
-  while the function itself runs, never inside a computation.
+- `handler`: every call of the callback is later and outside any owner and computation: a timer, a promise, a
+  microtask, after an `await` nothing passes by, or a listener of `window`, `document` or an element written in JSX
+  in a function that could not dispatch the event. A listener on an element the function is given gets no word.
 - `draft`: the function changes that argument in place during the call and keeps nothing.
 - `rejects(E)`: every `throw` it reaches is of a class the module exports.
-- `handler` on a component's prop: the prop reaches only an element's event — `onClick={props.onPress}`, a closure
-  written there, `<button {...rest}>`, through `omit` and `merge`. Called while the component renders, or handed to
-  another component, it gets no word.
+- `handler` on a component's prop: the prop is an element's event, `onClick={props.onPress}` or a closure written there.
+  Called while the component renders, or handed to another component, it gets no word.
+- `instantiates`: every path makes what needs an owner (an effect, a cleanup, a context read). Signals and memos alone
+  need none: no word.
 - `uses(c)`: `useContext(C)` runs on **every** path of the call and `C` has no default (or the code throws on its
   `null`) — and a component of the same draft is shown to provide it. A context read only when a prop says so, or
   inside a function the hook hands back, is not one every call needs: no word.
 - `provides(c)`: the component renders `<C value={…}>` and everything it is given that may be a view is written among
   that provider's children. `props.children` read before the provider, beside it, or on a branch without it: no word.
-- A value made by a call (`export const useKeys = createSingletonRoot(() => …)`, a component made by a factory) is
-  read as the function its factory hands back, where the code shows which that is. And a call is read with the
-  arguments it is given: a wrapper of your own that never passes `{ dirty: true }` can be `pure` where the
-  library's function is not.
+- A value made by a call (a component made by a factory) is read as the function its factory hands back, where the code
+  shows which that is. A call is read with the arguments it is given: a wrapper of your own that never passes
+  `{ dirty: true }` can be `pure` where the library's function is not.
 
 Nothing in the file says which words came from the code: the first line of the draft counts them, and the tools
 read the code again when they need to know. `npx rx-declare --audit <file.d.rx>` goes through **every** word a
