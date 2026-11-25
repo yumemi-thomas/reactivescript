@@ -74,9 +74,7 @@ struct Bind {
     /// RG-4b: a component's props, or a projection of them that holds a view
     given: Option<Given>,
     /// RG-4c: of a name for a view the component was given, whether it was given
-    asked: Option<E>,
     /// … and whether it is not `undefined`
-    asked_some: Option<E>,
     /// RG-4c: a component's props: the views it shows (`<props.f … />`), and whether it takes plain content as well
     shows: Vec<(String, bool)>,
     /// RG-4c: a component whose children are a view or plain content
@@ -105,7 +103,7 @@ fn takes_plain(d: &Decl, types: &Types) -> bool {
     matches!(d, Decl::Component { props, props_type, decls, view, .. } if shown(props, props_type.as_deref(), decls, view, types).get("children").is_some_and(|v| v.mixed))
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), given: None, asked: None, asked_some: None, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
+    Bind { kind, js: js.into(), given: None, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -1148,7 +1146,13 @@ impl<'p> Gen<'p> {
             let entry = match src {
                 Some(b) => obj(vec![("get", id(b.js.clone())), ("w", id(b.w.clone().unwrap()))]),
                 None => {
-                    let get = if self.given(e, env).is_some_and(|g| g.held()) { self.held(e, env)? } else { rtc("memo", vec![E::Null, thunk(self.expr(e, env, &reactive())?)]) };
+                    let get = if self.given(e, env).is_some_and(|g| g.held()) { self.held(e, env)? } else {
+                        // RG-7b: what it reads of its own context is what is above it
+                        let x = thunk(self.expr(e, env, &reactive())?);
+                        let j = e.to_json().to_string();
+                        let f = if j.contains("\"k\":\"use\"") || j.contains("\"k\":\"call\"") { rtc("over", vec![self.reference(name, env, &reactive())?, x]) } else { x };
+                        rtc("memo", vec![E::Null, f])
+                    };
                     obj(vec![("get", get)])
                 }
             };
@@ -1311,11 +1315,6 @@ impl<'p> Gen<'p> {
                     Ok(out)
                 };
                 if b.given.as_ref().is_some_and(|g| g.held()) {
-                    let (a, n) = (self.asked(e, env, false)?, self.asked(e, env, true)?);
-                    if let Some(x) = self.frames[env].vars.get_mut(name) {
-                        x.asked_some = n;
-                        x.asked = a;
-                    }
                     let v = self.held(e, env)?;
                     return fin(vec![konst(b.js.clone(), v)], self);
                 }
@@ -1388,22 +1387,6 @@ impl<'p> Gen<'p> {
             _ => fail("unreachable"),
         }
     }
-    /// Whether what an expression compiles to has no call and no member in it: Solid's compiler gives such a prop as a value.
-    fn as_value(&self, e: &Expr, env: Env) -> bool {
-        match &e.k {
-            ExprKind::Lit(_) | ExprKind::Fn { .. } | ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => true,
-            ExprKind::Id(n) => self.lookup(env, n).is_none_or(|b| !matches!(b.kind, Kind::Acc | Kind::Src)),
-            ExprKind::Member { o, opt, .. } => *opt && self.as_value(o, env),
-            ExprKind::Index { o, i, opt } => *opt && self.as_value(o, env) && self.as_value(i, env),
-            ExprKind::Un { e, .. } => self.as_value(e, env),
-            ExprKind::Bin { op, l, r } => op != "==" && op != "!=" && self.as_value(l, env) && self.as_value(r, env),
-            ExprKind::If { c, t, f } => self.as_value(c, env) && self.as_value(t, env) && self.as_value(f, env),
-            ExprKind::Tpl(parts) => parts.iter().all(|p| match p { crate::ast::TplPart::Str(_) => true, crate::ast::TplPart::Expr(x) => self.as_value(x, env) }),
-            ExprKind::Arr(items) => items.iter().all(|x| self.as_value(if let ExprKind::Spread(y) = &x.k { y } else { x }, env)),
-            ExprKind::Rec(fields) => fields.iter().all(|f| { let (crate::ast::Field::Kv { v: x, .. } | crate::ast::Field::Spread(x)) = f; self.as_value(x, env) }),
-            _ => false, // a call, a read of a context, an await, a probe: each compiles to a call
-        }
-    }
     fn given(&self, e: &Expr, env: Env) -> Option<Given> {
         given(e, &|n| self.lookup(env, n).and_then(|b| b.given))
     }
@@ -1416,67 +1399,28 @@ impl<'p> Gen<'p> {
         }
         Ok(thunk(self.expr(e, env, &reactive())?))
     }
-    /// RG-4c: whether a view was given, asked without making it: `props.children`, a name for it, a choice or a default
-    /// of them (what its arms answer, a value's own answer where an arm is one). `some`: whether it is not `undefined`.
+    /// RG-4c: whether a view was given, asked without making it. The question is the argument as it was written, read
+    /// with each view in it standing for itself (`__rt.ask`: content, a view given on, a choice or a default of them);
+    /// a value in it answers as JavaScript has it. `some`: whether it is not `undefined` (`??`, `!= undefined`). Of a
+    /// prop that is not declared `View`, the question is its value's, and nothing is emitted here.
     fn asked(&mut self, e: &Expr, env: Env, some: bool) -> R<Option<E>> {
-        Ok(match &e.k {
-            ExprKind::Id(n) => self.lookup(env, n).filter(|b| b.given.as_ref().is_some_and(|g| g.held() && g.view())).and_then(|b| if some { b.asked_some } else { b.asked }),
-            // a prop declared `View`: of anything else, the question is its value's
-            ExprKind::Member { o, p, .. } if self.given(e, env).is_some_and(|g| g.held() && g.view()) => {
-                let mut args = vec![self.expr(o, env, &reactive())?, str(p.clone())];
-                if some {
-                    args.push(E::Bool(true));
-                }
-                Some(rtc("given", args))
-            }
-            ExprKind::If { c, t, f } => {
-                if self.asked(t, env, false)?.is_none() && self.asked(f, env, false)?.is_none() {
-                    return Ok(None);
-                }
-                let c = match self.asks(c, env, true)? { Some(x) => x, None => self.expr(c, env, &reactive())? };
-                let (a, b) = (self.answer(t, env, some)?, self.answer(f, env, some)?);
-                Some(E::Cond(Box::new(c), Box::new(a), Box::new(b)))
-            }
-            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => {
-                if self.asked(l, env, false)?.is_none() && self.asked(r, env, false)?.is_none() {
-                    return Ok(None);
-                }
-                // the left as a condition
-                let c = match self.asks(l, env, true)? { Some(x) => x, None => self.answer(l, env, false)? };
-                match op.as_str() {
-                    "&&" => {
-                        let (a, b) = (self.answer(r, env, some)?, self.answer(l, env, some)?);
-                        Some(E::Cond(Box::new(c), Box::new(a), Box::new(b)))
-                    }
-                    "||" => Some(bin("||", c, self.answer(r, env, some)?)),
-                    _ if some => {
-                        let (a, b) = (self.answer(l, env, true)?, self.answer(r, env, true)?);
-                        Some(bin("||", a, b))
-                    }
-                    _ => {
-                        let (n, a, b) = (self.answer(l, env, true)?, self.answer(l, env, false)?, self.answer(r, env, false)?);
-                        Some(E::Cond(Box::new(n), Box::new(a), Box::new(b)))
-                    }
-                }
-            }
-            _ => None,
-        })
-    }
-    /// What an arm answers: a view's, or a value's own (`some`: `(e) != null`).
-    fn answer(&mut self, e: &Expr, env: Env, some: bool) -> R<E> {
-        if let Some(a) = self.asked(e, env, some)? {
-            return Ok(a);
+        if !self.given(e, env).is_some_and(|g| g.held() && g.view()) {
+            return Ok(None);
         }
-        let x = self.expr(e, env, &reactive())?;
-        Ok(if some { bin("!=", x, E::Null) } else { x })
+        let v = rtc("ask", vec![thunk(self.expr(e, env, &reactive())?)]);
+        Ok(Some(if some { bin("!=", v, E::Null) } else { v }))
     }
-    /// … and a condition that asks it: `!v`, `v == undefined`, `a && b`, `a || b`. `bare`: the view itself is one (an `if`,
-    /// a `?:`, the left of `&&`).
+    /// … and a condition that asks it: the view itself or a choice of views (`bare`: an `if`, a `?:`, the left of
+    /// `&&`), `!v`, `v == undefined`, `a && b`, `a || b`.
     fn asks(&mut self, c: &Expr, env: Env, bare: bool) -> R<Option<E>> {
+        if bare {
+            if let Some(a) = self.asked(c, env, false)? {
+                return Ok(Some(a));
+            }
+        }
         Ok(match &c.k {
-            ExprKind::Id(_) | ExprKind::Member { .. } if bare => self.asked(c, env, false)?,
             ExprKind::Un { op, e } if op == "!" => self.asks(e, env, true)?.map(not),
-            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "==" | "!=") && matches!(r.k, ExprKind::Lit(Lit::Undefined | Lit::Null)) && matches!(l.k, ExprKind::Id(_) | ExprKind::Member { .. }) => self.asked(l, env, true)?.map(|a| if op == "==" { not(a) } else { a }),
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "==" | "!=") && matches!(r.k, ExprKind::Lit(Lit::Undefined | Lit::Null)) => self.asked(l, env, true)?.map(|a| if op == "==" { not(a) } else { a }),
             ExprKind::Bin { op, l, r } if bare && matches!(op.as_str(), "&&" | "||") => {
                 let (a, b) = (self.asks(l, env, true)?, self.asks(r, env, true)?);
                 if a.is_none() && b.is_none() {
@@ -2487,19 +2431,11 @@ impl<'p> Gen<'p> {
                     if let Some(n) = self.views.given(tag, &a.name, &a.e) {
                         let applied = Markup { kind: MarkupKind::El { tag: n.to_string(), attrs: vec![], children: vec![] }, line: m.line, span: m.span };
                         if let Some(Child::Jsx(j)) = self.child(&applied, env)? {
-                            xs.push((a.name.clone(), AttrValue::Expr(E::Jsx(Box::new(j)))));
+                            xs.push((a.name.clone(), AttrValue::Expr(rtc("slot", vec![thunk(E::Jsx(Box::new(j)))]))));
                         }
                         continue;
                     }
-                    // RG-4c: whether a view was given is read off the prop. A value JSX keeps as it is (a literal) answers by
-                    // what it is, anything else that is written was given: what Solid's compiler would keep as a value
-                    // though it is no literal (a parameter, a sum of constants) is made a read, so that it answers as written
-                    let wrap = a.name != "..." && !is_handler(&a.name) && !matches!(a.e.k, ExprKind::Lit(_) | ExprKind::Arr(_) | ExprKind::Rec(_) | ExprKind::Fn { .. }) && self.as_value(&a.e, env);
-                    let (n, v) = self.attr(&a.name, &a.e, env)?;
-                    xs.push(match v {
-                        AttrValue::Expr(x) if wrap => (n, AttrValue::Expr(rtc("v", vec![x]))),
-                        v => (n, v),
-                    });
+                    xs.push(self.attr(&a.name, &a.e, env)?);
                 }
                 // MO-11k: named render props are attributes
                 for c in children {
@@ -2529,17 +2465,12 @@ impl<'p> Gen<'p> {
                 let lone = matches!(&rest[..], [Markup { kind: MarkupKind::Read(e), .. }] if matches!(e.k, ExprKind::Fn { .. }) || !placed(&e.to_json()));
                 let blank = rest.iter().all(|c| matches!(&c.kind, MarkupKind::Text(t) if t.trim().is_empty()));
                 if !lone && !blank {
-                    let r = self.region(&[], children, env)?; // a named view among them is an attribute: no child
-                    return Ok(Some(el(name, xs, vec![r], false)));
+                    let f = self.region_fn(&[], children, env, None, None, None)?; // a named view among them is an attribute: no child
+                    return Ok(Some(el(name, xs, vec![Child::Expr(rtc("slot", vec![f]))], false))); // asked whether it was given, it is not made
                 }
                 let mut kids = vec![];
-                // content that is written is given, also where what it gives on was not
-                let on = matches!(&rest[..], [Markup { kind: MarkupKind::Read(e), .. }] if !matches!(e.k, ExprKind::Fn { .. }) && self.given(e, env).is_some_and(|g| g.held()));
                 for c in rest {
-                    kids.extend(self.child(c, env)?.map(|k| match k {
-                        Child::Expr(x) if on => Child::Expr(bin("??", x, E::Arr(vec![]))),
-                        k => k,
-                    }));
+                    kids.extend(self.child(c, env)?);
                 }
                 el(name, xs, kids, false)
             }

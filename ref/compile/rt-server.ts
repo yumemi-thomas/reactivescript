@@ -128,6 +128,10 @@ function noApi(name: string) {
   if (unanswered.has(name)) return; unanswered.add(name);
   console.error(`[reactivescript] ${name}(…), imported from "./api", will never answer: "./api" is the app's injected API, not a file (a ./api.js or ./api.ts beside the module is not read), and this app was given none. Give it one, createApp({ api: { ${name} } }) (a whole module: import * as api from "./api.js"; createApp({ api })), or import a module of your own by another spelling, "./api.js" for one.`);
 }
+let OVER: { c: unknown; o: unknown; up: any } | null = null;   // RG-7b: the provision being computed
+/** RG-4c: the question "was a view given" being asked, if one is: shared by every copy of the runtime on the page. */
+const ASK: { on: { owner: unknown } | null } = ((globalThis as any)[Symbol.for("rx.ask")] ??= { on: null });
+const GIVEN: readonly unknown[] = ((globalThis as any)[Symbol.for("rx.given")] ??= Object.freeze([]));
 function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conformance?: boolean; request?: Request } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
@@ -354,9 +358,17 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     // to Node, which loads its own. Said in words: the bare failure was "Cannot read properties of null")
     provide(c: Ctx, e: Entry) { const o = getOwner() as any; if (!o) throw new Error(`[reactivescript] provide ${c.name}: no owner. A component is rendered by one copy of Solid and @reactivescript/runtime runs on another — under a dev server, the app's modules on Vite's and the runtime on Node's. Solid's Vite plugin loads the runtime with the app's Solid when it finds it from the app's package.json: list @reactivescript/compiler there (the runtime is its dependency), or the runtime itself, or add @reactivescript/runtime to ssr.noExternal (11 CP-4a)`); o._context = { ...o._context, [c.id]: e }; },
     use(c: Ctx, owner: Owner): Entry {
-      const e = ((owner ?? getOwner()) as any)?._context?.[c.id]; if (e) return e;
+      let e = ((owner ?? getOwner()) as any)?._context?.[c.id];
+      if (OVER && OVER.c === c && e !== undefined && e === (OVER.o as any)?._context?.[c.id]) e = OVER.up;   // its own provision, being computed: what is above it
+      if (e) return e;
       if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
+    },
+    /** RG-7b: a provision's own expression reads what is above it (`provide c = (use c) + "!"`), each time it is
+     *  computed: the provision it is about to be is not above itself. Called before `provide`, where what is above is still what `use` finds. */
+    over<T>(c: Ctx, f: () => T): () => T {
+      const o = getOwner(), up = (getOwner() as any)?._context?.[c.id];
+      return () => { const was = OVER; OVER = { c, o, up }; try { return f(); } finally { OVER = was; } };
     },
     useGet(c: Ctx, owner: Owner) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
@@ -384,19 +396,18 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     show: (v: unknown) => isView(v) ? v : fmt(v),
     /** RG-4c: a view a component was given, shown with what it knows. `plain`: plain content is taken as well, shown as it is, and a function of no parameter is a thunk, as JSX has it. */
     view(c: unknown, f: (view: unknown) => unknown, plain?: boolean) { return typeof c === "function" && (!plain || c.length) ? f(c) : app.kids(c); },
-    /** RG-4c: whether a view was given, without making it. Content that is written, and an argument that is no literal,
-     *  is a getter: given, and not read. A value (a literal; what JavaScript gives as one) answers as JavaScript does:
-     *  `undefined`, `null`, `false`, `0`, `""` are nothing given, as Solid's `props.children ? … : …` has it.
-     *  `some`: the question is `!= undefined` (and `??`), which of a value only `undefined` and `null` answer no. */
-    given(o: any, k: string, some?: boolean): boolean {
-      if (o == null || !(k in o)) return false;
-      const d = Object.getOwnPropertyDescriptor(o, k);
-      return d && "value" in d ? (some ? d.value != null : !!d.value) : true;
-    },
+    /** RG-4c: whether a view was given, asked without making it. The argument is read as it was written, and while it
+     *  is, what would make a view (`slot`: content, a component given by name) stands for itself: a view given on
+     *  through any number of components, a spread, a rest or a default asks its giver, a choice follows its branch
+     *  (its condition is read here, and tracked), and a value answers as JavaScript has it (`0`, `""`, `undefined`).
+     *  A JavaScript host's getter is read, as Solid's `props.children ? … : …` reads it; one that would rather not be
+     *  made offers `slot` itself. */
+    ask<T>(f: () => T): T { const was = ASK.on; ASK.on = { owner: getOwner() }; try { return f(); } finally { ASK.on = was; } },
+    /** A view that is written: made where it is read, and while it is only asked for (by the computation that asks:
+     *  a memo of a JavaScript host in between holds what it reads, so there it is made), the nothing-to-show that says it was given. */
+    slot(make: () => unknown): unknown { const a = ASK.on; if (!a) return make(); if (getOwner() === a.owner) return GIVEN; ASK.on = null; try { return make(); } finally { ASK.on = a; } },
     /** `{props.part}` of a prop declared `View`: one that was not given shows nothing. */
     opt: (v: unknown) => v === undefined ? v : isView(v) ? v : fmt(v),
-    /** An argument that is written, and is no literal: read where it is asked for (`given`). */
-    v: (x: unknown) => x,
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
     kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. The

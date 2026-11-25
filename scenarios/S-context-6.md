@@ -142,7 +142,7 @@ export default component App() { {if true { provide c = "out"
 | --- | --- | --- | --- |
 | 0 | mount | `outin` |  |
 
-## Variant: an argument that is written was given, a literal nothing was not
+## Variant: an argument that is a value answers by its value, as it changes
 
 ```rx
 component Made() { effect () { log("made") }
@@ -154,7 +154,7 @@ export default component App() { source s := ""
 
 | instant | action | frame | effect |
 | --- | --- | --- | --- |
-| 0 | mount | `tPc` |  |
+| 0 | mount | `tpc` |  |
 | 1 | handler `s := "x"` | `tPcx` |  |
 | 2 | handler `s := "x"` | `tPcx` |  |
 
@@ -171,7 +171,7 @@ export default component App() { <Q part={""} /> }
 | --- | --- | --- | --- |
 | 0 | mount | `pc` |  |
 
-## Variant: a view given on is written: asked there, it was given
+## Variant: a view given on asks its giver: nothing was given to P, so nothing to Q
 
 ```rx
 component Made() { effect () { log("made") }
@@ -183,7 +183,7 @@ export default component App() { <P /> }
 
 | instant | action | frame | effect |
 | --- | --- | --- | --- |
-| 0 | mount | `Pc` |  |
+| 0 | mount | `pc` |  |
 
 ## Variant: a spread hands on what was given, and what was not
 
