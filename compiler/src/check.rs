@@ -13,7 +13,7 @@ use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Cod
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
 use crate::names::{harness_reason, language, scalar, Lang};
-use crate::parse::{js_trim, split_top, type_words, JsDecl, Part, Shape as FShape, Words};
+use crate::parse::{closes, js_trim, split_top, type_words, JsDecl, Part, Shape as FShape, Words};
 use crate::signature::{Catch, CompSig, ExportSig, HostSite, Hosted, ModSig, Own, PropSig, SigParam, HOLD};
 use indexmap::{IndexMap, IndexSet};
 use regex::Regex;
@@ -9820,30 +9820,13 @@ fn ty_clean(t: &str) -> &str {
                 t = js_trim(r);
             }
         }
-        if t.starts_with('(') && t.ends_with(')') && split_top(t, "\u{0}").len() == 1 && closes_at(t, 0) == Some(t.len() - 1) {
+        if t.starts_with('(') && t.ends_with(')') && closes(t, 0) == Some(t.len()) {
             t = js_trim(&t[1..t.len() - 1]);
         }
         if t == before {
             return t;
         }
     }
-}
-/// The index of the bracket that closes the one at `at`.
-fn closes_at(t: &str, at: usize) -> Option<usize> {
-    let b = t.as_bytes();
-    let mut depth = 0i64;
-    for i in at..b.len() {
-        let ch = b[i] as char;
-        if "([{<".contains(ch) {
-            depth += 1;
-        } else if ")]}>".contains(ch) && !(ch == '>' && i > 0 && b[i - 1] == b'=') {
-            depth -= 1;
-            if depth == 0 {
-                return Some(i);
-            }
-        }
-    }
-    None
 }
 /// A union's members; `null` and `undefined` dropped when `present` (a read through `?.`, or of a field that is there).
 fn ty_members(t: &str, present: bool) -> Vec<String> {
@@ -9915,10 +9898,10 @@ fn ty_method(f: &str) -> Option<(String, String)> {
     if !(i < b.len() && b[i] == b'(') {
         return None;
     }
-    let end = closes_at(f, i)?;
-    let rest = js_trim(&f[end + 1..]);
+    let end = closes(f, i)?;
+    let rest = js_trim(&f[end..]);
     let rest = rest.strip_prefix(':')?;
-    Some((name, format!("{} => {}", &f[i..=end], js_trim(rest))))
+    Some((name, format!("{} => {}", &f[i..end], js_trim(rest))))
 }
 pub fn ty_fields(t: &str) -> Option<Vec<(String, String)>> {
     let ms = ty_members(t, true);
@@ -9953,8 +9936,8 @@ pub fn ty_step(t: &str, s: &TStep) -> Option<String> {
             if !t.starts_with('(') {
                 return None;
             }
-            let end = closes_at(t, 0)?;
-            let rest = js_trim(&t[end + 1..]);
+            let end = closes(t, 0)?;
+            let rest = js_trim(&t[end..]);
             rest.strip_prefix("=>").map(|r| js_trim(r).to_string())
         }
         TStep::Elem => {

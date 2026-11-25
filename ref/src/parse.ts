@@ -100,16 +100,23 @@ class Cursor {
   }
 }
 
-/** A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `=>`, `{` when `braceStops`). 07 §2. */
-/** The index past the bracket that closes the one at `i`; strings are skipped. */
-function closes(src: string, i: number): number | undefined {
-  for (let depth = 0; i < src.length; i++) {
-    const ch = src[i];
-    if (ch === '"' || ch === "'" || ch === "`") { const q = ch; for (i++; i < src.length && src[i] !== q && src[i] !== "\n"; i++) if (src[i] === "\\") i++; continue; }
-    if (ch === "(" || ch === "[" || ch === "{") depth++; else if ((ch === ")" || ch === "]" || ch === "}") && --depth === 0) return i + 1;
-  }
+/** The index past the bracket that closes the one at `i`, in a type's text. */
+export function closes(src: string, i: number): number | undefined {
+  for (let depth = 0; i < src.length;) { depth += nests(src, i); i = tokenEnd(src, i); if (depth === 0) return i; }
   return undefined;
 }
+/** The index past the token at `i` of a type's text: a string or a template literal (to the end of its line when it is not
+ *  closed there), a comment, `=>`, or one character. Every reader of a type's text steps by it. */
+function tokenEnd(s: string, i: number): number {
+  const ch = s[i], eol = () => { const j = s.indexOf("\n", i); return j < 0 ? s.length : j; };
+  if (ch === '"' || ch === "'" || ch === "`") return quotedEnd(s, i, [], true) ?? eol();
+  if (s.startsWith("//", i)) return eol();
+  if (s.startsWith("/*", i)) { const j = s.indexOf("*/", i + 2); return j < 0 ? s.length : j + 2; }
+  return s.startsWith("=>", i) ? i + 2 : i + 1;
+}
+/** How the token at `i` changes the depth. */
+function nests(s: string, i: number): number { return "([{<".includes(s[i]) ? 1 : ")]}>".includes(s[i]) ? -1 : 0; }
+/** A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `=>`, `{` when `braceStops`). 07 §2. */
 /** A type's text, up to where the declaration goes on. `=>` inside brackets is a function type, as it is anywhere in a
  *  type alias (`arrows`); elsewhere at the top it starts a body (`fn f(): T => …`). */
 function parseType(c: Cursor, braceStops = false, arrows = false): string {
@@ -123,16 +130,8 @@ function parseType(c: Cursor, braceStops = false, arrows = false): string {
       const arrow = end === undefined ? null : /^[ \t]*=>[ \t]*/.exec(c.src.slice(end));
       if (arrow && /^\s*($|(\.\.\.\s*)?[A-Za-z_$][\w$]*\s*\??\s*:)/.test(c.src.slice(c.i + 1, end! - 1))) { c.i = end! + arrow[0].length; continue; }
     }
-    if (c.startsWith("=>") && (depth > 0 || arrows)) { c.i += 2; continue; }
-    if (depth === 0) {
-      if (c.startsWith("//") || c.startsWith("=>") || c.startsWith(":=") || ch === "=" || ch === "," || ch === ")" || ch === ";" || ch === "\n" || (braceStops && ch === "{")) break;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {   // a string literal type is one token: a `//`, `,` or `)` inside it does not end the type
-      c.i++; while (!c.eof() && c.peek() !== ch && c.peek() !== "\n") { if (c.peek() === "\\") c.i++; c.i++; } if (!c.eof() && c.peek() === ch) c.i++; continue;
-    }
-    if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
-    else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
-    c.i++;
+    if (depth === 0 && (c.startsWith("//") || (c.startsWith("=>") && !arrows) || c.startsWith(":=") || (ch === "=" && !c.startsWith("=>")) || ch === "," || ch === ")" || ch === ";" || ch === "\n" || (braceStops && ch === "{"))) break;
+    depth += nests(c.src, c.i); c.i = tokenEnd(c.src, c.i);
   }
   const t = c.src.slice(start, c.i).trim(); if (!t) c.fail("type"); return t;
 }
@@ -238,11 +237,11 @@ export function parseDeclarations(src: string): JsDecl[] {
       const treeStart = c.i; parsePrimary(c);
       out.push({ kind: "host", line, ...(provides ? { provides } : {}), ...(nests ? { nests } : {}), span: [rowStart, treeStart, c.i] }); continue;
     }
-    if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); typeParams(c); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
+    if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); typeParams(c); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { c.i = closes(c.src, c.i) ?? c.src.length; } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
     if (c.keyword("error")) {
       c.ws(); const name = c.ident() ?? c.fail("error class name"); c.ws(false);
       let fields: string[] | undefined;   // SV-5a: `(status, code: string)`, the fields of an instance sent to the client; none, name and message only
-      if (c.eat("(")) { const t0 = c.i; let depth = 1; while (!c.eof() && depth) { const ch = c.peek(); if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch)) depth--; c.i++; } fields = splitTop(c.src.slice(t0, c.i - 1), ",").map(f => f.split(":")[0].replace(/\s+/g, "")).filter(f => f && f !== "?"); }   // an optional field keeps its `?` (`code?`): an instance may come without it
+      if (c.eat("(")) { const t0 = c.i, shut = closes(c.src, t0 - 1); c.i = shut ?? c.src.length; fields = splitTop(c.src.slice(t0, shut === undefined ? c.i : shut - 1), ",").map(f => f.split(":")[0].replace(/\s+/g, "")).filter(f => f && f !== "?"); }   // an optional field keeps its `?` (`code?`): an instance may come without it
       out.push({ kind: "error", name, line, ...(fields?.length ? { fields } : {}) }); continue;
     }
     if (c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("const name"); c.ws(false); const type = c.eat(":") ? (c.ws(), parseType(c, false, true)) : undefined; out.push({ kind: "value", name, line, ...(type ? { type } : {}) }); continue; }   // MO-8g
@@ -354,15 +353,10 @@ function callbacks(ptypes: (string | undefined)[]): ([boolean, string[]] | null)
   });
   return out.some(Boolean) ? out : undefined;
 }
-/** A type text with what its string literals hold blanked, so a word inside one is not read as a row. */
+/** A type text with its string literals and its comments blanked, so a word inside one is not read as a row. */
 function maskedStrings(t: string): string {
-  let out = ""; let q = "";
-  for (let i = 0; i < t.length; i++) {
-    const ch = t[i];
-    if (q) { out += "_"; if (ch === "\\" && i + 1 < t.length) { out += "_"; i++; } else if (ch === q) q = ""; }
-    else if (ch === '"' || ch === "'" || ch === "`") { q = ch; out += "_"; }
-    else out += ch;
-  }
+  let out = "";
+  for (let i = 0, e; i < t.length; i = e) { e = tokenEnd(t, i); out += "\"'`".includes(t[i]) ? "_".repeat(e - i) : t[i] === "/" && e > i + 1 ? " ".repeat(e - i) : t.slice(i, e); }
   return out;
 }
 type Held = [string, boolean, string[]][];
@@ -412,8 +406,7 @@ export function fieldRows(t: string): { text: string; held?: Held } { const w = 
 /** MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it). */
 function typeParams(c: Cursor): string | undefined {
   if (c.peek() !== "<") return undefined;
-  const t0 = c.i; let depth = 0;
-  do { const ch = c.peek(); if (ch === "<") depth++; else if (ch === ">" && c.src[c.i - 1] !== "=") depth--; c.i++; } while (!c.eof() && depth);
+  const t0 = c.i; c.i = closes(c.src, t0) ?? c.src.length;
   return c.src.slice(t0, c.i);
 }
 
@@ -449,9 +442,8 @@ function isComponentType(t: string): boolean {
 }
 /** MO-10i: a function type's parameter list (`(a: A, b: B) => R` → `a: A, b: B`), or null. */
 function fnParamsText(t: string): string | null {
-  t = t.trim(); if (!t.startsWith("(")) return null; let depth = 0;
-  for (let i = 0; i < t.length; i++) { const ch = t[i]; if ("([{<".includes(ch)) depth++; else if (")]}".includes(ch) || (ch === ">" && t[i - 1] !== "=")) { if (--depth === 0) return /^\s*=>/.test(t.slice(i + 1)) ? t.slice(1, i) : null; } }
-  return null;
+  t = t.trim(); const e = t.startsWith("(") ? closes(t, 0) : undefined;
+  return e !== undefined && /^\s*=>/.test(t.slice(e)) ? t.slice(1, e - 1) : null;
 }
 /** MO-10i: the positions of a function type's parameters written `draft` (`(draft state: T) => void` → [0]). */
 function draftParams(t: string | undefined): number[] {
@@ -527,8 +519,7 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
         const t0 = c.i; let depth = 0;
         while (!c.eof()) {
           const ch = c.peek(); if (depth === 0 && (ch === ";" || ch === "," || ch === "}" || ch === "\n" || c.startsWith("//"))) break;
-          if (ch === '"' || ch === "'" || ch === "`") { c.i++; while (!c.eof() && c.peek() !== ch) { if (c.peek() === "\\") c.i++; c.i++; } c.i++; continue; }   // a string literal type
-          if ("([{<".includes(ch)) depth++; else if (")]}".includes(ch) || (ch === ">" && c.src[c.i - 1] !== "=")) depth--; c.i++;
+          depth += nests(c.src, c.i); c.i = tokenEnd(c.src, c.i);
         }
         type = c.src.slice(t0, c.i).trim() || undefined;
       }
@@ -554,32 +545,23 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
   }
   return { kind: "comp", name, line, props, fails, ...(content ? { content } : {}), ...(uses ? { uses } : {}), ...(provides ? { provides } : {}), ...(tparams ? { tparams } : {}), ...(propsType ? { propsType } : {}) };
 }
+/** Whether the record that opens at `j` closes a component's props: its `}` is followed by the `)` of the parameter. */
+function closesProps(src: string, j: number): boolean { const e = closes(src, j); return e !== undefined && /^\s*\)/.test(src.slice(e)); }
 /** MO-8o: a component's props as a type the library declares, `props: Kit.SelectProps<Option>`, with the fields that carry
  *  words in a record after it, `… & { onChange?: handler (v: Option) => void }`: the type's text, TypeScript's (the checker
  *  reads none of it), up to the `&` before a record that closes the props, or to the `)` that does. The cursor is left on
  *  that record's `{`, or on the `)`. */
-const skipStringAt = (src: string, j: number) => { const q = src[j]; j++; while (j < src.length && src[j] !== q) { if (src[j] === "\\") j++; j++; } return j + 1; };
-/** Whether the record that opens at `j` closes a component's props: its `}` is followed by the `)` of the parameter. */
-function closesProps(src: string, j: number): boolean {
-  let k = j, braces = 0;
-  for (; k < src.length; k++) { const x = src[k]; if (x === '"' || x === "'" || x === "`") { k = skipStringAt(src, k) - 1; continue; } if (x === "{") braces++; else if (x === "}" && --braces === 0) break; }
-  let e = k + 1; while (/\s/.test(src[e] ?? "")) e++;
-  return src[e] === ")";
-}
 function propsTypeOf(c: Cursor): string {
   const t0 = c.i; let depth = 0;
-  const skipString = (j: number) => skipStringAt(c.src, j);
   const done = (end: number) => { const t = c.src.slice(t0, end).trim(); if (!t) c.fail("a component's props: `(props: { … })`, or a type and the fields that carry words, `(props: Kit.Props & { … })`"); return t; };
   while (!c.eof()) {
     const ch = c.peek();
-    if (ch === '"' || ch === "'" || ch === "`") { c.i = skipString(c.i); continue; }
     if (depth === 0 && ch === ")") return done(c.i);
     if (depth === 0 && ch === "&") {
       let j = c.i + 1; while (/\s/.test(c.src[j] ?? "")) j++;
       if (c.src[j] === "{" && closesProps(c.src, j)) { const t = done(c.i); c.i = j; return t; }
     }
-    if ("([{<".includes(ch)) depth++; else if (")]}".includes(ch) || (ch === ">" && c.src[c.i - 1] !== "=")) depth--;
-    c.i++;
+    depth += nests(c.src, c.i); c.i = tokenEnd(c.src, c.i);
   }
   return c.fail("a component's props: the `)` that closes them");
 }
@@ -596,13 +578,11 @@ export type Shape = Part | "comp" | { items: Part[] } | { fields: [string, Part]
 /** The pieces of a type's text between separators written at its top level: not inside brackets, and not inside a string
  *  literal (`"a, b"` is one piece). Each as the range of the piece, trimmed; empty pieces are left out. */
 export function topRanges(s: string, seps: string): [number, number][] {
-  const out: [number, number][] = []; let depth = 0, from = 0, q = "";
+  const out: [number, number][] = []; let depth = 0, from = 0;
   const push = (a: number, b: number) => { const piece = s.slice(a, b); const t = piece.trim(); if (t) { const at = a + piece.length - piece.trimStart().length; out.push([at, at + t.length]); } };
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (q) { if (ch === "\\") i++; else if (ch === q) q = ""; }
-    else if (ch === '"' || ch === "'" || ch === "`") q = ch;
-    else if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch) && !(ch === ">" && s[i - 1] === "=")) depth--; else if (depth === 0 && seps.includes(ch)) { push(from, i); from = i + 1; }
+  for (let i = 0; i < s.length; i = tokenEnd(s, i)) {
+    if (depth === 0 && seps.includes(s[i])) { push(from, i); from = i + 1; }
+    depth += nests(s, i);
   }
   push(from, s.length); return out;
 }
@@ -736,7 +716,7 @@ function parseDecl(c: Cursor): Decl {
   if (/^(type|interface)\b/.test(c.src.slice(c.i))) {                // a TS type declaration: kept as text, not a binding
     const t0 = c.i; c.keyword("type") || c.keyword("interface");
     c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws();
-    if (c.eat("=")) { c.ws(); parseType(c, false, true); } else { c.expect("{"); let depth = 1; while (!c.eof() && depth) { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } }
+    if (c.eat("=")) { c.ws(); parseType(c, false, true); } else { c.expect("{"); c.i = closes(c.src, c.i - 1) ?? c.src.length; }
     return { k: "typedecl", name, line, text: c.src.slice(t0, c.i) };
   }
   if (c.keyword("source")) {
@@ -1012,23 +992,19 @@ const TY_PUNCT = ["...", "=>", "-?", "+?", "<", ">", "(", ")", "[", "]", "{", "}
 const TY_RESERVED = new Set(["extends", "keyof", "typeof", "infer", "readonly", "unique", "new", "abstract", "import", "is", "asserts", "in", "as", "this"]);
 /** R4 (RFC 11): the index just past the string or template literal opening at `s[j]`, with the spans of a template's own
  *  substitutions in `subs`. A substitution is scanned as code: braces nest, and a string or template inside it is skipped
- *  whole, so `${"}"}` does not end it. Null when the literal is not closed. */
-export function quotedEnd(s: string, j: number, subs: [number, number][]): number | null {
-  const q = s[j]; j++;
+ *  whole, so `${"}"}` does not end it. Null when the literal is not closed (`oneLine`: on its line). */
+export function quotedEnd(s: string, j: number, subs: [number, number][], oneLine = false): number | null {
+  const open: [string, number][] = [[s[j++], 0]]; let start = 0;   // the literals that are open, each with the braces open in its substitution (0: in the literal's own text)
   while (j < s.length) {
-    if (s[j] === "\\") j += 2;
-    else if (s[j] === q) return j + 1;
-    else if (q === "`" && s[j] === "$" && s[j + 1] === "{") {
-      const start = j + 2; let depth = 1; j = start;
-      while (depth > 0) {
-        if (j >= s.length) return null;
-        const c = s[j];
-        if (c === "{") { depth++; j++; }
-        else if (c === "}") { if (--depth === 0) subs.push([start, j]); j++; }
-        else if (c === '"' || c === "'" || c === "`") { const e = quotedEnd(s, j, []); if (e === null) return null; j = e; }
-        else j++;
-      }
-    } else j++;
+    const top = open[open.length - 1], c = s[j++];
+    if (oneLine && c === "\n") return null;
+    if (top[1] === 0) {
+      if (c === "\\") { if (!oneLine || s[j] !== "\n") j++; }
+      else if (c === top[0]) { open.pop(); if (!open.length) return j; }
+      else if (c === "$" && top[0] === "`" && s[j] === "{") { j++; top[1] = 1; if (open.length === 1) start = j; }
+    } else if (c === "{") top[1]++;
+    else if (c === "}") { if (--top[1] === 0 && open.length === 1) subs.push([start, j - 1]); }
+    else if (c === '"' || c === "'" || c === "`") open.push([c, 0]);
   }
   return null;
 }
@@ -1038,6 +1014,7 @@ function tyTokens(s: string): { t: TyTok[]; nl: boolean[] } | null {   // the to
   while (j < s.length) {
     const ch = s[j];
     if (/\s/.test(ch)) { brk ||= ch === "\n"; j++; continue; }
+    if (s.startsWith("//", j) || s.startsWith("/*", j)) { const e = tokenEnd(s, j); brk ||= s.slice(j, e).includes("\n"); j = e; continue; }
     nl.push(brk); brk = false;
     if (ch === '"' || ch === "'" || ch === "`") {
       const subs: [number, number][] = []; const e = quotedEnd(s, j, subs); if (e === null) return null; j = e;
@@ -1196,6 +1173,7 @@ function typeArgsAt(s: string, i: number): { text: string; end: number } | null 
   for (let j = i; j < s.length; j++) {
     const ch = s[j];
     if (ch === '"' || ch === "'" || ch === "`") { const e = quotedEnd(s, j, []); if (e === null) return null; j = e - 1; continue; }   // R4: a string type argument is skipped whole (`f<"}">(x)`)
+    if (s.startsWith("//", j) || s.startsWith("/*", j)) { j = tokenEnd(s, j) - 1; continue; }
     if ("<([{".includes(ch)) depth++;
     else if (")]}".includes(ch) || (ch === ">" && s[j - 1] !== "=")) {
       if (--depth === 0) { const text = s.slice(i + 1, j).trim(); return ch === ">" && s[j + 1] === "(" && looksLikeTypes(text) ? { text, end: j + 1 } : null; }

@@ -259,7 +259,8 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
             .collect();
         format!("{{ {} }}", ms.join(" "))
     };
-    let objects: Vec<String> = members.keys().filter(|h| !decls.iter().any(|d| matches!(d, JsDecl::Comp { name, .. } if name == *h))).map(|h| format!("export declare const {h}: {};", object_of(h))).collect();
+    let comps: HashSet<&str> = decls.iter().filter(|d| matches!(d, JsDecl::Comp { .. })).map(|d| d.name()).collect();
+    let objects: Vec<String> = members.keys().filter(|h| !comps.contains(h.as_str())).map(|h| format!("export declare const {h}: {};", object_of(h))).collect();
     // MO-8t: `export fn toaster.show(…)` — a method of a declared value, a member of that value's type; of a declared fn,
     // a function of the namespace TypeScript merges with it
     let sig_of = |d: &JsDecl| -> (String, String, String) {
@@ -276,7 +277,15 @@ pub(crate) fn declaration_file(decls: &[JsDecl]) -> String {
         });
         (tparams.clone().unwrap_or_default(), ps.collect::<Vec<_>>().join(", "), accessor_result(ret.as_ref(), shape))
     };
-    let methods_of = |h: &str| -> Vec<&JsDecl> { decls.iter().filter(|d| matches!(d, JsDecl::Fn { name, .. } if name.split_once('.').is_some_and(|(b, _)| b == h))).collect() };
+    let mut methods: HashMap<&str, Vec<&JsDecl>> = HashMap::new();
+    for d in decls {
+        if let JsDecl::Fn { name, .. } = d {
+            if let Some((h, _)) = name.split_once('.') {
+                methods.entry(h).or_default().push(d);
+            }
+        }
+    }
+    let methods_of = |h: &str| -> &[&JsDecl] { methods.get(h).map_or(&[], Vec::as_slice) };
     head.into_iter()
         .chain(objects)
         .chain(decls.iter().filter(|d| !matches!(d, JsDecl::Context { .. } | JsDecl::Import { .. } | JsDecl::Host { .. }) && !matches!(d, JsDecl::Comp { name, .. } | JsDecl::Fn { name, .. } if name.contains('.'))).map(|d| match d {

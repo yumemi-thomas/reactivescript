@@ -7,7 +7,7 @@ import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
-import { splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
+import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
 import { scopeFacts, scoped } from "./scope.ts";
@@ -3339,19 +3339,13 @@ class Checker {
 // ---- MO-10k: a declared result's type, read as the closed set of what its value answers ----
 /** One step down a declared type: a field, what a call of it answers, an element of it. */
 export type TStep = { field: string } | "call" | "elem";
-/** The index of the bracket that closes the one at `at`. */
-function closesAt(t: string, at: number): number | undefined {
-  let depth = 0;
-  for (let i = at; i < t.length; i++) { const ch = t[i]; if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch) && !(ch === ">" && t[i - 1] === "=")) { depth--; if (depth === 0) return i; } }
-  return undefined;
-}
 /** The type text without what does not change what it answers: outer parentheses, `readonly`, the function words. */
 function tyClean(t: string): string {
   t = t.trim();
   for (;;) {
     const before = t;
     for (const w of ["readonly ", "handler "]) if (t.startsWith(w)) t = t.slice(w.length).trim();
-    if (t.startsWith("(") && t.endsWith(")") && closesAt(t, 0) === t.length - 1) t = t.slice(1, -1).trim();
+    if (t.startsWith("(") && t.endsWith(")") && closes(t, 0) === t.length) t = t.slice(1, -1).trim();
     if (t === before) return t;
   }
 }
@@ -3370,15 +3364,15 @@ function tyMethod(f: string): [string, string] | undefined {
   let at = m[0].length;
   if (f[at] === "<") { let depth = 0; for (; at < f.length; at++) { if (f[at] === "<") depth++; else if (f[at] === ">" && f[at - 1] !== "=") { if (--depth === 0) { at++; break; } } } while (f[at] === " ") at++; }
   if (f[at] !== "(") return undefined;
-  const end = closesAt(f, at); if (end === undefined) return undefined;
-  const rest = f.slice(end + 1).trim(); if (!rest.startsWith(":")) return undefined;
-  return [m[1].replace(/^["']|["']$/g, ""), `${f.slice(at, end + 1)} => ${rest.slice(1).trim()}`];
+  const end = closes(f, at); if (end === undefined) return undefined;
+  const rest = f.slice(end).trim(); if (!rest.startsWith(":")) return undefined;
+  return [m[1].replace(/^["']|["']$/g, ""), `${f.slice(at, end)} => ${rest.slice(1).trim()}`];
 }
 /** The declared type one step down, where the text says it: a field of a record type, the result of a function type, the
  *  element of an array type. Undefined: the declaration does not say (`any`, a named type, a union of several). */
 export function tyStep(t: string, s: TStep): string | undefined {
   const ms = tyMembers(t, true); if (ms.length !== 1) return undefined; t = ms[0];
-  if (s === "call") { if (!t.startsWith("(")) return undefined; const end = closesAt(t, 0); if (end === undefined) return undefined; const rest = t.slice(end + 1).trim(); return rest.startsWith("=>") ? rest.slice(2).trim() : undefined; }
+  if (s === "call") { if (!t.startsWith("(")) return undefined; const end = closes(t, 0); if (end === undefined) return undefined; const rest = t.slice(end).trim(); return rest.startsWith("=>") ? rest.slice(2).trim() : undefined; }
   if (s === "elem") { if (t.endsWith("[]")) return t.slice(0, -2).trim(); for (const w of ["Array<", "ReadonlyArray<"]) if (t.startsWith(w)) return t.endsWith(">") ? t.slice(w.length, -1).trim() : undefined; return undefined; }
   return tyFields(t)?.find(f => f[0] === s.field)?.[1];
 }

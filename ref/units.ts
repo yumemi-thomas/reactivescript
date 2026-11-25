@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readDisk } from "./disk.ts";
 import { packageRelative, besideDeclaration, isPrintedSignature, relativeModule } from "./src/modules.ts";
-import { looksLikeTypes, parseProgram, parseDeclarations, holdsComponent, fieldRows } from "./src/parse.ts";
+import { looksLikeTypes, quotedEnd, parseProgram, parseDeclarations, holdsComponent, fieldRows } from "./src/parse.ts";
 import { printSignature, parseSignature } from "./src/signature.ts";
 import { parseScenario } from "./src/scenario.ts";
 import { loadModules, hostProgram } from "./src/modules.ts";
@@ -587,5 +587,50 @@ export const units: [string, () => void][] = [
     const back = parseSignature(text, "/app/many.rx"); deepStrictEqual(printSignature(back), text);
     const actions = (x: typeof sig) => [...x.exports].map(([n, e]) => [n, e.kind === "fn" ? e.actions ?? [] : []]); deepStrictEqual(actions(back), actions(sig));
     for (const bad of ["export pure fn f(): { a }", "export pure fn f(): { a: ref", "export pure fn f(): { a: io, b: ref }", "export pure fn f(): [ref number]", "export pure fn f(): { a.b: ref }", "export pure fn f(): value pending", "export pure fn f("]) { let refused = false; try { parseSignature(bad, "x.rx"); } catch { refused = true; } deepStrictEqual([bad, refused], [bad, true]); }
+  }],
+  ["a_type_is_read_by_tokens", () => {   // 07 §2: a bracket or a quote in a string, a template or a comment is no bracket
+    const said = (src: string) => parseDeclarations(src).map(d => d.kind === "error" && d.fields ? `${d.name}(${d.fields.join(",")})` : d.kind === "fn" && d.cbs ? `${d.name}[${d.params.filter((_, i) => d.cbs![i]).join(",")}]` : d.kind === "comp" ? `${d.name}{${d.props.map(p => p.name).join(",")}}` : (d as { name: string }).name).join(" ");
+    for (const [src, want] of [
+      ["export type T = { // {\n  a: string\n}\nexport pure fn g(): number\n", "T g"],
+      ["export type T = { // don't (\r\n  a: string }\r\nexport pure fn g(): number // it's\r\n", "T g"],
+      ["export pure fn g(a: string /* ) */): number\n", "g"],
+      ["export interface X { a: \"}\" }\nexport pure fn g(): number\n", "X g"],
+      ["export pure fn g<T extends \">\">(x: T): T\n", "g"],
+      ["export error E(f: () => void, b: string)\nexport pure fn g(): number\n", "E(f,b) g"],
+      ["export type T = `a${`}`}b`\nexport pure fn g(): T\n", "T g"],
+      ["export fn f(cb: handler (a: \")\") => void): void\n", "f[cb]"],
+      ["export component C(props: { a: string /* , b: ( */; c: number /* don't */ })\n", "C{a,c}"],
+      ["export pure fn g(): { a: string /* pending x, fails(E) y */ }\n", "g"],
+      ["export type T = { é: \"é)\" /* ünï ( */ }\nexport pure fn g(a: \"日本)\" | `é${\"}\"}`): number\n", "T g"],
+      ["export type T = `a${b\nexport type U = \"a\nexport type V = 'a\nexport pure fn g(): number\n", "T U V g"],
+      ["export pure fn g(): number\nexport error E(", "g E"],
+      ["export pure fn g(): number\nexport error E(é", "g E(é)"],
+      ["export pure fn g(): number\nexport error E(a: \"é", "g E(a)"],
+      ["export pure fn g(): number\nexport type T = \"a\\", "g T"],
+      ["export pure fn g(): number\nexport type T = `é${", "g T"],
+      ["export pure fn g(): number\nexport type T = a /* é", "g T"],
+      ["export pure fn g(): number\nexport interface X { é", "g X"],
+    ]) deepStrictEqual([src, said(src)], [src, want]);
+    for (const src of [
+      "type T = { // }\n  a: string }",
+      "source x: string /* := */ := \"a\"",
+      "interface X { a: \"}\" }",
+      "interface X {\n  a: string // }\n}",
+      "fn f(x: string /* ) */, y: number): number => y",
+      "component A(props: { a: string /* } */ }) { <p>{props.a}</p> }",
+      "fn f(x: number): (a: number) => boolean => (a) => a > x",
+      "fn f(x: number): { a: boolean } => ({ a: x < 2 })",
+      "fn f(x: number): boolean => (x < 1)",
+      "x = [1].map((y: Array<number>) => y >= 2)",
+    ]) parseProgram(`${src}\nexport default component App() {\n  <p>x</p>\n}\n`);
+    for (const [src, targs] of [["x = f<T /* > */>(1)\n", "T /* > */"], ["x = f<T /* don't */>(1)\n", "T /* don't */"], ["x = f<T // >\n>(1)\n", "T // >"]]) must(JSON.stringify(parseProgram(src)).includes(`"targs":${JSON.stringify(targs)}`), "no type arguments", src);
+    must(!JSON.stringify(parseProgram("source a := 1\nsource b := 2\nsource c := 3\nx = a<b /* see Foo */>(c)\ny = a < b && /* it's */ c > (a)\n")).includes("targs"), "every name is a value's: compared, whatever a comment says", "source a := 1\nsource b := 2\nsource c := 3\nx = a<b /* see Foo */>(c)\ny = a < b && /* it's */ c > (a)\n");
+  }],
+  ["what_nothing_closes_is_read_once", () => {   // text that nothing closes is read once, and no deeper than the stack
+    const within = (what: string, f: () => unknown) => { const at = performance.now(); try { f(); } catch (e) { if (e instanceof RangeError) throw e; } const ms = performance.now() - at; if (ms > 10_000) throw new Error(`${what}: ${ms} ms`); };
+    for (const line of ["`a${b", "`a", "`a${'b", "\"a", "{ a: string", "a /* x", "(a", "<a"]) within(line, () => parseDeclarations(Array.from({ length: 20_000 }, (_, i) => `export type T${i} = ${line}\n`).join("")));
+    const deep = "`${".repeat(100_000); parseDeclarations(`export type T = ${deep}\n`); deepStrictEqual(quotedEnd(deep, 0, []), null);
+    within("a printed signature's white space", () => parseSignature(`export pure fn f(): a${" ".repeat(1_000)}b`, "x.rx"));
+    deepStrictEqual([...parseSignature("export pure fn f(a): pending fails(E)  rejects(A|B)  instantiates  uses(./k.rx#K)", "/x.rx").exports.values()][0], { kind: "fn", params: [{ name: "a", ref: false }], instantiating: true, rows: ["pending"], fails: ["E"], rejects: ["A", "B"], uses: ["/k.rx#K"] });
   }],
 ];

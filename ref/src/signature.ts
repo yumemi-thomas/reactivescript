@@ -198,13 +198,14 @@ export function parseSignature(src: string, file: string): ModSig {
     if ((m = /^server\s+(pure\s+)?fn\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$/.exec(s))) { exports.set(m[2], { kind: "server", io: !m[1], params: m[3].split(",").map(x => x.trim()).filter(Boolean), rejects: classesOf(m[4] ?? "") }); return; }
     if ((m = /^pure\s+fn\s+([A-Za-z_$][\w$]*)\s*\(/.exec(s))) {
       const ps = balanced(s, m[0].length - 1); if (ps === undefined) fail("a fn's parameters");
-      const t = /^\s*(?::\s*(.*?))?\s*(?:\brejects\(([^)]*)\))?\s*(\binstantiates)?\s*(?:\buses\(([^)]*)\))?$/.exec(s.slice(m[0].length + ps!.length + 1)); if (!t) return fail("a fn's rows");
+      const tail = s.slice(m[0].length + ps!.length + 1), t = /(?:\brejects\(([^)]*)\)\s*)?(?:(\binstantiates)\s*)?(?:\buses\(([^)]*)\))?$/.exec(tail)!;   // the words it ends with; the result is before them
+      const ret = /^(?::(.*))?$/.exec(tail.slice(0, t.index).trim()); if (!ret) return fail("a fn's rows");
       const params = split(ps!, ",").map(p0 => { const ref = /^ref\s/.test(p0); const p = ref ? p0.slice(4).trim() : p0; const c = p.indexOf(":"); return { name: (c < 0 ? p : p.slice(0, c)).trim(), ref, ...(c < 0 ? {} : { type: p.slice(c + 1).trim() }) }; });
-      const r = rowWords(t[1] ?? ""); const text = r.rows.includes("io") ? "io" : r.rest;
+      const r = rowWords(ret[1]?.trim() ?? ""); const text = r.rows.includes("io") ? "io" : r.rest;
       const open = text && text !== "io" ? actionsOf(text) : undefined;   // some parts of one value are actions: what else it holds is not said
       const result = text && !open ? resultOf(text) : undefined; if (text && !open && !result) fail("a fn's rows");
       const acts = open ?? (result ? resultActions(result) : []); const one = result?.k === "leaf" && result.reader;
-      exports.set(m[1], { kind: "fn", params, instantiating: !!t[3], rows: r.rows.filter(x => x !== "io"), fails: r.fails, rejects: classesOf(t[2] ?? ""), ...(acts.length ? { actions: acts } : {}), ...(result && !one ? { result } : {}), ...(t[4] ? { uses: t[4].split(",").map(k => absKey(file, k.trim())) } : {}) }); return;
+      exports.set(m[1], { kind: "fn", params, instantiating: !!t[2], rows: r.rows.filter(x => x !== "io"), fails: r.fails, rejects: classesOf(t[1] ?? ""), ...(acts.length ? { actions: acts } : {}), ...(result && !one ? { result } : {}), ...(t[3] ? { uses: t[3].split(",").map(k => absKey(file, k.trim())) } : {}) }); return;
     }
     if ((m = /^context\s+([A-Za-z_$][\w$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$/.exec(s))) {
       let body = (m[2] ?? "").trim(); const source = /^source\b/.test(body); if (source) body = body.slice(6).trim();

@@ -254,32 +254,43 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `=>`, `{` when `brace_stops`). 07 §2.
-/// The index past the bracket that closes the one at `i`; strings are skipped.
-fn closes(src: &str, mut i: usize) -> Option<usize> {
-    let b = src.as_bytes();
+/// The index past the token at `i` of a type's text: a string or a template literal (to the end of its line when it is not
+/// closed there), a comment, `=>`, or one character. Every reader of a type's text steps by it.
+#[inline]
+pub(crate) fn token_end(s: &str, i: usize) -> usize {
+    let b = s.as_bytes();
+    let line = || s[i..].find('\n').map_or(b.len(), |j| i + j);
+    match b[i] {
+        b'"' | b'\'' | b'`' => quoted_end(b, i, true, &mut vec![]).unwrap_or_else(line),
+        b'/' if b.get(i + 1) == Some(&b'/') => line(),
+        b'/' if b.get(i + 1) == Some(&b'*') => s[i + 2..].find("*/").map_or(b.len(), |j| i + j + 4),
+        b'=' if b.get(i + 1) == Some(&b'>') => i + 2,
+        c if c < 0x80 => i + 1,
+        _ => i + s[i..].chars().next().map_or(1, char::len_utf8),
+    }
+}
+/// How the token at `i` changes the depth.
+#[inline]
+pub(crate) fn nests(s: &str, i: usize) -> i64 {
+    match s.as_bytes()[i] {
+        b'(' | b'[' | b'{' | b'<' => 1,
+        b')' | b']' | b'}' | b'>' => -1,
+        _ => 0,
+    }
+}
+/// The index past the bracket that closes the one at `i`, in a type's text.
+pub(crate) fn closes(src: &str, mut i: usize) -> Option<usize> {
     let mut depth = 0;
-    while i < b.len() {
-        match b[i] {
-            q @ (b'"' | b'\'' | b'`') => {
-                i += 1;
-                while i < b.len() && b[i] != q && b[i] != b'\n' {
-                    i += if b[i] == b'\\' { 2 } else { 1 };
-                }
-            }
-            b'(' | b'[' | b'{' => depth += 1,
-            b')' | b']' | b'}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i + 1);
-                }
-            }
-            _ => {}
+    while i < src.len() {
+        depth += nests(src, i);
+        i = token_end(src, i);
+        if depth == 0 {
+            return Some(i);
         }
-        i += 1;
     }
     None
 }
+/// A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `=>`, `{` when `brace_stops`). 07 §2.
 /// A type's text, up to where the declaration goes on. `=>` inside brackets is a function type, as it is anywhere in
 /// a type alias (`arrows`); elsewhere at the top it starts a body (`fn f(): T => …`).
 fn parse_type(c: &mut Cursor, brace_stops: bool, arrows: bool) -> R<String> {
@@ -300,35 +311,12 @@ fn parse_type(c: &mut Cursor, brace_stops: bool, arrows: bool) -> R<String> {
                 }
             }
         }
-        if c.starts_with("=>") && (depth > 0 || arrows) {
-            c.bump();
-            c.bump();
-            continue;
-        }
         let ch = c.peek();
-        if depth == 0 && (c.starts_with("//") || c.starts_with("=>") || c.starts_with(":=") || ch == '=' || ch == ',' || ch == ')' || ch == ';' || ch == '\n' || (brace_stops && ch == '{')) {
+        if depth == 0 && (c.starts_with("//") || (c.starts_with("=>") && !arrows) || c.starts_with(":=") || (ch == '=' && !c.starts_with("=>")) || ch == ',' || ch == ')' || ch == ';' || ch == '\n' || (brace_stops && ch == '{')) {
             break;
         }
-        if ch == '"' || ch == '\'' || ch == '`' {
-            // a string literal type is one token: a `//`, `,` or `)` inside it does not end the type
-            c.bump();
-            while !c.eof() && c.peek() != ch && c.peek() != '\n' {
-                if c.peek() == '\\' {
-                    c.bump();
-                }
-                c.bump();
-            }
-            if !c.eof() && c.peek() == ch {
-                c.bump();
-            }
-            continue;
-        }
-        if "([{<".contains(ch) {
-            depth += 1;
-        } else if ")]}>".contains(ch) {
-            depth -= 1;
-        }
-        c.bump();
+        depth += nests(c.src, c.i);
+        c.i = token_end(c.src, c.i);
     }
     let t = js_trim(&c.src[start..c.i]).to_string();
     if t.is_empty() {
@@ -593,7 +581,6 @@ pub(crate) fn top_ranges(s: &str, seps: &str) -> Vec<(usize, usize)> {
     let mut out = vec![];
     let mut depth: i64 = 0;
     let mut from = 0;
-    let mut quote: Option<u8> = None;
     let mut push = |from: usize, to: usize| {
         let piece = &s[from..to];
         let t = js_trim(piece);
@@ -604,24 +591,12 @@ pub(crate) fn top_ranges(s: &str, seps: &str) -> Vec<(usize, usize)> {
     };
     let mut i = 0;
     while i < b.len() {
-        let ch = b[i];
-        if let Some(q) = quote {
-            if ch == b'\\' {
-                i += 1;
-            } else if ch == q {
-                quote = None;
-            }
-        } else if ch == b'"' || ch == b'\'' || ch == b'`' {
-            quote = Some(ch);
-        } else if b"([{<".contains(&ch) {
-            depth += 1;
-        } else if b")]}>".contains(&ch) && !(ch == b'>' && i > 0 && b[i - 1] == b'=') {
-            depth -= 1;
-        } else if depth == 0 && ch.is_ascii() && seps.as_bytes().contains(&ch) {
+        if depth == 0 && seps.as_bytes().contains(&b[i]) {
             push(from, i);
             from = i + 1;
         }
-        i += 1;
+        depth += nests(s, i);
+        i = token_end(s, i);
     }
     push(from, b.len());
     out
@@ -863,24 +838,8 @@ pub fn obligations(d: &JsDecl) -> Vec<String> {
 /// MO-10i: a function type's parameter list (`(a: A, b: B) => R` → `a: A, b: B`), or None.
 fn fn_params_text(t: &str) -> Option<String> {
     let t = t.js_trim();
-    if !t.starts_with('(') {
-        return None;
-    }
-    let cs: Vec<char> = t.chars().collect();
-    let mut depth = 0i64;
-    for i in 0..cs.len() {
-        let ch = cs[i];
-        if "([{<".contains(ch) {
-            depth += 1;
-        } else if ")]}".contains(ch) || (ch == '>' && i > 0 && cs[i - 1] != '=') {
-            depth -= 1;
-            if depth == 0 {
-                let rest: String = cs[i + 1..].iter().collect();
-                return if rest.js_trim_start().starts_with("=>") { Some(cs[1..i].iter().collect()) } else { None };
-            }
-        }
-    }
-    None
+    let end = t.starts_with('(').then(|| closes(t, 0)).flatten()?;
+    t[end..].js_trim_start().starts_with("=>").then(|| t[1..end - 1].to_string())
 }
 /// MO-10i: the positions of a function type's parameters written `draft` (`(draft state: T) => void` → [0]).
 fn draft_params(t: Option<&str>) -> Vec<usize> {
@@ -1033,11 +992,17 @@ fn ty_tokens(s: &str) -> Option<(Vec<TyTok>, Vec<bool>)> {
             j += w.len_utf8();
             continue;
         }
+        if s[j..].starts_with("//") || s[j..].starts_with("/*") {
+            let end = token_end(s, j);
+            brk |= s[j..end].contains('\n');
+            j = end;
+            continue;
+        }
         nl.push(brk);
         brk = false;
         if ch == b'"' || ch == b'\'' || ch == b'`' {
             let mut subs = vec![];
-            j = quoted_end(b, j, &mut subs)?;
+            j = quoted_end(b, j, false, &mut subs)?;
             // a template literal type's substitution is a type: `${c+1}` makes the whole a comparison
             if subs.iter().any(|&(a, z)| !one_type(&s[a..z])) {
                 return None;
@@ -1070,40 +1035,42 @@ fn ty_tokens(s: &str) -> Option<(Vec<TyTok>, Vec<bool>)> {
 }
 /// R4 (RFC 11): the index just past the string or template literal opening at `b[j]`, with the spans of a template's own
 /// substitutions in `subs`. A substitution is scanned as code: braces nest, and a string or template inside it is skipped
-/// whole, so `${"}"}` does not end it. None when the literal is not closed.
-pub(crate) fn quoted_end(b: &[u8], j: usize, subs: &mut Vec<(usize, usize)>) -> Option<usize> {
-    let q = b[j];
-    let mut j = j + 1;
-    while j < b.len() {
-        match b[j] {
-            b'\\' => j += 2,
-            c if c == q => return Some(j + 1),
-            b'$' if q == b'`' && b.get(j + 1) == Some(&b'{') => {
-                let start = j + 2;
-                let mut depth = 1;
-                j = start;
-                while depth > 0 {
-                    match *b.get(j)? {
-                        b'{' => {
-                            depth += 1;
-                            j += 1;
-                        }
-                        b'}' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                subs.push((start, j));
-                            }
-                            j += 1;
-                        }
-                        b'"' | b'\'' | b'`' => j = quoted_end(b, j, &mut vec![])?,
-                        _ => j += 1,
-                    }
+/// whole, so `${"}"}` does not end it. None when the literal is not closed (`one_line`: on its line).
+fn quoted_end(b: &[u8], j: usize, one_line: bool, subs: &mut Vec<(usize, usize)>) -> Option<usize> {
+    // the literal `j` is in, with the braces open in its substitution (0: in the literal's own text), and those around it
+    let (mut q, mut braces, mut around) = (b[j], 0, vec![]);
+    let (mut j, mut start) = (j + 1, 0);
+    loop {
+        let c = *b.get(j).filter(|&&c| !(one_line && c == b'\n'))?;
+        let outer = around.is_empty();
+        j += 1;
+        match c {
+            b'\\' if braces == 0 && !(one_line && b.get(j) == Some(&b'\n')) => j += 1,
+            c if braces == 0 && c == q => match around.pop() {
+                Some(a) => (q, braces) = a,
+                None => return Some(j),
+            },
+            b'$' if braces == 0 && q == b'`' && b.get(j) == Some(&b'{') => {
+                j += 1;
+                braces = 1;
+                if outer {
+                    start = j;
                 }
             }
-            _ => j += 1,
+            b'{' if braces > 0 => braces += 1,
+            b'}' if braces > 0 => {
+                braces -= 1;
+                if outer && braces == 0 {
+                    subs.push((start, j - 1));
+                }
+            }
+            b'"' | b'\'' | b'`' if braces > 0 => {
+                around.push((q, braces));
+                (q, braces) = (c, 0);
+            }
+            _ => {}
         }
     }
-    None
 }
 /// one type, consumed whole (a template literal type's substitution)
 fn one_type(text: &str) -> bool {
@@ -1623,7 +1590,11 @@ fn type_args_at(s: &str) -> Option<(String, usize)> {
         let ch = b[j];
         if ch == b'"' || ch == b'\'' || ch == b'`' {
             // R4: a string type argument is skipped whole (`f<"}">(x)`)
-            j = quoted_end(b, j, &mut vec![])?;
+            j = quoted_end(b, j, false, &mut vec![])?;
+            continue;
+        }
+        if b[j..].starts_with(b"//") || b[j..].starts_with(b"/*") {
+            j = token_end(s, j);
             continue;
         }
         if b"<([{".contains(&ch) {
@@ -1795,24 +1766,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
                     if depth == 0 && (matches!(ch, ';' | ',' | '}' | '\n') || c.starts_with("//")) {
                         break;
                     }
-                    // a string literal type
-                    if ch == '"' || ch == '\'' || ch == '`' {
-                        c.bump();
-                        while !c.eof() && c.peek() != ch {
-                            if c.peek() == '\\' {
-                                c.bump();
-                            }
-                            c.bump();
-                        }
-                        c.bump();
-                        continue;
-                    }
-                    if "([{<".contains(ch) {
-                        depth += 1;
-                    } else if ")]}".contains(ch) || (ch == '>' && c.i > 0 && c.src.as_bytes()[c.i - 1] != b'=') {
-                        depth -= 1;
-                    }
-                    c.bump();
+                    depth += nests(c.src, c.i) as i32;
+                    c.i = token_end(c.src, c.i);
                 }
                 let t = js_trim(&c.src[t0..c.i]);
                 ty = (!t.is_empty()).then(|| t.to_string());
@@ -1907,53 +1862,20 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
     }
     Ok(JsDecl::Comp { name, line, props, fails, content, uses, provides, tparams, props_type })
 }
+/// Whether the record that opens at `j` closes a component's props: its `}` is followed by the `)` of the parameter.
+fn closes_props(src: &str, j: usize) -> bool {
+    closes(src, j).is_some_and(|k| src[k..].js_trim_start().starts_with(')'))
+}
 /// MO-8o: a component's props as a type the library declares, `props: Kit.SelectProps<Option>`, with the fields that carry
 /// words in a record after it, `… & { onChange?: handler (v: Option) => void }`: the type's text, TypeScript's (the checker
 /// reads none of it), up to the `&` before a record that closes the props, or to the `)` that does. The cursor is left on
 /// that record's `{`, or on the `)`.
-fn skip_string_at(b: &[u8], mut j: usize) -> usize {
-    let q = b[j];
-    j += 1;
-    while j < b.len() && b[j] != q {
-        if b[j] == b'\\' {
-            j += 1;
-        }
-        j += 1;
-    }
-    j + 1
-}
-/// Whether the record that opens at `j` closes a component's props: its `}` is followed by the `)` of the parameter.
-fn closes_props(src: &str, j: usize) -> bool {
-    let b = src.as_bytes();
-    let (mut k, mut braces) = (j, 0i32);
-    while k < b.len() {
-        let x = b[k];
-        if x == b'"' || x == b'\'' || x == b'`' {
-            k = skip_string_at(b, k);
-            continue;
-        }
-        if x == b'{' {
-            braces += 1;
-        } else if x == b'}' {
-            braces -= 1;
-            if braces == 0 {
-                break;
-            }
-        }
-        k += 1;
-    }
-    src.get(k + 1..).is_some_and(|r| r.js_trim_start().starts_with(')'))
-}
 fn props_type_of(c: &mut Cursor) -> R<String> {
     let t0 = c.i;
     let b = c.src.as_bytes();
     let mut depth = 0i32;
     while !c.eof() {
         let ch = c.peek();
-        if ch == '"' || ch == '\'' || ch == '`' {
-            c.i = skip_string_at(b, c.i).min(c.src.len());
-            continue;
-        }
         let mut end = None;
         if depth == 0 && ch == ')' {
             end = Some((c.i, c.i));
@@ -1974,12 +1896,8 @@ fn props_type_of(c: &mut Cursor) -> R<String> {
             c.i = to;
             return Ok(t);
         }
-        if "([{<".contains(ch) {
-            depth += 1;
-        } else if ")]}".contains(ch) || (ch == '>' && c.i > 0 && b[c.i - 1] != b'=') {
-            depth -= 1;
-        }
-        c.bump();
+        depth += nests(c.src, c.i) as i32;
+        c.i = token_end(c.src, c.i);
     }
     c.fail("a component's props: the `)` that closes them")
 }
@@ -2145,19 +2063,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 c.ws(true);
                 parse_type(&mut c, false, true)?;
             } else if c.starts_with("{") {
-                let mut depth = 0;
-                loop {
-                    if c.peek() == '{' {
-                        depth += 1;
-                    }
-                    if c.peek() == '}' {
-                        depth -= 1;
-                    }
-                    c.bump();
-                    if c.eof() || depth == 0 {
-                        break;
-                    }
-                }
+                c.i = closes(c.src, c.i).unwrap_or(c.src.len());
             }
             out.push(JsDecl::Type { name, line, text: c.src[t0..c.i].to_string() });
             continue;
@@ -2169,18 +2075,10 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             let mut fields = vec![];
             if c.eat("(") {
                 let t0 = c.i;
-                let mut depth = 1;
-                while !c.eof() && depth > 0 {
-                    let ch = c.peek();
-                    if "([{<".contains(ch) {
-                        depth += 1;
-                    } else if ")]}>".contains(ch) {
-                        depth -= 1;
-                    }
-                    c.i += ch.len_utf8();
-                }
+                let shut = closes(c.src, t0 - 1);
+                c.i = shut.unwrap_or(c.src.len());
                 // SV-5a: an optional field keeps its `?` (`code?`): an instance may come without it
-                fields = split_top(&c.src[t0..c.i - 1], ",").iter().map(|f| f.split(':').next().unwrap_or("").chars().filter(|ch| !js_ws(*ch)).collect::<String>()).filter(|f| !f.is_empty() && f != "?").collect();
+                fields = split_top(&c.src[t0..shut.map_or(c.i, |e| e - 1)], ",").iter().map(|f| f.split(':').next().unwrap_or("").chars().filter(|ch| !js_ws(*ch)).collect::<String>()).filter(|f| !f.is_empty() && f != "?").collect();
             }
             out.push(JsDecl::Error { name, line, fields });
             continue;
@@ -2530,29 +2428,24 @@ fn masked(t: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| t.to_string())
 }
 
-/// A type text with what its string literals hold blanked, so a word inside one is not read as a row.
+/// A type text with its string literals and its comments blanked, so a word inside one is not read as a row.
 fn masked_strings(t: &str) -> String {
-    let b = t.as_bytes();
-    let mut out = b.to_vec();
-    let mut q = 0u8;
-    let mut i = 0;
-    while i < b.len() {
-        let ch = b[i];
-        if q != 0 {
-            out[i] = b'_';
-            if ch == b'\\' && i + 1 < b.len() {
-                out[i + 1] = b'_';
-                i += 1;
-            } else if ch == q {
-                q = 0;
-            }
-        } else if ch == b'"' || ch == b'\'' || ch == b'`' {
-            q = ch;
-            out[i] = b'_';
+    let (mut out, mut i, mut kept) = (String::with_capacity(t.len()), 0, 0);
+    while i < t.len() {
+        let end = token_end(t, i);
+        let blank = match t.as_bytes()[i] {
+            b'"' | b'\'' | b'`' => "_",
+            b'/' if end > i + 1 => " ",
+            _ => "",
+        };
+        if !blank.is_empty() {
+            out += &t[kept..i];
+            out += &blank.repeat(end - i);
+            kept = end;
         }
-        i += 1;
+        i = end;
     }
-    String::from_utf8_lossy(&out).into_owned()
+    out + &t[kept..]
 }
 fn code_of(line: &str) -> &str {
     let b = line.as_bytes();
@@ -2726,19 +2619,7 @@ fn type_params(c: &mut Cursor) -> Option<String> {
         return None;
     }
     let t0 = c.i;
-    let mut depth = 0;
-    loop {
-        let ch = c.peek();
-        if ch == '<' {
-            depth += 1;
-        } else if ch == '>' && !c.src[..c.i].ends_with('=') {
-            depth -= 1;
-        }
-        c.bump();
-        if c.eof() || depth == 0 {
-            break;
-        }
-    }
+    c.i = closes(c.src, t0).unwrap_or(c.src.len());
     Some(c.src[t0..c.i].to_string())
 }
 
@@ -3125,16 +3006,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             parse_type(c, false, true)?;
         } else {
             c.expect("{")?;
-            let mut depth = 1;
-            while !c.eof() && depth != 0 {
-                if c.peek() == '{' {
-                    depth += 1;
-                }
-                if c.peek() == '}' {
-                    depth -= 1;
-                }
-                c.bump();
-            }
+            c.i = closes(c.src, c.i - 1).unwrap_or(c.src.len());
         }
         return Ok(Decl::TypeDecl { name, line, span: Span::NONE, text: c.src[t0..c.i].to_string(), exported: false });
     }
@@ -4764,5 +4636,80 @@ mod recovering {
             let json = serde_json::to_string(&p.to_json()).unwrap();
             assert!(json.contains(&format!("\"targs\":{}", serde_json::to_string(targs).unwrap())), "{src}: {json}");
         }
+    }
+    /// 07 §2: a type's text is read by tokens: a bracket or a quote in a string, a template or a comment is no bracket.
+    #[test]
+    fn a_type_is_read_by_tokens() {
+        let said = |src: &str| {
+            let one = |d: JsDecl| match d {
+                JsDecl::Error { name, fields, .. } if !fields.is_empty() => format!("{name}({})", fields.join(",")),
+                JsDecl::Fn { name, params, ptypes, cbs, .. } if cbs.iter().any(|c| c.is_some()) => format!("{name}[{}]", callbacks_of(&params, &ptypes, &cbs).into_iter().map(|c| c.name).collect::<Vec<_>>().join(",")),
+                JsDecl::Comp { name, props, .. } => format!("{name}{{{}}}", props.into_iter().map(|p| p.name).collect::<Vec<_>>().join(",")),
+                d => d.name().to_string(),
+            };
+            parse_declarations(src).expect(src).into_iter().map(one).collect::<Vec<_>>().join(" ")
+        };
+        for (src, want) in [
+            ("export type T = { // {\n  a: string\n}\nexport pure fn g(): number\n", "T g"),
+            ("export type T = { // don't (\r\n  a: string }\r\nexport pure fn g(): number // it's\r\n", "T g"),
+            ("export pure fn g(a: string /* ) */): number\n", "g"),
+            ("export interface X { a: \"}\" }\nexport pure fn g(): number\n", "X g"),
+            ("export pure fn g<T extends \">\">(x: T): T\n", "g"),
+            ("export error E(f: () => void, b: string)\nexport pure fn g(): number\n", "E(f,b) g"),
+            ("export type T = `a${`}`}b`\nexport pure fn g(): T\n", "T g"),
+            ("export fn f(cb: handler (a: \")\") => void): void\n", "f[cb]"),
+            ("export component C(props: { a: string /* , b: ( */; c: number /* don't */ })\n", "C{a,c}"),
+            ("export pure fn g(): { a: string /* pending x, fails(E) y */ }\n", "g"),
+            ("export type T = { é: \"é)\" /* ünï ( */ }\nexport pure fn g(a: \"日本)\" | `é${\"}\"}`): number\n", "T g"),
+            ("export type T = `a${b\nexport type U = \"a\nexport type V = 'a\nexport pure fn g(): number\n", "T U V g"),
+            ("export pure fn g(): number\nexport error E(", "g E"),
+            ("export pure fn g(): number\nexport error E(é", "g E(é)"),
+            ("export pure fn g(): number\nexport error E(a: \"é", "g E(a)"),
+            ("export pure fn g(): number\nexport type T = \"a\\", "g T"),
+            ("export pure fn g(): number\nexport type T = `é${", "g T"),
+            ("export pure fn g(): number\nexport type T = a /* é", "g T"),
+            ("export pure fn g(): number\nexport interface X { é", "g X"),
+        ] {
+            assert_eq!(said(src), want, "{src}");
+        }
+        for src in [
+            "type T = { // }\n  a: string }",
+            "source x: string /* := */ := \"a\"",
+            "interface X { a: \"}\" }",
+            "interface X {\n  a: string // }\n}",
+            "fn f(x: string /* ) */, y: number): number => y",
+            "component A(props: { a: string /* } */ }) { <p>{props.a}</p> }",
+            "fn f(x: number): (a: number) => boolean => (a) => a > x",
+            "fn f(x: number): { a: boolean } => ({ a: x < 2 })",
+            "fn f(x: number): boolean => (x < 1)",
+            "x = [1].map((y: Array<number>) => y >= 2)",
+        ] {
+            assert!(parse_program(&format!("{src}\nexport default component App() {{\n  <p>x</p>\n}}\n")).is_ok(), "{src}");
+        }
+        for (src, targs) in [("x = f<T /* > */>(1)\n", "T /* > */"), ("x = f<T /* don't */>(1)\n", "T /* don't */"), ("x = f<T // >\n>(1)\n", "T // >")] {
+            let json = serde_json::to_string(&parse_program(src).expect(src).to_json()).unwrap();
+            assert!(json.contains(&format!("\"targs\":{}", serde_json::to_string(targs).unwrap())), "{src}: {json}");
+        }
+        // every name is a value's: compared, whatever a comment says
+        assert!(!serde_json::to_string(&parse_program("source a := 1\nsource b := 2\nsource c := 3\nx = a<b /* see Foo */>(c)\ny = a < b && /* it's */ c > (a)\n").expect("parses").to_json()).unwrap().contains("targs"));
+    }
+    /// Text that nothing closes is read once, and no deeper than the stack: 20,000 lines of each (a second each, were it
+    /// quadratic, in an optimized build; the limit is for a slow machine).
+    #[test]
+    fn what_nothing_closes_is_read_once() {
+        for line in ["`a${b", "`a", "`a${'b", "\"a", "{ a: string", "a /* x", "(a", "<a"] {
+            let src: String = (0..20_000).map(|i| format!("export type T{i} = {line}\n")).collect();
+            let at = std::time::Instant::now();
+            let _ = parse_declarations(&src);
+            assert!(at.elapsed().as_secs() < 5, "{line}: {:?}", at.elapsed());
+        }
+        let deep = "`${".repeat(100_000);
+        assert!(parse_declarations(&format!("export type T = {deep}\n")).is_ok());
+        assert!(type_args_at(&format!("<{deep}")).is_none());
+        // a row's methods and siblings are found by name
+        let src: String = (0..5_000).map(|i| format!("export const v{i}: number\nexport fn v{i}.go(): void\nexport component K{i}.Row(props: {{}})\n")).collect();
+        let (rows, at) = (parse_declarations(&src).expect("parses"), std::time::Instant::now());
+        crate::project::declaration_file(&rows);
+        assert!(at.elapsed().as_secs() < 5, "{:?}", at.elapsed());
     }
 }
