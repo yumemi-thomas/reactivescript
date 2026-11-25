@@ -20,5 +20,5 @@ exports.share = file => {
     };
     return host;
   };
-  require.cache[file].exports = new Proxy(ts, { get: (t, p) => p === "createCompilerHost" ? createCompilerHost : t[p] });
+  require.cache[file].exports = Object.create(ts, { createCompilerHost: { value: createCompilerHost, enumerable: true } });
 };

@@ -65,7 +65,8 @@ function kept() {
 }
 const lock = await import(new URL("../../scripts/lib/lock.mjs", import.meta.url).href).catch(() => null) as any;
 const queued = process.env.RX_SHARD === "queue";   // a worker: it is given one scenario at a time
-const jobs = Math.min(Number(process.env.RX_JOBS) || lock?.cores() || Math.min(4, Math.ceil(availableParallelism() / 2)), names.length);
+// (a run of a scenario is mostly waiting for a page that has been given time: half as many again as the cores it was given, at most 16)
+const jobs = Math.min(Math.min(16, Math.ceil(1.5 * (Number(process.env.RX_JOBS) || lock?.cores() || Math.min(4, Math.ceil(availableParallelism() / 2))))), names.length);
 if (!queued && jobs > 1) {
   // the scenarios are handed out one by one, so that no process waits while another has several left
   const keys = kept(); if (keys) process.env.RX_SSR_KEYS = JSON.stringify(keys);

@@ -84,6 +84,8 @@ for (const s of todo) if (s.last) s.after = [...(s.after ?? []), ...todo.filter(
 const log = path.resolve(opt("--log", path.join(repo, ".out/ci"))); rmSync(log, { recursive: true, force: true }); mkdirSync(log, { recursive: true });
 const env = { ...process.env, SOLID_NEXT: solid, CARGO_BUILD_JOBS: String(jobs), GITHUB_WORKSPACE: repo, TIMEFORMAT: "%R %U %S" };
 if (!cached) env.RX_NO_CACHE = "1";
+// (Node's own cache of compiled code — what a module's text compiles to, by its content: no result of a suite)
+env.NODE_COMPILE_CACHE ??= path.join(repo, ".out/node-code");
 const t0 = Date.now(), at = () => `${((Date.now() - t0) / 1000).toFixed(0).padStart(4)} s`;
 const done = new Map(), running = new Map();
 // what a step may grow to (RX_CI_MEM MB, 4000): a process of ours past it is stopped — ours: a descendant of this one

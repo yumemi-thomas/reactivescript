@@ -201,13 +201,13 @@ export let jobs = Math.max(1, Number(process.env.BENCH_JOBS) || Math.floor(os.av
 /** …and what a run was given (scripts/lib/lock.mjs), where BENCH_JOBS does not say. */
 export const given = lease => { Object.assign(process.env, lease.env); if (!Number(process.env.BENCH_JOBS)) jobs = lease.n; };
 /** `fn` of each item, `jobs` at a time; of the items `few` picks (a dev server, a production build) at most two at a
- *  time: they wait on their own timers and on a whole toolchain. Answers the results in the items' order. */
+ *  time (three where there are eight processes or more): they wait on their own timers and on a whole toolchain. Answers the results in the items' order. */
 export async function pool(items, fn, few = () => false) {
   const out = new Array(items.length), waiting = items.map((x, i) => i); let running = 0, heavy = 0, ended;
   const done = new Promise(res => { ended = res; }); if (!items.length) return out;
   const next = () => {
     while (running < jobs) {
-      const k = waiting.findIndex(i => heavy < 2 || !few(items[i])); if (k < 0) break;
+      const k = waiting.findIndex(i => heavy < (jobs >= 8 ? 3 : 2) || !few(items[i])); if (k < 0) break;
       const i = waiting.splice(k, 1)[0], h = few(items[i]); running++; if (h) heavy++;
       fn(items[i], i).then(r => { out[i] = r; }, e => { out[i] = { crash: e.stack ?? String(e) }; }).finally(() => { running--; if (h) heavy--; if (!waiting.length && !running) ended(); else next(); });
     }

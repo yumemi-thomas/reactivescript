@@ -110,9 +110,9 @@ export default {
 
     // ---- the .tsx app: TypeScript's check against the shipped .d.ts, then the browser and the server ----
     const web = path.join(dir, "web");
-    const tsc = (extra = []) => { const r = spawnSync(process.execPath, [path.join(ws, "node_modules/typescript/bin/tsc"), "-p", path.join(web, "tsconfig.json"), ...extra], { encoding: "utf8" }); return r.status === 0 ? "" : r.stdout + r.stderr || `exit ${r.status}`; };
+    const tsc = (extra = []) => { const r = spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/node_modules/tsrs/bin/tsrs"), "-p", path.join(web, "tsconfig.json"), ...extra], { encoding: "utf8" }); return r.status === 0 ? "" : r.stdout + r.stderr || `exit ${r.status}`; };
     const clean = tsc();
-    h.check("the .tsx app type-checks with tsc against the package's .d.ts (no skipLibCheck)", clean === "", clean);
+    h.check("the .tsx app type-checks with tsrs against the package's .d.ts (no skipLibCheck)", clean === "", clean);
     const app = readFileSync(path.join(web, "app.tsx"), "utf8");
     const probes = [["a prop", "<Badge label={label()} />", "<Badge label={3} />", /TS2322/], ["an action's parameter", "pick(\"USD\")", "pick(1)", /TS2345/], ["a source is an accessor", "{code()}=", "{code.toUpperCase()}=", /TS2339/], ["a `ref` parameter is an accessor or the value", "useLabel(amount)", "useLabel(\"two\")", /TS2345/], ["a part that is read is an accessor", "{page()}</b>", "{page.toFixed()}</b>", /TS2339/], ["an action's parameter, among the parts", "set(3)", "set(\"3\")", /TS2345/], ["an action answers a promise", "set(9)", "set(9).toFixed()", /TS2339/], ["a nested part", "edges.end()", "edges.last()", /TS2339/], ["a value made once is no accessor", "{first}", "{first()}", /TS2349/], ["a tuple's part", "at()}", "at().at()}", /TS2339/], ["the error's field", "(err() as Offline).code", "(err() as Offline).cod", /TS2339|TS2551/]];
     const lost = [];

@@ -209,7 +209,9 @@ const shard = args.includes("--shard") ? args[args.indexOf("--shard") + 1].split
 if (shard && !(shard.length === 2 && shard[0] >= 1 && shard[0] <= shard[1])) { console.error("--shard i/n: 1 ≤ i ≤ n"); process.exit(2); }
 const mine = flag("--coverage-only") ? [] : ids.filter((id, k) => !shard || k % shard[1] === shard[0] - 1);
 const tasksOf = new Map(await Promise.all(mine.map(async id => [id, (await import(pathToFileURL(path.join(here, "tasks", id, "task.mjs")).href)).default])));
-const ran = await pool(mine, id => alone(["--task", id], id, crash => ({ id, crash })), id => !!tasksOf.get(id).prepare || (tasksOf.get(id).bad ?? []).some(b => b.build));
+const long = id => !!tasksOf.get(id).prepare || (tasksOf.get(id).bad ?? []).some(b => b.build);   // (first: they go few at a time, and are not what is left at the end)
+const order = [...mine.filter(long), ...mine.filter(id => !long(id))], inOrder = await pool(order, id => alone(["--task", id], id, crash => ({ id, crash })), long);
+const ran = mine.map(id => inOrder[order.indexOf(id)]);
 const results = ran.map(([r, err]) => { if (err) process.stderr.write(err); return r; });
 
 // ---- the scorecard ----
