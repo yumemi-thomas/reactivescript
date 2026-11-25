@@ -233,6 +233,8 @@ attributes are equations, children are readers, components are applied as
   (RG-8). Each block is a region: declarations, then markup
   (RG-1, RG-2, RG-5). `if x { … }` narrows `x` inside (RG-1c).
 - `{...e}` among the attributes is a spread, as JSX's: every field of `e`.
+  A field `e` has is given, `undefined` too; one it does not have is not,
+  and what was written before it stands (S-surface-13).
   Parts merge in order and the last one that has a field wins (Solid's
   `merge`), so an attribute after the spread overrides it and one before
   it is a default. A spread is an equation like any attribute: its fields

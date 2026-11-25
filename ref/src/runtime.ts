@@ -43,7 +43,7 @@ function diffPaths(a: unknown, b: unknown, path: Path, out: Set<Path>) {
   if (Object.is(a, b)) return;
   if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b)) {
     const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-    for (const k of keys) diffPaths(a[k], b[k], join(path, k), out);
+    for (const k of keys) { if ((k in a) !== (k in b)) out.add(join(path, k)); diffPaths(a[k], b[k], join(path, k), out); }   // a field that is there and `undefined` is not one that is not there: `{ ...r }` gives the first and not the second (07 §4)
     if (Array.isArray(a) && Array.isArray(b) && a.length !== b.length) out.add(join(path, "length"));
     return;
   }
@@ -748,7 +748,7 @@ export class Runtime {
     for (const k of new Set([...Object.keys(o), ...Object.keys(e)])) {
       const a = o[k], b = e[k];
       if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b)) { this.applyDiff(a, b); continue; }
-      if (Object.is(a, b)) continue;
+      if (Object.is(a, b) && (k in o) === (k in e)) continue;
       if (!(k in e)) delete o[k]; else o[k] = b;
       this.notify(o, k);
     }
