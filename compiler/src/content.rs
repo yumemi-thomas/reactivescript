@@ -21,7 +21,7 @@ fn words(s: &'static str) -> HashSet<&'static str> {
     s.split(' ').collect()
 }
 pub static P_CLOSERS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    words("address article aside blockquote center details dialog dir div dl fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr listing main menu nav ol p plaintext pre search section table ul xmp")
+    words("address article aside blockquote center details dialog dir div dl fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr li dd dt listing main menu nav ol p plaintext pre search section summary table ul xmp")
 });
 pub static P_SCOPE: LazyLock<HashSet<&str>> = LazyLock::new(|| words("applet button caption html marquee object table td template th"));
 static SPECIAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {

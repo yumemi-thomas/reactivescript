@@ -13,7 +13,7 @@ export const EMPTY_SHAPE: Shape = { roots: [], closesP: false, a: false, form: f
 
 const words = (s: string) => new Set(s.split(" "));
 /** Start tags that close an open `<p>` in button scope. */
-export const P_CLOSERS = words("address article aside blockquote center details dialog dir div dl fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr listing main menu nav ol p plaintext pre search section table ul xmp");
+export const P_CLOSERS = words("address article aside blockquote center details dialog dir div dl fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr li dd dt listing main menu nav ol p plaintext pre search section summary table ul xmp")   // (li, dd, dt, summary: HTML §13.2.6.4.7 closes a p in button scope for each);
 /** The elements that end "button scope" (a `<p>` above one is not closed by what is inside it). */
 export const P_SCOPE = words("applet button caption html marquee object table td template th");
 const SPECIAL = words("address applet area article aside base basefont bgsound blockquote body br button caption center col colgroup dd details dir div dl dt embed fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hgroup hr html iframe img input keygen li link listing main marquee menu meta nav noembed noframes noscript object ol p param plaintext pre script search section select source style summary table tbody td template textarea tfoot th thead title tr track ul wbr xmp");
