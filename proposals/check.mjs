@@ -21,7 +21,7 @@
 // it. `--prototype <folder>` runs the programs so marked there.
 // `says-branch="text"` and `says-upstream="text"` ask that the output hold the text. `files=<dir>` copies a folder of proposals/ beside.
 import { spawn } from "node:child_process";
-import { availableParallelism } from "node:os";
+import { cores } from "../scripts/lib/lock.mjs";
 import * as cache from "../scripts/lib/cache.mjs";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -124,7 +124,7 @@ function blocks(file) {
 const noSetup = out => /ERR_MODULE_NOT_FOUND|Cannot find (module|package) '(?!\.{1,2}\/)|browserType\.launch|Executable doesn't exist/.test(out);
 let ran = 0, bad = 0, setup = 0;
 const docs = [...readdirSync(here).filter(f => f.endsWith(".md")).map(f => join(here, f)), ...readdirSync(join(here, "bugs")).filter(f => f.endsWith(".md")).map(f => join(here, "bugs", f))].filter(f => !only || f.includes(only)).sort();
-// the programs are read in order and run several at once (RX_JOBS: default 4, at most half the cores), and said in their order
+// the programs are read in order and run several at once (RX_JOBS, else what is free of the machine's budget), and said in their order
 const work = [];
 for (const d of docs) for (const b of blocks(d)) for (const [name, root] of Object.entries(roots)) {
   const want = b.attrs[name]; if (want === undefined && name === "prototype") continue;
@@ -144,7 +144,7 @@ const say = (w, r) => {
   const ok = judged(w, out, got); if (!ok) bad++;
   if (!ok || verbose) console.log(`${ok ? "ok  " : "FAIL"} ${relative(repo, d)}:${b.line} ${b.kind} ${name}: ${got}${ok ? "" : `, stated ${want}${text && !out.includes(text) ? `, saying ${JSON.stringify(text)}` : ""}`}${verbose ? "\n" + out.replaceAll(/^/gm, "     | ").slice(0, 1600) : ""}`);
 };
-const jobs = Math.max(1, Number(process.env.RX_JOBS) || Math.min(4, Math.ceil(availableParallelism() / 2)));
+const jobs = Math.max(1, Number(process.env.RX_JOBS) || cores());
 await Promise.all(Array.from({ length: jobs }, async (_, slot) => {
   for (let i; (i = next++) < work.length;) {
     const w = work[i], { b } = w;

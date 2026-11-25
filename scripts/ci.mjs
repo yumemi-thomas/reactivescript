@@ -4,18 +4,17 @@
 //   scripts/quick                  while working: both checkers and their parity over every program, the interpreter, the oracle,
 //                                  the emitters, the crate's tests; in the browser, the programs whose compiled code is new
 //   --only a,b | --skip a,b        the steps so named (a prefix will do), what they need built first included; --list names them
-//   --jobs 4                       processes at once (a suite that starts several counts as several); --keep-going is the default
+//   --jobs n                       (default: what is free of the machine's budget, scripts/lib/lock.mjs) processes at once (a suite that starts several counts as several); --keep-going is the default
 // Logs and times: .out/ci (or --log <folder>). Exits 1 when a step fails; a step that cannot run here says why, and fails
 // nothing.
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { availableParallelism } from "node:os";
 import path from "node:path";
-import { heavy } from "./lib/lock.mjs";
+import { cores, heavy } from "./lib/lock.mjs";
 
 const repo = path.resolve(import.meta.dirname, ".."), args = process.argv.slice(2), flag = f => args.includes(f), opt = (f, d) => { const i = args.indexOf(f); return i < 0 ? d : args[i + 1]; };
 const quick = flag("--quick"), cached = (quick || flag("--cached")) && !flag("--no-cache") && !process.env.CI && process.env.RX_NO_CACHE !== "1";
-const jobs = Math.max(1, Number(opt("--jobs")) || Math.min(4, Math.ceil(availableParallelism() / 2)));
+const jobs = Math.max(1, Number(opt("--jobs")) || cores());
 const solid = path.resolve(process.env.SOLID_NEXT || path.join(repo, "../solid-next"));
 const rxc = path.join(repo, "compiler/target/release/rxc"), LS = "tooling/rx-language-server";
 const has = c => { try { execFileSync("sh", ["-c", `command -v ${c}`], { stdio: "ignore" }); return true; } catch { return false; } };
@@ -101,10 +100,10 @@ process.on("exit", stopAll); for (const s of ["SIGINT", "SIGTERM"]) process.on(s
  *  that is busy with another suite is no reason to wait for it. */
 async function start(s) {
   const n0 = Math.min(s.n ?? 1, jobs); running.set(s.id, { child: null, s, n: n0 });
-  const release = s.heavy ? await heavy(`${quick ? "quick" : "ci"} ${s.id}`, quick ? { wait: 30, orNot: true, log() {} } : { log: t => console.log(`${at()}  ${t}`) }) : () => {};
+  const release = s.heavy ? await heavy(`${quick ? "quick" : "ci"} ${s.id}`, quick ? { want: n0, wait: 30, orNot: true, log() {} } : { want: n0, log: t => console.log(`${at()}  ${t}`) }) : () => {};
   if (!release) { running.delete(s.id); done.set(s.id, { not: "another heavy run holds the machine (node scripts/heavy.mjs --who)" }); console.log(`${at()}  part ${s.id.padEnd(22)} not run: the machine is busy`); return next(); }
-  const file = path.join(log, `${s.id}.log`), n = Math.min(s.n ?? 1, jobs), cmd = s.run;
-  const child = spawn("bash", ["-c", `exec >${JSON.stringify(file)} 2>&1; time { ${cmd}\n} 2>&1; code=$?; exit $code`], { cwd: path.join(repo, s.dir), env: { ...env, RX_JOBS: String(n), BENCH_JOBS: String(n), RX_LOCK_HELD: process.env.RX_LOCK_HELD ?? "" }, stdio: "ignore", detached: true });
+  const file = path.join(log, `${s.id}.log`), n = Math.min(n0, release.n ?? n0), cmd = s.run;
+  const child = spawn("bash", ["-c", `exec >${JSON.stringify(file)} 2>&1; time { ${cmd}\n} 2>&1; code=$?; exit $code`], { cwd: path.join(repo, s.dir), env: { ...env, RX_JOBS: String(n), BENCH_JOBS: String(n), ...release.env }, stdio: "ignore", detached: true });
   let late = false; const soft = quick && s.soft ? setTimeout(() => { late = true; try { process.kill(-child.pid, "SIGTERM"); } catch { /* ended */ } setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, 3000); }, s.soft * 1000) : null;
   const began = Date.now(), wall = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, (s.limit ?? (Number(process.env.RX_CI_LIMIT) || 3600)) * 1000);
   running.set(s.id, { child, s, n });

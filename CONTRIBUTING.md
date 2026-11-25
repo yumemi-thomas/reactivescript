@@ -162,7 +162,7 @@ cd ref
 npm test                       # interpreter over every scenario
 npm run oracle                 # the same scenarios lowered onto Solid
 npm run compiled               # compiled modules
-npm run ssr                    # streamed SSR + hydration in Chromium (several processes: RX_JOBS, default 4)
+npm run ssr                    # streamed SSR + hydration in Chromium (several processes: RX_JOBS)
 npm run types                  # TSX projection checked by TypeScript
 npm run crate                  # the Rust crate against ref/ (also --spa, --whole-program, --lower, --project; --text, alone or with the last two: the programs again with é, 漢, 😀, CRLF, cut short)
 ```
@@ -181,7 +181,7 @@ node --experimental-strip-types compiler/test/names.mjs   # every function of th
 node scripts/spec-refs.mjs       # every rule and diagnostic that is named is in spec/
 node proposals/check.mjs         # every program in proposals/ has the verdict stated for it (--upstream <an exported, built main>: there too); not in CI
 node bench/measure.test.mjs      # the benchmark's own counting
-node bench/run.mjs --check     # BENCH_JOBS processes (default: half the cores); the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
+node bench/run.mjs --check     # BENCH_JOBS processes (default: its lease of the machine's cores); the representative tasks and the coverage suite (bench/README.md): real libraries, good programs and one-line mistakes; every package of four libraries drafted and used
 node bench/run.mjs --write     # after a change that is meant to move it: the scorecard and the coverage record, from a fresh install (rm -rf bench/.out)
 BENCH_WORDS=1 node bench/run.mjs <task>   # each row of the task's declarations written by hand, beside rx-declare's row of the same export; and each row with an inferred word that rx-verify did not run
 node bench/needed.mjs --write             # the hand-written words no tool has shown, and the diagnostic a program gets without each (--apply takes off those none needs)
@@ -198,7 +198,7 @@ npx rx-declare --audit <file.d.rx>        # every word a declaration has, whoeve
 scripts/quick                  # while working: both checkers and their parity over every program, the interpreter, the oracle, both emitters, the crate's tests, and in the browser and the benchmark what is new
 scripts/ci                     # everything, nothing kept from before: the run before a push. --list, --only a,b, --skip a,b, --jobs n, --cached
 node scripts/matrix.mjs <folder of scenarios> [--rev before=<checkout> --rev after=<checkout>]   # small programs through every runner and what each shows; two revisions compared
-node scripts/heavy.mjs <name> -- <command…>       # any command under the machine's lock; --who: who holds it
+node scripts/heavy.mjs <name> -- <command…>       # any command under a lease of the machine's cores (--cores n, --exclusive); --who: who holds one
 ```
 
 - **Results kept.** The benchmark's tools and pages (`bench/run.mjs`,
@@ -216,13 +216,16 @@ node scripts/heavy.mjs <name> -- <command…>       # any command under the mach
   `~/Library/Caches/reactivescript-results`), shared by every checkout, at
   most `RX_CACHE_MB` (512); deleting the folder is safe. `RX_CACHE_LOG=<file>`
   writes each hit and miss, `RX_CACHE_KEYS=1` with the misses' keys.
-- **One heavy run at a time.** A whole benchmark, `generated`, and
-  `scripts/ci`'s steps with several browsers take a lock of the machine's
-  (`scripts/lib/lock.mjs`) and wait for it at most `RX_LOCK_WAIT` seconds
-  (3600), then go on. A holder that is gone holds nothing; one whose
-  processes do nothing for 600 s (`RX_LOCK_IDLE`), or that has held it 7200 s
-  (`RX_LOCK_HOLD`), loses it to the next. Off in CI and
-  under `RX_LOCK=0`; a run of one task does not take it.
+- **The machine's cores.** A whole benchmark, `generated`, the matrix and
+  `scripts/ci`'s heavy steps take a lease of a budget of 10 cores
+  (`RX_CORES`; `scripts/lib/lock.mjs`): all of it alone, a share beside
+  others; with none left, or less than 8 GB of memory to spare, they wait,
+  at most `RX_LOCK_WAIT` seconds (3600), and then go on. A lease whose process is gone, does nothing
+  for 600 s (`RX_LOCK_IDLE`) or has held it 7200 s (`RX_LOCK_HOLD`) counts for nothing. `RX_JOBS`,
+  `BENCH_JOBS` and `--jobs` say how many themselves; without them a run
+  follows its lease. `node scripts/heavy.mjs <name> --exclusive -- …` is the
+  machine alone, for a run that measures time. Off in CI and under
+  `RX_LOCK=0`; a run of one task takes none.
 - A new suite that keeps results says in its key everything it reads: a
   key that leaves something out is a check that no longer checks. The
   crate's answers belong in the trace, not the key.

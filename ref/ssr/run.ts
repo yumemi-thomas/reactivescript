@@ -6,7 +6,7 @@
 // message redacted (SV-5). SV-3: the same modules bundled over ref/compile/rt-web.ts then take the page over — after the
 // last landing, and right after the shell — and every remaining row runs in the browser.
 // node --experimental-strip-types ssr/run.ts [filter]      (default conditions: solid-js resolves to its server build)
-// The scenarios are run by several processes, each with its browser (RX_JOBS: default 4, at most half the cores — a run is
+// The scenarios are run by several processes, each with its browser (RX_JOBS, else what is free of the machine's budget — a run is
 // nearly all waiting for frames), and reported in their order whatever the number.
 // env: RX_CRATE=1 serves and hydrates the Rust crate's output (compiler/, compile/lowered.ts); CSR=1 also mounts each table in the browser with no server; NO_HYDRATE=1 serves only; SV_SCOPE=1 renders in
 // Solid's server-component scope (DV-9); DEBUG=1, DEBUG_NAMES=a,b and WAIT=ms help when a table disagrees.
@@ -63,8 +63,9 @@ function kept() {
     solid: ["@solidjs/compiler", "@solidjs/signals", "@solidjs/web", "solid-js"].map(solid), installed: cache.treeHash(at("../node_modules"), { skip: (r: string, n: string) => n === "typescript" || n === ".package-lock.json" }), browser: cache.browser(req("playwright")) };
   cache.saveIndex(); return keys;
 }
+const lock = await import(new URL("../../scripts/lib/lock.mjs", import.meta.url).href).catch(() => null) as any;
 const queued = process.env.RX_SHARD === "queue";   // a worker: it is given one scenario at a time
-const jobs = Math.min(Number(process.env.RX_JOBS) || Math.min(4, Math.ceil(availableParallelism() / 2)), names.length);
+const jobs = Math.min(Number(process.env.RX_JOBS) || lock?.cores() || Math.min(4, Math.ceil(availableParallelism() / 2)), names.length);
 if (!queued && jobs > 1) {
   // the scenarios are handed out one by one, so that no process waits while another has several left
   const keys = kept(); if (keys) process.env.RX_SSR_KEYS = JSON.stringify(keys);

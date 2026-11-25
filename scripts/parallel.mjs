@@ -1,10 +1,10 @@
 // Runs commands at once and says what each said, in the order they are written: `node scripts/parallel.mjs "a" "b"`.
-// RX_JOBS: how many at a time (default: half the cores). Exits 1 when one of them fails.
+// RX_JOBS: how many at a time (default: what is free of the machine's budget, scripts/lib/lock.mjs). Exits 1 when one of them fails.
 import { spawn } from "node:child_process";
-import { availableParallelism } from "node:os";
+import { cores } from "./lib/lock.mjs";
 
 const commands = process.argv.slice(2);
-const jobs = Math.max(1, Number(process.env.RX_JOBS) || Math.floor(availableParallelism() / 2));
+const jobs = Math.max(1, Number(process.env.RX_JOBS) || cores());
 let next = 0, said = 0, failed = 0;
 const done = [];
 const worker = async () => {

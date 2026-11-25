@@ -172,9 +172,11 @@ function ownInstall(id) {
   return path.join(at, "node_modules");
 }
 
-/** How many processes a run uses: BENCH_JOBS, else half the cores (the machine is someone's). What a run says does not
+/** How many processes a run uses: BENCH_JOBS, else its lease of the machine, else half the cores (the machine is someone's). What a run says does not
  *  depend on it: each result is kept at its place in the list. */
-export const jobs = Math.max(1, Number(process.env.BENCH_JOBS) || Math.floor(os.availableParallelism() / 2));
+export let jobs = Math.max(1, Number(process.env.BENCH_JOBS) || Math.floor(os.availableParallelism() / 2));
+/** …and what a run was given (scripts/lib/lock.mjs), where BENCH_JOBS does not say. */
+export const given = lease => { Object.assign(process.env, lease.env); if (!Number(process.env.BENCH_JOBS)) jobs = lease.n; };
 /** `fn` of each item, `jobs` at a time; of the items `few` picks (a dev server, a production build) at most two at a
  *  time: they wait on their own timers and on a whole toolchain. Answers the results in the items' order. */
 export async function pool(items, fn, few = () => false) {

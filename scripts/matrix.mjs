@@ -1,7 +1,7 @@
 // A folder of small programs through every runner, at one revision or several, and what each shows: do the interpreter, the
 // oracle, both emitters, both servers (with hydration, and the browser alone) and both checkers say one thing of each?
 //   node scripts/matrix.mjs <folder | scenario.md …> [--rev name=<checkout>]… [--runners interp,js,…] [--out file.json]
-//        [--jobs 4] [--time 120] [--mem 2000] [--show differ,server] [--max 20] [--from file.json]
+//        [--jobs n] [--time 120] [--mem 2000] [--show differ,server] [--max 20] [--from file.json]
 // A program is a scenario file (`## Program`, `## Frames`; a frame `@` no runner can show: what each shows is read off its
 // report). --rev (default: this checkout, `here`): a checkout that is built — its crate, ref/node_modules, runtime/dist. It
 // is not written to: its runners are run in a copy of its ref/, so several runs can share one. With two, what changed
@@ -15,16 +15,16 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync, copyFileSync } from "node:fs";
 import { spawn, execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { availableParallelism, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { heavy } from "./lib/lock.mjs";
+import { cores, heavy } from "./lib/lock.mjs";
 
 const args = process.argv.slice(2), repo = path.resolve(import.meta.dirname, "..");
 const many = f => args.flatMap((a, i) => a === f ? [args[i + 1]] : []), opt = (f, d) => many(f)[0] ?? d;
 const given = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"));
 if (!given.length && !opt("--from")) { console.error("usage: node scripts/matrix.mjs <folder | scenario.md …> [--rev name=<checkout>]… [--runners …] [--out file.json] (see the file's first lines)"); process.exit(2); }
 const revs = Object.fromEntries((many("--rev").length ? many("--rev") : [`here=${repo}`]).map(r => { const i = r.indexOf("="); return [r.slice(0, i), path.resolve(r.slice(i + 1))]; }));
-const jobs = Math.max(1, Number(opt("--jobs")) || Math.min(4, Math.ceil(availableParallelism() / 2)));
+let jobs = Number(opt("--jobs")) || 0;   // (its lease's, below)
 const TIME = (Number(opt("--time")) || 120) * 1000, MEM = (Number(opt("--mem")) || 2000) * 1024;
 
 // ---- the runners ----
@@ -160,7 +160,8 @@ if (given.length) {
   programs = files.map(f => ({ file: path.resolve(f), name: path.basename(f, ".md").replace(/^S-(zz-)?/, "") }));
   if (new Set(programs.map(p => p.name)).size !== programs.length) { console.error("two programs of one name"); process.exit(2); }
   for (const [n, root] of Object.entries(revs)) for (const f of ["ref/node_modules/solid-js", ...(runners.some(r => /rust|same|lower|project/.test(r)) ? ["compiler/target/release/rxc"] : [])]) if (!existsSync(path.join(root, f))) { console.error(`--rev ${n}: no ${f} in ${root}`); process.exit(2); }
-  const release = programs.length > 20 ? await heavy("matrix") : () => {};
+  const release = programs.length > 20 ? await heavy("matrix", jobs ? { want: jobs } : {}) : Object.assign(() => {}, { n: Math.min(4, cores()) });
+  jobs ||= release.n;
   // one Chromium: each revision's Playwright must be the one that started it
   let server = null;
   if (runners.some(r => RUNNERS[r].page)) {

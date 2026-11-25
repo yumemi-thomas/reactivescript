@@ -81,7 +81,7 @@ const homeOf = x => x === undefined ? undefined : JSON.parse(home(JSON.stringify
 const awayOf = x => x === undefined ? undefined : JSON.parse(away(JSON.stringify(x)));
 
 /** The environment a tool may read. (`RX_CACHE_*`, `RX_NO_CACHE` and what says how many run at once change no answer.) */
-const QUIET = new Set(["RX_NO_CACHE", "RX_CACHE_DIR", "RX_CACHE_MB", "RX_CACHE_LOG", "RX_CACHE_KEYS", "RX_TRACE", "RX_LOCK", "RX_LOCK_HELD", "RX_LOCK_WAIT", "RX_JOBS", "BENCH_JOBS", "BENCH_PROFILE", "RX_SHARED_KEYS", "RX_SSR_KEYS", "RX_SHARD", "RXC"]);
+const QUIET = new Set(["RX_NO_CACHE", "RX_CACHE_DIR", "RX_CACHE_MB", "RX_CACHE_LOG", "RX_CACHE_KEYS", "RX_TRACE", "RX_LOCK", "RX_LOCK_HELD", "RX_LOCK_N", "RX_LOCK_DIR", "RX_LOCK_WAIT", "RX_LOCK_IDLE", "RX_LOCK_HOLD", "RX_LOCK_LOAD", "RX_CORES", "RX_FREE_MB", "RX_CI_MEM", "RX_CI_LIMIT", "RX_JOBS", "BENCH_JOBS", "BENCH_PROFILE", "RX_SHARED_KEYS", "RX_SSR_KEYS", "RX_SHARD", "RXC"]);
 export const environment = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(RX|BENCH_|NODE_|TS|SOLID|CHROMIUM|DEBUG|VERBOSE|LANG|LC_|TZ|CSR$|SV_|WAIT$|NO_HYDRATE$|PLAYWRIGHT)/.test(k) && !QUIET.has(k)).map(([k, v]) => [k, home(v)]).sort());
 
 /** What Node, the platform and the tools are. */
