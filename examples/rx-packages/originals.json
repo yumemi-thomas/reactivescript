@@ -1,1 +1,31 @@
-{ "kobalte": { "name": "@kobalte/core" }, "terracotta": { "name": "terracotta" } }
+{
+ "kobalte": {
+  "name": "@kobalte/core"
+ },
+ "terracotta": {
+  "name": "terracotta"
+ },
+ "cmdk": {
+  "name": "cmdk-solid",
+  "parts": false
+ },
+ "slider": {
+  "name": "solid-slider",
+  "parts": false
+ },
+ "icons": {
+  "name": "@lucide/solid",
+  "parts": false
+ },
+ "editors": {
+  "name": "solid-tiptap",
+  "parts": false
+ },
+ "toast": {
+  "name": "@trev.zip/solid-toast",
+  "parts": false
+ },
+ "ui-sdk": {
+  "name": "@ui-sdk/solid"
+ }
+}

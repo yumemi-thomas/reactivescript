@@ -1,0 +1,1 @@
+export pure fn commandScore(value: string, search: string, keywords: string[] | undefined): number

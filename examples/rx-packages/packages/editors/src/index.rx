@@ -1,0 +1,38 @@
+// A JavaScript editor in a component: CodeMirror (from solid-codemirror 3.0.0) and Tiptap (from solid-tiptap 1.0.0), both MIT, see ../NOTICE.
+import client { openCode, openRich } from "./cm.js"
+import { Code, Rich, Said } from "./cm.js"
+import { Div } from "./types.js"
+
+/** A code editor: `value` is the caller's, changes are told to `onValueChange`; `extensions` and `readOnly` may change. */
+export component CodeMirror(props: Omit<Div, "children"> & { value?: string; onValueChange?: (v: string) => void; onFocusChange?: (v: boolean) => void; extensions?: any[]; readOnly?: boolean; onView?: (view: any) => void }) {
+  { value = "", onValueChange, onFocusChange, extensions = [], readOnly = false, onView, ...rest } = props
+  source el: any := undefined
+  source ed: Code | undefined := undefined
+  effect (el) { let e = openCode($0, { value: value, extensions: extensions, readOnly: readOnly }, (s) => {
+      if (s.value != undefined && onValueChange) { onValueChange(s.value) }
+      if (s.focused != undefined && onFocusChange) { onFocusChange(s.focused) } })
+    ed := () => e
+    if (onView) { onView(e.view) }
+    return () => { e.close() } }
+  effect (ed, value) { if ($0) { $0.setValue($1) } }
+  effect (ed, readOnly) { if ($0) { $0.setReadOnly($1) } }
+  effect (ed, extensions) { if ($0) { $0.setExtensions($1) } }
+  <div {...rest} ref={(e: Element) => { el := e }} />
+}
+/** A rich text editor; what it says is given to its children, a view. */
+export component Tiptap(props: { extensions: any[]; content?: string; editable?: boolean; onChange?: (html: string) => void; children?: (s: { html: string; empty: boolean; focused: boolean; isActive: (name: string) => boolean; run: (f: (e: any) => void) => void }) => View }) {
+  source el: any := undefined
+  source ed: Rich | undefined := undefined
+  source said: Said := { html: peek(props.content) ?? "", empty: true, editable: true, focused: false }
+  action run(f: (e: any) => void) { let e = ed
+    if (e) { e.run(f) } }
+  effect (el) { let e = openRich($0, { extensions: props.extensions, content: props.content ?? "", editable: props.editable ?? true }, (s) => { said := s
+      if (props.onChange) { props.onChange(s.html) } })
+    ed := () => e
+    return () => { e.close() } }
+  effect (ed, props.editable) { if ($0) { $0.setEditable($1 ?? true) } }
+  effect (ed, props.content) { if ($0 && $1 != undefined) { $0.setContent($1) } }
+  active = said.html == "" ? ed : ed
+  {if props.children { <props.children html={said.html} empty={said.empty} focused={said.focused} isActive={(name: string) => active ? active.isActive(name) : false} run={run} /> }}
+  <div ref={(e: Element) => { el := e }} />
+}

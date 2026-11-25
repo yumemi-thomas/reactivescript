@@ -1,0 +1,12 @@
+export pure fn uniqueId(): string instantiates
+export fn give(ref_: any, element: Element): void
+export fn call(event: Event, handler: any): void
+export fn textOf(element: any): string
+export fn firstValue(list: any): string | undefined
+export fn step(list: any, how: string, loop: boolean): string | undefined
+export fn pressSelected(list: any): void
+export fn reveal(list: any): void
+export fn idOf(list: any, value: string): string | undefined
+export const HIDDEN: any
+export fn listHeight(wrapper: any, sizer: any): void
+export pure fn one(x: { id: string; n: number }): { [id: string]: number }

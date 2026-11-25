@@ -1,0 +1,57 @@
+// A slider over KeenSlider. Derived from solid-slider 2.0.0 (MIT, see ../NOTICE): Slider, SliderProvider, SliderButton, SliderDots, SliderThumbnails.
+import client { mount, watchSlides } from "./keen.js"
+import { mark, indexIn } from "./keen.js"
+import { Keen } from "./keen.js"
+import { from } from "@reactivescript/std/object"
+
+type Here = { slider: Keen | undefined; current: number; count: number; set: (s: Keen | undefined) => void; moved: (i: number) => void; counted: (n: number) => void }
+context here: Here
+
+export component SliderProvider(props: { children?: View }) {
+  source slider: Keen | undefined := undefined
+  source current := 0
+  source count := 0
+  action set(s: Keen | undefined) { slider := () => s }
+  action moved(i: number) { current := i }
+  action counted(n: number) { count := n }
+  provide here = { slider: slider, current: current, count: count, set: set, moved: moved, counted: counted }
+  {props.children}
+}
+export component Slider(props: { options?: any; plugins?: any[]; children?: View }) {
+  h = use here
+  source el: any := undefined
+  source mine: Keen | undefined := undefined
+  effect (el) { let e = $0
+    let s = mount(e, props.options ?? {}, props.plugins ?? [], (i) => { h.moved(i) })
+    mine := () => s
+    h.set(s)
+    h.moved(s.at())
+    h.counted(s.count())
+    let stop = watchSlides(e, () => { s.update(props.options ?? {}); h.counted(s.count()) })
+    return () => { stop(); s.destroy(); h.set(undefined) } }
+  effect (props.options) { if (mine) { mine.update($0 ?? {}) } }
+  <div class="keen-slider" ref={(e: Element) => { el := e }}>{props.children}</div>
+}
+export component SliderButton(props: { next?: boolean; prev?: boolean; disabled?: boolean; class?: string; children?: View }) {
+  h = use here
+  <button class={props.class} disabled={props.disabled ?? false} onClick={() => { let s = h.slider
+    if (s) { if (props.next) { s.next() } else { s.prev() } } }}>{props.children}</button>
+}
+export component SliderDots(props: { class?: string; dotClass?: string }) {
+  h = use here
+  <div class={props.class ?? "keen-slider-dots"}>{for i in from({ length: h.count }).map((x, i) => i) { <button class={[props.dotClass ?? "keen-slider-dot", { active: h.current == i }]} aria-label={`Go to slide ${i + 1}`} onClick={() => { let s = h.slider
+    if (s) { s.go(i) } }} /> }}</div>
+}
+export component SliderThumbnails(props: { options?: any; plugins?: any[]; activeClass?: string; children?: View }) {
+  h = use here
+  source el: any := undefined
+  source mine: Keen | undefined := undefined
+  effect (el) { let s = mount($0, props.options ?? {}, props.plugins ?? [], () => {})
+    mine := () => s
+    return () => { s.destroy() } }
+  effect (mine, h.current) { let s = $0
+    if (s) { mark(s, $1, props.activeClass ?? "active"); s.go($1) } }
+  <div ref={(e: Element) => { el := e }} onClick={(e) => { let s = mine
+    let m = h.slider
+    if (s && m) { let i = indexIn(s, e.target); if (i >= 0) { m.go(i) } } }}>{props.children}</div>
+}

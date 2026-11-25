@@ -1,0 +1,48 @@
+// A toast kit: toast("…"), its kinds, a promise's toast, and a Toaster. Derived from @trev.zip/solid-toast 1.2.15 and solid-sonner 1.0.0 (ISC, MIT, see ../NOTICE),
+// without their styles and swipes. What a toast shows is text, or the caller's view of it: `<Toaster>{view (t) { … }}</Toaster>`.
+import { after } from "@reactivescript/std/time"
+import { measure } from "./dom.js"
+import { Div } from "./types.js"
+
+export type Kind = "blank" | "success" | "error" | "loading"
+export type Toast = { id: number; kind: Kind; message: string; duration: number; visible: boolean; height: number; data?: any }
+export type Options = { id?: number; duration?: number; data?: any }
+source seq := 0
+source toasts: Toast[] key id := []
+export shown = toasts
+/** An `id` in the options replaces that toast. */
+export action show(kind: Kind, message: string, options: Options | undefined) {
+  let k = options?.id ?? latest seq + 1
+  seq := k
+  let t: Toast = { id: k, kind: kind, message: message, duration: options?.duration ?? (kind == "loading" ? 0 : kind == "error" ? 4000 : 2000), visible: true, height: 0, data: options?.data }
+  toasts := xs => xs.some(x => x.id == k) ? xs.map(x => x.id == k ? t : x) : [t, ...xs]
+}
+export action dismiss(id: number | undefined) { toasts := xs => xs.map(x => id == undefined || x.id == id ? { ...x, visible: false } : x) }
+export action remove(id: number | undefined) { toasts := xs => id == undefined ? [] : xs.filter(x => x.id != id) }
+action sized(id: number, height: number) { toasts := xs => xs.map(x => x.id == id ? { ...x, height: height } : x) }
+/** A promise's toast: loading, then what it came to. */
+export action promise(work: Promise<any>, said: { loading: string; success: string; error: string }, options: Options | undefined) {
+  let id = options?.id ?? latest seq + 1
+  onFlush(() => { show("loading", said.loading, { id: id }) })
+  try { await work
+    show("success", said.success, { id: id }) } catch (e) { show("error", said.error, { id: id }) }
+}
+context paused: boolean = false
+component One(props: { toast: Toast; gap: number; offset: number; children?: View }) {
+  p = use paused
+  wait = p || !props.toast.visible || props.toast.duration == 0 ? undefined : props.toast.duration
+  effect (wait) { let ms = $0
+    return ms == undefined ? undefined : after(ms, () => { dismiss(props.toast.id) }) }
+  effect (props.toast.visible) { return $0 ? undefined : after(200, () => { remove(props.toast.id) }) }
+  <li role="status" aria-live="polite" data-kind={props.toast.kind} data-visible={props.toast.visible ? "" : undefined} style={{ position: "absolute", transform: `translateY(${props.offset}px)` }} ref={(e: Element) => { sized(props.toast.id, measure(e)) }}>{props.children}</li>
+}
+fn offset(xs: Toast[], i: number, gap: number): number => xs.slice(0, i).reduce((n: number, t: Toast) => n + t.height + gap, 0)
+export component Toaster(props: Omit<Div, "children"> & { gap?: number; limit?: number; children?: (t: { toast: Toast; onDismiss: () => void }) => View }) {
+  { gap = 8, limit = 5, children: shownAs, ...rest } = props
+  source over := false
+  list = toasts.slice(0, limit)
+  provide paused = over
+  <div role="region" aria-label="Notifications" {...rest} onPointerEnter={() => { over := true }} onPointerLeave={() => { over := false }}><ol>
+    {for t in list { <One toast={t} gap={gap} offset={offset(list, list.findIndex(x => x.id == t.id), gap)}>{if props.children { <props.children toast={t} onDismiss={() => { dismiss(t.id) }} /> } else { {t.message} }}</One> }}
+  </ol></div>
+}

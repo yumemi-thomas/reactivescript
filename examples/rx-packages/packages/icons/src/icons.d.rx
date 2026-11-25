@@ -1,0 +1,4 @@
+export type Node = import("./icons.js").Node
+export const check: Node[]
+export const circle: Node[]
+export pure fn num(x: number | string): number
