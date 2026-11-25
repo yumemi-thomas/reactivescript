@@ -42,3 +42,5 @@ export function holdFocus(element) {
 }
 export const leaves = (event, ...inside) => !inside.some((e) => e?.contains(event.relatedTarget));
 export const same = (by, a, b) => by ? by(a, b) : Object.is(a, b);
+/** An attribute the element's type does not have (`disabled` on an <li>, as terracotta's Button puts it). */
+export const attr = (name, value) => ({ [name]: value });

@@ -49,6 +49,1125 @@
    "tsx": {}
   },
   "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 2,
+  "tsxOverRewrite": []
+ },
+ "cmdk": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 10,
+  "tsxOverRewrite": []
+ },
+ "icons": {
+  "caught": {
+   "rx": 10,
+   "orig": 10,
+   "tsx": 0
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 1
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [
+    "P1",
+    "P2"
+   ],
+   "orig": [
+    "P1",
+    "P2"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1",
+    "A2",
+    "A3"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C6": [
+     "TS2322"
+    ]
+   },
+   "orig": {
+    "C6": [
+     "TS2322"
+    ]
+   },
+   "tsx": {
+    "C2": [
+     "TS2657"
+    ]
+   }
+  },
+  "disagree": [],
+  "tsxOverRewrite": []
+ },
+ "kobalte-accordion": {
+  "caught": {
+   "rx": 11,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [
+    "CONTEXT_NOT_FOUND"
+   ],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [
+    "P1"
+   ],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 2,
+  "tsxOverRewrite": []
+ },
+ "kobalte-checkbox": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 2,
+  "tsxOverRewrite": []
+ },
+ "kobalte-dialog": {
+  "caught": {
+   "rx": 9,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [
+    "CONTEXT_NOT_FOUND"
+   ],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 14,
+  "tsxOverRewrite": []
+ },
+ "kobalte-pagination": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [
+    "VIEW_FN_MISPLACED"
+   ],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE",
+   "VIEW_FN_MISPLACED"
+  ],
+  "byHand": 2,
+  "tsxOverRewrite": []
+ },
+ "kobalte-progress": {
+  "caught": {
+   "rx": 11,
+   "orig": 10,
+   "tsx": 0
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 1
+  },
+  "good": {
+   "rx": [
+    "CONTEXT_NOT_FOUND"
+   ],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [
+    "P1"
+   ],
+   "orig": [
+    "P1",
+    "P2"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1",
+    "A2",
+    "A3"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {
+    "C2": [
+     "TS2657"
+    ]
+   }
+  },
+  "disagree": [],
+  "tsxOverRewrite": []
+ },
+ "kobalte-radio": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 2,
+  "tsxOverRewrite": []
+ },
+ "kobalte-select": {
+  "caught": {
+   "rx": 11,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [
+    "CONTEXT_NOT_FOUND"
+   ],
+   "orig": [
+    "VIEW_FN_MISPLACED"
+   ],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [
+    "P1"
+   ],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE",
+   "VIEW_FN_MISPLACED"
+  ],
+  "byHand": 12,
+  "tsxOverRewrite": []
+ },
+ "kobalte-tabs": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 2,
+  "tsxOverRewrite": []
+ },
+ "kobalte-toggle-group": {
+  "caught": {
+   "rx": 11,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [
+    "P2"
+   ],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 2,
+  "tsxOverRewrite": []
+ },
+ "kobalte-tooltip": {
+  "caught": {
+   "rx": 11,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [
+    "P2"
+   ],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 8,
+  "tsxOverRewrite": []
+ },
+ "slider": {
+  "caught": {
+   "rx": 12,
+   "orig": 10,
+   "tsx": 0
+  },
+  "refused": {
+   "rx": 0,
+   "orig": 0,
+   "tsx": 1
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1",
+    "A2",
+    "A3"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {},
+   "orig": {},
+   "tsx": {
+    "C2": [
+     "TS2657"
+    ]
+   }
+  },
+  "disagree": [],
+  "tsxOverRewrite": []
+ },
+ "terracotta-dialog": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 3,
+  "tsxOverRewrite": []
+ },
+ "terracotta-disclosure": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 3,
+  "tsxOverRewrite": []
+ },
+ "terracotta-listbox": {
+  "caught": {
+   "rx": 12,
+   "orig": 7,
+   "tsx": 0
+  },
+  "refused": {
+   "rx": 2,
+   "orig": 2,
+   "tsx": 2
+  },
+  "good": {
+   "rx": [],
+   "orig": [
+    "TS2322"
+   ],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3",
+    "A2",
+    "A3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1",
+    "A2",
+    "A3"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C6": [
+     "PARSE"
+    ],
+    "C7": [
+     "PARSE"
+    ]
+   },
+   "orig": {
+    "C6": [
+     "PARSE"
+    ],
+    "C7": [
+     "PARSE"
+    ]
+   },
+   "tsx": {
+    "C6": [
+     "TS17002"
+    ],
+    "C7": [
+     "TS17002"
+    ]
+   }
+  },
+  "disagree": [],
+  "asDrafted": [
+   "TS2322",
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 4,
+  "tsxOverRewrite": []
+ },
+ "terracotta-menu": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "tsxOverRewrite": []
+ },
+ "terracotta-radio": {
+  "caught": {
+   "rx": 12,
+   "orig": 7,
+   "tsx": 0
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [
+    "TS2322"
+   ],
+   "tsx": [
+    "TS2322"
+   ]
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3",
+    "A2",
+    "A3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1",
+    "A2",
+    "A3"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "TS2322",
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 1,
+  "tsxOverRewrite": []
+ },
+ "terracotta-switch": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 1,
   "tsxOverRewrite": []
  }
 }

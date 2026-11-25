@@ -1,0 +1,2 @@
+import { Item, Part } from "./lib.rx"
+export default component App() { <Item><Part /></Item> }

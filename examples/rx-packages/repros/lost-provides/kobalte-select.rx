@@ -1,0 +1,18 @@
+import pure { load } from "./api.js"
+import { Root, Label, Trigger, Value, Page as Portal, Content, Listbox, Option as Item, ItemLabel } from "@rx-packages/kobalte/select"
+/*TOP*/
+export default component App() {
+  source n: number := 0
+  source other: number := 0
+  source list: string[] := ["a", "b"]
+  source extra: boolean := false
+  source on: string | null := null
+  slow = await load(n)
+  action bump() { n := n + 1 }
+  /*DECL*/
+  <main><p>{n} {other} {list.join("+")}</p>
+    <button onClick={() => { bump(); extra := !extra; list := [...list, "c"] }}>b</button>
+    <div>/*A*/<Root options={list} value={on} onChange={(v: string | null) => { on := v }}>{view itemComponent (p) { <Item item={p.item}><ItemLabel>{p.item.rawValue}</ItemLabel></Item> }}<Label>CHILD</Label><Trigger>o</Trigger><Portal><Content><Listbox /></Content></Portal></Root>/*B*/</div>
+    {errored fallback { <i>e</i> } { {loading fallback { <i>l</i> } { <b>{slow}</b> }} }}
+  </main>
+}
