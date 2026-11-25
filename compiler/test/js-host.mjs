@@ -114,7 +114,7 @@ const G = () => ({ get children() { count(); return "g"; } });
 const S = () => ({ get children() { return slot(() => { count(); return "s"; }); } });
 const GIVEN = [["none", {}], ["undefined", { children: undefined }], ["null", { children: null }], ["false", { children: false }], ["0", { children: 0 }], ["empty text", { children: "" }], ["[]", { children: [] }], ["text", { children: "t" }], ["a getter", G()], ["a slot", S()], ["a slot handed on", merge({ n: 1 }, S())]];
 export const asked = (lib, text) => [["Asked", "Some"].map(C => GIVEN.map(([, p]) => text(() => createComponent(lib[C], p))).join(" ")), [{ children: 0 }, { children: 1 }, { get children() { return 0; } }].map(p => text(() => createComponent(lib.Count, p))).join(" ")];`;
-const wantAsked = [["no no no no no no yes yes yes yes yes", "no no no yes yes yes yes yes yes yes yes"], "no yes no"];
+const wantAsked = [["no no no no no no yes yes yes yes yes", "no no yes yes yes yes yes yes yes yes yes"], "no yes no"];   // (`!= undefined` of `null`: yes — the language's `!=` is strict)
 writeFileSync(path.join(dir, "asked.mjs"), `import { createComponent, merge } from "solid-js";\nimport { slot } from "@reactivescript/runtime";\nglobalThis.window ??= globalThis;\n${ASKED}\n`);
 {
   const b = await build({ stdin: { resolveDir: dir, contents: `import kit from "./kit.dom.mjs"; import { asked } from "./asked.mjs"; import { library } from "@reactivescript/runtime"; import { render } from "@solidjs/web";
