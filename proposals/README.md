@@ -38,7 +38,7 @@ build, no Chromium for bug 15) is reported as `SETUP`, apart, and is no verdict.
 
 ## Bugs of `main`, in the order to take them
 
-Each was run on e650b85. 31, and a question.
+Each was run on e650b85. 35, and a question. [37](bugs/37-await-in-children-not-compiled.md) is this branch's own, and fixed. 33 to 36 are not fixed here: 36 is refused by the crate.
 
 1. [03](bugs/03-effect-loses-cleanup.md) an effect's cleanup tears a live listener down, in silence
 2. [05](bugs/05-action-in-a-value.md) an action in a value
@@ -48,9 +48,10 @@ Each was run on e650b85. 31, and a question.
 6. [28](bugs/28-runtime-keeps-every-instance.md) an app keeps every instance it ever made
 7. [30](bugs/30-provision-leaks.md) what a region provides is seen beside it, in production
 8. [29](bugs/29-destructured-children.md) destructured children
+9. [33](bugs/33-use-in-children.md) a context read in children; [36](bugs/36-await-by-a-childs-context.md) an await asked by one: after [24](24-view-functions.md) is answered
 
 Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bugs/08-pre-of-a-list.md), [17](bugs/17-write-a-function-to-a-path.md), [07](bugs/07-fn-provides-to-its-caller.md), [25](bugs/25-source-that-holds-a-function.md), [26](bugs/26-updater-of-a-replaced-record.md),
-[02](bugs/02-unimported-fetch-fail.md), [13](bugs/13-relative-api.md). Correct and refused: [06](bugs/06-fn-reads-a-context.md), [12](bugs/12-unguarded-snapshot-crate.md) (crate),
+[02](bugs/02-unimported-fetch-fail.md), [13](bugs/13-relative-api.md), [34](bugs/34-closure-as-a-child.md), [35](bugs/35-children-in-a-record.md). Correct and refused: [06](bugs/06-fn-reads-a-context.md), [12](bugs/12-unguarded-snapshot-crate.md) (crate),
 [16](bugs/16-component-without-props.md), [11](bugs/11-record-and-function-types.md), [27](bugs/27-brackets-in-a-types-comments.md), [32](bugs/32-a-word-as-a-name.md). Accepted and not compiled, or not loaded: [09](bugs/09-pre-of-a-ref-parameter.md), [10](bugs/10-await-as-a-result.md), [31](bugs/31-type-imported-as-a-value.md). Tests and tools:
 [14](bugs/14-scenario-sections-unread.md), [19](bugs/19-missing-file-is-ok.md), [20](bugs/20-custom-element-with-a-dot.md), [21](bugs/21-messages.md), [23](bugs/23-panic-beside-a-wide-character.md), and an editor that never answers, [24](bugs/24-open-block-in-an-editor.md). A question: [22](bugs/22-equations-make-a-fn-instantiate.md).
 
@@ -85,6 +86,8 @@ Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bug
 | [19](19-optional-parameters.md) optional parameters | prototyped (`proto-optional` 3a4847ec, not published) | weak to medium: 34 of 192, no facade line | 17 |
 | [20](20-generic-fns.md) generic fns | prototyped (`proto-generic` b36ab25d, not published) | weak to medium: about 18 of 192, no facade line | 17 |
 | [21](21-locals-in-fns.md) locals in fns | a question; prototyped (`proto-locals` a1c93632, not published) | – | – |
+| **children** | | | |
+| [24](24-view-functions.md) where a `use` in children reads | a question; a fix tried and held back (`proto-view-fn` a05f579a, not published) | – | – |
 | **tooling** | | | |
 | [22](22-generated-drafts.md) drafts | for a person to review | medium | 03 |
 | [23](23-rx-verify.md) `rx-verify` | refutes; no gate | medium | 03 |
@@ -138,9 +141,10 @@ Programs it accepts that go wrong when run. Each was found, and is left because 
 - `pre` of a name for a part of a store: [bug 08](bugs/08-pre-of-a-list.md). Rows taken out of a source with no key, in a keyed equation: [bug 18](bugs/18-keyed-list-replaced-by-position.md).
 - `provides(c)` on a component that reads a `View` prop before its provider: [12](12-context-rows.md).
 - A guess on a source that began as a record and is written `null`: [bug 26](bugs/26-updater-of-a-replaced-record.md).
+- A context read in children, and children kept in a record: bugs [33](bugs/33-use-in-children.md), [35](bugs/35-children-in-a-record.md). A fn that reads a context, given as a value to another module and called there ([36](bugs/36-await-by-a-childs-context.md)).
 - A component with no `shape` is not held to HTML's nesting: [01](01-foreign-tags.md).
 
-And correct programs it refuses: an unbound call of a fn that uses a context with a default ([bug 06](bugs/06-fn-reads-a-context.md)); an unbound call of a declared fn whose result is the bare type `Component` ([13](13-factories.md)); a method of an undeclared import, in a view ([06](06-method-rows.md)).
+And correct programs it refuses: an unbound call of a fn that uses a context with a default ([bug 06](bugs/06-fn-reads-a-context.md)); an unbound call of a declared fn whose result is the bare type `Component` ([13](13-factories.md)); a method of an undeclared import, in a view ([06](06-method-rows.md)); and, checked and not compiled, an `await` in children, in a module where children read a context ([36](bugs/36-await-by-a-childs-context.md); upstream compiles it, wrong where the two places provide different values).
 
 ## Compatibility with upstream's programs
 
@@ -149,4 +153,4 @@ and each was refused already. Of the accepted ones, 123 have other code: the fix
 
 ## Cost, all of it together
 
-`git diff --shortstat e650b85 -- compiler/src ref/src`: 31 files changed, 15503 insertions(+), 855 deletions(-). Lines in a proposal are those its commits added when they landed.
+`git diff --shortstat e650b85 -- compiler/src ref/src`: 31 files changed, 16111 insertions(+), 1007 deletions(-). Lines in a proposal are those its commits added when they landed.

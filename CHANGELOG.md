@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Fixed: an `await` in a component's children** was not compiled by the crate (S-view-1; proposals/bugs/37). It is still not, in a module where
+  children read a context (proposals/bugs/36).
+
 **What an app keeps, and where a view is made** (S-context-3, S-surface-12, `compiler/test/leaks.mjs`, `compiler/test/js-host.mjs`; proposals/bugs/28 to 32)
 
 - **Fixed: an app kept every binding of every instance**, and a server fn's every answer. A package is to be compiled again for smaller code; one compiled

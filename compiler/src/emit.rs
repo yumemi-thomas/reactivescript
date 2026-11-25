@@ -5,7 +5,7 @@
 //! module is a tree (`js.rs`), never text (CP-3).
 
 use crate::ast::{instantiates, kept_parts, Decl, Expr, ExprKind, Field, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind, TplPart};
-use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
+use crate::awaits::{children_read_context, inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
 use crate::modules::{defaulted, given, type_only, view_fields, Given, ModuleSet};
@@ -333,6 +333,8 @@ struct Gen<'p> {
     views: crate::modules::ViewProps,
     /// what the module imports from JavaScript for its types alone
     type_only: HashSet<String>,
+    /// bug 36: whether children in the module read a context, once it was asked
+    kids_read: Option<bool>,
     /// an equation's hoisted awaits were just written, for its accessor to claim (`reg`)
     claims: bool,
     sf_seq: usize,
@@ -344,6 +346,8 @@ struct Gen<'p> {
     frames: Vec<Frame>,
     style_ids: u32,
 }
+
+const AWAIT_NOT_LOWERED: &str = "`await` outside an equation's result position is not lowered yet";
 
 /// MO-10: the scenario prelude's `./prims`, a JS module of Solid primitives (`ref/compile/prims-solid.ts`).
 fn is_prims(from: &str) -> bool {
@@ -384,6 +388,7 @@ impl<'p> Gen<'p> {
             type_only: HashSet::new(),
             sf_seq: 0,
             style_hash: None,
+            kids_read: None,
             hoisted: HashMap::new(),
             hoisted_catch: HashMap::new(),
             hoist_seq: 0,
@@ -445,6 +450,7 @@ impl<'p> Gen<'p> {
         let decls = &p.decls[..];
         self.type_only = type_only(p, self.set);
         self.file = path.to_string();
+        self.kids_read = None;
         self.top = vec![];
         self.top_fns = HashSet::new();
         self.mod_decls = decls;
@@ -1743,7 +1749,7 @@ impl<'p> Gen<'p> {
                     });
                 }
                 if !ctx.tail {
-                    return fail("`await` outside an equation's result position is not lowered yet");
+                    return fail(AWAIT_NOT_LOWERED);
                 }
                 // the memo returns the flight (R-1): a stream for `await*`, else its one answer
                 let y = self.expr(x, env, &sub)?;
@@ -2322,7 +2328,7 @@ impl<'p> Gen<'p> {
                         xs.push((p.clone(), AttrValue::Expr(f)));
                     }
                 }
-                let rest: Vec<Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).cloned().collect();
+                let rest: Vec<&Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
                 if rest.is_empty() {
                     // MO-11: a JS component gets JSX's own `<X />`, with no children prop
                     if shape != Some(FShape::Comp) {
@@ -2330,7 +2336,17 @@ impl<'p> Gen<'p> {
                     }
                     el(name, xs, vec![], true)
                 } else {
-                    el(name, xs, self.kids(&rest, env)?, false)
+                    // bug 36: hoisted above what the component provides, it would ask, or show, what is not there
+                    let asks = |c: &&Markup| view_readers(std::slice::from_ref(*c)).into_iter().any(|e| !non_tail_awaits(e, false).is_empty());
+                    if rest.iter().any(asks) && *self.kids_read.get_or_insert_with(|| children_read_context(self.set, &self.file)) {
+                        return fail(AWAIT_NOT_LOWERED);
+                    }
+                    // each as it is in the program: an `await` in it was hoisted by its address (`hoisted`)
+                    let mut kids = vec![];
+                    for c in rest {
+                        kids.extend(self.child(c, env)?);
+                    }
+                    el(name, xs, kids, false)
                 }
             }
             MarkupKind::El { tag, attrs, children } => {
