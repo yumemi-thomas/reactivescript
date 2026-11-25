@@ -140,7 +140,7 @@ export default component App() { source n := "A"
 ## Variant: the same type written another way, and a view that asks for less than the context gives
 
 ```rx
-context item: (o: { v: string; w: Array<string> }) => View
+context item: ((o: { v: string; w: Array<string> }) => View)
 context wide: (o: { v: string; w: number }) => View
 component Part() { <li><use.item v="a" w={["b"]} /><use.wide v="c" w={1} /></li> }
 component Root(p: { item: (o: { w: string[]; v: string }) => View; wide: (o: { v: string }) => View; children?: View }) { provide item = p.item

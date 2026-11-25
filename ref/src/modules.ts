@@ -414,7 +414,9 @@ export function optionalView(propsType: string | undefined, types: Types, field:
  *  giving one, of one parameter or none (`fn: true`; `param`: the parameter's type). */
 export function viewCtx(type: string | undefined, types: Types): { fn: boolean; param?: string } | undefined {
   if (type === undefined) return undefined;
-  const t = expandType(type, types).trim();
+  let t = expandType(type, types).trim();
+  // a type in parentheses is that type: `((row: T) => View)`
+  for (;;) { if (!t.startsWith("(") || !t.endsWith(")")) break; let d = 0, whole = true; for (let i = 0; i < t.length - 1; i++) { if (t[i] === "(") d++; else if (t[i] === ")") d--; if (d === 0) { whole = false; break; } } if (!whole) break; t = t.slice(1, -1).trim(); }
   if (isViewType(t)) return { fn: false };
   const v = viewType(t); return v && !v.mixed ? { fn: true, ...(v.param !== undefined ? { param: v.param } : {}) } : undefined;
 }

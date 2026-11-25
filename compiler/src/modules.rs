@@ -952,7 +952,26 @@ fn expand(t: &str, depth: usize, named: &mut dyn FnMut(&str) -> Option<String>) 
 /// giving one, of one parameter or none (`fn_: true`; the parameter's type). `ref/src/modules.ts` `viewCtx`.
 pub fn view_ctx(ty: Option<&str>, types: &Types) -> Option<(bool, Option<String>)> {
     let t = expand_type(ty?, types, 0);
-    let t = t.trim();
+    let mut t = t.trim();
+    // a type in parentheses is that type: `((row: T) => View)`
+    while t.starts_with('(') && t.ends_with(')') {
+        let (mut d, mut whole) = (0i32, true);
+        for c in t[..t.len() - 1].chars() {
+            match c {
+                '(' => d += 1,
+                ')' => d -= 1,
+                _ => {}
+            }
+            if d == 0 {
+                whole = false;
+                break;
+            }
+        }
+        if !whole {
+            break;
+        }
+        t = t[1..t.len() - 1].trim();
+    }
     if crate::parse::is_view_type(t) {
         return Some((false, None));
     }
