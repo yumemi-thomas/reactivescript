@@ -2,7 +2,7 @@
 // sides load the modules, parse, check, print signatures and build the resolved model (CP-6); the two must agree exactly.
 // With --lower (CP-1): every program the checker accepts is also compiled by both — ref/compile/emit.ts then Solid's
 // transform(), the crate's emit.rs then compile_program() — for the universal, dom and ssr targets, with a scenario table's
-// handler rows as compile/run.ts passes them; the modules must agree (comments dropped, both printed by esbuild), and the
+// handler rows as compile/run.ts passes them; the modules must agree (comments dropped, both printed by oxc, which keeps the pure annotations), and the
 // crate's source maps onto .rx must hold (checkMap, CP-1c).
 // With --project (TY-1c, CP-8): every program the checker accepts is projected to TSX by both — types/project.ts and the
 // crate's project.rs — and the files must be the same text, line for line; each of the crate's mappings must join the same
@@ -136,9 +136,11 @@ process.exit(bad ? 1 : 0);
 async function lower(): Promise<number> {
   const { compileModules, CompileError } = await import("./compile/emit.ts");
   const { lowerViews, STRING_RENDERER } = await import("./compile/jsx.ts");
-  const { transformSync } = await import("esbuild");
+  const { parseSync, transformSync } = await import("rolldown/utils");
   const { parseStmts } = await import("./src/parse.ts");
-  const norm = (code: string) => { try { return transformSync(code, { loader: "js", format: "esm", legalComments: "none" }).code; } catch (e) { return `esbuild: ${(e as Error).message}\n${code}`; } };
+  // (a comment is dropped where it stands, but one that says something to a bundler)
+  const plain = (code: string) => parseSync("module.js", code, { lang: "js", sourceType: "module" }).comments.filter(c => !/^\s*[@#]__(PURE|NO_SIDE_EFFECTS)__\s*$/.test(c.value)).reverse().reduce((t, c) => t.slice(0, c.start) + (c.value.includes("\n") ? "\n" : " ") + t.slice(c.end), code);
+  const norm = (code: string) => { const r = transformSync("module.js", plain(code), { lang: "js", sourceType: "module" }); return r.errors.length ? `oxc: ${r.errors[0].message}\n${code}` : r.code; };
   const out = rxc("lower", JSON.stringify(reqs.map(r => ({ ...r, renderer: STRING_RENDERER, maps: true }))));
   const got = new Map((JSON.parse(out) as any[]).map(x => [x.id, x]));
   let bad = 0, compiled = 0, modules = 0, mapped = 0;

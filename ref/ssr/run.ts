@@ -21,7 +21,6 @@ import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseStmts } from "../src/parse.ts";
 import { checkModules } from "../src/check.ts";
 import { compileDynamic, compileDynamicExpr, CompileError } from "../compile/emit.ts";
-import { buildSync } from "esbuild";
 import { build, type Built } from "../compile/lowered.ts";
 import { createApp, generateHydrationScript } from "../compile/rt-server.ts";
 import { transformDirectives } from "@solidjs/compiler";
@@ -59,7 +58,7 @@ function kept() {
   if (!cache?.enabled) return null;
   if (process.env.RX_SSR_KEYS) return JSON.parse(process.env.RX_SSR_KEYS);
   const req = createRequire(import.meta.url), solid = (p: string) => cache.treeHash(realpathSync(at(`../node_modules/${p}`)), { skip: (r: string, n: string) => n === "node_modules" || n === "target" || r === "test" || r === "tests" });
-  const keys = { runner: cache.inputs(at("./run.ts"), at("../src/scenario.ts"), at("../solid-version.ts")).map((x: string) => x.split(" ").pop()), runtime: ["rt-web.ts", "rt-server.ts", "rt.ts", "server-functions-local.ts", "solid-internals.ts"].map(f => cache.fileHash(at(`../compile/${f}`))),
+  const keys = { runner: cache.inputs(at("./run.ts"), at("../../scripts/lib/bundle.mjs"), at("../src/scenario.ts"), at("../solid-version.ts")).map((x: string) => x.split(" ").pop()), runtime: ["rt-web.ts", "rt-server.ts", "rt.ts", "server-functions-local.ts", "solid-internals.ts"].map(f => cache.fileHash(at(`../compile/${f}`))),
     solid: ["@solidjs/compiler", "@solidjs/signals", "@solidjs/web", "solid-js"].map(solid), installed: cache.treeHash(at("../node_modules"), { skip: (r: string, n: string) => n === "typescript" || n === ".package-lock.json" }), browser: cache.browser(req("playwright")) };
   cache.saveIndex(); return keys;
 }
@@ -164,15 +163,16 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
   return { got, ended, file: dir + "stream.html" };
 }
 
+const bundler = await import(new URL("../../scripts/lib/bundle.mjs", import.meta.url).href) as any;
 const rtWeb = fileURLToPath(new URL("../compile/rt-web.ts", import.meta.url));
 /** The browser's half of a table (SV-3): its compiled modules over rt-web.ts, bundled for the page. */
-function bundle(dir: string, views: Map<string, string>, entry: string) {
+async function bundle(dir: string, views: Map<string, string>, entry: string) {
   const cdir = dir + "client/"; mkdirSync(cdir, { recursive: true });
   for (const [name, js] of views) writeFileSync(cdir + name, directives(js, dir + name, "client"));   // the server's filename: the same ids
   writeFileSync(cdir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app"), conformance: true });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
   // the dev builds: Solid reports a hydration key miss, a tag mismatch and unclaimed server nodes on the console
-  const r = buildSync({ entryPoints: [cdir + "client-entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}" });   // (not next's tsconfig paths, which map solid-js to its source)
-  return r.outputFiles[0].text;
+  // (no tsconfig is read: next's `paths` map solid-js to its source)
+  return bundler.bundle(fileURLToPath(new URL("..", import.meta.url)), { entry: cdir + "client-entry.mjs", dir: cdir, conditions: ["browser", "development"] });
 }
 
 /** SV-7b: the `client` JS a program imports (12 SF-5b) — its flights are the browser's: the server never asks them. */
@@ -197,7 +197,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
   for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
-  clientJs = bundle(dir, out.views("dom"), out.entry);
+  clientJs = await bundle(dir, out.views("dom"), out.entry);
   const app = createApp({ conformance: true }); let ended = false; let chunks = 0;
   const csr = at === 0;   // the baseline: the same bundle mounted on an empty page, no server
   const served$ = new Promise<void>(resolve => {
@@ -383,7 +383,7 @@ async function runBeforeHydration(sc: Scenario, lines: string[]): Promise<boolea
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
   for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
-  clientJs = bundle(dir, out.views("dom"), out.entry);
+  clientJs = await bundle(dir, out.views("dom"), out.entry);
   const app = createApp({ conformance: true }); let chunks = 0;
   const served$ = new Promise<void>(resolve => {
     pending = res => {

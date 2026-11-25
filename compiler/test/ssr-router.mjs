@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+import { bundle } from "../../scripts/lib/bundle.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
@@ -34,9 +35,7 @@ for (const [target, dir, js] of [["ssr", ws, "./"], ["dom", path.join(ws, "clien
   for (const [p, m] of Object.entries(app.modules)) writeFileSync(path.join(dir, path.basename(p) + ".mjs"), m.code.replace(/from "(\.\/[^"]+\.rx)"/g, `from "$1.mjs"`).replace(/from "\.\/([^"]+\.js)"/g, `from "${js}$1"`));
 }
 writeFileSync(path.join(ws, "client/entry.mjs"), `import main from "./main.rx.mjs";\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp({ root: document.getElementById("app") });\napp.mount(main(app), true);\nwindow.__hydrated = true;\n`);
-const req = createRequire(path.join(repo, "ref/package.json"));
-const { buildSync } = req("esbuild");
-const client = buildSync({ entryPoints: [path.join(ws, "client/entry.mjs")], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}", nodePaths: [path.join(ws, "node_modules")] }).outputFiles[0].text;
+const client = await bundle(path.join(repo, "ref"), { entry: path.join(ws, "client/entry.mjs"), dir: ws, conditions: ["browser", "development"], modules: ["node_modules", path.join(ws, "node_modules")] });
 const { createApp, generateHydrationScript } = await import(pathToFileURL(path.join(ws, "node_modules/@reactivescript/runtime/dist/server.js")).href);
 const main = (await import(pathToFileURL(path.join(ws, "main.rx.mjs")).href)).default;
 

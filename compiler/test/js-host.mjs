@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { ws, repo, workspace } from "../../bench/harness.mjs";
+import { bundle } from "../../scripts/lib/bundle.mjs";
 
 workspace();
 const dir = path.join(ws, "js-host"); rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
@@ -45,14 +46,13 @@ const CASES = ${JSON.stringify(CASES.map(([n, v]) => [n, v === undefined ? "unde
 export const views = lib => ["Direct", "Pattern", "Rest"].flatMap(C => CASES.map(([n, v]) => () => createComponent(lib[C], n === "none" ? {} : { children: n === "undefined" ? undefined : n === "a function" ? () => "f" : v })));
 `);
 const want = ["Direct", "Pattern", "Rest"].flatMap(() => CASES.map(([, , w]) => w ?? ""));
-const { build } = req("esbuild");
-const r = await build({ stdin: { resolveDir: dir, contents: `import kit from "./kit.dom.mjs"; import { views } from "./cases.mjs"; import { library } from "@reactivescript/runtime"; import { createSignal, createComponent } from "solid-js"; import { render } from "@solidjs/web";
+const r = await bundle(ws, { dir, conditions: ["browser", "development"], code: `import kit from "./kit.dom.mjs"; import { views } from "./cases.mjs"; import { library } from "@reactivescript/runtime"; import { createSignal, createComponent } from "solid-js"; import { render } from "@solidjs/web";
 const lib = library(kit, "kit/kit"); window.shown = views(lib).map(v => { const at = document.createElement("div"); render(v, at); return at.textContent; });
 const at = document.createElement("div"); render(() => createComponent(lib.Value, {}), at); window.value = at.textContent;
-const [g] = createSignal(1); window.seen = 0; render(() => createComponent(lib.Ref, { get f() { g(); return () => { window.seen++; }; } }), document.createElement("div"));` }, bundle: true, write: false, format: "esm", conditions: ["browser", "development"], logLevel: "error" });
+const [g] = createSignal(1); window.seen = 0; render(() => createComponent(lib.Ref, { get f() { g(); return () => { window.seen++; }; } }), document.createElement("div"));` });
 const browser = await req("playwright").chromium.launch(); const page = await browser.newPage(); const said = [];
 page.on("console", m => { if (m.type() !== "log") said.push(m.text().split("\n")[0]); }); page.on("pageerror", e => said.push(e.message));
-await page.setContent("<p></p>"); await page.addScriptTag({ type: "module", content: r.outputFiles[0].text }); await page.waitForTimeout(100);
+await page.setContent("<p></p>"); await page.addScriptTag({ type: "module", content: r }); await page.waitForTimeout(100);
 const got = await page.evaluate(() => [window.shown, window.value, window.seen]);
 check("children of a JavaScript host, in the browser", JSON.stringify(got[0]) === JSON.stringify(want), [got[0], want]);
 check("a value prints as it did, beside a name imported for its type", got[1] === "undefined 1", got[1]);
@@ -90,11 +90,11 @@ console.log(JSON.stringify([generateHydrationScript(), renderToString(() => crea
   const [script, html] = out.status === 0 ? JSON.parse(out.stdout.trim().split("\n").pop()) : ["", ""];
   const browser = await req("playwright").chromium.launch();
   for (const mode of ["development", "production"]) for (const how of ["render", "hydrate"]) {
-    const r = await build({ stdin: { resolveDir: dir, contents: `import kit from "./views.dom.mjs"; import { library } from "@reactivescript/runtime"; import { createComponent, flush } from "solid-js"; import { render, hydrate } from "@solidjs/web";
+    const r = await bundle(ws, { dir, conditions: ["browser", "development"], code: `import kit from "./views.dom.mjs"; import { library } from "@reactivescript/runtime"; import { createComponent, flush } from "solid-js"; import { render, hydrate } from "@solidjs/web";
 const at = document.getElementById("app"), first = at.querySelector("b"), seen = []; const end = ${how}(() => createComponent(library(kit, "kit/views").Two, {}), at); flush(); seen.push(at.textContent);
-at.querySelector("p").click(); flush(); seen.push(at.textContent, ${how === "hydrate" ? `first === at.querySelector("b")` : "true"}); end(); window.seen = seen;` }, bundle: true, write: false, format: "esm", conditions: ["browser", mode], logLevel: "error" });
+at.querySelector("p").click(); flush(); seen.push(at.textContent, ${how === "hydrate" ? `first === at.querySelector("b")` : "true"}); end(); window.seen = seen;` });
     const page = await browser.newPage(); const said = []; page.on("console", m => { if (m.type() !== "log") said.push(m.text().split("\n")[0]); }); page.on("pageerror", e => said.push(e.message));
-    await page.setContent(`<head>${script}</head><body><div id="app">${how === "hydrate" ? html : ""}</div></body>`); await page.addScriptTag({ type: "module", content: r.outputFiles[0].text }); await page.waitForTimeout(100);
+    await page.setContent(`<head>${script}</head><body><div id="app">${how === "hydrate" ? html : ""}</div></body>`); await page.addScriptTag({ type: "module", content: r }); await page.waitForTimeout(100);
     const got = await page.evaluate(() => window.seen);
     check(`a view that provides, given to JavaScript (RG-7a): ${how}, ${mode}`, JSON.stringify(got) === JSON.stringify(["a1b1o", "a2ab2bo", true]) && !said.length, [got, said, html, out.stderr.slice(-400)]);
     await page.close();

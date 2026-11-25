@@ -5,7 +5,7 @@
 // and TypeScript's where there is none, which the server says (rx-language-server/src/editor.js).
 //   node build.js        needs `npm install` here and in ../rx-language-server, and
 //                        `cargo build --lib --release --target wasm32-unknown-unknown` in ../../compiler
-const esbuild = require("esbuild");
+const { build } = require("rolldown");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -15,11 +15,11 @@ if (!fs.existsSync(wasm)) {
   process.exit(1);
 }
 fs.rmSync(path.join(__dirname, "dist"), { recursive: true, force: true });
-const common = { bundle: true, platform: "node", format: "cjs", target: "node18", minify: true, sourcemap: false, logLevel: "warning" };
+const pack = (input, file, external) => build({ input, external, platform: "node", tsconfig: false, logLevel: "warn", checks: { eval: false }, transform: { target: "node18" }, output: { file, format: "cjs", minify: true, sourcemap: false, codeSplitting: false } });
 Promise.all([
-  esbuild.build({ ...common, entryPoints: [path.join(__dirname, "client.js")], outfile: "dist/client.js", external: ["vscode"] }),
-  esbuild.build({ ...common, entryPoints: [path.resolve(__dirname, "../rx-language-server/bin/server.js")], outfile: "dist/server.js", external: ["typescript", "tsrs", "tsrs/*"] }),
+  pack(path.join(__dirname, "client.js"), "dist/client.js", ["vscode"]),
+  pack(path.resolve(__dirname, "../rx-language-server/bin/server.js"), "dist/server.js", ["typescript", "tsrs", /^tsrs\//]),
 ]).then(() => {
   fs.copyFileSync(wasm, path.join(__dirname, "dist/rxc.wasm"));
   for (const f of fs.readdirSync("dist")) console.log(`dist/${f}  ${(fs.statSync(path.join("dist", f)).size / 1024).toFixed(0)} KB`);
-}, () => process.exit(1));
+}, e => { console.error(e); process.exit(1); });

@@ -8,6 +8,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { ws, repo, workspace } from "../../bench/harness.mjs";
+import { bundle } from "../../scripts/lib/bundle.mjs";
 
 workspace();
 const dir = path.join(ws, "leaks"); rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
@@ -73,7 +74,6 @@ const alive = ([what, made]) => {
   check(`${what}: ${N} mounted and unmounted, ${kinds.length} kinds of value made, all collected`, kinds.length >= KINDS && !kept.length, { kinds: kinds.map(([k]) => k), kept });
 };
 
-const { build } = req("esbuild");
 const count = () => Object.fromEntries(Object.entries(globalThis.made).map(([k, rs]) => [k, [rs.length, rs.filter(r => r.deref()).length]]));
 const pages = [
   ["an app", "production", `import main from "./main.rx.dom.mjs"; import { createApp } from "@reactivescript/runtime"; const app = createApp({ root: document.getElementById("app") }); app.mount(main(app));`],
@@ -84,9 +84,9 @@ render(() => createComponent(Show, { get when() { return open(); }, get children
 ];
 const browser = await req("playwright").chromium.launch();
 for (const [what, mode, contents] of pages) {
-  const r = await build({ stdin: { contents, resolveDir: dir }, bundle: true, write: false, format: "esm", conditions: ["browser", mode], logLevel: "error" });
+  const r = await bundle(ws, { code: contents, dir, conditions: ["browser", mode] });
   const page = await browser.newPage(); const errors = []; page.on("pageerror", e => errors.push(e.message));
-  await page.setContent(`<div id="app"></div>`); await page.addScriptTag({ type: "module", content: r.outputFiles[0].text });
+  await page.setContent(`<div id="app"></div>`); await page.addScriptTag({ type: "module", content: r });
   await page.evaluate(async n => {
     const turn = () => new Promise(r => setTimeout(r, 5));
     for (let i = 0; i < n; i++) { document.getElementById("t").click(); await turn(); document.querySelector("section").click(); await turn(); document.getElementById("t").click(); await turn(); }
@@ -98,11 +98,11 @@ for (const [what, mode, contents] of pages) {
 }
 // SF-2b: a server fn asked in reactive scope is one request per arguments while it stands, and no longer
 {
-  const r = await build({ stdin: { resolveDir: dir, contents: `import { createApp } from "@reactivescript/runtime"; import { createRoot, createSignal, createMemo, createEffect, flush } from "solid-js";
+  const r = await bundle(ws, { dir, conditions: ["browser", "production"], code: `import { createApp } from "@reactivescript/runtime"; import { createRoot, createSignal, createMemo, createEffect, flush } from "solid-js";
 const app = createApp({ root: null }); let asked = 0; const load = app.serverRef("load", async n => { asked++; return "r" + n; });
 window.run = async () => createRoot(async dispose => { const [n, set] = createSignal(0); const a = createMemo(() => load(n())), b = createMemo(() => load(n())); createEffect(() => [a(), b()], () => {});
-  for (let i = 1; i <= 20; i++) { set(i); flush(); await new Promise(r => setTimeout(r, 5)); } const during = app.flights.size; dispose(); await new Promise(r => setTimeout(r, 5)); return [asked, during, app.flights.size]; });` }, bundle: true, write: false, format: "esm", conditions: ["browser", "production"], logLevel: "error" });
-  const page = await browser.newPage(); await page.setContent(""); await page.addScriptTag({ type: "module", content: r.outputFiles[0].text });
+  for (let i = 1; i <= 20; i++) { set(i); flush(); await new Promise(r => setTimeout(r, 5)); } const during = app.flights.size; dispose(); await new Promise(r => setTimeout(r, 5)); return [asked, during, app.flights.size]; });` });
+  const page = await browser.newPage(); await page.setContent(""); await page.addScriptTag({ type: "module", content: r });
   const got = await page.evaluate(() => window.run());
   check("a server fn's answers: one request per arguments, kept while one asks", got[0] === 21 && got[1] === 1 && got[2] === 0, got);
 }

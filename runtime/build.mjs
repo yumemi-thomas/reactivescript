@@ -6,14 +6,14 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { build } from "esbuild";
+import { build } from "rolldown";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const src = path.resolve(here, "../ref/compile");
 const dist = path.join(here, "dist");
 rmSync(dist, { recursive: true, force: true }); mkdirSync(dist);
 for (const [from, to] of [["rt-web.ts", "web"], ["rt-server.ts", "server"]]) {
-  await build({ entryPoints: [path.join(src, from)], outfile: path.join(dist, `${to}.js`), format: "esm", platform: "neutral", target: "es2022", bundle: true, packages: "external", logLevel: "warning" });
+  await build({ input: path.join(src, from), platform: "neutral", tsconfig: false, logLevel: "warn", external: id => !id.startsWith(".") && !path.isAbsolute(id), transform: { target: "es2022" }, output: { file: path.join(dist, `${to}.js`), format: "esm", codeSplitting: false, comments: { legal: true, annotation: true, jsdoc: false } } });
 }
 // declarations, unchecked: the runtime uses Solid internals its types leave out (createErrorBoundary, sharedConfig,
 // runInServerComponentScope); Solid's types resolve from this package's node_modules

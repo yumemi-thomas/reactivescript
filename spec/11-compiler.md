@@ -495,7 +495,7 @@ message, each module's printed `.d.rx` and the model. With `--lower`, every
 program the checker accepts (each scenario table with its handler rows, as
 `compile/run.ts` compiles it) is also lowered by both for the universal, dom
 and ssr targets, and each module's output must be the same JavaScript
-(comments dropped, both printed by esbuild). With `RX_CRATE=1`, the runners
+(comments dropped, both printed by oxc). With `RX_CRATE=1`, the runners
 take the crate's output instead of the reference's (`ref/compile/lowered.ts`):
 `compiled` runs the scenarios on its universal target, and `ssr` serves its
 ssr target and hydrates with its dom target. The `"use server"` extraction

@@ -20,7 +20,7 @@
     "solid-js": "file:../../solid-next/packages/solid"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2",
+    "rolldown": "1.2.19",
     "playwright": "1.63.0",
     "typescript": "^6.0.3"
   }

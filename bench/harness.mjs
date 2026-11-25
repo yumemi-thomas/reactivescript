@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { published } from "../compiler/scripts/published.mjs";
 import * as cache from "../scripts/lib/cache.mjs";
+import { bundle } from "../scripts/lib/bundle.mjs";
 import * as tools from "../scripts/lib/tools.mjs";
 
 const require_ = createRequire(import.meta.url);
@@ -55,7 +56,7 @@ function shared() {
   if (process.env.RX_SHARED_KEYS) return (shared_ = JSON.parse(process.env.RX_SHARED_KEYS));
   const at = (...p) => path.join(repo, ...p), nm = path.join(ws, "node_modules");
   shared_ = {
-    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), ...["cache.mjs", "tools.mjs", "tool-worker.cjs", "ts-shared.cjs"].map(f => at("scripts/lib", f))),
+    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), ...["cache.mjs", "tools.mjs", "tool-worker.cjs", "ts-shared.cjs", "bundle.mjs"].map(f => at("scripts/lib", f))),
     tools: cache.inputs(...["bin", "src", "package.json", "package-lock.json", "node_modules"].map(f => at("tooling/rx-language-server", f))),
     installed: [cache.treeHash(nm, { skip: (r, n) => r === "@reactivescript" || r === "@rx-types" || n === ".package-lock.json" }), cache.treeHash(path.join(nm, "@rx-types"))],
     // (the copies a program runs with, not what they were copied from: `workspace()` makes them again, a task run alone does not)
@@ -318,7 +319,6 @@ export function compile(entry, target, spa, asked) {
   return { file: name(out.entry ?? entry), css: out.css };
 }
 
-const esbuild = () => createRequire(path.join(ws, "package.json"))("esbuild");
 /** Node's own modules, in a bundle for the browser: empty, as a bundler for the web makes them (Vite externalizes them
  *  with a warning). A package with one entry for every platform imports its Node adapter beside its browser's
  *  (@solid-primitives/filesystem: `node:fs/promises`, chokidar). */
@@ -347,17 +347,16 @@ export class Runner {
     return { html, text: html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<!--.*?-->/g, "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(), error };
   }
   /** The client's bundle (the dom build, with Solid's development build, so its dev errors are loud). */
-  client(hydrate) {
+  async client(hydrate) {
     const built = compile(this.entry, "dom", this.spa, this.asked);
     if (!built.file) throw new Error(JSON.stringify(built).slice(0, 600));
     const entry = built.file + ".entry.mjs";
     writeFileSync(entry, `import main from ${JSON.stringify("./" + path.basename(built.file))};\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp({ root: document.getElementById("app") });\ntry { app.mount(main(app)${hydrate ? ", true" : ""}); } catch (e) { console.error("mount threw: " + (e && e.message)); }\nwindow.__mounted = true;\n`);
-    const r = timed("esbuild", () => esbuild().buildSync({ entryPoints: [entry], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}", absWorkingDir: this.dir, loader: { ".css": "empty" }, alias: nodeBuiltins() }));
-    return r.outputFiles[0].text;
+    return timed("bundle", () => bundle(ws, { entry, dir: this.dir, conditions: ["browser", "development"], alias: nodeBuiltins() }));
   }
   /** Serves the program: `ssr` renders each URL on the server and hydrates it; otherwise an empty page the client mounts in. */
   async serve({ ssr = false } = {}) {
-    const client = this.client(ssr);
+    const client = await this.client(ssr);
     let render = null;
     if (ssr) {
       const built = this.server ??= compile(this.entry, "ssr", this.spa, this.asked);

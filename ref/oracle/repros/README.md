@@ -10,7 +10,7 @@ node --conditions=browser --conditions=development repros/dv3-web.mjs [element-f
 node --conditions=browser --conditions=development repros/dv4-signals.mjs [store|memo] [boundary|none]
 node --conditions=browser --conditions=development repros/dv10-lane-effects.mjs [one|two]
 node repros/dv9-ssr-after-shell.mjs [client|server-component] [ms]      # the server build: no --conditions
-node repros/dv9-hydrate/run.mjs                                           # server + Chromium (playwright, esbuild)
+node repros/dv9-hydrate/run.mjs                                           # server + Chromium (playwright, rolldown)
 node repros/dv11-hydrate/run.mjs
 node repros/dv12-hydrate/run.mjs
 node --conditions=browser repros/dv13-universal-empty.mjs

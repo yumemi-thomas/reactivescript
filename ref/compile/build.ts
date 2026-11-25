@@ -4,7 +4,6 @@
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildSync } from "esbuild";
 import { loadModules } from "../src/modules.ts";
 import { checkModules } from "../src/check.ts";
 import { compileModules } from "./emit.ts";
@@ -30,7 +29,8 @@ app.mount(main(app));
 window.__app = app;
 `);
 // one bundle: the program, rt-web.ts and Solid's DOM build (from the next branch, ../SOLID_NEXT)
-buildSync({ entryPoints: [src + "entry.mjs"], bundle: true, outfile: out + "app.js", format: "esm", platform: "browser", conditions: ["browser", "development"], tsconfigRaw: "{}", logLevel: "warning" });
+const { bundle } = await import(new URL("../../scripts/lib/bundle.mjs", import.meta.url).href);
+await bundle(fileURLToPath(new URL("..", import.meta.url)), { entry: src + "entry.mjs", dir: src, file: out + "app.js", conditions: ["browser", "development"] });
 writeFileSync(out + "index.html", `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>${name}.rx</title>
 <style>body{font:15px system-ui,sans-serif;margin:24px;max-width:640px} .done{text-decoration:line-through;color:#888} .dim{opacity:.5} .selected{font-weight:bold} button{margin:2px}</style>

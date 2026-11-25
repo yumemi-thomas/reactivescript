@@ -61,7 +61,7 @@
   "devDependencies": {
     "@solidjs/signals": "2.0.3",
     "@solidjs/web": "2.0.3",
-    "esbuild": "^0.28.2",
+    "rolldown": "1.2.19",
     "solid-js": "2.0.3",
     "typescript": "^6.0.3"
   }

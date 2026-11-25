@@ -121,12 +121,12 @@ export default {
     h.check(`the .tsx app: ${probes.length} type mistakes at the package's boundary are TypeScript errors`, lost.length === 0, lost);
 
     const req = createRequire(path.join(ws, "package.json"));
-    const { transform } = req("@solidjs/compiler"); const esbuild = req("esbuild");
+    const { transform } = req("@solidjs/compiler"); const { bundle } = await import(pathToFileURL(path.join(repo, "scripts/lib/bundle.mjs")).href);
     // Solid's own compiler for the app's JSX, as its Vite plugin runs it; the package is not compiled again
-    const solid = generate => ({ name: "solid", setup(b) { b.onLoad({ filter: /\.tsx$/ }, a => { const r = transform(readFileSync(a.path, "utf8"), { filename: a.path, generate, hydratable: true, moduleName: "@solidjs/web" }); return { contents: r.code, loader: "ts" }; }); } });
-    const client = (await esbuild.build({ entryPoints: [path.join(web, "client.tsx")], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", absWorkingDir: dir, plugins: [solid("dom")] })).outputFiles[0].text;
+    const solid = generate => ({ name: "solid", load(id) { if (!id.endsWith(".tsx")) return; const r = transform(readFileSync(id, "utf8"), { filename: id, generate, hydratable: true, moduleName: "@solidjs/web" }); return { code: r.code, moduleType: "ts" }; } });
+    const client = await bundle(ws, { entry: path.join(web, "client.tsx"), dir, conditions: ["browser", "development"], plugins: [solid("dom")] });
     h.check("the browser bundle holds the package's browser build, not its server build", /index\.dom\.js/.test(client) && !/index\.ssr\.js/.test(client), "which build was bundled");
-    await esbuild.build({ entryPoints: [path.join(web, "server.tsx")], bundle: true, outfile: path.join(web, "server.mjs"), format: "esm", platform: "node", packages: "external", logLevel: "silent", absWorkingDir: dir, plugins: [solid("ssr")] });
+    await bundle(ws, { entry: path.join(web, "server.tsx"), dir, file: path.join(web, "server.mjs"), platform: "node", conditions: ["node"], external: true, plugins: [solid("ssr")] });
     const server = await import(pathToFileURL(path.join(web, "server.mjs")).href);
     const serve = ssr => new Promise(res => {
       const s = createServer((rq, out) => {

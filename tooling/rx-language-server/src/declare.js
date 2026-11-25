@@ -123,17 +123,6 @@ function cause(ts, checker, t) {
 let CTX = { refs: false, scope: new Set() };
 
 const isLibFile = f => /\/typescript\/lib\/lib\.[^/]*\.d\.ts$/.test(f);
-/** The package a declaration file belongs to (`…/node_modules/@scope/name/…`, or the nearest package.json's name), or undefined. */
-const packages = new Map();
-function packageOf(f) {
-  const m = /^.*\/node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(f)?.[1]; if (m) return m;
-  // a linked package (a workspace's, a `file:` dependency): its real path has no node_modules, its package.json has its name
-  for (let dir = path.dirname(f); ; dir = path.dirname(dir)) {
-    if (packages.has(dir)) return packages.get(dir);
-    let name; try { name = JSON.parse(require("node:fs").readFileSync(path.join(dir, "package.json"), "utf8")).name; } catch { /* none here */ }
-    if (name || path.dirname(dir) === dir) { packages.set(dir, name); return name; }
-  }
-}
 /** The exports of the module `spec` resolves to from where the draft is made: each exported symbol (an alias followed
  *  to what it names) to its name there. Empty when the import does not resolve: the app could not write it either. */
 function exportsOf(ts, checker, spec) {
