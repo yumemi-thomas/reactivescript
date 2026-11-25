@@ -252,3 +252,53 @@ reading (1). One hole stays, where all runners throw alike: `provide c = use c` 
 | `ref/` (src, compile, oracle) | 11,989 | 12,167 | 12,307 |
 
 The fixes: crate +692 −463, `ref/` +344 −204 since 7f3845ec (the walk rewritten with scopes, 174 + 69 lines deleted).
+
+### Suites on the fixed code (cbd23214; the commit after it changes this file only)
+
+- `../ci.sh`, every job of the workflows that runs on this Mac: 44 pass (cargo test, both napi builds, wasm, Windows
+  check, runtime, names, spec-refs, the four scenario runners at 207 scenarios, crate parity in eight modes, drafts, lib,
+  js-host, leaks, confined, runtime-resolve, measure, generated, bench tasks and coverage `--check --strict` as the
+  scorecard, tree-sitter, the language server's seven suites, the VS Code package, vite, vite-dir, vite-gate, vite-types,
+  wardic, formisch, ssr-router, start, proposals). 2 fail as on 54571c1d, in 0 s, for want of a built Solid Vite plugin
+  (`t-vite-hosts`, `t-vite-watch`).
+- `proposals/check.mjs --upstream` on `origin/main` e650b851: 303 verdicts, all as stated (the marks of 26 and two of
+  25 now say what upstream gives).
+- The four sets, every runner, across revisions: above. Served and hydrated: 800 of 800, 822 of 822.
+- The UI SDK copy, built with this compiler and runtime: its suite 44 of 44; its `.rx` app in the browser and hydrated;
+  the project's Playwright specs (toggle, tabs, dialog, item-icon; client and server-rendered) 552 of 553, 6 skipped,
+  3 flaky, the one failure Solid's `EFFECT_RELAY_TEAR` development diagnostic as on the `rx-ui-sdk` branch (REPORT.md);
+  its leak gates 5 of 5; its table of mistakes unchanged (12 caught).
+- The packages' and the UI SDK's `.rx` sources (18 files): the crate says of each what it said on 54571c1d.
+- 1,000 rows with content, production, Chromium, median of 30, three rounds, mount / reverse / change all, ms: before
+  1.3–1.4 / 0.8 / 0.6, after 1.4 / 0.8 / 0.6; rows under a provision 1.5–1.6 / 0.7–0.9 / 0.6–0.7 both; rows that ask
+  `if props.children` 2.6–2.7 / 0.9–1.0 / 1.2–1.3 before, 2.1–2.2 / 0.9 / 0.7–0.8 after. The module minified 1,492 →
+  1,515 bytes, the bundle 151,392 → 151,592. A 450-link chain of names for the children, written in reverse: the crate
+  0.00 → 0.01 s, the reference 0.10 → 0.12 s.
+
+Not run: the UI SDK's unit tests (vitest) and its toolbar specs; the twelve packages' own test suites (their sources
+were checked, not built and run); the generated sets on PR #1 and upstream in full (the reviewer's cases, the nested
+awaits and the 147 that still differ were); Windows and Linux; nothing on GitHub.
+
+### What on PR #1 this would replace (nothing is pushed)
+
+| on PR #1 | with the rule |
+| --- | --- |
+| bug 33, a context read in children is read at the caller | gone: content is a block of the place that shows it, in every runner (the first program of proposals/26; fails upstream) |
+| bug 35, children kept in a record are made above what the component provides | refused: `VIEW_NOT_SHOWN`, a record does not hold a view; its page becomes the rewrite (a view of each name) |
+| bug 36, an await in children is asked where they are written | gone: asked where the children are shown, under that place's provisions and boundaries |
+| bug 37's gate (the crate does not compile a module whose children read a context and hold an await) | deleted (92 lines); the eighteen programs it refused are compiled, and `cargo test` holds them. The fix of 37 itself (children copied, a hoisted await found by its address) stays |
+| bug 40, `provide c = use c` is `CYCLE` | decided otherwise here: a provision reads what is above it (the provider that hands on what it was given). The hole that stays: with nothing above and no default it is accepted and throws in every runner alike. PR #1's `CYCLE` and this are two answers to one question; upstream should pick |
+| bug 41, a condition on children breaks hydration | gone: asking makes nothing (the third program of proposals/26; fails upstream on the server) |
+| `AMBIGUOUS_CONTEXT`, `apart(…)` (on `proto-children`, not on PR #1) | never needed |
+
+### The widening (a context that holds a view): not done
+
+Part 2 of the brief, a dedicated `context item: View` or `(row: T) => View` that a provider gives a slot to and a
+consumer only shows, was **not started**. Part 1 took the whole of the work, and the widening is not small: a view
+carried by a context is shown at its consumers, so both checkers must place it there (what is provided, awaited, caught
+and nested at each `{use item}`), across modules and in printed signatures, where today they place it at the provider;
+and a view with a parameter needs a way to apply what a context gives (`<(use item) row={r} />` has no syntax). Nothing
+here says it cannot be proved; nothing was proved. What is known is what was known: with the refusal lifted
+(`RX_VIEW_WIDE`), the earlier 134 programs of a carried `View` agree in every runner, and the checkers refuse a correct
+program whose provision is the carrier's own. Kobalte's Select, Combobox and Pagination in their own API shape were not
+written.
