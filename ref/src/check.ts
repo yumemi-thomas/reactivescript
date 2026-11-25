@@ -62,7 +62,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; view?: { optional: boolean; values: string[] }; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; through?: boolean };   // through: MO-14f (2026-11-25), in a host's view — the component's view applies a component the host renders through, so it renders its applier's children there (not printed: a host's view is checked from source)   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; view?: { optional: boolean; values: string[]; type?: string }; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; through?: boolean };   // through: MO-14f (2026-11-25), in a host's view — the component's view applies a component the host renders through, so it renders its applier's children there (not printed: a host's view is checked from source)   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 /** MO-11u: one application of a component a declared fn `renders(…)` beneath, as the components that fn is given see it:
  *  what is discharged and provided between that application's children and the root of the component it is written in
  *  (in a module's own list: the program's). */
@@ -1154,7 +1154,7 @@ class Checker {
   /** RG-4c: the view an `.rx` component takes as its children and shows as `<props.children … />`, and what it shows it with. */
   private shownMemo = new Map<Sym, Shown | null>();
   private shownBy(s: Sym): Shown | undefined {
-    if (s.compRegion?.sig) { const v = s.compRegion.sig.props.children?.view; return v && { optional: v.optional }; }
+    if (s.compRegion?.sig) { const v = s.compRegion.sig.props.children?.view; return v && { optional: v.optional, ...(v.type !== undefined ? { param: v.type } : {}) }; }
     if (!s.comp) return undefined;
     let r = this.shownMemo.get(s); if (r === undefined) this.shownMemo.set(s, r = shown(s.comp, this.typeDecls) ?? null);
     return r ?? undefined;
@@ -2825,7 +2825,7 @@ class Checker {
         case "mview": {                                                                     // MO-11k: a render prop's body, owned where the component calls it
           if (!this.viewFns.has(m)) { this.err("VIEW_FN_MISPLACED", "MO-11k", "a `view (…) { … }` is the only child of a component that takes one: a JS component whose declaration types `children` as a function giving a View, or an .rx component that shows its `children`, typed so, as `<props.children … />`"); break; }
           const r = this.region(env.region, "for"); const inner = new Env(env, r);
-          const host = this.viewFor.get(m);
+          const host = this.viewFor.get(m); const type = host && this.shownBy(host)?.param; if (type !== undefined) this.propsTy.set(r, fieldRows(type).text);
           for (const p of m.params) inner.vars.set(p, host ? { kind: "props", name: p, region: r, line: this.line, viewOf: { comp: host } } : { kind: "value", name: p, region: r, line: this.line, handed: true });   // what the component passes: a value per call
           this.block(m.decls, m.body, inner, { scope: "reactive" });
           break;
@@ -3392,7 +3392,7 @@ class Checker {
       for (const f of fields) {
         const es = PF(G, f); let df: Catch = "all", dp: Catch = "all", da: Catch | null = null; let an = ""; let rendered = false;
         for (const e of es) { if (e.term) { da = da === null ? along(e.chain, "f") : meet(da, along(e.chain, "f")); an = e.term.name; } else { rendered = true; df = meet(df, along(e.chain, "f")); dp = meet(dp, along(e.chain, "p")); } }
-        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...(f === "children" && this.compSyms.get(G) && this.shownBy(this.compSyms.get(G)!) ? { view: { optional: this.shownBy(this.compSyms.get(G)!)!.optional, values: [...new Set((this.placed.get(G) ?? []).flat().map(x => x.field))].filter(x => this.viewValue(this.compSyms.get(G)!, x)).sort() } } : {}), ...((() => { const ts = (this.propHeld.get(G) ?? []).flatMap(([p, h, c]) => p.startsWith(`${f}.`) ? [[p.slice(f.length + 1), h, c] as [string, boolean, string[]]] : []); return ts.length ? { takes: ts } : {}; })()) };
+        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...(f === "children" && this.compSyms.get(G) && this.shownBy(this.compSyms.get(G)!) ? { view: { optional: this.shownBy(this.compSyms.get(G)!)!.optional, values: [...new Set((this.placed.get(G) ?? []).flat().map(x => x.field))].filter(x => this.viewValue(this.compSyms.get(G)!, x)).sort(), ...((t => t !== undefined && /^\{[^"'`/]*\}$/.test(oneLine(t)) ? { type: oneLine(t) } : {})(this.shownBy(this.compSyms.get(G)!)!.param)) } } : {}), ...((() => { const ts = (this.propHeld.get(G) ?? []).flatMap(([p, h, c]) => p.startsWith(`${f}.`) ? [[p.slice(f.length + 1), h, c] as [string, boolean, string[]]] : []); return ts.length ? { takes: ts } : {}; })()) };
       }
       const e = esc(G);
       const file = (this.opts.file ?? "main.rx").split("/").pop();

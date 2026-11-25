@@ -56,9 +56,16 @@ pub struct PropSig {
     /// MO-10f: the fields of this prop its type says hold or fail where they are read (path, holds, classes): a JS
     /// result with such fields may be given whole
     pub takes: Vec<(String, bool, Vec<String>)>,
-    /// RG-4c: a view the component shows: whether it is optional, and the fields it is shown with that hold no closure of the
-    /// component's (O-3)
-    pub view: Option<(bool, Vec<String>)>,
+    /// RG-4c
+    pub view: Option<ViewSig>,
+}
+/// RG-4c: a view the component shows: whether it is optional, what its parameter's type says, and the fields it is shown with
+/// that hold no closure of the component's (O-3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ViewSig {
+    pub optional: bool,
+    pub ty: Option<String>,
+    pub values: Vec<String>,
 }
 #[derive(Debug, Clone)]
 pub struct Own {
@@ -442,9 +449,9 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                         let ts: Vec<String> = v.takes.iter().map(|(p, holds, fails)| format!("{p}{}{}", if *holds { " pending" } else { "" }, if fails.is_empty() { String::new() } else { format!(" fails({})", fails.join(" | ")) })).collect();
                         parts.push(format!("takes({})", ts.join(", ")));
                     }
-                    if let Some((optional, values)) = &v.view {
+                    if let Some(ViewSig { optional, ty, values }) = &v.view {
                         // RG-4c: a view it shows; `value(…)`: what it shows it with that holds no closure of its own (O-3)
-                        parts.push(format!("view{}{}", if *optional { "?" } else { "" }, if values.is_empty() { String::new() } else { format!(" value({})", values.join(", ")) }));
+                        parts.push(format!("view{}{}{}", if *optional { "?" } else { "" }, ty.as_ref().map(|t| format!(" {t}")).unwrap_or_default(), if values.is_empty() { String::new() } else { format!(" value({})", values.join(", ")) }));
                     }
                     if !v.rendered {
                         parts.push("unrendered".to_string());
@@ -524,13 +531,15 @@ re!(T_FN_ROWS, r"^\s*(?::\s*(.*?))?\s*(?:\brejects\(([^)]*)\))?\s*(\binstantiate
 re!(P_FIELD, r"^([A-Za-z0-9_$-]+)\s*:\s*(.+)$");
 re!(P_LEAF, r"^(ref|value)(?:\s+(.*))?$");
 re!(T_CONTEXT, r"^context\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$");
-re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(props:\s*(\{.*?\}|\{\})\)(.*)$");
+re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(");
+re!(T_PROPS, r"^props:\s*(\{.*\})$");
 re!(P_PART, r"^([A-Za-z0-9_$.-]+)\s*:\s*io$");
 re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
 re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(([^)]*)\)");
 re!(P_UNRENDERED, r"(^|[^A-Za-z0-9_])unrendered([^A-Za-z0-9_]|$)");
 re!(P_TAKES, r"(^|[^A-Za-z0-9_])takes\(((?:[^()]|\([^()]*\))*)\)");
-re!(P_VIEW, r"^view(\??)(?:\s+value\(([^)]*)\))?(?:\s|$)");
+re!(P_VIEW, r"^view(\??)(?:\s|$)");
+re!(P_VALUE, r"^value\(([^)]*)\)");
 re!(P_PENDING, r"(^|\s)pending(\s|$)");
 re!(P_FAILS, r"fails\(([^)]*)\)");
 re!(P_CATCHES, r"(^|[^A-Za-z0-9_])catches\(([^)]*)\)");
@@ -722,7 +731,9 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             );
             continue;
         }
-        if let Some(m) = T_COMP.captures(&s) {
+        if let Some((m, ps)) = T_COMP.captures(&s).and_then(|m| balanced(&s, m.get(0).unwrap().end() - 1).filter(|p| T_PROPS.is_match(p)).map(|p| (m, p))) {
+            let props = T_PROPS.captures(ps).unwrap();
+            let m = [String::new(), m[1].to_string(), props[1].to_string(), s[m.get(0).unwrap().end() + ps.len() + 1..].to_string()];
             let mut sig = CompSig { made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new(), hosts: IndexMap::new(), through: false };
             let inner = &m[2][1..m[2].len() - 1];
             for f in split(inner, ';') {
@@ -732,6 +743,23 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                 };
                 let fname = if fname0 == "...props" { "*".to_string() } else { fname0 };
                 let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, components: false, takes: vec![], view: None };
+                let mut spec = spec;
+                if let Some(m) = P_VIEW.captures(&spec) {
+                    // RG-4c
+                    let mut view = ViewSig { optional: !m[1].is_empty(), ty: None, values: vec![] };
+                    let mut at = spec[m.get(0).unwrap().end()..].js_trim().to_string();
+                    if at.starts_with('{') {
+                        let end = crate::parse::closes(&at, 0).unwrap_or(at.len());
+                        view.ty = Some(at[..end].to_string());
+                        at = at[end..].js_trim().to_string();
+                    }
+                    if let Some(x) = P_VALUE.captures(&at) {
+                        view.values = x[1].split(',').map(|x| x.js_trim().to_string()).filter(|x| !x.is_empty()).collect();
+                        at = at[x.get(0).unwrap().end()..].js_trim().to_string();
+                    }
+                    v.view = Some(view);
+                    spec = at;
+                }
                 let a = P_ACTION.captures(&spec);
                 let rest = match &a {
                     Some(a) => {
@@ -755,11 +783,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                         }
                     }
                 }
-                let mut rest = P_TAKES.replace(&rest, "$1").to_string();
-                if let Some(m) = P_VIEW.captures(rest.js_trim()) {
-                    v.view = Some((!m[1].is_empty(), m.get(2).map(|x| x.as_str().split(',').map(|x| x.js_trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default()));
-                    rest = rest.js_trim()[m.get(0).unwrap().end()..].to_string();
-                }
+                let rest = P_TAKES.replace(&rest, "$1").to_string();
                 if P_UNRENDERED.is_match(&rest) {
                     v.rendered = false;
                     v.f = Catch::All;

@@ -754,10 +754,11 @@ pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<Stri
 }
 
 /// RG-4c: the view a `.rx` component shows, when it takes one: its `children` are declared a function giving a `View`, of one
-/// parameter or none, and its view shows them as `<props.children … />`. Whether they are optional.
-pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &[Decl]) -> Option<bool> {
+/// parameter or none, and its view shows them as `<props.children … />`. Whether they are optional, and the parameter's type.
+pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &[Decl]) -> Option<(bool, Option<String>)> {
     let (t, optional) = children_type(props_type?, types, 0)?;
-    (view_type(&t) && shows_view(props, decls, view)).then_some(optional)
+    let param = view_type(&t)?;
+    shows_view(props, decls, view).then_some((optional, param))
 }
 /// Whether a component shows its children as a view, whatever their type says.
 pub fn shows_view(props: &str, decls: &[Decl], view: &[Markup]) -> bool {
@@ -807,20 +808,21 @@ fn children_type(t: &str, decls: &[Decl], depth: usize) -> Option<(String, bool)
     None
 }
 /// `(s: T) => View`, `() => View`.
-fn view_type(t: &str) -> bool {
+fn view_type(t: &str) -> Option<Option<String>> {
     let t = t.trim();
-    let Some(end) = t.starts_with('(').then(|| crate::parse::closes(t, 0)).flatten() else { return false };
+    let end = t.starts_with('(').then(|| crate::parse::closes(t, 0)).flatten()?;
     if t[end..].trim_start().strip_prefix("=>").map(str::trim) != Some("View") {
-        return false;
+        return None;
     }
     let ps: Vec<String> = split_top(&t[1..end - 1], ",").into_iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
     match &ps[..] {
-        [] => true,
-        [p] => p.split_once(':').is_some_and(|(n, ty)| {
-            let n = n.trim_end();
-            !ty.trim().is_empty() && n.bytes().next().is_some_and(|b| !b.is_ascii_digit()) && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
+        [] => Some(None),
+        [p] => p.split_once(':').and_then(|(n, ty)| {
+            let (n, ty) = (n.trim_end(), ty.trim());
+            let name = n.bytes().next().is_some_and(|b| !b.is_ascii_digit()) && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
+            (name && !ty.is_empty()).then(|| Some(ty.to_string()))
         }),
-        _ => false,
+        _ => None,
     }
 }
 /// What names the view a component shows anywhere but where it is shown or asked for (`if props.children`): its line. A

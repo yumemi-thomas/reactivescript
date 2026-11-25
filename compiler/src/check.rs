@@ -14,7 +14,7 @@ use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::{other_mention, shown, shown_in, ModuleSet};
 use crate::names::{harness_reason, language, scalar, Lang};
 use crate::parse::{closes, js_trim, split_top, type_words, JsDecl, Part, Shape as FShape, Words};
-use crate::signature::{Catch, CompSig, ExportSig, HostSite, Hosted, ModSig, Own, PropSig, SigParam, HOLD};
+use crate::signature::{Catch, CompSig, ExportSig, HostSite, Hosted, ModSig, Own, PropSig, SigParam, ViewSig, HOLD};
 use indexmap::{IndexMap, IndexSet};
 use regex::Regex;
 use std::cell::Cell;
@@ -2022,7 +2022,7 @@ pub struct Checker<'a> {
     /// view applies it (whose children it renders there, as `{props.children}` among its own would)
     through_reads: Vec<(RId, RId)>,
     /// RG-4c: the view an `.rx` component takes as its children and shows as `<props.children … />` (whether it is optional)
-    shown_memo: HashMap<SId, Option<bool>>,
+    shown_memo: HashMap<SId, Option<(bool, Option<String>)>>,
     type_decls: &'a [Decl],
     /// the component a view lambda is given to
     view_for: HashMap<*const Markup, SId>,
@@ -7156,7 +7156,7 @@ impl<'a> Checker<'a> {
     fn view_value(&mut self, c: SId, field: &str, seen: &mut HashSet<(RId, String)>) -> bool {
         let Some(r) = self.syms[c].comp_region else { return false };
         if let Some(sig) = &self.regions[r].sig {
-            return sig.props.get("children").and_then(|p| p.view.as_ref()).is_some_and(|v| v.1.iter().any(|f| f == field));
+            return sig.props.get("children").and_then(|p| p.view.as_ref()).is_some_and(|v| v.values.iter().any(|f| f == field));
         }
         if !seen.insert((r, field.to_string())) {
             return true;
@@ -7183,16 +7183,20 @@ impl<'a> Checker<'a> {
         true
     }
     fn shown_by(&mut self, s: SId) -> Option<bool> {
+        self.shown_with(s).map(|x| x.0)
+    }
+    /// … and its parameter's type
+    fn shown_with(&mut self, s: SId) -> Option<(bool, Option<String>)> {
         let sy = &self.syms[s];
         if let Some(sig) = sy.comp_region.and_then(|r| self.regions[r].sig.as_ref()) {
-            return sig.props.get("children").and_then(|p| p.view.as_ref()).map(|v| v.0);
+            return sig.props.get("children").and_then(|p| p.view.as_ref()).map(|v| (v.optional, v.ty.clone()));
         }
         let Some(Decl::Component { props, props_type, decls, view, .. }) = sy.comp else { return None };
         if let Some(r) = self.shown_memo.get(&s) {
-            return *r;
+            return r.clone();
         }
         let r = shown(props, props_type.as_deref(), decls, view, self.type_decls);
-        self.shown_memo.insert(s, r);
+        self.shown_memo.insert(s, r.clone());
         r
     }
     /// The component a tag shows the view of, `<props.children … />` in its own view.
@@ -7403,7 +7407,7 @@ impl<'a> Checker<'a> {
                                     _ => None,
                                 };
                                 if attrs.iter().any(|a| a.name == "children") || (one.is_none() && (!real.is_empty() || !optional)) || one.is_some_and(|n| n > 1) {
-                                    self.err("VIEW_FN_EXPECTED", "RG-4c", format!("<{}> shows its children with what it knows, as one view with one parameter: write them as `{{view (s) {{ … }}}}`, `s.x` for what it passes as `x`", tag));
+                                    self.expects_view(tag);
                                 }
                                 for x in real {
                                     if matches!(x.kind, MarkupKind::Mview { .. }) {
@@ -7485,6 +7489,9 @@ impl<'a> Checker<'a> {
                     }
                     let r = self.region(Some(region), "for", false, None);
                     let inner = self.env(Some(env), r);
+                    if let Some(t) = self.view_for.get(&(m as *const Markup)).copied().and_then(|s| self.shown_with(s)).and_then(|x| x.1) {
+                        self.props_ty.insert(r, field_rows(&t).0);
+                    }
                     for p in params {
                         // what the component passes: a value per call, or the view's props (RG-4c)
                         let host = self.view_for.get(&(m as *const Markup)).copied();
@@ -7825,7 +7832,14 @@ impl<'a> Checker<'a> {
         let kids = self.region(Some(region), "children", false, Some(tag.to_string()));
         self.regions[kids].kids = Some((cr, region));
         self.note_host_site(cr, kids); // MO-11u
+        if self.shown_by(s) == Some(false) {
+            self.expects_view(tag);
+        }
         self.apply_factory(s, kids, line);
+    }
+    /// RG-4c
+    fn expects_view(&mut self, tag: &str) {
+        self.err("VIEW_FN_EXPECTED", "RG-4c", format!("<{}> shows its children with what it knows, as one view with one parameter: write them as `{{view (s) {{ … }}}}`, `s.x` for what it passes as `x`", tag));
     }
     /// MO-11f: what a factory was given, applied among the children of its component's application, named where it was called.
     fn apply_factory(&mut self, s: SId, kids: RId, line: Option<usize>) {
@@ -7873,6 +7887,9 @@ impl<'a> Checker<'a> {
         let kids = self.region(Some(region), "children", false, Some(t.tag.clone()));
         self.regions[kids].kids = Some((cr, region));
         self.note_host_site(cr, kids); // MO-11u
+        if self.shown_by(s).is_some() {
+            self.expects_view(&t.tag);
+        }
         let kenv = self.env(Some(env), kids);
         if let Some(w) = self.nesting_word.clone() {
             self.nested.entry((t.tag.clone(), self.line)).or_insert((cr, w));
@@ -9494,11 +9511,12 @@ impl<'a> Checker<'a> {
             }
             let takes = self.prop_held.get(&g).map(|hs| hs.iter().filter_map(|(p, h, c)| p.strip_prefix(&format!("{f}.")).map(|r| (r.to_string(), *h, c.clone()))).collect()).unwrap_or_default();
             let view = match self.comp_syms.get(&g).copied().filter(|_| f == "children") {
-                Some(c) => self.shown_by(c).map(|optional| {
+                Some(c) => self.shown_with(c).map(|(optional, ty)| {
                     let mut fields: Vec<String> = self.placed.get(&g).into_iter().flatten().flatten().map(|x| x.0.clone()).collect();
                     fields.sort();
                     fields.dedup();
-                    (optional, fields.into_iter().filter(|x| self.view_value(c, x, &mut HashSet::new())).collect())
+                    let ty = ty.map(|t| one_line(&t)).filter(|t| t.starts_with('{') && t.ends_with('}') && !t.contains(['"', '\'', '`', '/']));
+                    ViewSig { optional, ty, values: fields.into_iter().filter(|x| self.view_value(c, x, &mut HashSet::new())).collect() }
                 }),
                 None => None,
             };
