@@ -38,7 +38,7 @@ build, no Chromium for bug 15) is reported as `SETUP`, apart, and is no verdict.
 
 ## Bugs of `main`, in the order to take them
 
-Each was run on e650b85. 35, and a question. [37](bugs/37-await-in-children-not-compiled.md), [38](bugs/38-a-view-that-provides.md) and [39](bugs/39-order-of-one-lines-diagnostics.md) are this branch's own, and fixed. 33, 35 and 36 are not fixed here: 36 is refused by the crate.
+Each was run on e650b85. 35, and a question. [37](bugs/37-await-in-children-not-compiled.md), [38](bugs/38-a-view-that-provides.md) and [39](bugs/39-order-of-one-lines-diagnostics.md) are this branch's own, and fixed. 33, 35, 36 and 41 are not fixed here: 36 is refused by the crate. 40 is fixed in the checkers alone.
 
 1. [03](bugs/03-effect-loses-cleanup.md) an effect's cleanup tears a live listener down, in silence
 2. [05](bugs/05-action-in-a-value.md) an action in a value
@@ -48,10 +48,10 @@ Each was run on e650b85. 35, and a question. [37](bugs/37-await-in-children-not-
 6. [28](bugs/28-runtime-keeps-every-instance.md) an app keeps every instance it ever made
 7. [30](bugs/30-provision-leaks.md) what a region provides is seen beside it, in production
 8. [29](bugs/29-destructured-children.md) destructured children
-9. [33](bugs/33-use-in-children.md) a context read in children; [36](bugs/36-await-by-a-childs-context.md) an await asked by one: after [24](24-view-functions.md) is answered
+9. [33](bugs/33-use-in-children.md) a context read in children; [36](bugs/36-await-by-a-childs-context.md) an await asked by one; [41](bugs/41-condition-on-children.md) a condition on children, served: after [24](24-view-functions.md) is answered
 
 Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bugs/08-pre-of-a-list.md), [17](bugs/17-write-a-function-to-a-path.md), [07](bugs/07-fn-provides-to-its-caller.md), [25](bugs/25-source-that-holds-a-function.md), [26](bugs/26-updater-of-a-replaced-record.md),
-[02](bugs/02-unimported-fetch-fail.md), [13](bugs/13-relative-api.md), [34](bugs/34-closure-as-a-child.md), [35](bugs/35-children-in-a-record.md). Correct and refused: [06](bugs/06-fn-reads-a-context.md), [12](bugs/12-unguarded-snapshot-crate.md) (crate),
+[02](bugs/02-unimported-fetch-fail.md), [13](bugs/13-relative-api.md), [34](bugs/34-closure-as-a-child.md), [35](bugs/35-children-in-a-record.md). A checker that aborts: [40](bugs/40-provision-of-itself.md). Correct and refused: [06](bugs/06-fn-reads-a-context.md), [12](bugs/12-unguarded-snapshot-crate.md) (crate),
 [16](bugs/16-component-without-props.md), [11](bugs/11-record-and-function-types.md), [27](bugs/27-brackets-in-a-types-comments.md), [32](bugs/32-a-word-as-a-name.md). Accepted and not compiled, or not loaded: [09](bugs/09-pre-of-a-ref-parameter.md), [10](bugs/10-await-as-a-result.md), [31](bugs/31-type-imported-as-a-value.md). Tests and tools:
 [14](bugs/14-scenario-sections-unread.md), [19](bugs/19-missing-file-is-ok.md), [20](bugs/20-custom-element-with-a-dot.md), [21](bugs/21-messages.md), [23](bugs/23-panic-beside-a-wide-character.md), and an editor that never answers, [24](bugs/24-open-block-in-an-editor.md). A question: [22](bugs/22-equations-make-a-fn-instantiate.md).
 

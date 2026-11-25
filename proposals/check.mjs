@@ -63,7 +63,7 @@ const kinds = {
     const dir = folder(b), flags = (b.attrs.flags ?? "").split(",").filter(Boolean), file = b.attrs.main ?? "main.rx";
     const a = spawnSync(join(root, "compiler/target/release/rxc"), ["check", ...flags, file], { cwd: dir, encoding: "utf8" });
     const c = a.stdout + a.stderr, r = node(["--experimental-strip-types", join(root, "ref/check.ts"), ...flags.filter(f => f !== "--spa"), file], dir);
-    const cv = said(c) === "ok" && a.status ? "failed" : said(c), parse = /: parse error: /.test(r) && cv !== "ok";   // a parse error the reference prints without a code
+    const cv = said(c) === "ok" && a.status !== 0 ? "failed" : said(c), parse = /: parse error: /.test(r) && cv !== "ok";   // a parse error the reference prints without a code
     const rv = parse ? cv : said(r) === "ok" && !/^ok /m.test(r) ? "failed" : said(r);
     return { got: flags.includes("--spa") || cv === rv ? cv : `${cv}|${rv}`, out: c + "\n--- ref\n" + r };
   },

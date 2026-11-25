@@ -59,6 +59,22 @@ export default component App() {
 
 **On this branch.** The same, but for the server, which throws too: what a region provides is no longer seen beside it ([30](30-provision-leaks.md)).
 
+**The everyday forms.** `T` is `provide toggle = { on: true }` around `<b>{props.children}</b>`, the default is `{ on: false }`. Run on e650b85 and on this branch, with the same result. The interpreter shows `on` for each (`m` for the sixth):
+
+| between `<T>` and `</T>` | compiled, fresh mount, and the oracle |
+| --- | --- |
+| `{(use toggle).on ? "on" : "off"}` | `off` |
+| `<i>{(use toggle).on ? "on" : "off"}</i>` | `off` |
+| `<Label v={(use toggle).on ? "on" : "off"} />` | `off` |
+| `{if (use toggle).on { <i>on</i> } else { <i>off</i> }}` | `off` |
+| `<section><T>{(use toggle).on ? "on" : "off"}</T></section>` | `off` |
+| `{if (use toggle).on { <i>{use size}</i> }}` (`size` is `"m"`) | nothing |
+| `{for x in [1] { <i>{(use toggle).on ? "on" : "off"}</i> }}` | `on` |
+| `{if true { t = use toggle; <i>{t.on ? "on" : "off"}</i> }}` | `on` |
+| `<Reader />`, which reads it | `on` |
+
+Both emitters agree on each, and the server on this branch. On e650b85 the sixth is served as `m`, and its hydration leaves a server node unclaimed.
+
 **Cause.** A block binds its owner once (`const __o = __rt.owner()`), and a `use` in a child's getter names the caller's. The oracle has the same fault. An `if` branch or a row among the children has an owner of its own, and is right.
 
 **Not fixed here.** Where such a read belongs is asked in [24](../24-view-functions.md), with the fix that was tried.

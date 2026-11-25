@@ -2062,6 +2062,8 @@ pub struct Checker<'a> {
     later: Vec<Later<'a>>,
     comp_syms: HashMap<RId, SId>,
     rows_busy: HashSet<String>,
+    /// The contexts whose failures are being read, since the name now resolved.
+    fails_in: HashSet<String>,
     /// O-3: per component, the props it stores where they outlive it — "d:<depth>" (a source), "p:<key>" (a provision above)
     retains: HashMap<RId, IndexMap<String, IndexSet<String>>>,
     regions: Vec<Region>,
@@ -2479,6 +2481,7 @@ impl<'a> Checker<'a> {
             later: vec![],
             comp_syms: HashMap::new(),
             rows_busy: HashSet::new(),
+            fails_in: HashSet::new(),
             retains: HashMap::new(),
             regions: vec![],
             syms: vec![],
@@ -8386,7 +8389,10 @@ impl<'a> Checker<'a> {
                 (*e, *env)
             }
         };
+        // what is kept of a name is never cut short by who asked first
+        let from = std::mem::take(&mut self.fails_in);
         let f = self.fails_of(e, env, false, &HashMap::new());
+        self.fails_in = from;
         if let Some(FailsT::Expr { e: e2, cache, busy, .. }) = &mut self.syms[s].fails_t {
             if std::ptr::eq(*e2, e) {
                 *busy = false;
@@ -8499,8 +8505,10 @@ impl<'a> Checker<'a> {
                 let mut i = 0;
                 while i < self.provisions.len() {
                     let (pk, pe, penv) = (self.provisions[i].key.clone(), self.provisions[i].e, self.provisions[i].env);
-                    if pk == c.key {
+                    // `provide c = use c`: it adds nothing to what it is made of
+                    if pk == c.key && self.fails_in.insert(pk) {
                         let f = self.fails_of(pe, penv, false, &HashMap::new());
+                        self.fails_in.remove(&c.key);
                         out.add(f);
                     }
                     i += 1;

@@ -3074,9 +3074,11 @@ class Checker {
   }
 
   // ---- R-f: failures ----
+  /** The contexts being read, since the name now resolved: what is kept of a name is never cut short by who asked first. */
+  private failsIn = new Set<string>();
   private failsThunk(e: Expr, env: Env): () => Fails {
     let cache: Fails | null = null; let busy = false;
-    return () => { if (cache) return cache; if (busy) return noFails(); busy = true; const f = this.failsOf(e, env, false, new Map()); busy = false; cache = f; return f; };
+    return () => { if (cache) return cache; if (busy) return noFails(); busy = true; const from = this.failsIn; this.failsIn = new Set(); const f = this.failsOf(e, env, false, new Map()); this.failsIn = from; busy = false; cache = f; return f; };
   }
   /** R-f-2/3/4: the failures an expression's evaluation can produce. `imp`: imperative scope, where closures are not run now.
    *  `bound`: catch bindings in scope and what they caught (for a rethrow). */
@@ -3104,7 +3106,7 @@ class Checker {
       case "use": {                                                                        // RG-7e: the declared rows, else what this module's provisions of it can fail with
         const c = env.lookup(e.name)?.ctx; if (!c) return out;
         if (c.contract) { for (const x of c.contract.fails) out.cls.add(x); return out; }
-        for (const p of this.provisions) if (p.key === c.key) addF(out, this.failsOf(p.e, p.env, false, new Map())); return out;
+        for (const p of this.provisions) if (p.key === c.key && !this.failsIn.has(c.key)) { this.failsIn.add(c.key); addF(out, this.failsOf(p.e, p.env, false, new Map())); this.failsIn.delete(c.key); } return out;   // `provide c = use c`: it adds nothing to what it is made of
       }
       case "await": go(e.e); if (e.init) go(e.init); for (const c of this.rejects(e.e, env, new Set())) out.cls.add(c); return out;
       case "throw": go(e.e); out.cls.add(this.classOf(e.e, env, bound)); return out;
