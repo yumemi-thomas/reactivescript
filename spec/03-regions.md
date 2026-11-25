@@ -141,16 +141,31 @@ A component is a function from a props value to a region whose tail is a view.
   view: a block of the *caller's* names, owned where it is *shown*. Each place
   that shows it has its own, made there and disposed with that place; what it
   reads from contexts (RG-7b), what it waits on and fails with are that
-  place's. So is a prop typed `View`. A component only shows a view it is
+  place's. So is a prop typed `View`: the rule is of a prop *declared* `View`
+  where the type is read (written out, a type of the module, one imported
+  from `.rx`), and of the names bound to it (a parameter, a loop's item or an
+  inner block's equation of the same spelling is another name); children
+  declared a number are a number. A component only shows a view it is
   given: `{props.children}` in its view (also `props.children ?? e`, and under
   a choice, `c ? props.children : e`); gives it on, as another component's
   content or argument, or in a spread of its props; names it by a projection
   of the props (RG-4b); or asks whether it was given (`if props.children`,
-  `!props.children`, `props.children != undefined`), which is whether content
-  was written and makes nothing. Read as a value — kept by `peek` or a source,
-  carried by a context, read by an effect or a handler, answered by a closure,
-  held in a record or a list, given to a fn — it is `VIEW_NOT_SHOWN`
-  (S-context-4, S-context-5). Content that takes what the component knows is
+  `!props.children`, `props.children != undefined`), which is whether
+  something was written for it and makes nothing: content between the tags,
+  an argument that is no literal nothing (its value is not read: it may be a
+  view given on), what a spread or a rest hands on. A literal is the value it
+  is (`part={undefined}`, `""`, `0`, `false` were not given; `!= undefined`
+  asks only that), and so is what JavaScript gives as a value, as Solid's
+  `props.children ? … : …` answers; what JavaScript gives as a getter (JSX
+  content) was given, and is not read. A view given on is written: whether
+  the giver was given one is not handed on by an argument (a spread hands it
+  on). An argument's expression is a value of the caller (`title={use c}`
+  reads what is provided where it is written); only content, and a
+  `view name (…) { … }`, is a block of the place that shows it. Read as a
+  value — kept by `peek`, a source or `pre`, carried by a context, read by an
+  effect or a handler, answered by a closure, held in a record or a list,
+  given to a fn, or given on to a prop whose declared type is a value's — it
+  is `VIEW_NOT_SHOWN` (S-context-4, S-context-5, S-context-6). Content that takes what the component knows is
   a view with a parameter, below. (Until this proposal: "evaluated in the
   caller's region: its readers are the caller's, its lifetime is the caller's,
   and the child only decides where it is placed", which 08 and RG-7b

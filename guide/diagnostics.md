@@ -1778,9 +1778,12 @@ export default component App() {
 
 A component reads a view it was given (its children, or a prop typed `View`) as a value (RG-4c). A view is only shown:
 `{props.children}` in the component's view, at as many places as it likes, each with its own, made there; given on to
-another component, as content or as an argument; or asked for, `if props.children { … }`, `props.children ?? …`. It is
-not kept by `peek` or a source, carried by a context, read by an effect or a handler, answered by a closure, held in a
-record or a list, or given to a fn. The message says what to write for the one it found.
+another component, as content or as an argument typed `View`; or asked for, `if props.children { … }`,
+`props.children ?? …`. It is not kept by `peek`, a source or `pre`, carried by a context, read by an effect or a handler,
+answered by a closure, held in a record or a list, given to a fn, or given to a prop whose type is a value's. The
+message says what to write for the one it found. The rule is of a prop declared `View` (children declared `number` are a
+number) and of the names bound to it: a parameter or an inner equation of the same spelling is another name.
+"Was it given" is whether something was written: content, or an argument that is no literal nothing.
 
 ```rx before
 component Reveal(props: { children: View }) {

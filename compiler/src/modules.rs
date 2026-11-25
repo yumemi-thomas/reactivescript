@@ -1528,7 +1528,10 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
                             let n = a.name.as_str();
                             let handler = n.starts_with("on") && n[2..].starts_with(|c: char| c.is_ascii_uppercase() || c == ':');
                             if n == "..." {
-                                if !self.is_props(&a.e, sc) {
+                                // a spread of the props gives the views on to a component; an element is none
+                                // (an element with no content of its own would be given the children, which one runner shows and another does not)
+                                let bare = !comp && self.left(&a.e, sc).iter().any(|f| f == "children") && children.iter().all(|x| matches!(&x.kind, MarkupKind::Text(t) if t.trim().is_empty()));
+                                if bare || !self.is_props(&a.e, sc) {
                                     self.plain(&a.e, sc, at, "value");
                                 }
                             } else if comp && !handler && n != "ref" {
