@@ -132,6 +132,15 @@ let OVER: { c: unknown; o: unknown; up: any } | null = null;   // RG-7b: the pro
 /** RG-4c: the question "was a view given" being asked, if one is: shared by every copy of the runtime on the page. */
 const ASK: { on: { owner: unknown } | null } = ((globalThis as any)[Symbol.for("rx.ask")] ??= { on: null });
 const GIVEN: readonly unknown[] = ((globalThis as any)[Symbol.for("rx.given")] ??= Object.freeze([]));
+/** A view that is written: made where it is read, and while it is only asked for (by the computation that asks:
+ *  a memo of a JavaScript host in between holds what it reads, so there it is made), the nothing-to-show that says it
+ *  was given. A JavaScript host that gives an .rx component a view it would rather not have made to answer offers it
+ *  so: `get icon() { return slot(() => <Icon />, () => shown()) }`; `when`, if it has one, answers. */
+export function slot<T>(make: () => T, when?: () => unknown): T {
+  const a = ASK.on; if (!a) return make();
+  ASK.on = null;
+  try { return getOwner() !== a.owner ? make() : (!when || when() ? GIVEN : undefined) as T; } finally { ASK.on = a; }
+}
 function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conformance?: boolean; request?: Request } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
@@ -403,9 +412,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
      *  A JavaScript host's getter is read, as Solid's `props.children ? … : …` reads it; one that would rather not be
      *  made offers `slot` itself. */
     ask<T>(f: () => T): T { const was = ASK.on; ASK.on = { owner: getOwner() }; try { return f(); } finally { ASK.on = was; } },
-    /** A view that is written: made where it is read, and while it is only asked for (by the computation that asks:
-     *  a memo of a JavaScript host in between holds what it reads, so there it is made), the nothing-to-show that says it was given. */
-    slot(make: () => unknown): unknown { const a = ASK.on; if (!a) return make(); if (getOwner() === a.owner) return GIVEN; ASK.on = null; try { return make(); } finally { ASK.on = a; } },
+    slot,
     /** `{props.part}` of a prop declared `View`: one that was not given shows nothing. */
     opt: (v: unknown) => v === undefined ? v : isView(v) ? v : fmt(v),
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */

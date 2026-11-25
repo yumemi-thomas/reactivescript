@@ -91,19 +91,23 @@ check("a `ref` closure's read of a prop is a snapshot", got[2] === 1 && !said.so
 }
 // RG-4c: whether a view was given, asked of what JavaScript gives. A value answers as JavaScript does (Solid's
 // `props.children ? … : …`): undefined, null, false, 0, "" are nothing given, [] is; `!= undefined` asks only that. A getter
-// (JSX content) was given, and is not read to answer. Children whose type says a number are a number: ordinary truth, read.
-const ASKED = `const G = () => ({ get children() { window.made = (window.made ?? 0) + 1; return "g"; } });
-const GIVEN = [["none", {}], ["undefined", { children: undefined }], ["null", { children: null }], ["false", { children: false }], ["0", { children: 0 }], ["empty text", { children: "" }], ["[]", { children: [] }], ["text", { children: "t" }], ["a getter", G()]];
+// (JSX content) is read, as Solid reads it, and what it answers is asked (so it is made once to answer: `made`); a host
+// that would rather not offers `slot`, which is not made, with its own answer if it has one. Children whose type says a
+// number are a number: ordinary truth, read.
+const ASKED = `const count = () => { window.made = (window.made ?? 0) + 1; };
+const G = () => ({ get children() { count(); return "g"; } });
+const S = when => ({ get children() { return slot(() => { count(); return "s"; }, when); } });
+const GIVEN = [["none", {}], ["undefined", { children: undefined }], ["null", { children: null }], ["false", { children: false }], ["0", { children: 0 }], ["empty text", { children: "" }], ["[]", { children: [] }], ["text", { children: "t" }], ["a getter", G()], ["a slot", S()], ["a slot that says yes", S(() => true)], ["a slot that says no", S(() => false)], ["a slot handed on", merge({ n: 1 }, S())]];
 export const asked = (lib, text) => [["Asked", "Some"].map(C => GIVEN.map(([, p]) => text(() => createComponent(lib[C], p))).join(" ")), [{ children: 0 }, { children: 1 }, { get children() { return 0; } }].map(p => text(() => createComponent(lib.Count, p))).join(" ")];`;
-const wantAsked = [["no no no no no no yes yes yes", "no no no yes yes yes yes yes yes"], "no yes no"];
-writeFileSync(path.join(dir, "asked.mjs"), `import { createComponent } from "solid-js";\nglobalThis.window ??= globalThis;\n${ASKED}\n`);
+const wantAsked = [["no no no no no no yes yes yes yes yes no yes", "no no no yes yes yes yes yes yes yes yes no yes"], "no yes no"];
+writeFileSync(path.join(dir, "asked.mjs"), `import { createComponent, merge } from "solid-js";\nimport { slot } from "@reactivescript/runtime";\nglobalThis.window ??= globalThis;\n${ASKED}\n`);
 {
   const b = await build({ stdin: { resolveDir: dir, contents: `import kit from "./kit.dom.mjs"; import { asked } from "./asked.mjs"; import { library } from "@reactivescript/runtime"; import { render } from "@solidjs/web";
 const lib = library(kit, "kit/kit"); window.asked = asked(lib, v => { const at = document.createElement("div"); render(v, at); return at.textContent; });` }, bundle: true, write: false, format: "esm", conditions: ["browser", "production"], minify: true, define: { "process.env.NODE_ENV": '"production"' }, logLevel: "error" });
   const page = await browser.newPage(); const said = []; page.on("console", m => { if (m.type() !== "log") said.push(m.text().split("\n")[0]); }); page.on("pageerror", e => said.push(e.message));
   await page.setContent("<p></p>"); await page.addScriptTag({ type: "module", content: b.outputFiles[0].text }); await page.waitForTimeout(100);
   const got = await page.evaluate(() => [window.asked, window.made ?? 0]);
-  check("whether a view was given, asked of a JavaScript host (RG-4c): production, in the browser", JSON.stringify(got) === JSON.stringify([wantAsked, 0]) && !said.length, [got, wantAsked, said]);
+  check("whether a view was given, asked of a JavaScript host (RG-4c): production, in the browser", JSON.stringify(got) === JSON.stringify([wantAsked, 2]) && !said.length, [got, wantAsked, said]);
 }
 await browser.close();
 {
@@ -111,7 +115,7 @@ await browser.close();
 const lib = library(kit, "kit/kit"); console.log(JSON.stringify([asked(lib, v => renderToString(v).replace(/<!--.*?-->|<[^>]*>/g, "")), globalThis.made ?? 0]));`);
   const s = spawnSync(process.execPath, ["asked-server.mjs"], { cwd: dir, encoding: "utf8", timeout: 60000 });
   const got = s.status === 0 ? JSON.parse(s.stdout.trim().split("\n").pop()) : [];
-  check("whether a view was given, asked of a JavaScript host (RG-4c): on the server", JSON.stringify(got) === JSON.stringify([wantAsked, 0]), [got, s.stderr.slice(-600)]);
+  check("whether a view was given, asked of a JavaScript host (RG-4c): on the server", JSON.stringify(got) === JSON.stringify([wantAsked, 2]), [got, s.stderr.slice(-600)]);
 }
 writeFileSync(path.join(dir, "server.mjs"), `import kit from "./kit.ssr.mjs"; import { views } from "./cases.mjs"; import { library } from "@reactivescript/runtime"; import { createComponent } from "solid-js"; import { renderToString } from "@solidjs/web";
 const lib = library(kit, "kit/kit"); const text = v => renderToString(v).replace(/<!--.*?-->|<[^>]*>/g, "");
