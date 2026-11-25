@@ -215,13 +215,23 @@ export async function pool(items, fn, few = () => false) {
   next(); await done;
   return out;
 }
+/** A browser for a process to be started: `{ env, back() }`. */
+const browsers = [], upBrowsers = new Set();
+async function lendBrowser() {
+  if (!tools.enabled) return { env: {}, back() {} };
+  let b; while ((b = browsers.pop()) && b.gone);
+  if (!b) try { const server = await pw().chromium.launchServer(); b = { server, gone: false }; upBrowsers.add(b); server.on("close", () => { b.gone = true; upBrowsers.delete(b); }); } catch { return { env: {}, back() {} }; }
+  return { env: { RX_BROWSER: b.server.wsEndpoint() }, back() { if (!b.gone) browsers.push(b); } };
+}
+export const end = async () => { await Promise.all([tools.end(), ...[...upBrowsers].map(b => b.server.close().catch(() => {}))]); };
 /** `run.mjs` again, for one task, entry or draft (`args`), in a process of its own; its result is read from
  *  `tasks/<id>.result.json` (one left by an earlier run is not taken for it). What it says on stderr is said when it
  *  ends. `crash`: what stands for a result that is not there. */
-export const alone = (args, id, crash, timeout = 600000) => new Promise(res => {
+export const alone = async (args, id, crash, timeout = 600000) => { const b = await lendBrowser(); const r = await aloneWith(b, args, id, crash, timeout); b.back(); return r; };
+const aloneWith = (browser, args, id, crash, timeout) => new Promise(res => {
   const at = path.join(ws, "tasks", `${id}.result.json`); rmSync(at, { force: true });
   const worker = tools.lend();
-  const c = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(here, "run.mjs"), ...args], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, ...worker.env } });
+  const c = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(here, "run.mjs"), ...args], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, ...worker.env, ...browser.env } });
   let err = ""; c.stderr.on("data", d => { err += d; });
   const timer = setTimeout(() => c.kill("SIGKILL"), timeout);
   c.on("close", (code, signal) => { clearTimeout(timer); worker.back(); let r; try { r = JSON.parse(readFileSync(at, "utf8")); } catch { r = crash(`no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`); } if (r.cache) { cache.merge(cache.stats, r.cache); delete r.cache; } res([r, err]); });
@@ -374,7 +384,8 @@ export class Runner {
   }
   /** A page in Chromium; console errors and warnings and page errors are collected in `problems`. */
   async page() {
-    this.browser ??= await timed("launch", () => pw().chromium.launch());
+    // (a run of many lends each of its processes a browser that is up: a page of it is in a context of its own, as a launched browser's is)
+    this.browser ??= await timed("launch", async () => { if (process.env.RX_BROWSER) try { return await pw().chromium.connect(process.env.RX_BROWSER, { timeout: 5000 }); } catch { /* gone: one of its own */ } return pw().chromium.launch(); });
     const page = await this.browser.newPage();
     page.on("console", m => { if (["error", "warning"].includes(m.type())) this.problems.push(m.text().slice(0, 300)); });
     page.on("pageerror", e => this.problems.push(String(e).slice(0, 300)));

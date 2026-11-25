@@ -29,8 +29,6 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   const mine = k => !shard || k % shard[1] === shard[0] - 1;
   const ids = all.filter((id, k) => filters.length ? filters.some(f => id.includes(f) || `cover-${id.replaceAll("/", "-")}`.includes(f)) : mine(k));
   if (!ids.length) return { problems: [] };
-  // entries are independent programs in folders of their own: several at once
-  const results = await pool(ids, async id => { const r = await one(id); if (process.env.VERBOSE) console.error(`  coverage ${id}: ${r.crash ? "CRASHED" : cols.map(([k]) => `${r[k].pass}/${r[k].total}`).join(" ")}`); return r; });
 
   const libs = JSON.parse(readFileSync(path.join(root, "libraries.json"), "utf8"));
   // every module the libraries list is drafted whole: the ones no entry drafted (a large library's entries draft none
@@ -40,7 +38,14 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   const had = new Set(stated.flatMap(e => e.modules));
   const unowned = listed.filter(x => !had.has(x.spec));
   const todo = filters.length ? [] : unowned.filter((x, k) => mine(k));
-  const extra = await pool(todo, async x => ({ ...(await draft(x.spec)), lib: x.lib }));
+  // entries are independent programs in folders of their own: several at once, and the drafts among them — the largest
+  // libraries' first, so that no process is left alone with one at the end
+  const work = [...todo.map(x => ({ x })), ...ids.toReversed().map(id => ({ id }))];
+  const done = await pool(work, async w => {
+    if (w.x) return { ...(await draft(w.x.spec)), lib: w.x.lib };
+    const r = await one(w.id); if (process.env.VERBOSE) console.error(`  coverage ${w.id}: ${r.crash ? "CRASHED" : cols.map(([k]) => `${r[k].pass}/${r[k].total}`).join(" ")}`); return r;
+  });
+  const extra = done.slice(0, todo.length), results = done.slice(todo.length).toReversed();
   const groupOf = lib => results.find(r => !r.crash && r.pkgs?.some(p => Object.keys(libs[lib].packages).includes(p)))?.entry.split("/")[0] ?? lib;
   const version = pkg => { try { return JSON.parse(readFileSync(path.join(ws, "node_modules", pkg, "package.json"), "utf8")).version; } catch { return "?"; } };
   const ok = r => !r.crash && cols.every(([k]) => r[k].pass === r[k].total);

@@ -26,8 +26,7 @@ import path from "node:path";
 import { runCoverage } from "./coverage.mjs";
 import * as cache from "../scripts/lib/cache.mjs";
 import { heavy } from "../scripts/lib/lock.mjs";
-import { end as endTools } from "../scripts/lib/tools.mjs";
-import { here, ws, given, workspace, stage, loadRef, shareKeys, reaches, driven, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone } from "./harness.mjs";
+import { here, ws, given, workspace, stage, loadRef, shareKeys, reaches, driven, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone, end } from "./harness.mjs";
 
 /** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
  *  it, and the habits it names), or a name resolves to nothing. */
@@ -323,5 +322,5 @@ if (flag("--check")) {
   problems.push(...coverage.problems);
   if (problems.length) { console.log(`\n--check: ${problems.length} problem(s)\n${problems.map(p => `  ${p}`).join("\n")}`); exit = 1; } else console.log("\n--check: as bench/scorecard.json, or better; every failure is a documented one");
 }
-await endTools();
+await end();
 process.exit(exit);
