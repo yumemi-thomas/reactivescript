@@ -414,6 +414,16 @@ word claims:
 | `draft` on a parameter | a write, in the fn's own body, through a name that holds nothing but (a part of) that argument — `list.splice(…)`, `row.done = true` for a `row` of `rows` — during the call, the argument kept nowhere. *Never changed* — every use of it only reads, through every function it is handed to — is proven too, and then the question is not asked | a write through a name that may hold something else, one after the call (a timer), an argument given to code that is not read: neither is said, and the question stays |
 | `rejects(A \| B)` | every `throw` and every rejection the code writes or reaches (through its own functions, a promise's executor, a `catch` that throws again) is `new C(…)` of a class the module exports; none at all, and nothing is named — the default stands, and the question goes | a call into code that is not read, a callback, an awaited promise the fn was handed, a thrown value that is no `new C`, a built-in's class (`RangeError`), a class the module does not export, `JSON.parse`: each is `Error`, the row's default, so nothing is written |
 
+*Which functions a call may run* (2026-11-25). The callback is the caller's only where the row shows it: a parameter, one
+field of a record parameter, a rest parameter's item, whose type answers something. Of every other function the question is
+whose it is. One found in a list, a record or deeper of an argument, one that answers nothing (`() => void`: it is run for what
+it does), one handed on to another callback (`timer(fn, ms)`), one called after an `await`, and a value that is run if it is a
+function (`createSignal(v)`) unless its type rules one out: no `pure`. One the code makes is read: a default, a bound function,
+a closure given to a callback, what is handed to a function that calls it, the getters and methods of what the call makes by the
+names it reads, `toString`/`valueOf`/`toJSON`/`then` and a computed member, a class's statics. A class or a function assigned
+again is none. `handler`: none where the code uses `arguments` or `eval`, nor off `.addEventListener`/`.then` of an object of the
+code's own. `draft`: every use of the argument is followed to its end (`stays`). `test/infer-called.js` holds each.
+
 *What the reading takes as given*, and says: a parameter is what the
 row's type says it is — a method named as `Array`'s or `String`'s,
 called on a parameter whose declared type has no function members of

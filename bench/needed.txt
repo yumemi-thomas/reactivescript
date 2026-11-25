@@ -1,6 +1,6 @@
 Hand-written words no tool has shown, in the declarations of the tasks and of the coverage entries (bench/needed.mjs): each is the app author's own claim, in the app's own declaration. None is in a generated declaration, which holds only words the code proves.
 
-27 a correct program is refused without (12 pure, 11 instantiates, 4 provides; by diagnostic: 22 IO_IN_REACTIVE, 4 CONTEXT_NOT_FOUND, 2 SNAPSHOT_KEPT):
+29 a correct program is refused without (14 pure, 11 instantiates, 4 provides; by diagnostic: 24 IO_IN_REACTIVE, 4 CONTEXT_NOT_FOUND, 2 SNAPSHOT_KEPT):
   cover-primitives-deep/rx-types/@solid-primitives/deep.d.rx: trackDeep: pure — without it: IO_IN_REACTIVE main.rx:7
       not proven: it calls traverse, which is not proven: it calls .has(…), a method that is not read [@solid-primitives/deep/dist/track-deep.js:29]
   cover-primitives-event-dispatcher/rx-types/@solid-primitives/event-dispatcher.d.rx: createEventDispatcher: instantiates — without it: SNAPSHOT_KEPT main.rx:5
@@ -17,6 +17,8 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
       not proven: it returns without making what its owner keeps [cart.js:2]
   cover-primitives-set/set.d.rx: makeSet: instantiates — without it: IO_IN_REACTIVE main.rx:6
       not proven: it returns without making what its owner keeps [set.js:2]
+  cover-primitives-static-store/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — without it: IO_IN_REACTIVE main.rx:5
+      not proven: it calls a call through a computed member [@solid-primitives/static-store/dist/index.js:38]
   cover-primitives-url/rx-types/@solid-primitives/url.d.rx: createURL: instantiates — without it: IO_IN_REACTIVE main.rx:5
       not proven: it returns without making what its owner keeps [@solid-primitives/url/dist/url.js:74]
   cover-solid-use-server-value/ticket.d.rx: useTicket: instantiates — without it: IO_IN_REACTIVE main.rx:6
@@ -33,6 +35,8 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
       not proven: it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
   file-routes/src/router.d.rx: Router: provides(router) — without it: CONTEXT_NOT_FOUND host.d.rx:10, CONTEXT_NOT_FOUND host.d.rx:10
       not proven: children is read outside the provider: children is read [@solidjs/router/dist/routers/factory.jsx:254] — check that children holds no view, or (a function) is called only among the provider's children
+  primitives-state/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — without it: IO_IN_REACTIVE main.rx:14
+      not proven: it calls a call through a computed member [@solid-primitives/static-store/dist/index.js:38]
   query-mutation/api.d.rx: dehydrated: pure — without it: IO_IN_REACTIVE main.rx:20
       not proven: it reads document: the environment [api.js:24]
   query-mutation/api.d.rx: fetchTodo: pure — without it: IO_IN_REACTIVE main.rx:10

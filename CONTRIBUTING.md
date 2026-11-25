@@ -49,7 +49,7 @@ writes: it is written only where the code proves it (tooling/rx-language-server/
 from the JavaScript an import resolves to), and "probably" is a refusal.
 A change to that reading (`tooling/rx-language-server/src/infer.js`)
 comes with the function that shows it in `test/infer.js`,
-`test/infer-owner.js` or `test/infer-view.js` — on the refused side, a function that does the one
+`test/infer-called.js`, `test/infer-owner.js` or `test/infer-view.js` — on the refused side, a function that does the one
 thing the word must not cover, hidden as code hides it; on the proven
 side, its honest twin — and the benchmark holds three numbers against
 it: no word read from the code is contradicted when `rx-verify` runs it,

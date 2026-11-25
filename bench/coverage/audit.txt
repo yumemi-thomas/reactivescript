@@ -1,8 +1,8 @@
 The coverage entries' declarations, every behaviour word held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
 
-55 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
+52 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
 0 contradicted: the code shows the opposite.
-36 the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.
+37 the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.
   primitives/context/counter.d.rx: CounterProvider: provides(counter) — not read: CounterProvider is not a function the code shows (a value made by a call that is not followed, or assigned again) in counter.js
   primitives/controlled-signal/rx-types/@solid-primitives/controlled-signal.d.rx: createControllableSignal: handler(props.onChange) — kept, and called whenever what holds it is called: called from a function that is handed back or kept: whenever that is called [@solid-primitives/controlled-signal/dist/index.js:31]
   primitives/deep/rx-types/@solid-primitives/deep.d.rx: trackDeep: pure — it calls traverse, which is not proven: it calls .has(…), a method that is not read [@solid-primitives/deep/dist/track-deep.js:29]
@@ -13,6 +13,7 @@ The coverage entries' declarations, every behaviour word held against what the c
   primitives/mutation-observer/rx-types/@solid-primitives/mutation-observer.d.rx: createMutationObserver: handler(callback) — it goes where it is not followed: given to .observe(…), a method that is not read [@solid-primitives/mutation-observer/dist/index.js:17]
   primitives/props/button.d.rx: Button: handler(onPress) — kept, and called whenever what holds it is called: called from a function that is handed back or kept: whenever that is called [button.js:4]
   primitives/script-loader/rx-types/@solid-primitives/script-loader.d.rx: createScriptLoader: handler(props.onLoad) — it goes where it is not followed: stored [@solid-primitives/script-loader/dist/index.js:28]
+  primitives/static-store/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — it calls a call through a computed member [@solid-primitives/static-store/dist/index.js:38]
   primitives/transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: handler(options.onEnter) — kept, and called whenever what holds it is called: called from a function that is handed back or kept: whenever that is called [@solid-primitives/transition-group/dist/index.js:68]
   primitives/transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: handler(options.onExit) — kept, and called whenever what holds it is called: called from a function that is handed back or kept: whenever that is called [@solid-primitives/transition-group/dist/index.js:57]
   solid-sonner/toaster/rx-types/solid-sonner.d.rx: toast: renders(Toaster) — where the library renders what it is given is not read: a value kept in the module's state is followed no further
