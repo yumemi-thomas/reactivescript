@@ -2077,6 +2077,8 @@ pub struct Opts<'a> {
 }
 
 pub struct Checker<'a> {
+    /// MO-6d: the module's namespaces
+    nss: Vec<String>,
     /// MO-11f: the components in a factory call's arguments (values there, not reads), and each factory's, by its symbol
     value_ids: HashSet<*const Expr>,
     /// MO-11u: the calls of `renders(H)` fns that were given components (H's key, its name, the fn, the root the
@@ -2580,6 +2582,7 @@ fn host_exports(sigs: &IndexMap<String, ModSig>, hosts: &[String], spa: bool, pl
 impl<'a> Checker<'a> {
     pub fn new(opts: Opts<'a>) -> Self {
         Checker {
+            nss: vec![],
             holds_mode: Cell::new(false),
             value_ids: HashSet::new(),
             hosted_calls: vec![],
@@ -2697,7 +2700,14 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn err(&mut self, code: &str, rule: &str, msg: String) {
+    fn err(&mut self, code: &str, rule: &str, mut msg: String) {
+        // MO-6d: a namespace's member is `Select$Item` to the checker and `Select.Item` to its reader
+        for n in &self.nss {
+            if code == "UNBOUND" && msg.starts_with(&format!("{n} is not declared here")) {
+                msg = format!("{n} is a namespace (`import * as {n}`): it is named as the first part of a tag or of a type, `<{n}.Item>`, and is no value (MO-6d)");
+            }
+            msg = msg.replace(&format!("{n}$"), &format!("{n}."));
+        }
         let line = self.line;
         if !self.diags.iter().any(|d| d.line == line && d.code == code && d.msg == msg) {
             self.diags.push(Diagnostic { code: code.into(), rule: rule.into(), line, msg, file: self.opts.file.clone() });
@@ -2782,6 +2792,7 @@ impl<'a> Checker<'a> {
     }
 
     pub fn run(&mut self, p: &'a Program) {
+        self.nss = p.decls.iter().filter_map(|d| if let Decl::Import { ns: Some(n), .. } = d { Some(n.clone()) } else { None }).collect();
         let tree = p.to_json();
         self.scope = scope_facts(&tree);
         self.through_pre(p, &tree);
@@ -10651,6 +10662,21 @@ mod tests {
         assert_eq!(crate::signature::print_signature(&back), text);
         let opts: Vec<Vec<(String, bool)>> = back.exports.values().map(|e| if let ExportSig::Fn { params, .. } = e { params.iter().map(|p| (p.name.clone(), p.opt)).collect() } else { vec![] }).collect();
         assert_eq!(opts, [vec![("a".to_string(), false), ("b".to_string(), true), ("c".to_string(), true)], vec![("a".to_string(), false), ("b".to_string(), true)]]);
+    }
+
+    #[test]
+    fn a_namespace_is_the_named_imports_of_its_members() {
+        // MO-6d; `ref/units.ts` holds the same case
+        let p = crate::parse::parse_program("import * as Select from \"./select.rx\"\nimport * as M from \"./menu.rx\"\nfn label(o: Select.Opt, xs: Array<Select.Opt | M.Entry>): string => o.label\nexport default component App() {\n  o: Select.Opt = { value: \"Select.Item\" }\n  <Select.Root><Select.Item value={o.value}>Select.Label <M.Item.Sub /></Select.Item></Select.Root>\n}\n").unwrap();
+        let imports: Vec<(String, String)> = p.decls.iter().filter_map(|d| if let Decl::Import { ns: Some(ns), names, .. } = d { Some((ns.clone(), names.iter().map(|n| format!("{} as {}", n.name, n.alias)).collect::<Vec<_>>().join(", "))) } else { None }).collect();
+        assert_eq!(imports, [("Select".to_string(), "Item as Select$Item, Opt as Select$Opt, Root as Select$Root".to_string()), ("M".to_string(), "Entry as M$Entry, Item as M$Item".to_string())]);
+        let text = serde_json::to_string(&p.to_json()).unwrap();
+        for t in ["Array<Select$Opt | M$Entry>", r#""tag":"Select$Root""#, r#""tag":"Select$Item""#, r#""tag":"M$Item.Sub""#, "Select.Item", "Select.Label "] {
+            assert!(text.contains(t), "{t}");
+        }
+        for bad in ["import * as select from \"./s.rx\"\n", "import * Select from \"./s.rx\"\n"] {
+            assert!(crate::parse::parse_program(bad).is_err());
+        }
     }
 
     #[test]

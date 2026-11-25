@@ -597,6 +597,13 @@ export const units: [string, () => void][] = [
     deepStrictEqual(printSignature(parseSignature(text, "/a.rx")), text);
     for (const e of ["a<b>(c)", "a<b && b>(c)", "[a<b, b>(c)]"]) deepStrictEqual([e, parseProgram(`fn f(a, b, c) => ${e}\n`).decls[0]], [e, parseProgram(`fn f(a, b, c) => ${e.replace("a<b", "a < b").replace("b>(", "b > (")}\n`).decls[0]]);
   }],
+  ["a_namespace_is_the_named_imports_of_its_members", () => {   // MO-6d; `compiler/src/check.rs` holds the same case
+    const p = parseProgram(`import * as Select from "./select.rx"\nimport * as M from "./menu.rx"\nfn label(o: Select.Opt, xs: Array<Select.Opt | M.Entry>): string => o.label\nexport default component App() {\n  o: Select.Opt = { value: "Select.Item" }\n  <Select.Root><Select.Item value={o.value}>Select.Label <M.Item.Sub /></Select.Item></Select.Root>\n}\n`);
+    deepStrictEqual(p.decls.flatMap(d => d.k === "import" ? [[d.ns, d.names.map(n => `${n.name} as ${n.alias}`).join(", ")]] : []), [["Select", "Item as Select$Item, Opt as Select$Opt, Root as Select$Root"], ["M", "Entry as M$Entry, Item as M$Item"]]);
+    const text = JSON.stringify(p);
+    deepStrictEqual(["o: Select$Opt", "Array<Select$Opt | M$Entry>", '"tag":"Select$Root"', '"tag":"Select$Item"', '"tag":"M$Item.Sub"', '"Select.Item"', "Select.Label "].map(t => text.includes(JSON.stringify(t).slice(1, -1)) || text.includes(t)), [false, true, true, true, true, true, true]);
+    for (const bad of ['import * as select from "./s.rx"\n', 'import * Select from "./s.rx"\n']) { let refused = false; try { parseProgram(bad); } catch { refused = true; } deepStrictEqual(refused, true); }
+  }],
   ["a_generic_alias_is_read_with_its_arguments", () => {   // 07 §2; `compiler/src/modules.rs` holds the same cases
     const says = (body: string, tp: string, args: string[]) => applyAlias(body, tp, args) ?? "-";
     deepStrictEqual([

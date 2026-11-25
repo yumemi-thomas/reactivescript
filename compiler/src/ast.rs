@@ -206,6 +206,9 @@ pub enum Decl {
     Source { name: String, init: Expr, line: usize, span: Span, question: bool, ty: Option<String>, exported: bool, key: Option<String> },
     Eq { name: String, e: Expr, line: usize, span: Span, deferred: bool, key: Option<String>, ty: Option<String>, exported: bool },
     Import {
+        /// MO-6d: `import * as Select from "m"` — the namespace's name; `names` are then the members the module names,
+        /// `Select.Item`, each bound as `Select$Item`
+        ns: Option<String>,
         names: Vec<ImportName>,
         from: String,
         pure: bool,
@@ -382,8 +385,55 @@ pub struct Program {
 /// a draft's `d`, a statement list's `let`s. An import binds nothing here: `bound` holds what stands between a mention
 /// and the module's imports. What the loader uses to name a method by its declaration's row (09 MO-8t).
 pub fn exprs_mut(p: &mut Program, f: &mut dyn FnMut(&mut Expr, &[String])) {
-    let mut w = Scoped { f, bound: vec![] };
+    let mut w = Scoped { f, bound: vec![], text: None };
     w.block(&mut p.decls, |w| w.markups(&mut p.view));
+}
+/// MO-6d: a namespace import, `import * as Select from "m"`, is the named imports of the members the module names: each
+/// `Select.Item` — a tag's first part, or a type's in a type's text — is the name `Select$Item`, imported as `Item`. The
+/// namespace itself is no value. `ref/src/parse.ts` `namespaces`.
+pub fn namespaces(p: &mut Program) {
+    let nss: Vec<String> = p.decls.iter().filter_map(|d| if let Decl::Import { ns: Some(n), .. } = d { Some(n.clone()) } else { None }).collect();
+    if nss.is_empty() {
+        return;
+    }
+    let res: Vec<(String, regex::Regex)> = nss.iter().map(|n| (n.clone(), regex::Regex::new(&format!(r"(^|[^\w$.]){}\.([A-Za-z_$][\w$]*)", regex::escape(n))).unwrap())).collect();
+    let found = std::cell::RefCell::new(std::collections::BTreeSet::<(String, String)>::new());
+    let ty = |t: &mut String| {
+        for (ns, re) in &res {
+            if t.contains(&format!("{ns}.")) {
+                *t = re.replace_all(t, |c: &regex::Captures| {
+                    found.borrow_mut().insert((ns.clone(), c[2].to_string()));
+                    format!("{}{ns}${}", &c[1], &c[2])
+                }).into_owned();
+            }
+        }
+    };
+    let mut text = |t: &mut String, tag: bool| {
+        if !tag {
+            return ty(t);
+        }
+        let Some(i) = t.find('.') else { return };
+        if !nss.iter().any(|n| *n == t[..i]) {
+            return;
+        }
+        let rest = t[i + 1..].to_string();
+        found.borrow_mut().insert((t[..i].to_string(), rest.split('.').next().unwrap_or("").to_string()));
+        *t = format!("{}${rest}", &t[..i]);
+    };
+    let mut f = |e: &mut Expr, _: &[String]| match &mut e.k {
+        ExprKind::Call { targs: Some(t), .. } => ty(t),
+        ExprKind::Fn { ptypes, .. } => ptypes.iter_mut().flatten().for_each(&ty),
+        ExprKind::ServerFn { ptypes, ret, .. } => ptypes.iter_mut().flatten().chain(ret.iter_mut()).for_each(&ty),
+        _ => {}
+    };
+    let mut w = Scoped { f: &mut f, bound: vec![], text: Some(&mut text) };
+    w.block(&mut p.decls, |w| w.markups(&mut p.view));
+    let found = found.into_inner();
+    for d in &mut p.decls {
+        if let Decl::Import { ns: Some(ns), names, .. } = d {
+            *names = found.iter().filter(|(n, _)| n == ns).map(|(_, m)| ImportName { name: m.clone(), alias: format!("{ns}${m}") }).collect();
+        }
+    }
 }
 /// The names a body calls that nothing in it binds, its parameters included.
 pub fn free_calls(params: &[String], body: &[Stmt]) -> Vec<String> {
@@ -397,14 +447,21 @@ pub fn free_calls(params: &[String], body: &[Stmt]) -> Vec<String> {
             }
         }
     };
-    Scoped { f: &mut f, bound: vec![] }.with(params, |w| w.stmts(&mut body.to_vec()));
+    Scoped { f: &mut f, bound: vec![], text: None }.with(params, |w| w.stmts(&mut body.to_vec()));
     out
 }
 struct Scoped<'f> {
     f: &'f mut dyn FnMut(&mut Expr, &[String]),
     bound: Vec<String>,
+    /// every type's text of a declaration or a statement (`false`), and every tag (`true`): what `namespaces` changes
+    text: Option<&'f mut dyn FnMut(&mut String, bool)>,
 }
 impl Scoped<'_> {
+    fn ty<'t>(&mut self, ts: impl IntoIterator<Item = &'t mut String>) {
+        if let Some(f) = self.text.as_mut() {
+            ts.into_iter().for_each(|t| f(t, false));
+        }
+    }
     fn with<'n>(&mut self, names: impl IntoIterator<Item = &'n String>, go: impl FnOnce(&mut Self)) {
         let n = self.bound.len();
         self.bound.extend(names.into_iter().map(|x| x.trim_start_matches("...").to_string()));
@@ -494,7 +551,11 @@ impl Scoped<'_> {
                         w.target(target);
                         w.expr(e);
                     }
-                    StmtKind::Let { e, .. } | StmtKind::Expr(e) | StmtKind::Throw(e) => w.expr(e),
+                    StmtKind::Let { e, ty, .. } => {
+                        w.ty(ty.iter_mut());
+                        w.expr(e)
+                    }
+                    StmtKind::Expr(e) | StmtKind::Throw(e) => w.expr(e),
                     StmtKind::Refresh(_) | StmtKind::Affects(_) => {}
                     StmtKind::Action(body) => w.stmts(body),
                     StmtKind::Sif { c, t, f } => {
@@ -526,6 +587,17 @@ impl Scoped<'_> {
     }
     fn decls(&mut self, ds: &mut [Decl]) {
         for d in ds {
+            if self.text.is_some() {
+                match d {
+                    Decl::Source { ty, .. } | Decl::Eq { ty, .. } | Decl::Context { ty, .. } => self.ty(ty.iter_mut()),
+                    Decl::TypeDecl { text, .. } => self.ty([text]),
+                    Decl::Error { ptypes, .. } | Decl::Action { ptypes, .. } => self.ty(ptypes.iter_mut().flatten()),
+                    Decl::Server { ptypes, ret, .. } => self.ty(ptypes.iter_mut().flatten().chain(ret.iter_mut())),
+                    Decl::Fn { params, ret, tparams, .. } => self.ty(params.iter_mut().filter_map(|p| p.ty.as_mut()).chain(ret.iter_mut()).chain(tparams.iter_mut())),
+                    Decl::Component { props_type, tparams, .. } => self.ty(props_type.iter_mut().chain(tparams.iter_mut())),
+                    Decl::Import { .. } | Decl::Effect { .. } | Decl::Provide { .. } => {}
+                }
+            }
             match d {
                 Decl::Source { init: e, .. } | Decl::Eq { e, .. } | Decl::Provide { e, .. } => self.expr(e),
                 Decl::Import { .. } | Decl::TypeDecl { .. } => {}
@@ -555,7 +627,10 @@ impl Scoped<'_> {
     fn markups(&mut self, ms: &mut [Markup]) {
         for m in ms {
             match &mut m.kind {
-                MarkupKind::El { attrs, children, .. } => {
+                MarkupKind::El { tag, attrs, children } => {
+                    if let Some(f) = self.text.as_mut() {
+                        f(tag, true);
+                    }
                     attrs.iter_mut().for_each(|a| self.expr(&mut a.e));
                     self.markups(children);
                 }
@@ -781,8 +856,9 @@ impl Decl {
                 ("type", os(ty)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_error_fields, declared_pure, declared_side, prelude, .. } => obj(vec![
+            Decl::Import { ns, names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_error_fields, declared_pure, declared_side, prelude, .. } => obj(vec![
                 ("k", s("import")),
+                ("ns", os(ns)),
                 ("names", Some(Value::Array(names.iter().map(|n| obj(vec![("name", s(&n.name)), ("alias", s(&n.alias))])).collect()))),
                 ("from", s(from)),
                 ("pure", Some(Value::Bool(*pure))),

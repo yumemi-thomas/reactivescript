@@ -152,8 +152,30 @@ export function parseProgram(src: string): Program {
   const c = new Cursor(src);
   let p: Program | undefined;
   try { p = program(c); } catch (e) { if (!c.typeArgs) throw e; }
-  if (p && !c.typeArgs) return p;
-  const again = new Cursor(src); again.known = c.names; return program(again);   // 07 §3: what `f<a>(b)` is depends on what the module binds
+  if (p && !c.typeArgs) return namespaces(p);
+  const again = new Cursor(src); again.known = c.names; return namespaces(program(again));   // 07 §3: what `f<a>(b)` is depends on what the module binds
+}
+/** MO-6d: a namespace import, `import * as Select from "m"`, is the named imports of the members the module names: each
+ *  `Select.Item` — a tag's first part, or a type's in a type's text — is the name `Select$Item`, imported as `Item`. The
+ *  namespace itself is no value. Every runner reads the program so. */
+const TYPE_TEXTS = new Set(["type", "ptypes", "ret", "targs", "propsType", "tparams", "text"]);
+export function namespaces(p: Program): Program {
+  const nss = p.decls.filter((d): d is Extract<Decl, { k: "import" }> => d.k === "import" && !!d.ns); if (!nss.length) return p;
+  const found = new Map(nss.map(d => [d.ns!, new Set<string>()]));
+  const inType = (t: string): string => { for (const [ns, set] of found) t = t.replace(new RegExp(`(^|[^\\w$.])${ns.replace(/\$/g, "\\$")}\\.([A-Za-z_$][\\w$]*)`, "g"), (_m, pre: string, n: string) => { set.add(n); return `${pre}${ns}$${n}`; }); return t; };
+  const walk = (x: unknown): void => {
+    if (!x || typeof x !== "object") return;
+    if (Array.isArray(x)) { x.forEach(walk); return; }
+    const o = x as Record<string, unknown>;
+    if (o.k === "el" && typeof o.tag === "string") { const i = o.tag.indexOf("."), set = i > 0 ? found.get(o.tag.slice(0, i)) : undefined; if (set) { const rest = o.tag.slice(i + 1), j = rest.indexOf("."), n = j < 0 ? rest : rest.slice(0, j); set.add(n); o.tag = `${o.tag.slice(0, i)}$${rest}`; } }
+    for (const [k, v] of Object.entries(o)) {
+      if (TYPE_TEXTS.has(k) && (k !== "text" || o.k === "typedecl")) { if (typeof v === "string") o[k] = inType(v); else if (Array.isArray(v)) o[k] = v.map(t => typeof t === "string" ? inType(t) : t); }
+      else if (k !== "k") walk(v);
+    }
+  };
+  walk(p.decls); walk(p.view);
+  for (const d of nss) d.names = [...found.get(d.ns!)!].sort().map(n => ({ name: n, alias: `${d.ns}$${n}` }));
+  return p;
 }
 function program(c: Cursor): Program {
   const decls: Decl[] = [];
@@ -694,12 +716,18 @@ function parseDecl(c: Cursor): Decl {
     } const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
     const pure = c.keyword("pure"); c.ws();
     const names: { name: string; alias: string }[] = [];
-    if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.bound("alias"); c.ws(); } c.binds(alias); names.push({ name, alias }); c.imported.add(alias); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
+    let ns: string | undefined;
+    if (c.eat("*")) {   // MO-6d: `import * as Select from "m"`: a namespace, named only as the first part of a tag or of a type, `<Select.Item>`
+      c.ws(); if (!c.keyword("as")) c.fail("import * as Name"); c.ws(); ns = c.bound("namespace name");
+      if (!/^[A-Z]/.test(ns)) c.fail(`import * as ${ns}: a namespace is named with a capital, as the components it holds are applied, <${ns[0].toUpperCase() + ns.slice(1)}.Item>`);
+      c.binds(ns); c.imported.add(ns);
+    }
+    else if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.bound("alias"); c.ws(); } c.binds(alias); names.push({ name, alias }); c.imported.add(alias); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
     else { const name = c.bound("import name"); names.push({ name: "default", alias: name }); c.imported.add(name); }
     c.ws(); if (!c.keyword("from")) c.fail("from"); c.ws();
     const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
     const save = c.i; c.ws(false);
-    const sd = { ...(side ? { side } : {}), ...(isPrelude(from.v as string) ? { prelude: true } : {}) };
+    const sd = { ...(side ? { side } : {}), ...(isPrelude(from.v as string) ? { prelude: true } : {}), ...(ns ? { ns } : {}) };
     if (c.keyword("fails")) { c.ws(); const fails = parseClasses(c) ?? ["Error"]; return { k: "import", names, from: from.v, pure, line, fails, ...sd }; }   // R-f-8
     c.i = save;
     return { k: "import", names, from: from.v, pure, line, ...sd };

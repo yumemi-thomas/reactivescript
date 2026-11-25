@@ -224,7 +224,8 @@ impl Spans<'_> {
         }
         match &m.kind {
             MarkupKind::El { tag, attrs, children } => {
-                if !tag.is_empty() && !at.text(self.src)[1..].starts_with(tag.as_str()) {
+                // MO-6d: a namespace's member, `Select$Item`, is written `Select.Item`
+                if !tag.is_empty() && !at.text(self.src)[1..].starts_with(tag.as_str()) && !at.text(self.src)[1..].starts_with(tag.replacen('$', ".", 1).as_str()) {
                     self.bad(at, format!("the element <{tag}> spans `{}`", at.text(self.src)));
                 }
                 for a in attrs {

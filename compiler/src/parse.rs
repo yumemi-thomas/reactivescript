@@ -429,6 +429,11 @@ pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
 }
 
 pub fn parse_program(src: &str) -> R<Program> {
+    let mut p = parse_program_as_written(src)?;
+    crate::ast::namespaces(&mut p); // MO-6d
+    Ok(p)
+}
+fn parse_program_as_written(src: &str) -> R<Program> {
     let mut c = Cursor::new(src);
     let p = program(&mut c);
     if !c.type_args {
@@ -529,7 +534,9 @@ pub fn parse_program_recovering(src: &str) -> (Program, Vec<ParseError>) {
         Some(Decl::Component { name, line, .. }) => (vec![Markup { kind: MarkupKind::El { tag: name.clone(), attrs: vec![], children: vec![] }, line: Some(*line), span: Span::NONE }], None),
         _ => (vec![], Some(false)),
     };
-    (Program { decls, view, legacy_view }, c.errors)
+    let mut p = Program { decls, view, legacy_view };
+    crate::ast::namespaces(&mut p); // MO-6d
+    (p, c.errors)
 }
 /// On to the next line that starts at column 0 with something other than a closing brace (where a declaration may).
 fn skip_line(c: &mut Cursor) {
@@ -2903,7 +2910,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             if from.ends_with(".rx") {
                 return c.fail(&format!("import \"{}\": an .rx module is imported for what it exports, `import {{ … }} from \"{}\"`", from, from));
             }
-            return Ok(Decl::Import { names: vec![], from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, prelude: false, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None });
+            return Ok(Decl::Import { ns: None, names: vec![], from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, prelude: false, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None });
         }
         let side = if IMPORT_SIDE.is_match(c.rest()) {
             if c.keyword("server") {
@@ -2919,7 +2926,23 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         let pure = c.keyword("pure");
         c.ws(true);
         let mut names = vec![];
-        if c.eat("{") {
+        let mut ns = None;
+        if c.eat("*") {
+            // MO-6d: `import * as Select from "m"`: a namespace, named only as the first part of a tag or of a type
+            c.ws(true);
+            if !c.keyword("as") {
+                return c.fail("import * as Name");
+            }
+            c.ws(true);
+            let n = c.bound("namespace name")?;
+            if !n.starts_with(|ch: char| ch.is_ascii_uppercase()) {
+                let cap: String = n.chars().take(1).flat_map(|ch| ch.to_uppercase()).chain(n.chars().skip(1)).collect();
+                return c.fail(&format!("import * as {n}: a namespace is named with a capital, as the components it holds are applied, <{cap}.Item>"));
+            }
+            c.binds(n.clone());
+            c.imported.insert(n.clone());
+            ns = Some(n);
+        } else if c.eat("{") {
             c.ws(true);
             while !c.starts_with("}") {
                 let name = c.ident_or("import name")?;
@@ -2956,7 +2979,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         let save = c.i;
         c.ws(false);
         let prelude = crate::names::is_prelude(&from);
-        let mk = |fails| Decl::Import { names, from, pure, side, line, span: Span::NONE, fails, resolved: None, prelude, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None };
+        let mk = |fails| Decl::Import { ns, names, from, pure, side, line, span: Span::NONE, fails, resolved: None, prelude, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None };
         if c.keyword("fails") {
             c.ws(true);
             let fails = parse_classes(c)?.unwrap_or_else(|| vec!["Error".to_string()]);

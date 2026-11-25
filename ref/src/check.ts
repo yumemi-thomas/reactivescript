@@ -731,7 +731,8 @@ class Checker {
   private compSyms = new Map<Region, Sym>();
   private rowsBusy = new Set<string>();
   private retains = new Map<Region, Map<string, Set<string>>>();   // O-3: per component, the props it stores where they outlive it — "d:<depth>" (a source), "p:<key>" (a provision above)
-  private err(code: string, rule: string, msg: string) { if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
+  private nss: string[] = [];   // MO-6d: the module's namespaces; a member is `Select$Item` to the checker and `Select.Item` to its reader
+  private err(code: string, rule: string, msg: string) { for (const n of this.nss) { if (code === "UNBOUND" && msg.startsWith(`${n} is not declared here`)) msg = `${n} is a namespace (\`import * as ${n}\`): it is named as the first part of a tag or of a type, \`<${n}.Item>\`, and is no value (MO-6d)`; msg = msg.replaceAll(`${n}$`, `${n}.`); } if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
   /** 99, the advisory rows: about a program that is accepted. */
   private advise(code: string, rule: string, msg: string) { if (!this.advice.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.advice.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
   private region(parent: Region | null, kind: RegionKind, opts: { component?: boolean; provParent?: Region | null; name?: string } = {}): Region {
@@ -747,6 +748,7 @@ class Checker {
 
   private program?: Program;
   run(p: Program) {
+    this.nss = p.decls.flatMap(d => d.k === "import" && d.ns ? [d.ns] : []);
     this.program = p;
     { const f = scopeFacts(p); this.argCalls = f.argCalls; this.idCounts = f.mentions; } this.throughPre(p);
     const root = new Env(null, this.region(null, "program"), !!this.opts.conformance); this.rootEnv = root;
