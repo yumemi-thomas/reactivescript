@@ -216,6 +216,12 @@ node scripts/heavy.mjs <name> -- <command…>       # any command under a lease 
   `~/Library/Caches/reactivescript-results`), shared by every checkout, at
   most `RX_CACHE_MB` (512); deleting the folder is safe. `RX_CACHE_LOG=<file>`
   writes each hit and miss, `RX_CACHE_KEYS=1` with the misses' keys.
+- **Tools in a process that stays up.** Each process of the benchmark's pool has a
+  worker (`scripts/lib/tools.mjs`) that runs `rx-declare`, its audit and `rx-tsc`: every
+  module of the tool is loaded again for each request; what stays is TypeScript and the
+  libraries' parsed declarations, by content. `RX_TOOLS=0` runs each in a process of its own;
+  one that crashes, hangs or has grown is run so too. `rx-verify`, which runs the package,
+  always is.
 - **The machine's cores.** A whole benchmark, `generated`, the matrix and
   `scripts/ci`'s heavy steps take a lease of a budget of 10 cores
   (`RX_CORES`; `scripts/lib/lock.mjs`): all of it alone, a share beside

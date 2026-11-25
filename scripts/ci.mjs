@@ -42,6 +42,7 @@ const steps = [
   { id: "names", dir: ".", run: `${strip} compiler/test/names.mjs`, after: ["crate"], quick: true },
   { id: "spec-refs", dir: ".", run: "node scripts/spec-refs.mjs", quick: true },
   { id: "tools", dir: ".", run: "node scripts/lock.test.mjs && node scripts/cache.test.mjs" },
+  { id: "tools-worker", dir: ".", run: "node scripts/tools.test.mjs", after: ["wasm", "npm-language-server"] },
   { id: "ref-run", dir: "ref", run: "npm test -s", quick: true },
   { id: "ref-oracle", dir: "ref", run: "npm run -s oracle", quick: true },
   { id: "ref-compiled", dir: "ref", run: "npm run -s compiled", uses: ["ref-out"], quick: true },
