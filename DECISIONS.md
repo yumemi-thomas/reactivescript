@@ -15,7 +15,7 @@
 
 **Choice: the explicit view, applied, and nothing else.** Narrowed until nothing can go wrong that a component could not do already:
 
-1. A `.rx` component takes one view, `children`, whose declared type is a function giving a `View` with one parameter or none, written in its props type: `children: (s: { pressed: boolean }) => View`, or optional.
+1. (As first decided; widened below.) A `.rx` component takes one view, `children`, whose declared type is a function giving a `View` with one parameter or none, written in its props type: `children: (s: { pressed: boolean }) => View`, or optional.
 2. The component shows it only as `<props.children a={e} … />`, in its own view: zero, one or several places, under any `if`, `for`, `loading`, `errored`, `portal`, or among children it gives another component (that is how it is forwarded). No content, no spread, no argument named `children`.
 3. A component that shows it so names it nowhere else: not read, called, stored, destructured, spread, passed, put in a closure or a context. The one exception is `if props.children { … }`, which an optional one must stand under.
 4. What is given is one `{view (s) { … }}` (or `view () { … }`), nothing else. `s` is a props value: fields are equations, read where they are read; no field is written.
@@ -37,3 +37,24 @@ A component that has such a prop and never shows it this way is as it was (bug 3
 | 35 children in a record | **leave, written up** | a refusal would refuse records that are right (no `use` below), a fix is a rule about values that nobody wrote |
 | 36 an await asked by a context | **leave, written up** | as 24 found: asked where shown it is asked again at each place; refused, it refuses right programs. A `view () { x = await … }` is the form that has its own block |
 | 37 | not here: another run | |
+
+## C. Bug 37's gate (asked after d843fd7f)
+
+**Keep 37; replace the gate.** 37 is this branch's own regression, of the plainest program (`<P>{await fetch("q")}</P>`), which upstream compiles and which is right in every runner. Taking it out refuses that. The gate compared names over a module, and refused right programs (a sibling's `use`, a value bound from one, a closure). It now asks what *those* children hold: a `use` in their own place, or a name or a possible call of a fn that instantiates, where the program writes one as a value. Closures, sibling applications and nested ones compile and are right (6 probes that were refused).
+
+- `x-mod-prop`: the fault is E-9's. A fn that reads a context is called unbound, through a value; the interpreter throws, with or without children. Compiled as one program it is refused again; where a bundler compiles the module alone it is not seen. Refusing every call of a prop there would refuse `<P>{await props.load()}</P>`, which is right (tried: it refuses `x-mod-propclosure`).
+- `y-effect`: an effect that reads children which are waiting. It fails the same where the `await` is bound first, so it is not 37's. Left.
+
+## D. Parity
+
+Both checkers report `NESTED_NOT_RENDERED` by line, then name. Over 120 other seeds of `--text` on S-module-41: 4 disagreements before, none after.
+
+## What the programs changed
+
+- **A, rule 1 and 4.** UI SDK and Kobalte take *either* a function or plain content, and have a second view (`render`, `as`). A children-only, view-only form could not be used by the components that asked for it. So: views of other names (MO-11k's named form), and `View | ((s: T) => View)` for children. Both keep every rule; a view of another name has its own placement in the summary (`f-at`).
+- **A, rule 2.** A spread is allowed (`<props.children {...now} />`): the state of a part is a record. For O-3 its fields are all of what it holds.
+- **An application is emitted through the runtime** (`__rt.view`), not as a tag: plain content and a thunk from JavaScript are no components. Told by the function's length, as UI SDK's own bridge does; so a `.rx` view always has a parameter, and a lone value given as plain content is wrapped (a closure would be taken for a view).
+- **`if props.children` of mixed children is refused**: the question would make the content.
+- **The parameter's type is in the printed signature** (written out only): without it, an array changed in place through `s` was accepted across modules.
+- **B, 33**: a snapshot (`source x := peek(props.children)`) was `out` in every runner and became `in`; it is the caller's again.
+- **Found**: [38](proposals/bugs/38-a-view-that-provides.md).

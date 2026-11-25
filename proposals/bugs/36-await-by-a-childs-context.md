@@ -82,10 +82,10 @@ export default component App() { <P>{use c}{false ? await fetch(use c) : "!"}</P
 | --- | --- | --- |
 | 0 | mount | `in!` |
 
-**On this branch.** The crate refuses it: *not compiled, `await` outside an equation's result position is not lowered yet*. It refused every `await` in children ([37](37-await-in-children-not-compiled.md)); it compiles them now, but in a module where some application's children read a context: by `use`, or by a name that stands for one (a fn that reads it, what is bound, written or given as a prop from one, what is imported). Names are compared, not scopes, so a correct program of such a module stays refused. The reference's emitter is unchanged.
+**On this branch.** The crate refuses it: *not compiled, `await` outside an equation's result position is not lowered yet*. It refused every `await` in children ([37](37-await-in-children-not-compiled.md)). On `proto-children` it refuses those beside a `use` in the same children, and those that name or may call a fn that instantiates (E-9) where the program writes one as a value. The reference's emitter is unchanged.
 
-**What the gate does not see.** A fn that reads a context, given as a prop to a component of another module, which calls it in its children: that module alone does not say what its prop is. It is wrong on this branch with no children as well (the interpreter throws E-9 on it).
+**What the gate does not see.** A fn that reads a context, given as a prop to a component of another module, where that module is compiled alone (a bundler's). The fault is E-9's (a fn that instantiates is called unbound, through a value), not the `await`'s: it is wrong with no children as well, and the interpreter throws E-9. Compiled as one program it is seen. An `effect` that reads children with an `await` goes wrong as it does where the `await` is bound first; taking 37 out would refuse `<P>{await fetch("q")}</P>` for it, which is right and which upstream compiles.
 
-**Instead.** The `await` in a block of the children, which has its own place: `{if true { x = await fetch(use c); <b>{x}</b> }}`.
+**Instead.** The `await` in a block of the children, which has its own place: `{if true { x = await fetch(use c); <b>{x}</b> }}`, or a view ([25](../25-views.md)).
 
 **Test.** `compiler/src/awaits.rs`.

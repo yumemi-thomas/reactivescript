@@ -22,6 +22,8 @@ export default component App() { <P>{use c}</P> }
 
 A `use` in children's own place bound to the owner that reads them, in the crate, `ref/`'s emitter and the oracle (a local branch, a05f579a, not published; its interpreter is unchanged). Bug 33's program is right there, in the browser and served. It is held back for what follows; each line was run on upstream, here and on that branch.
 
+**Since, on `proto-children` (local).** The fix is narrower: children with no `await` in their own place, read by a computation, not through a snapshot nor a context. The program below is `out` again, `source x := peek(props.children)` too, and the last row of the table is as it was. It changes no program on which the runners agreed (146 of the two reviews' and 186 of a third run's). Bug 33's programs pass there. The question stands.
+
 **A context that forwards children.** Nothing is wrong with this program today, and no text says which it is:
 
 <!-- frames branch=pass upstream=pass -->
@@ -53,7 +55,7 @@ export default component App() { <P>{use c}</P> }
 | `action go() { log(props.children) }`, beside the children shown | shows `in`, logs nothing | shows `out`, logs `out` | shows `in`, logs `out` |
 | a handler, `seen := peek(props.children)`, clicked before hydration | not run | `out` | `out` |
 | an action, `seen := props.children` | `out` | `out` | `out` |
-| `source x := peek(props.children)`, shown | `out` | `out` | `in` |
+| `source x := peek(props.children)`, shown | `out` | `out` | `in` (a05f579a); `out` now |
 
 **An await.** It is hoisted to where the children are written, so a question asked by a context asks what the caller has: [bug 36](bugs/36-await-by-a-childs-context.md). The fix left those children at the caller as a whole; this branch does not compile them. So `<P>{use c}{false ? await fetch(use c) : "!"}</P>` shows `in!` in the interpreter, and `out!` on upstream and with the fix.
 
@@ -63,7 +65,7 @@ Which sentence holds? If RG-4c's, then 08 and both checkers credit a provision t
 
 ## Why it is asked here
 
-A view function, `<Toggle>{view (state) { … }}</Toggle>`, is accepted where Toggle is JavaScript (MO-11k) and is `VIEW_FN_MISPLACED` where it is `.rx`. It is not proposed: a child component that reads a context gives a component's state to its children today.
+A view function, `<Toggle>{view (state) { … }}</Toggle>`, is accepted where Toggle is JavaScript (MO-11k) and is `VIEW_FN_MISPLACED` where it is `.rx`. It is proposed, applied and not called, in [25](25-views.md). A child component that reads a context gives a component's state to its children today.
 
 <!-- frames branch=pass upstream=pass -->
 ```rx

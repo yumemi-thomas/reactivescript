@@ -13,4 +13,22 @@ export default component App() {
 
 Accepted, types too. The interpreter and the oracle throw (*call of non-function*): children are a view there. Compiled, it runs. Written `<Toggle children={s => …} />` it throws in every runner: an application with nothing between its tags has `children: []` after its attributes. Under another name (`render={s => …}`) it is right everywhere.
 
-**Not fixed.** RG-4c calls a function prop *ordinary*, 07 §6 says *`props.children` is a `View`, shown by reading it*, and neither says whether children may be the function; the runners do not agree. The decision is upstream's: run it, or refuse both forms.
+**Fix, on `proto-children`.** The interpreter and the oracle call it, where `props.children(…)` is called and the children are one closure: what compiled code does and TypeScript types. Nothing that ran changes.
+
+<!-- frames branch=pass upstream=fail runner=ref -->
+```rx
+component Toggle(props: { children: (state: { pressed: boolean }) => string }) {
+  source lit := false
+  <button onClick={() => { lit := !lit }}>{props.children({ pressed: lit })}</button>
+}
+export default component App() {
+  <Toggle>{s => s.pressed ? "y" : "n"}</Toggle>
+}
+```
+
+| instant | action | frame |
+| --- | --- | --- |
+| 0 | mount | `n` |
+| 1 | handler `lit := true` | `y` |
+
+**Left.** `<Toggle children={s => …} />`. A refusal would be of a prop that is dropped in every runner whatever it is; whether children may be an attribute is upstream's to say.

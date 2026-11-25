@@ -87,7 +87,8 @@ Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bug
 | [20](20-generic-fns.md) generic fns | prototyped (`proto-generic` b36ab25d, not published) | weak to medium: about 18 of 192, no facade line | 17 |
 | [21](21-locals-in-fns.md) locals in fns | a question; prototyped (`proto-locals` a1c93632, not published) | – | – |
 | **children** | | | |
-| [24](24-view-functions.md) where a `use` in children reads | a question; a fix tried and held back (`proto-view-fn` a05f579a, not published) | – | – |
+| [24](24-view-functions.md) where a `use` in children reads | a question; a narrow fix (`proto-children`, not published) | – | – |
+| [25](25-views.md) views | a component shows what it is given with what it knows; prototyped (`proto-children`, not published) | medium: three libraries, one rewritten | – |
 | **tooling** | | | |
 | [22](22-generated-drafts.md) drafts | for a person to review | medium | 03 |
 | [23](23-rx-verify.md) `rx-verify` | refutes; no gate | medium | 03 |

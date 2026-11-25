@@ -20,6 +20,6 @@ export default component App() {
 
 **Cause.** A hoisted `await` is found again by the address of its expression, and the crate copied a component's children to leave out its render props (MO-11k).
 
-**Fix in this branch.** The children are emitted where they are. In a module whose children read a context they are refused as before: [36](36-await-by-a-childs-context.md).
+**Fix in this branch.** The children are emitted where they are. Beside a `use` in the same children they are refused as before: [36](36-await-by-a-childs-context.md).
 
 **Test.** S-view-1.

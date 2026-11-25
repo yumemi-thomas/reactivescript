@@ -138,6 +138,17 @@ export default component App() {
 }
 ```
 
+```rx
+-- accept
+import { List } from "./j.js"
+context c: string = "o"
+component R() { <u>{use c}</u> }
+export default component App() {
+  <List items={[1]}>{view (x) { provide c = "v"
+    <R /> }}</List>
+}
+```
+
 ## Rejected variants
 
 ```rx
