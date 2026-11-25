@@ -36,12 +36,13 @@ fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>
     if let Node::E(x) = n {
         match &x.k {
             ExprKind::Await { e, init, .. } => {
-                if !tail {
-                    out.push(Hoisted { node: x, guards: g.to_vec() });
-                }
+                // one inside another's question first: the outer one reads it
                 walk(Node::E(e), false, g, out);
                 if let Some(i) = init {
                     walk(Node::E(i), false, g, out);
+                }
+                if !tail {
+                    out.push(Hoisted { node: x, guards: g.to_vec() });
                 }
                 return;
             }

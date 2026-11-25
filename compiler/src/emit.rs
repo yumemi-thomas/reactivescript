@@ -8,7 +8,7 @@ use crate::ast::{instantiates, kept_parts, Decl, Expr, ExprKind, Field, Lit, Mar
 use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
-use crate::modules::{defaulted, given, shown, shown_in, type_only, types_of, view_fields, Given, ModuleSet, Types};
+use crate::modules::{defaulted, given, shown, shown_in, type_only, types_of, views_of, Given, ModuleSet, Types};
 use crate::names::{in_prelude, language, scalar, Lang};
 use crate::parse::{JsDecl, Part, Shape as FShape};
 use crate::signature::ExportSig;
@@ -1385,6 +1385,22 @@ impl<'p> Gen<'p> {
             _ => fail("unreachable"),
         }
     }
+    /// Whether what an expression compiles to has no call and no member in it: Solid's compiler gives such a prop as a value.
+    fn as_value(&self, e: &Expr, env: Env) -> bool {
+        match &e.k {
+            ExprKind::Lit(_) | ExprKind::Fn { .. } | ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => true,
+            ExprKind::Id(n) => self.lookup(env, n).is_none_or(|b| !matches!(b.kind, Kind::Acc | Kind::Src)),
+            ExprKind::Member { o, opt, .. } => *opt && self.as_value(o, env),
+            ExprKind::Index { o, i, opt } => *opt && self.as_value(o, env) && self.as_value(i, env),
+            ExprKind::Un { e, .. } => self.as_value(e, env),
+            ExprKind::Bin { op, l, r } => op != "==" && op != "!=" && self.as_value(l, env) && self.as_value(r, env),
+            ExprKind::If { c, t, f } => self.as_value(c, env) && self.as_value(t, env) && self.as_value(f, env),
+            ExprKind::Tpl(parts) => parts.iter().all(|p| match p { crate::ast::TplPart::Str(_) => true, crate::ast::TplPart::Expr(x) => self.as_value(x, env) }),
+            ExprKind::Arr(items) => items.iter().all(|x| self.as_value(if let ExprKind::Spread(y) = &x.k { y } else { x }, env)),
+            ExprKind::Rec(fields) => fields.iter().all(|f| { let (crate::ast::Field::Kv { v: x, .. } | crate::ast::Field::Spread(x)) = f; self.as_value(x, env) }),
+            _ => false, // a call, a read of a context, an await, a probe: each compiles to a call
+        }
+    }
     fn given(&self, e: &Expr, env: Env) -> Option<Given> {
         given(e, &|n| self.lookup(env, n).and_then(|b| b.given))
     }
@@ -1400,9 +1416,37 @@ impl<'p> Gen<'p> {
     /// RG-4c: whether a view was given, asked without making it: `props.children`, a name for it, one with a default.
     fn asked(&mut self, e: &Expr, env: Env) -> R<Option<E>> {
         Ok(match &e.k {
-            ExprKind::Id(n) => self.lookup(env, n).filter(|b| b.given.as_ref().is_some_and(|g| g.held())).and_then(|b| b.asked),
-            ExprKind::Member { o, p, .. } if self.given(e, env).is_some_and(|g| g.held()) => Some(rtc("given", vec![self.expr(o, env, &reactive())?, str(p.clone())])),
-            ExprKind::If { .. } if defaulted(e, &|n| self.lookup(env, n).and_then(|b| b.given)).is_some() => Some(E::Bool(true)),
+            ExprKind::Id(n) => self.lookup(env, n).filter(|b| b.given.as_ref().is_some_and(|g| g.held() && g.view())).and_then(|b| b.asked),
+            // a prop declared `View`: of anything else, the question is its value's
+            ExprKind::Member { o, p, .. } if self.given(e, env).is_some_and(|g| g.held() && g.view()) => Some(rtc("given", vec![self.expr(o, env, &reactive())?, str(p.clone())])),
+            // a choice, a default: what its arms answer, a value's own truth where an arm is one
+            ExprKind::If { c, t, f } => {
+                let (a, b) = (self.asked(t, env)?, self.asked(f, env)?);
+                if a.is_none() && b.is_none() {
+                    return Ok(None);
+                }
+                let c = match self.asks(c, env, true)? { Some(x) => x, None => self.expr(c, env, &reactive())? };
+                let a = match a { Some(a) => a, None => self.expr(t, env, &reactive())? };
+                let b = match b { Some(b) => b, None => self.expr(f, env, &reactive())? };
+                Some(E::Cond(Box::new(c), Box::new(a), Box::new(b)))
+            }
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => {
+                let (a, b) = (self.asked(l, env)?, self.asked(r, env)?);
+                if a.is_none() && b.is_none() {
+                    return Ok(None);
+                }
+                if op == "&&" {
+                    let a = match a { Some(a) => a, None => match self.asks(l, env, true)? { Some(x) => x, None => self.expr(l, env, &reactive())? } };
+                    let b = match b { Some(b) => b, None => self.expr(r, env, &reactive())? };
+                    Some(bin("&&", a, b))
+                } else if let Some(a) = a {
+                    let b = match b { Some(b) => b, None => self.expr(r, env, &reactive())? };
+                    Some(bin("||", a, b))
+                } else {
+                    let a = self.expr(l, env, &reactive())?;
+                    Some(bin(static_op(op), a, b.unwrap()))
+                }
+            }
             _ => None,
         })
     }
@@ -1694,12 +1738,8 @@ impl<'p> Gen<'p> {
         let Decl::Component { name, props, decls, view, props_type, .. } = d else { unreachable!() };
         let inner = self.new_env(Some(env));
         let mut pb = val(mg(props));
-        let mut views = HashSet::new();
-        if let Some(t) = props_type {
-            view_fields(t, self.mod_decls, 0, &mut views);
-        }
-        pb.given = Some(Given::Props { less: vec![], views: views.into() });
         let types = self.types(&self.file);
+        pb.given = Some(Given::Props { less: vec![], views: views_of(props_type.as_deref(), &types, self.mod_decls).into() });
         pb.shows = shown(props, props_type.as_deref(), decls, view, &types).into_iter().map(|(f, v)| (f, v.mixed)).collect();
         let was = std::mem::replace(&mut self.shown, pb.shows.iter().map(|f| format!("{props}.{}", f.0)).collect());
         self.set(inner, props, pb);
@@ -2425,7 +2465,15 @@ impl<'p> Gen<'p> {
                         }
                         continue;
                     }
-                    xs.push(self.attr(&a.name, &a.e, env)?);
+                    // RG-4c: whether a view was given is read off the prop. A value JSX keeps as it is (a literal) answers by
+                    // what it is, anything else that is written was given: what Solid's compiler would keep as a value
+                    // though it is no literal (a parameter, a sum of constants) is made a read, so that it answers as written
+                    let wrap = a.name != "..." && !is_handler(&a.name) && !matches!(a.e.k, ExprKind::Lit(_) | ExprKind::Arr(_) | ExprKind::Rec(_) | ExprKind::Fn { .. }) && self.as_value(&a.e, env);
+                    let (n, v) = self.attr(&a.name, &a.e, env)?;
+                    xs.push(match v {
+                        AttrValue::Expr(x) if wrap => (n, AttrValue::Expr(rtc("v", vec![x]))),
+                        v => (n, v),
+                    });
                 }
                 // MO-11k: named render props are attributes
                 for c in children {

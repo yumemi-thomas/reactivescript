@@ -11,7 +11,7 @@ use crate::ast::*;
 use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
-use crate::modules::{only_shown, other_mention, shown, shown_in, view_misplaced, ModuleSet, Shown};
+use crate::modules::{only_shown, other_mention, shown, shown_in, takes_view, view_uses, ModuleSet, Shown};
 use crate::names::{harness_reason, language, scalar, Lang};
 use crate::parse::{closes, js_trim, split_top, type_words, JsDecl, Part, Shape as FShape, Words};
 use crate::signature::{Catch, CompSig, ExportSig, HostSite, Hosted, ModSig, Own, PropSig, SigParam, ViewSig, HOLD};
@@ -2098,6 +2098,10 @@ pub struct Checker<'a> {
     /// MO-10b: the expressions an `await` is written on (`await x.load()`): a promise that is awaited is asked for
     awaited: HashSet<*const Expr>,
     shapes: HashMap<SId, Option<Shape>>,
+    /// RG-4c: each reader that shows a view its component was given, each argument and each content that gives one on (by
+    /// the address of the `Markup` or the `Attr`): the props it is of. Per component, once (`view_placed`).
+    view_places: HashMap<usize, Vec<String>>,
+    view_placed: HashSet<SId>,
     // the application tree (resolve_tree), kept for the signature's component summaries
     occ: Vec<Occ>,
     r_memo: HashMap<RId, Vec<Vec<Step>>>,
@@ -2523,6 +2527,8 @@ impl<'a> Checker<'a> {
             stmt_awaits: HashSet::new(),
             awaited: HashSet::new(),
             shapes: HashMap::new(),
+            view_places: HashMap::new(),
+            view_placed: HashSet::new(),
             occ: vec![],
             r_memo: HashMap::new(),
             r_busy: HashSet::new(),
@@ -4138,9 +4144,14 @@ impl<'a> Checker<'a> {
                     self.line = was;
                 }
                 let skip: Vec<String> = fields.keys().cloned().collect();
-                if let Some((f, at, how)) = view_misplaced(props, props_type.as_deref(), decls, view, &self.opts.types, &skip) {
+                let uses = view_uses(props, props_type.as_deref(), decls, view, &self.opts.types, &skip, &|tag, attr| {
+                    let s = self.lookup(inner, tag)?;
+                    let Some(Decl::Component { props_type, .. }) = self.syms[s].comp else { return None };
+                    takes_view(props_type.as_deref(), &self.opts.types, attr)
+                });
+                if let Some((f, at, how, of)) = uses.bad.into_iter().next() {
                     let was = std::mem::replace(&mut self.line, if at == 0 { *line as i64 } else { at as i64 });
-                    self.err("VIEW_NOT_SHOWN", "RG-4c", crate::modules::view_not_shown(name, props, &f, &how));
+                    self.err("VIEW_NOT_SHOWN", "RG-4c", crate::modules::view_not_shown(name, props, &f, &how, &of));
                     self.line = was;
                 }
                 self.block(decls, view, inner, Ctx::reactive());
@@ -7646,7 +7657,13 @@ impl<'a> Checker<'a> {
             return sh;
         }
         let (Some(d), Some(cenv)) = (self.syms[c].comp, self.syms[c].comp_env) else { return Shape::default() };
-        let Decl::Component { view, .. } = d else { return Shape::default() };
+        let Decl::Component { view, props, props_type, decls, .. } = d else { return Shape::default() };
+        if self.view_placed.insert(c) {
+            // RG-4c: a view is placed where it is shown, under whatever name, and where the component it is given on to shows it
+            let skip: Vec<String> = self.shown_by(c).keys().cloned().collect();
+            let at = view_uses(props, props_type.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None).at;
+            self.view_places.extend(at);
+        }
         self.shapes.insert(c, None);
         let mut sh = Shape::default();
         let mut roots: IndexSet<String> = IndexSet::new();
@@ -7664,7 +7681,15 @@ impl<'a> Checker<'a> {
                     }
                 }
                 MarkupKind::Read(e) => {
-                    if self.reads_children(e, env) {
+                    if let Some(fs) = self.view_places.get(&(m as *const Markup as usize)) {
+                        for f in fs {
+                            if f == "children" {
+                                sh.children_at.push(anc.to_vec());
+                            } else {
+                                sh.views_at.entry(f.clone()).or_default().push(anc.to_vec());
+                            }
+                        }
+                    } else if self.reads_children(e, env) {
                         sh.children_at.push(anc.to_vec());
                     }
                 }
@@ -8275,6 +8300,20 @@ impl<'a> Checker<'a> {
                 let mut a2 = anc.to_vec();
                 a2.extend(at.iter().cloned());
                 self.shape_walk(std::slice::from_ref(x), &a2, scoped || at.iter().any(|t| P_SCOPE.contains(t.as_str())), env, sh, roots);
+            }
+        }
+        // a view given on as an argument: where that component shows it
+        for a in attrs {
+            let Some(fs) = self.view_places.get(&(a as *const Attr as usize)).cloned() else { continue };
+            for at in ss.views_at.get(&a.name).into_iter().flatten() {
+                for f in &fs {
+                    let a2: Vec<String> = anc.iter().chain(at.iter()).cloned().collect();
+                    if f == "children" {
+                        sh.children_at.push(a2);
+                    } else {
+                        sh.views_at.entry(f.clone()).or_default().push(a2);
+                    }
+                }
             }
         }
     }

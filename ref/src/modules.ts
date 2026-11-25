@@ -671,7 +671,7 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
   const stmts = (ss: Stmt[], up: Sc, line: number, how: string): void => {
     const sc = sub(up);
     for (const s of ss) {
-      const at = s.line ?? line;
+      const at = s.line || line;
       switch (s.k) {
         case "let": plain(s.e, sc, at, how); sc.names.set(s.name, null); break;
         case "write": case "optimistic": for (const p of s.target.path) if (typeof p !== "string") plain(p, sc, at, how); plain(s.e, sc, at, near(how, "source")); break;
@@ -686,7 +686,7 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
     }
   };
   const dk = (ds: Decl[], sc: Sc, line: number, how = "value"): void => { for (const x of ds) {
-    const at = x.line ?? line;
+    const at = x.line || line;
     switch (x.k) {
       case "eq": if (sc.names.get(x.name)) { if (!given(x.e, look(sc))?.props) ve(x.e, sc, at, how); } else plain(x.e, sc, at, how); break;   // a projection: every arm of what it names
       case "source": plain(x.init, sc, at, near(how, "source")); break;
