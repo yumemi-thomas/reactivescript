@@ -33,9 +33,11 @@ export component Content(props: Div) {
   c = use panel
   mine = id ?? c.id + "-content"
   source size: { width: number; height: number } := { width: 0, height: 0 }
+  source el: any := undefined
+  effect (c.mount ? el : undefined) { if ($0) { size := sizeOf($0) } }
   effect (mine) { c.named($0); return () => { c.named(undefined) } }
   {if c.mount {
-    <div ref={(e: Element) => { size := sizeOf(e); give(user, e) }} id={mine} style={mix({ "--kb-collapsible-content-height": size.height ? `${size.height}px` : undefined, "--kb-collapsible-content-width": size.width ? `${size.width}px` : undefined }, style)} {...data(c)} {...rest}>{children}</div>
+    <div ref={(e: Element) => { el := e; give(user, e) }} id={mine} style={mix({ "--kb-collapsible-content-height": size.height ? `${size.height}px` : undefined, "--kb-collapsible-content-width": size.width ? `${size.width}px` : undefined }, style)} {...data(c)} {...rest}>{children}</div>
   }}
 }
 

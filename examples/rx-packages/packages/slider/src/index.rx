@@ -22,6 +22,7 @@ export component Slider(props: { options?: any; plugins?: any[]; children?: View
   source el: any := undefined
   source mine: Keen | undefined := undefined
   effect (el) { let e = $0
+    if (!e) { return undefined }
     let s = mount(e, props.options ?? {}, props.plugins ?? [], (i) => { h.moved(i) })
     mine := () => s
     h.set(s)
@@ -46,7 +47,8 @@ export component SliderThumbnails(props: { options?: any; plugins?: any[]; activ
   h = use here
   source el: any := undefined
   source mine: Keen | undefined := undefined
-  effect (el) { let s = mount($0, props.options ?? {}, props.plugins ?? [], () => {})
+  effect (el) { if (!$0) { return undefined }
+    let s = mount($0, props.options ?? {}, props.plugins ?? [], () => {})
     mine := () => s
     return () => { s.destroy() } }
   effect (mine, h.current) { let s = $0

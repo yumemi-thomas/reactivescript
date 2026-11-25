@@ -8,7 +8,7 @@ import { commandScore } from "./score.js"
 import { Div, Input as InputProps } from "./types.js"
 
 type Known = { value: string; keywords: string[] | undefined; group: string | undefined; force: boolean; disabled: boolean }
-type Menu = { search: string; value: string; scores: { [id: string]: number }; groups: string[]; count: number; filters: boolean; label: string; pointer: boolean; list: any; ids: { list: string; input: string; label: string }
+type Menu = { search: string; value: string; scores: { [id: string]: number }; groups: string[]; count: number; filters: boolean; label: string; pointer: boolean; list: any; active: string | undefined; ids: { list: string; input: string; label: string }
   add: (id: string, k: Known | undefined) => void; pick: (v: string) => void; find: (s: string) => void; listRef: (e: any) => void; settle: () => void }
 context menu: Menu
 context group: { id: string | undefined; force: boolean } = { id: undefined, force: false }
@@ -39,7 +39,7 @@ export component Command(props: CommandProps) {
   action go(e: KeyboardEvent, how: string) { e.preventDefault(); let v = step(el, how, loop); if (v != undefined) { pick(v) } }
   effect (search) { first() }
   effect (now) { reveal(el) }
-  provide menu = { search: search, value: now, scores: scores, groups: groups.filter(g => g != undefined), count: shown.length, filters: shouldFilter, label: label ?? "", pointer: !disablePointerSelection, list: el, ids: { list: list_, input: input, label: label_ }, add: add, pick: pick, find: find, listRef: listRef, settle: settle }
+  provide menu = { search: search, value: now, scores: scores, groups: groups.filter(g => g != undefined), count: shown.length, filters: shouldFilter, label: label ?? "", pointer: !disablePointerSelection, list: el, active: ids.find(id => (known[id])?.value == now && now != ""), ids: { list: list_, input: input, label: label_ }, add: add, pick: pick, find: find, listRef: listRef, settle: settle }
   <div tabindex={0 - 1} {...rest} cmdk-root="" onKeyDown={(e) => { call(e, onKeyDown)
     if (!e.defaultPrevented) {
       if (e.key == "ArrowDown" || (vimBindings && e.ctrlKey && (e.key == "n" || e.key == "j"))) { go(e, e.metaKey ? "last" : e.altKey ? "group-next" : "next") }
@@ -76,9 +76,12 @@ export component Group(props: Div & { heading?: View; value?: string; forceMount
   m = use menu
   id = uniqueId()
   head = uniqueId()
+  source text := ""
+  source hd: any := undefined
+  effect (hd) { if ($0) { text := textOf($0) } }
   provide group = { id: id, force: forceMount }
-  <div ref={(e: Element) => { give(user, e) }} {...rest} cmdk-group="" id={id} role="presentation" data-value={value} hidden={forceMount || !m.filters || m.search == "" || m.groups.includes(id) ? undefined : true}>
-    {if props.heading { <div cmdk-group-heading="" aria-hidden="true" id={head}>{props.heading}</div> }}
+  <div ref={(e: Element) => { give(user, e) }} {...rest} cmdk-group="" id={id} role="presentation" data-value={value ?? text} hidden={forceMount || !m.filters || m.search == "" || m.groups.includes(id) ? undefined : true}>
+    {if props.heading { <div cmdk-group-heading="" ref={(e: Element) => { hd := e }} aria-hidden="true" id={head}>{props.heading}</div> }}
     <div cmdk-group-items="" role="group" aria-labelledby={props.heading ? head : undefined}>{children}</div>
   </div>
 }
@@ -91,7 +94,7 @@ export component Input(props: Omit<InputProps, "value"> & { value?: string; onVa
   { value, onValueChange, ref: user, ...rest } = props
   m = use menu
   effect (value) { if ($0 != undefined) { m.find($0) } }
-  <input {...rest} ref={(e: Element) => { give(user, e) }} cmdk-input="" autocomplete="off" autocorrect="off" spellcheck={false} aria-autocomplete="list" role="combobox" aria-expanded="true" aria-controls={m.ids.list} aria-labelledby={m.ids.label} id={m.ids.input} type="text" value={value ?? m.search}
+  <input {...rest} ref={(e: Element) => { give(user, e) }} cmdk-input="" autocomplete="off" autocorrect="off" spellcheck={false} aria-autocomplete="list" role="combobox" aria-expanded="true" aria-controls={m.ids.list} aria-labelledby={m.ids.label} aria-activedescendant={m.active} id={m.ids.input} type="text" value={value ?? m.search}
     onInput={(e) => { if (value == undefined) { m.find(e.currentTarget.value) }
       if (onValueChange) { onValueChange(e.currentTarget.value) } }} />
 }

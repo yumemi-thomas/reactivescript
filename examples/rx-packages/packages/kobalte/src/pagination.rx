@@ -2,7 +2,7 @@
 import { call } from "./dom.js"
 import { max, min } from "@reactivescript/std/math"
 import { from } from "@reactivescript/std/object"
-import pure { flag } from "./dom.js"
+import pure { flag, uniqueId } from "./dom.js"
 import { Div, Nav, Button as ButtonProps } from "./types.js"
 import { Root as Button } from "./button.rx"
 
@@ -37,6 +37,7 @@ export type RootProps = Nav & { page?: number; defaultPage?: number; onPageChang
 export component Root(props: RootProps) {
   { page, defaultPage, onPageChange, count, siblingCount = 1, showFirst = true, showLast = true, fixedItems = false, disabled = false, itemComponent: i, ellipsisComponent: e, children, ...rest } = props
   source mine := peek(defaultPage) ?? 1
+  own = uniqueId("pagination")
   now = min(page ?? mine, count)
   action go(n: number) { mine := n
     if (onPageChange) { onPageChange(n) } }
@@ -44,7 +45,7 @@ export component Root(props: RootProps) {
   provide pages = { page: now, count: count, go: go, disabled: disabled, slots: slots }
   provide itemOf = props.itemComponent
   provide ellipsisOf = props.ellipsisComponent
-  <nav data-disabled={flag(disabled)} {...rest}><ul>{children}</ul></nav>
+  <nav id={own} data-disabled={flag(disabled)} {...rest}><ul>{children}</ul></nav>
 }
 export component Items() { c = use pages
   {for s in c.slots { {if s < 1 { <use.ellipsisOf /> } else { <use.itemOf page={s} /> }} }} }
@@ -60,11 +61,11 @@ export component Previous(props: ButtonProps) {
   { onClick: none, children, ...rest } = props
   c = use pages
   off = c.disabled || c.page == 1
-  <li><Button tabindex={off ? 0 - 1 : props.tabindex ?? 0} disabled={off} aria-disabled={off ? "true" : undefined} onClick={() => { c.go(c.page - 1) }} {...rest}>{children}</Button></li>
+  <li><Button tabindex={off ? 0 - 1 : props.tabindex} disabled={off} aria-disabled={off ? "true" : undefined} onClick={() => { c.go(c.page - 1) }} {...rest}>{children}</Button></li>
 }
 export component Next(props: ButtonProps) {
   { onClick: none, children, ...rest } = props
   c = use pages
   off = c.disabled || c.page == c.count
-  <li><Button tabindex={off ? 0 - 1 : props.tabindex ?? 0} disabled={off} aria-disabled={off ? "true" : undefined} onClick={() => { c.go(c.page + 1) }} {...rest}>{children}</Button></li>
+  <li><Button tabindex={off ? 0 - 1 : props.tabindex} disabled={off} aria-disabled={off ? "true" : undefined} onClick={() => { c.go(c.page + 1) }} {...rest}>{children}</Button></li>
 }

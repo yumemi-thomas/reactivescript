@@ -15,5 +15,5 @@ export type Anchor = Of<"a"> & { children?: JSX.Element };
 export type P = Of<"p"> & { children?: JSX.Element };
 export type H2 = Of<"h2"> & { children?: JSX.Element };
 export type Ul = Of<"ul", "onChange"> & { children?: JSX.Element };
-export type Li = Of<"li", "value"> & { children?: JSX.Element };
+export type Li = Of<"li", "value"> & { children?: JSX.Element; disabled?: boolean };
 export type Ol = Of<"ol"> & { children?: JSX.Element };

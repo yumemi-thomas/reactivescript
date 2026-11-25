@@ -44,7 +44,7 @@ export component DisclosureButton(props: Omit<ButtonProps, "children"> & Kids) {
   i = use ids
   s = use state
   off = s.disabled || disabled
-  <button tc-button="" tc-disclosure-button="" id={i.button} role="button" tabindex={off ? 0 - 1 : 0} aria-controls={s.isOpen ? i.panel : undefined} tc-disabled={flag(off)} disabled={off} aria-disabled={off ? "true" : "false"} tc-expanded={flag(s.isOpen)} aria-expanded={s.isOpen ? "true" : "false"} onClick={(e) => { call(e, onClick); if (!off) { s.toggle() } }} {...rest}><props.children {...s} /></button>
+  <button tc-button="" tc-disclosure-button="" id={i.button} role="button" tabindex={off ? 0 - 1 : 0} aria-controls={s.isOpen ? i.panel : undefined} tc-disabled={flag(off)} disabled={off} aria-disabled={off == undefined ? undefined : off ? "true" : "false"} tc-expanded={flag(s.isOpen)} aria-expanded={s.isOpen ? "true" : "false"} onClick={(e) => { call(e, onClick); if (!off) { s.toggle() } }} {...rest}><props.children {...s} /></button>
 }
 export component DisclosurePanel(props: Omit<Div, "children"> & Kids & { unmount?: boolean }) {
   { unmount = true, children: shown, ...rest } = props
@@ -78,7 +78,7 @@ export component DialogPanel(props: Omit<Div, "children"> & Kids & { disabled?: 
   { disabled, onKeyDown, children: shown, ...rest } = props
   d = use dialog
   s = use state
-  <div tc-dialog-panel="" tabindex={0 - 1} id={d.panel} {...data(s)} {...rest} onKeyDown={(e) => { call(e, onKeyDown)
+  <div tc-dialog-panel="" id={d.panel} {...data(s)} {...rest} onKeyDown={(e) => { call(e, onKeyDown)
     if (!disabled && s.isOpen) { if (e.key == "Tab") { trapTab(e) } else if (e.key == "Escape") { e.stopPropagation(); s.close() } } }}><props.children {...s} /></div>
 }
 export component DialogOverlay(props: Omit<Div, "children"> & Kids) {

@@ -34,6 +34,11 @@ export function trapTab(event) {
   const at = all.indexOf(el.ownerDocument.activeElement); all[(at + (event.shiftKey ? -1 : 1) + all.length) % all.length].focus();
 }
 /** The focus moved into a panel, and back to where it was when that ends. */
-export function holdFocus(element) { const was = element.ownerDocument.activeElement; if (!element.contains(was)) focusFirst(element, NAMES, "[tc-dialog-panel]"); return () => { was?.isConnected && was.focus?.({ preventScroll: true }); }; }
+export function holdFocus(element) {
+  const doc = element.ownerDocument, was = doc.activeElement, made = [];
+  for (let n = element; n && n !== doc.body; n = n.parentElement) for (const s of n.parentElement?.children ?? []) if (s !== n && !s.inert && !/^(SCRIPT|STYLE)$/.test(s.tagName)) { s.inert = true; made.push(s); }
+  if (!element.contains(was)) { const p = element.querySelector("[tc-dialog-panel]"); if (p && !p.querySelector(NAMES)) p.tabIndex = -1; focusFirst(element, NAMES, "[tc-dialog-panel]"); }
+  return () => { for (const s of made) s.inert = false; was?.isConnected && was.focus?.({ preventScroll: true }); };
+}
 export const leaves = (event, ...inside) => !inside.some((e) => e?.contains(event.relatedTarget));
 export const same = (by, a, b) => by ? by(a, b) : Object.is(a, b);

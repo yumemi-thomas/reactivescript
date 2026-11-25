@@ -15,7 +15,7 @@ export component Menu(props: Div) {
 export component MenuItem(props: Omit<Li, "children"> & { disabled?: boolean; children?: View | ((s: { disabled: boolean }) => View) }) {
   { disabled, onClick, onKeyDown, onKeyUp, children: shown, ...rest } = props
   m = use menu
-  <li tc-button="" tc-menu-item="" tc-owner={m.id} role="menuitem" tabindex={0 - 1} tc-disabled={flag(disabled)} aria-disabled={disabled ? "true" : disabled == undefined ? undefined : "false"} {...rest}
+  <li tc-button="" tc-menu-item="" tc-owner={m.id} role="menuitem" tabindex={0 - 1} disabled={disabled} tc-disabled={flag(disabled)} aria-disabled={disabled ? "true" : disabled == undefined ? undefined : "false"} {...rest}
     onClick={(e) => { if (disabled) { e.preventDefault() } else { call(e, onClick) } }} onKeyDown={(e) => { call(e, onKeyDown); pressKey(e, disabled) }} onKeyUp={(e) => { call(e, onKeyUp); pressKey(e, disabled) }}><props.children disabled={disabled ?? false} /></li>
 }
 
@@ -126,7 +126,7 @@ export component ListboxButton(props: ButtonProps) {
   p = use pick
   s = use open
   off = s.disabled || disabled
-  <button tc-button="" tc-listbox-button="" id={b.button} role="button" tabindex={off ? 0 - 1 : 0} disabled={off} aria-haspopup="listbox" aria-controls={b.options} aria-labelledby={b.hasLabel ? `${b.label} ${b.button}` : undefined} {...data(p)} tc-disabled={flag(off)} aria-disabled={off ? "true" : "false"} tc-expanded={flag(s.isOpen)} aria-expanded={s.isOpen ? "true" : "false"} {...rest} ref={(e: Element) => { b.setAnchor(e); give(user, e) }}
+  <button tc-button="" tc-listbox-button="" id={b.button} role="button" tabindex={off ? 0 - 1 : 0} disabled={off} aria-haspopup="listbox" aria-controls={b.options} aria-labelledby={b.hasLabel ? `${b.label} ${b.button}` : undefined} {...data(p)} tc-disabled={flag(off)} aria-disabled={off == undefined ? undefined : off ? "true" : "false"} tc-expanded={flag(s.isOpen)} aria-expanded={s.isOpen ? "true" : "false"} {...rest} ref={(e: Element) => { b.setAnchor(e); give(user, e) }}
     onClick={(e) => { call(e, onClick); if (!off) { s.toggle() } }} onKeyDown={(e) => { call(e, onKeyDown); if (!off && (e.key == "ArrowUp" || e.key == "ArrowDown")) { e.preventDefault(); s.toggle() } }}>{children}</button>
 }
 export component ListboxOptions(props: Ul & { unmount?: boolean }) {

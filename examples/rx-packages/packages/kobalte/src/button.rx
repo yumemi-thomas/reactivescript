@@ -1,7 +1,7 @@
 // Button, ToggleButton, ToggleGroup. Derived from button, toggle-button and toggle-group of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
 import { call, give, move, tell, enter } from "./dom.js"
 import { isString } from "@reactivescript/std/is"
-import pure { flag } from "./dom.js"
+import pure { flag, uniqueId } from "./dom.js"
 import { Button as ButtonProps, Div } from "./types.js"
 
 export component Root(props: ButtonProps) {
@@ -18,13 +18,14 @@ export component ToggleButton(props: ToggleButtonProps) {
     if (!props.disabled) { let next = !now; mine := next; if (onChange) { onChange(next) } } }} {...rest}><props.children pressed={now} /></Root>
 }
 
-type Group = { on: string[]; disabled: boolean; orientation: "horizontal" | "vertical"; pick: (v: string) => void; focused: string | undefined; focus: (v: string) => void }
+type Group = { on: string[]; disabled: boolean; orientation: "horizontal" | "vertical"; pick: (v: string) => void; focused: string | undefined; id: string; focus: (v: string) => void }
 context group: Group
 export type ToggleGroupProps = Omit<Div, "onChange"> & { disabled?: boolean; orientation?: "horizontal" | "vertical" } & ({ multiple?: false; value?: string | null; defaultValue?: string; onChange?: (v: string | null) => void } | { multiple: true; value?: string[]; defaultValue?: string[]; onChange?: (v: string[]) => void })
 fn list(v: any): string[] => v == undefined ? [] : isString(v) ? [v] : v
 export component ToggleGroup(props: ToggleGroupProps) {
   { value, defaultValue, onChange, multiple = false, disabled = false, orientation = "horizontal", onKeyDown, onFocusIn, children, ref: user, ...rest } = props
   source mine: string[] := list(peek defaultValue)
+  own = uniqueId("group")
   source el: any := undefined
   source focused: string | undefined := undefined
   picked = value === undefined ? mine : list(value)
@@ -34,8 +35,8 @@ export component ToggleGroup(props: ToggleGroupProps) {
     tell(onChange, multiple ? next : next[0] ?? null)
   }
   action focus(v: string) { focused := v }
-  provide group = { on: picked, disabled: disabled, orientation: orientation, pick: pick, focused: focused, focus: focus }
-  <div role="group" ref={(e: Element) => { el := e; give(user, e) }} tabindex={disabled ? undefined : focused == undefined ? 0 : 0 - 1} data-orientation={orientation} onKeyDown={(e) => { call(e, onKeyDown); move(e, el, "[data-key]:not([disabled])", orientation, true) }} onFocusIn={(e) => { call(e, onFocusIn); enter(e, el, picked[0]) }} {...rest}>{children}</div>
+  provide group = { on: picked, disabled: disabled, orientation: orientation, pick: pick, focused: focused, id: own, focus: focus }
+  <div role="group" id={own} ref={(e: Element) => { el := e; give(user, e) }} tabindex={disabled ? undefined : focused == undefined ? 0 : 0 - 1} data-orientation={orientation} onKeyDown={(e) => { call(e, onKeyDown); move(e, el, "[data-value]:not([disabled])", orientation, true) }} onFocusIn={(e) => { call(e, onFocusIn); enter(e, el, picked[0]) }} {...rest}>{children}</div>
 }
 export type ToggleGroupItemProps = Omit<ButtonProps, "children" | "value"> & { value: string; children?: View | ((s: { pressed: boolean }) => View) }
 export component ToggleGroupItem(props: ToggleGroupItemProps) {
@@ -44,7 +45,8 @@ export component ToggleGroupItem(props: ToggleGroupItemProps) {
   source pressedBy := ""
   now = g.on.includes(value)
   off = disabled || g.disabled
-  <Root disabled={off} tabindex={g.focused == value ? 0 : 0 - 1} aria-pressed={now ? "true" : "false"} data-key={value} data-orientation={g.orientation} data-pressed={flag(now)}
+  mine = uniqueId(peek(g.id) + "-item")
+  <Root id={props.id ?? mine} disabled={off} tabindex={g.focused == value ? 0 : 0 - 1} aria-pressed={now ? "true" : "false"} data-value={value} data-orientation={g.orientation} data-pressed={flag(now)}
     onPointerDown={(e: any) => { call(e, onPointerDown); pressedBy := e.pointerType; if (e.pointerType == "mouse" && !off) { g.pick(value) } }}
     onClick={(e: any) => { call(e, onClick); if (pressedBy != "mouse") { g.pick(value) }
       pressedBy := "" }}

@@ -50,8 +50,8 @@ export const tell = (f, value) => { f?.(value); };
 /** A list that is focused itself gives the focus to its selected element, or the first that can have it. */
 export function enter(event, list, key) {
   if (event.target !== list) return;
-  const all = [...list.querySelectorAll("[data-key]:not([disabled])")];
-  (all.find((e) => e.dataset.key === key) ?? all[0])?.focus({ preventScroll: true });
+  const all = [...list.querySelectorAll("[data-value]:not([disabled])")];
+  (all.find((e) => e.dataset.value === key) ?? all[0])?.focus({ preventScroll: true });
 }
 /** The key of the tab to show: the one asked for if it is there, else the first that can be. */
 export function pickTab(list, key) {

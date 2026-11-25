@@ -44,7 +44,7 @@ export component Page(props: { children?: View }) { c = use dialog
 export component Overlay(props: Div) {
   { style, onPointerDown, children, ...rest } = props
   c = use dialog
-  {if c.mount { <div style={mix({ "pointer-events": "auto" }, style)} data-layer-through="" onPointerDown={(e) => { call(e, onPointerDown); if (e.target == e.currentTarget) { e.preventDefault() } }} {...data(c)} {...rest}>{children}</div> }}
+  {if c.mount { <div style={mix({ "pointer-events": "auto" }, style)} onPointerDown={(e) => { call(e, onPointerDown); if (e.target == e.currentTarget) { e.preventDefault() } }} {...data(c)} {...rest}>{children}</div> }}
 }
 export component Content(props: Div) {
   { id, style, children, ref: user, ...rest } = props
@@ -61,7 +61,7 @@ export component Content(props: Div) {
   {if c.mount {
     {if c.popover {
       <div ref={(e: Element) => { at := e }} data-popper-positioner="" style={{ position: "absolute", top: "0", left: "0" }}>
-        <div {...rest} ref={(e: Element) => { el := e; give(user, e) }} id={mine} role="dialog" tabindex={0 - 1} style={mix({ position: "relative" }, style)} aria-labelledby={c.title} aria-describedby={c.description} {...data(c)}>{children}</div>
+        <div {...rest} ref={(e: Element) => { el := e; give(user, e) }} id={mine} role="dialog" tabindex={0 - 1} style={mix({ "pointer-events": "auto", position: "relative" }, style)} aria-labelledby={c.title} aria-describedby={c.description} {...data(c)}>{children}</div>
       </div>
     } else {
       <div {...rest} ref={(e: Element) => { el := e; give(user, e) }} id={mine} role="dialog" tabindex={0 - 1} style={mix({}, style)} aria-labelledby={c.title} aria-describedby={c.description} {...data(c)}>{children}</div>

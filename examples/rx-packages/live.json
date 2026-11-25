@@ -23,5 +23,511 @@
     450
    ]
   }
+ },
+ "kobalte-accordion": {
+  "steps": 6,
+  "same": 6,
+  "sameSsr": 6,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    400
+   ],
+   "rx": [
+    0,
+    400
+   ]
+  }
+ },
+ "kobalte-breadcrumbs": {
+  "steps": 2,
+  "same": 2,
+  "sameSsr": 2,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    450
+   ],
+   "rx": [
+    0,
+    450
+   ]
+  }
+ },
+ "kobalte-checkbox": {
+  "steps": 5,
+  "same": 5,
+  "sameSsr": 5,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    350
+   ],
+   "rx": [
+    0,
+    350
+   ]
+  }
+ },
+ "kobalte-dialog": {
+  "steps": 5,
+  "same": 2,
+  "sameSsr": 2,
+  "errors": {
+   "orig": [
+    "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    100
+   ],
+   "rx": [
+    0,
+    100
+   ]
+  }
+ },
+ "kobalte-pagination": {
+  "steps": 6,
+  "same": 6,
+  "sameSsr": 6,
+  "errors": {
+   "orig": [
+    "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    700
+   ],
+   "rx": [
+    0,
+    700
+   ]
+  }
+ },
+ "kobalte-popover": {
+  "steps": 5,
+  "same": 1,
+  "sameSsr": 1,
+  "errors": {
+   "orig": [
+    "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    50
+   ],
+   "rx": [
+    0,
+    50
+   ]
+  }
+ },
+ "kobalte-progress": {
+  "steps": 3,
+  "same": 3,
+  "sameSsr": 3,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    350
+   ],
+   "rx": [
+    0,
+    350
+   ]
+  }
+ },
+ "kobalte-radio": {
+  "steps": 4,
+  "same": 4,
+  "sameSsr": 1,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    650
+   ],
+   "rx": [
+    0,
+    650
+   ]
+  }
+ },
+ "kobalte-select": {
+  "steps": 6,
+  "same": 1,
+  "sameSsr": 1,
+  "errors": {
+   "orig": [
+    "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    300
+   ],
+   "rx": [
+    0,
+    300
+   ]
+  }
+ },
+ "kobalte-tabs": {
+  "steps": 4,
+  "same": 4,
+  "sameSsr": 4,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    350
+   ],
+   "rx": [
+    0,
+    350
+   ]
+  }
+ },
+ "kobalte-toggle-group": {
+  "steps": 5,
+  "same": 0,
+  "sameSsr": 0,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    300
+   ],
+   "rx": [
+    0,
+    300
+   ]
+  }
+ },
+ "kobalte-tooltip": {
+  "steps": 7,
+  "same": 3,
+  "sameSsr": 3,
+  "errors": {
+   "orig": [
+    "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    100
+   ],
+   "rx": [
+    0,
+    100
+   ]
+  }
+ },
+ "cmdk": {
+  "steps": 7,
+  "same": 7,
+  "sameSsr": 0,
+  "errors": {
+   "orig": [
+    "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": [
+    "STRICT_READ_UNTRACKED"
+   ]
+  },
+  "alive": {
+   "orig": [
+    13,
+    700
+   ],
+   "rx": [
+    0,
+    700
+   ]
+  }
+ },
+ "icons": {
+  "steps": 2,
+  "same": 0,
+  "sameSsr": 0,
+  "errors": {
+   "orig": [
+    "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    300
+   ],
+   "rx": [
+    0,
+    300
+   ]
+  }
+ },
+ "slider": {
+  "steps": 5,
+  "same": 2,
+  "sameSsr": 0,
+  "errors": {
+   "orig": [
+    "[REACTIVITY_HALTED] An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.\n  in <App> › <SliderProvider> › <provider",
+    "Error: Failed attempt to create new DOM elements during hydration. Check that the libraries you are using support hydration.",
+    "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error.\n  in <App> › <SliderProvider> › <provider> › computed\n  at http://127.0.0.1:58931/cases/slider.tsx:6:12",
+    "not mounted"
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [
+    "REACTIVITY_HALTED"
+   ],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    500
+   ],
+   "rx": [
+    0,
+    500
+   ]
+  }
+ },
+ "terracotta-dialog": {
+  "steps": 5,
+  "same": 5,
+  "sameSsr": 5,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    50
+   ],
+   "rx": [
+    0,
+    50
+   ]
+  }
+ },
+ "terracotta-disclosure": {
+  "steps": 4,
+  "same": 4,
+  "sameSsr": 4,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    200
+   ],
+   "rx": [
+    0,
+    200
+   ]
+  }
+ },
+ "terracotta-listbox": {
+  "steps": 6,
+  "same": 4,
+  "sameSsr": 4,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    200
+   ],
+   "rx": [
+    0,
+    200
+   ]
+  }
+ },
+ "terracotta-menu": {
+  "steps": 6,
+  "same": 6,
+  "sameSsr": 6,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    250
+   ],
+   "rx": [
+    0,
+    250
+   ]
+  }
+ },
+ "terracotta-radio": {
+  "steps": 4,
+  "same": 4,
+  "sameSsr": 0,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    300
+   ],
+   "rx": [
+    0,
+    300
+   ]
+  }
+ },
+ "terracotta-switch": {
+  "steps": 3,
+  "same": 3,
+  "sameSsr": 3,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    100
+   ],
+   "rx": [
+    0,
+    100
+   ]
+  }
  }
 }

@@ -39,7 +39,7 @@ export component Trigger(props: ButtonProps) {
   { onPointerEnter, onPointerLeave, onPointerDown, onClick, onFocus, onBlur, children, ref: user, ...rest } = props
   c = use tip
   source pressed := false
-  <button type="button" ref={(e: Element) => { c.triggerRef(e); give(user, e) }} aria-describedby={c.open ? c.content : undefined}
+  <button ref={(e: Element) => { c.triggerRef(e); give(user, e) }} aria-describedby={c.open ? c.content : undefined}
     onPointerEnter={(e) => { call(e, onPointerEnter); if (e.pointerType != "touch" && !c.focusOnly && !c.disabled && !e.defaultPrevented) { c.want(true, false) } }}
     onPointerLeave={(e) => { call(e, onPointerLeave); if (e.pointerType != "touch") { c.want(false, false) } }}
     onPointerDown={(e) => { call(e, onPointerDown); pressed := true }} onClick={(e) => { call(e, onClick); pressed := false; c.want(false, true) }}
