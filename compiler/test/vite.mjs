@@ -45,7 +45,17 @@ const apps = {
   primitives: "primitives/main.rx",
   tanstack: "tanstack/main.rx", "tanstack-factory": "tanstack-factory/main.rx",
 };
-const filter = process.argv[2];
+const at = process.argv.indexOf("--shard"), filter = process.argv.slice(2).find((a, i) => at < 0 || (i + 2 !== at && i + 2 !== at + 1));
+/** `--shard i/n`: the i-th n-th of the projects (scripts/ci.mjs runs three at once); those that share a package's folder or an
+ *  app's are one's. */
+const shard = at < 0 ? null : process.argv[at + 1].split("/").map(Number), families = [];
+const mine = name => {
+  if (filter) return name.includes(filter);
+  if (!shard) return true;
+  const f = { "todo (dev)": "todo", shared: "shop", context: "host", records: "host", "router-ssr": "router", cold: "cold" }[name] ?? name.split("-")[0];
+  if (!families.includes(f)) families.push(f);
+  return families.indexOf(f) % shard[1] === shard[0] - 1;
+};
 const out = path.join(here, ".out"); mkdirSync(out, { recursive: true });
 
 /** The npm packages an example needs (09 MO-11, MO-12, MO-10f/g, MO-11k), each packed once into .out and copied into the
@@ -213,7 +223,7 @@ const tanstack = async page => {
 const drivers = { todo, router, virtual, "virtual-headless": headless, query, primitives, tanstack: async page => { await tanstack(page); await page.click("nav >> text=Home"); if (!(await page.textContent("#app")).includes("of the directory")) throw new Error(`what the app's entry provides above the router: ${await page.textContent("#app")}`); }, "tanstack-factory": tanstack };
 
 for (const [name, entry] of Object.entries(apps)) {
-  if (filter && !name.includes(filter)) continue;
+  if (!mine(name)) continue;
   let dir;
   process.env.RX_TYPECHECK = TYPED.has(name) ? "1" : "0";
   let plugins = [];
@@ -257,7 +267,7 @@ for (const [name, entry] of Object.entries(apps)) {
   http.close();
 }
 process.env.RX_TYPECHECK = "0";
-if (!filter || "host".includes(filter)) {   // CP-4d: a JS host (TSX, Solid's own render) uses .rx components, imported ?rx-lib
+if (mine("host")) {   // CP-4d: a JS host (TSX, Solid's own render) uses .rx components, imported ?rx-lib
   const dir = project("host", "host/main.tsx");
   writeFileSync(path.join(dir, "index.html"), readFileSync(path.join(dir, "index.html"), "utf8").replace("/src/entry.js", "/src/host/main.tsx"));
   try {
@@ -275,7 +285,7 @@ if (!filter || "host".includes(filter)) {   // CP-4d: a JS host (TSX, Solid's ow
     http.close();
   } catch (e) { fail++; console.log(`✗ host: ${e.message.split("\n").slice(0, 4).join(" | ")}`); }
 }
-if (!filter || "router-ssr".includes(filter)) {   // SV-4a through Vite: a client and a server build of the router app, served per request and hydrated
+if (mine("router-ssr")) {   // SV-4a through Vite: a client and a server build of the router app, served per request and hydrated
   const dir = project("router-ssr", "router/main.rx");
   writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport main from "./router/main.rx";\nconst app = createApp({ root: document.getElementById("app") });\napp.mount(main(app), true);\nwindow.__hydrated = true;\n`);
   writeFileSync(path.join(dir, "src/server.js"), `import { createApp, generateHydrationScript } from "@reactivescript/runtime";\nimport main from "./router/main.rx";\nexport { generateHydrationScript };\n/** One request: its own app (SV-4), rendering for its URL (SV-4a). */\nexport function render(request, sink) { const app = createApp({ request }); app.stream(main(app), sink); }\n`);
@@ -312,7 +322,7 @@ if (!filter || "router-ssr".includes(filter)) {   // SV-4a through Vite: a clien
     http.close();
   } catch (e) { fail++; console.log(`✗ router (ssr build): ${e.message.split("\n").slice(0, 4).join(" | ")}`); }
 }
-if (!filter || "shared".includes(filter)) {   // two programs on one page, sharing shop/catalog.rx: no entry option, one catalog module
+if (mine("shared")) {   // two programs on one page, sharing shop/catalog.rx: no entry option, one catalog module
   const dir = project("shared", "shop/main.rx");
   writeFileSync(path.join(dir, "src/shop/count.rx"), `import { products } from "./catalog.rx"\n\nexport default component Count() {\n  errored fallback(e) { <p>no catalogue</p> } {\n    <p>{len(products)} products</p>\n  }\n}\n`);
   writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport shop from "./shop/main.rx";\nimport count from "./shop/count.rx";\nimport * as api from "./api.mjs";\nfor (const [main, el] of [[shop, "app"], [count, "app2"]]) { const app = createApp({ root: document.getElementById(el), api }); app.mount(main(app)); }\n`);
@@ -331,13 +341,13 @@ if (!filter || "shared".includes(filter)) {   // two programs on one page, shari
     http.close();
   } catch (e) { fail++; console.log(`✗ shared: ${e.message.split("\n").slice(0, 6).join(" | ")}`); }
 }
-if (!filter || "todo".includes(filter)) {   // the dev server: modules transformed on request
+if (mine("todo")) {   // the dev server: modules transformed on request
   const dir = project("todo-dev", "todo.rx");
   const server = await vite.createServer(config(dir, "todo.rx")); await server.listen(0);
   await drive("todo (dev)", server.resolvedUrls.local[0], todo);
   await server.close();
 }
-if (!filter || "styles".includes(filter)) {   // CSS-4 under the dev server: a dependency's <style> edit reaches the page
+if (mine("styles")) {   // CSS-4 under the dev server: a dependency's <style> edit reaches the page
   const dir = project("styles-dev", "styled/main.rx");
   mkdirSync(path.join(dir, "src/styled"));
   writeFileSync(path.join(dir, "src/styled/main.rx"), `import { Badge } from "./badge.rx"\n\nexport default component Main() {\n  <main><Badge /></main>\n}\n`);
@@ -361,7 +371,7 @@ if (!filter || "styles".includes(filter)) {   // CSS-4 under the dev server: a d
   });
   await server.close();
 }
-if (!filter || "context".includes(filter)) {   // CP-4b under the dev server: a module the entry and a JS-hosted page share stays one module after an edit
+if (mine("context")) {   // CP-4b under the dev server: a module the entry and a JS-hosted page share stays one module after an edit
   // The entry provides a context declared in team.rx; a page JavaScript renders (imported ?rx-page) reads it. An edit of
   // the page has the dev server serve team.rx again, and Vite 8 names it by two URLs (`?t=…&import&rx-dep` in the entry's
   // patched code, `?import&t=…&rx-dep` in the page's new code): two factories, which were two contexts — the page read
@@ -389,7 +399,7 @@ if (!filter || "context".includes(filter)) {   // CP-4b under the dev server: a 
   });
   await server.close();
 }
-if (!filter || "records".includes(filter)) {   // CP-4d (2026-11-25): a page's exported record of functions is a plain record to JavaScript
+if (mine("records")) {   // CP-4d (2026-11-25): a page's exported record of functions is a plain record to JavaScript
   const { default: rx } = await import(pathToFileURL(path.join(pkg, "vite.mjs")).href);
   const root = project("records", "shop/main.rx"), file = path.join(root, "src/shop/route.rx");
   writeFileSync(file, `export route = {\n  loader: (ctx: { params: { id: string } }) => ctx.params.id,\n  validateSearch: (search: Record<string, unknown>) => ({ tab: search.tab === "a" ? "a" : "b" })\n}\nexport limit = { max: 3 }\nexport default component Page() {\n  <h1>page</h1>\n}\n`);
@@ -400,7 +410,7 @@ if (!filter || "records".includes(filter)) {   // CP-4d (2026-11-25): a page's e
   if (/export const limit/.test(code)) throw new Error("a record that holds no function is not one a host is handed (it is the module's value, read through the module)");
   console.log("ok records: a page's exported record of functions (`export route = { loader, validateSearch }`) is a plain record to JavaScript, each function the module instance's");
 }
-if (!filter || "cold".includes(filter)) {   // a dependency asked for before its entry, as Vitest's `fsModuleCache` leaves it
+if (mine("cold")) {   // a dependency asked for before its entry, as Vitest's `fsModuleCache` leaves it
   const { default: rx } = await import(pathToFileURL(path.join(pkg, "vite.mjs")).href);
   const root = project("cold", "shop/main.rx"), catalog = path.join(root, "src/shop/catalog.rx");
   const ctx = (id, moduleId) => ({ id, moduleId, root, ssr: false, solid: { generate: "dom", hydratable: false }, addWatchFile() {} });

@@ -7,13 +7,14 @@ import { readDisk } from "../ref/disk.ts";
 import { loadModules } from "../ref/src/modules.ts";
 import { checkModules } from "../ref/src/check.ts";
 
-const args = process.argv.slice(2);
-const entry = resolve(args.find(a => !a.startsWith("--"))!);
-try {
-  const set = loadModules(entry, readDisk);
-  const checked = checkModules(set, args.includes("--spa"), args.includes("--host"), args.includes("--host") ? [entry] : []) as { diags: { file?: string; line: number; code: string; rule: string; msg: string }[]; advice?: { file?: string; line: number; code: string; rule: string; msg: string }[] };
-  const row = (d: { file?: string; line: number; code: string; rule: string; msg: string }) => ({ file: d.file ?? entry, line: d.line, code: d.code, rule: d.rule, message: d.msg });
-  console.log(JSON.stringify({ diagnostics: checked.diags.map(row), advice: (checked.advice ?? []).map(row) }));
-} catch (e) {
-  console.log(JSON.stringify({ error: (e as Error).message, code: (e as { code?: string }).code ?? "PARSE" }));
+export function answer(entry: string, spa: boolean, host: boolean) {
+  try {
+    const checked = checkModules(loadModules(entry, readDisk), spa, host, host ? [entry] : []) as { diags: { file?: string; line: number; code: string; rule: string; msg: string }[]; advice?: { file?: string; line: number; code: string; rule: string; msg: string }[] };
+    const row = (d: { file?: string; line: number; code: string; rule: string; msg: string }) => ({ file: d.file ?? entry, line: d.line, code: d.code, rule: d.rule, message: d.msg });
+    return { diagnostics: checked.diags.map(row), advice: (checked.advice ?? []).map(row) };
+  } catch (e) { return { error: (e as Error).message, code: (e as { code?: string }).code ?? "PARSE" }; }
+}
+if (process.argv[1] === import.meta.filename) {
+  const args = process.argv.slice(2);
+  console.log(JSON.stringify(answer(resolve(args.find(a => !a.startsWith("--"))!), args.includes("--spa"), args.includes("--host"))));
 }

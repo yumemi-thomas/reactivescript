@@ -24,7 +24,9 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { runCoverage } from "./coverage.mjs";
-import { here, ws, workspace, stage, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone } from "./harness.mjs";
+import * as cache from "../scripts/lib/cache.mjs";
+import { heavy } from "../scripts/lib/lock.mjs";
+import { here, ws, workspace, stage, loadRef, shareKeys, reaches, driven, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone } from "./harness.mjs";
 
 /** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
  *  it, and the habits it names), or a name resolves to nothing. */
@@ -40,7 +42,10 @@ const cover = args.includes("--cover") ? args[args.indexOf("--cover") + 1] : nul
 async function runTask(id, entry) {
   // a coverage entry (bench/coverage/<group>/<name>: its `use.mjs` beside its program) is judged as a task is
   const task = (await import(pathToFileURL(entry ? path.join(here, "coverage", entry, "use.mjs") : path.join(here, "tasks", id, "task.mjs")).href)).default;
+  const module = entry ? path.join(here, "coverage", entry, "use.mjs") : path.join(here, "tasks", id, "task.mjs");
   const dir = entry ? stage(id, path.join(here, "coverage", entry)) : stage(id);
+  await loadRef();
+  if (task.prepare || task.host) reaches(dir);
   if (task.prepare) await task.prepare(dir);
   const cell = () => ({ pass: 0, total: 0, fails: [], notes: [] });
   const res = { id, title: task.title, good: cell(), types: cell(), runtime: cell(), bad: cell(), unrep: cell(), decl: { words: 0, any: 0, inherited: 0, introduced: 0, places: 0, files: [] }, known: task.known ?? {} };
@@ -69,14 +74,14 @@ async function runTask(id, entry) {
   // (b) TYPES: rx-tsc is clean with the library's own types, the program wrote no `any`, and each probe — a mistake
   // only the library's real type refuses — is refused by TypeScript, on the line the probe wrote
   if (task.types !== false) {
-    const clean = rxTsc(dir);
+    const said = rxTsc(dir), clean = String(said); said.keep(clean === "");
     mark(res.types, "rx-tsc: clean with the library's types", clean === "", clean);
     const anys = anysWritten(dir);
     mark(res.types, "no `any` written in the .rx", anys.length === 0, anys.join(", "));
     for (const p of task.types ?? []) {
       let undo; try { undo = edit(dir, p.file ?? entries[0], p.edit); } catch (e) { mark(res.types, p.name, false, e.message); continue; }
-      const out = rxTsc(dir); undo();
-      const there = onEdit(out, dir, p.file ?? entries[0], p.edit);
+      const tsc = rxTsc(dir), out = String(tsc); undo();
+      const there = onEdit(out, dir, p.file ?? entries[0], p.edit); tsc.keep(p.expect.test(there));
       mark(res.types, `${p.name} (${p.expect.source})`, p.expect.test(there), !out ? "rx-tsc accepted it: the type was lost" : there ? there : `nothing on the edited line; elsewhere: ${out}`);
     }
   }
@@ -85,9 +90,9 @@ async function runTask(id, entry) {
   if (task.run) {
     if (!accepted) mark(res.runtime, "the good program runs", false, "not compiled: the checker refused it");
     else {
-      const h = new Runner(dir, entries[0], task.spa);
-      try { await task.run(h); } catch (e) { h.check("the run completed", false, e.stack ?? String(e)); }
-      await h.close();
+      const h = await driven("run", { dir, entry: entries[0], spa: task.spa, module }, h => task.run(h));
+      if (h.threw || h.stack) h.checks.push({ name: "the run completed", ok: false, got: h.stack.slice(0, 600) });
+      h.keep(h.checks.every(c => c.ok));
       for (const c of h.checks) mark(res.runtime, c.name, c.ok, c.got);
     }
   }
@@ -99,9 +104,8 @@ async function runTask(id, entry) {
   const goodDiags = {};
   for (const e of entries) { const r = both(path.join(dir, e), task.spa, task.host); goodDiags[e] = { crate: new Set(r.crate.diagnostics.map(sig)), ref: new Set(r.ref.diagnostics.map(sig)) }; }
   const drive = async (b, how) => {
-    const h = new Runner(dir, b.entry ?? entries[0], b.spa ?? task.spa);
-    let threw = ""; try { await how(h); } catch (e) { threw = String(e.message ?? e); }
-    await h.close();
+    const h = await driven(`${how === b.orSafe ? "harmless" : "dev"}: ${b.name}`, { dir, entry: b.entry ?? entries[0], spa: b.spa ?? task.spa, module }, how);
+    const { threw } = h;
     return { h, threw };
   };
   for (const b of task.bad ?? []) {
@@ -125,7 +129,7 @@ async function runTask(id, entry) {
         if (!ok && b.orSafe && !r.crate.diagnostics.length && !r.ref.diagnostics.length) {
           const { h, threw } = await drive(b, b.orSafe);
           const bad = [threw, ...h.checks.filter(c => !c.ok).map(c => `${c.name}: ${c.got ?? ""}`)].filter(Boolean);
-          ok = !bad.length && h.checks.length > 0; why = `accepted, and not harmless when run: ${bad.join(" | ")}`;
+          ok = !bad.length && h.checks.length > 0; h.keep(ok); why = `accepted, and not harmless when run: ${bad.join(" | ")}`;
         }
         mark(col, `${b.name} (${b.expect}${b.orSafe ? ", or harmless" : ""})`, ok, why);
       } else if (b.advise) {
@@ -134,12 +138,12 @@ async function runTask(id, entry) {
         const ok = !r.crate.diagnostics.length && !r.ref.diagnostics.length && r.crate.advice.some(d => d.code === b.advise) && r.ref.advice.some(d => d.code === b.advise) && r.agree;
         mark(res.bad, `${b.name} (advice: ${b.advise})`, ok, `crate: ${show(r.crate)}, advice ${r.crate.advice.map(d => d.code).join(",") || "none"} / ref: ${show(r.ref)}, advice ${r.ref.advice.map(d => d.code).join(",") || "none"}`);
       } else if (b.ts) {
-        const out = rxTsc(dir);
+        const tsc = rxTsc(dir), out = String(tsc); tsc.keep(b.ts.test(out));
         mark(col, `${b.name} (${b.ts.source})`, b.ts.test(out), out || "rx-tsc accepted it");
       } else if (b.gate) {
         // refused by rx-tsc's own gate, not by TypeScript and not by a rule of the language: a declaration that has fallen
         // behind what it was derived from (HOST_VIEW_STALE, 09 MO-14g), a row no run has verified
-        const out = rxTsc(dir);
+        const tsc = rxTsc(dir), out = String(tsc); tsc.keep(b.gate.test(out));
         mark(res.bad, `${b.name} (rx-tsc: ${b.gate.source})`, b.gate.test(out), out || "rx-tsc accepted it");
       } else if (b.verify) {
         // refused by rx-verify: a word of a declaration that only running it can test (`pure` on the server and in a
@@ -164,6 +168,7 @@ async function runTask(id, entry) {
         else {
           const { h, threw } = await drive(b, b.drive);
           const said = [threw, ...h.problems, ...h.checks.filter(c => !c.ok).map(c => c.got ?? "")].join(" | ");
+          h.keep(b.dev.test(said));
           mark(res.bad, `${b.name} (dev: ${b.dev.source})`, b.dev.test(said), said || "ran silently");
         }
       } else mark(col, b.name, false, "the variant names nothing that judges it");
@@ -174,7 +179,7 @@ async function runTask(id, entry) {
 
 if (one) {
   const r = await runTask(one).catch(e => ({ id: one, crash: e.stack ?? String(e) }));
-  writeFileSync(path.join(ws, "tasks", `${one}.result.json`), JSON.stringify(r));
+  writeFileSync(path.join(ws, "tasks", `${one}.result.json`), JSON.stringify({ ...r, cache: cache.stats }));
   process.exit(0);
 }
 
@@ -183,17 +188,19 @@ const draftOnly = args.includes("--draft") ? args[args.indexOf("--draft") + 1] :
 if (draftOnly) {
   const id = `draft-${draftOnly.replace(/[^\w.-]+/g, "_")}`;
   let r; try { const dir = path.join(ws, "tasks", id); mkdirSync(dir, { recursive: true }); const w = draftOf(draftOnly, dir).whole; r = { spec: draftOnly, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, inferred: w.inferred, inferredBy: w.inferredBy, todos: w.todos, todosBy: w.todosBy, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; } catch (e) { r = { spec: draftOnly, crash: e.stack ?? String(e) }; }
-  writeFileSync(path.join(ws, "tasks", `${id}.result.json`), JSON.stringify(r));
+  writeFileSync(path.join(ws, "tasks", `${id}.result.json`), JSON.stringify({ ...r, cache: cache.stats }));
   process.exit(0);
 }
 if (cover) {
   const id = `cover-${cover.replaceAll("/", "-")}`;
   const r = await runTask(id, cover).catch(e => ({ id, entry: cover, crash: e.stack ?? String(e) }));
-  writeFileSync(path.join(ws, "tasks", `${id}.result.json`), JSON.stringify(r));
+  writeFileSync(path.join(ws, "tasks", `${id}.result.json`), JSON.stringify({ ...r, cache: cache.stats }));
   process.exit(0);
 }
 
-workspace();
+// several browsers and a process a core: one such run at a time on a machine (scripts/lib/lock.mjs; a filtered run does not wait)
+if (!args.some((a, i) => !a.startsWith("--") && args[i - 1] !== "--shard")) await heavy("bench");
+workspace(); shareKeys();
 const filters = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--shard");
 const ids = readdirSync(path.join(here, "tasks"), { withFileTypes: true }).filter(e => e.isDirectory() && existsSync(path.join(here, "tasks", e.name, "task.mjs"))).map(e => e.name).sort().filter(id => !filters.length || filters.some(f => id.includes(f)));
 // tasks are independent programs in folders of their own: several at once (harness.mjs `jobs`), reported in their order

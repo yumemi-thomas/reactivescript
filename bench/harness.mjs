@@ -1,6 +1,6 @@
 // What bench/run.mjs runs a task with: the workspace (the libraries from npm, once), both checkers, rx-tsc, the compiled
 // program on the server and in Chromium. See bench/README.md.
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import os from "node:os";
 import { createServer } from "node:http";
@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { published } from "../compiler/scripts/published.mjs";
+import * as cache from "../scripts/lib/cache.mjs";
 
 const require_ = createRequire(import.meta.url);
 const { rowsOf, claimOf } = require_("../tooling/rx-language-server/src/rows.js");   // a declaration's rows, as the crate reads them
@@ -43,6 +44,101 @@ export function workspace() {
   installLocked(here, ws);
   linkOwn(path.join(ws, "node_modules"));
 }
+// ---- what is not run again (scripts/lib/cache.mjs) ----
+/** BENCH_PROFILE=<file>: each operation and how long it took, a line each. */
+const timed = (kind, f) => { if (!process.env.BENCH_PROFILE) return f(); const t = performance.now(); const end = () => writeFileSync(process.env.BENCH_PROFILE, `${kind}\t${(performance.now() - t).toFixed(0)}\t${process.argv.slice(2).join(" ")}\n`, { flag: "a" }); let r; try { r = f(); } catch (e) { end(); throw e; } if (r?.then) return r.finally(end); end(); return r; };
+/** What every operation depends on, by content: hashed once, by the process that runs the suite, for those it starts. */
+let shared_;
+function shared() {
+  if (shared_) return shared_;
+  if (process.env.RX_SHARED_KEYS) return (shared_ = JSON.parse(process.env.RX_SHARED_KEYS));
+  const at = (...p) => path.join(repo, ...p), nm = path.join(ws, "node_modules");
+  shared_ = {
+    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), at("scripts/lib/cache.mjs")),
+    tools: cache.inputs(...["bin", "src", "package.json", "package-lock.json", "node_modules"].map(f => at("tooling/rx-language-server", f))),
+    installed: [cache.treeHash(nm, { skip: (r, n) => r === "@reactivescript" || r === "@rx-types" || n === ".package-lock.json" }), cache.treeHash(path.join(nm, "@rx-types"))],
+    runtime: cache.inputs(...["package.json", "dist", "rx-lib.d.ts"].map(f => at("runtime", f))),
+    // what a task that runs a build, or a process of its own, may reach: the compiler as it is built, and ref/
+    builds: cache.inputs(rxc, ...["index.js", "vite.mjs", "lib.mjs", "package.json", "scripts", "target/wasm32-unknown-unknown/release/reactivescript.wasm"].map(f => at("compiler", f)), ...(existsSync(at("compiler")) ? readdirSync(at("compiler")).filter(f => f.endsWith(".node")).map(f => at("compiler", f)) : []), ...["src", "compile", "check.ts", "disk.ts", "types"].map(f => at("ref", f))),
+    browser: cache.browser(pw()),
+  };
+  cache.saveIndex();
+  return shared_;
+}
+/** For the processes a suite starts: the hashes it has made. */
+export const shareKeys = () => { if (cache.enabled) process.env.RX_SHARED_KEYS = JSON.stringify(shared()); };
+/** A folder a task is staged in, its edits included. (What the crate's answers were written to is not its own: `compile`.) */
+const folder = dir => cache.treeHash(dir, { skip: (r, n) => n === "node_modules" || /\.rx\.\d+\.(dom|ssr)\.mjs(\.entry\.mjs)?$/.test(n) });
+/** A task's own install, where it has one. */
+const deps = dir => { const l = path.join(dir, "node_modules"); return existsSync(l) ? cache.treeHash(l, { follow: true, skip: (r, n) => r === "@reactivescript" || n === ".package-lock.json" }) : null; };
+/** The crate's answers now, for questions an operation asked: the program compiled, or a tool's request of it, by the
+ *  same build the tool asks (the WebAssembly one, unless RXC names a binary). */
+let asked_;
+function answer(a) {
+  if (a.k === "trial") { const f = `${a.at}.${process.pid}.trial.d.rx`; mkdirSync(path.dirname(f), { recursive: true }); writeFileSync(f, a.text); try { return anyTrial(answer({ ...a, k: "serve", method: "declaration", params: { file: f } })); } finally { rmSync(f, { force: true }); } }
+  if (a.k === "app") return appOf(a.entry, a.target, a.spa);
+  if (a.k === "serve") { if (a.rxc || process.env.RXC) { const r = spawnSync(rxc, ["serve"], { input: JSON.stringify({ id: 1, method: a.method, params: a.params }) + "\n", cwd: a.cwd, encoding: "utf8", maxBuffer: 1 << 28 }); return JSON.parse(r.stdout).result; } asked_ ??= require_("../tooling/rx-language-server/src/rxc.js").ask; const was = process.cwd(); try { process.chdir(a.cwd); return asked_(a.method, a.params); } finally { process.chdir(was); } }
+}
+const anyTrial = r => JSON.parse(JSON.stringify(r ?? null).replace(/\.\d+\.trial\.d\.rx/g, ".trial.d.rx"));
+/** What a traced process asked of the crate (src/rxc.js, RX_TRACE); null: a log that is not read, and a result that is not kept. */
+function asks(log, viaRxc) {
+  let text; try { text = readFileSync(log, "utf8"); } catch { return []; }
+  try { return text.split("\n").filter(Boolean).map(l => { const t = JSON.parse(l), at = { rxc: viaRxc, cwd: t.cwd }; return t.trial !== undefined ? { ask: { k: "trial", at: t.params.file.replace(/\.\d+\.trial\.d\.rx$/, ""), text: t.trial, ...at }, said: cache.said(anyTrial(t.result)) } : { ask: { k: "serve", method: t.method, params: t.params, ...at }, said: cache.said(t.result) }; }); } catch { return null; }
+}
+/** 09 MO-8l: the declaration generated for a package as a module imports it (src/generate.js), written where the compiler
+ *  finds it; what a suite asks for with `node_modules/.rx-types` empty. */
+export function generate(spec, from) {
+  const { rootOf, ensureDeclarations } = require_("../tooling/rx-language-server/src/generate.js");
+  const root = rootOf(spec.split("/").slice(0, spec[0] === "@" ? 2 : 1).join("/"), path.dirname(from)); if (!root) return;
+  const file = `${path.join(root, "node_modules/.rx-types", spec)}.d.rx`, folders = path.dirname(file);
+  const key = cache.enabled ? { spec, from: path.dirname(from), environment: cache.environment(), near: cache.inputs(path.join(root, "package.json"), path.join(path.dirname(from), "package.json")), ...pick("harness", "tools", "installed", "runtime") } : null;
+  const r = cache.resultSync("generate", key, answer, () => timed("generate", () => {
+    const log = cache.enabled ? path.join(ws, `.trace-${process.pid}`) : null; if (log) { rmSync(log, { force: true }); process.env.RX_TRACE = log; }
+    let out; try { out = ensureDeclarations(from, { text: `import { a } from ${JSON.stringify(spec)}\n` }); } finally { delete process.env.RX_TRACE; }
+    const trace = log ? asks(log, !!process.env.RXC) : []; if (log) rmSync(log, { force: true });
+    const text = out[0]?.status === "written" ? readFileSync(file, "utf8") : null;
+    return { value: { status: out[0]?.status, text }, trace, files: {} };
+  }));
+  if (!r.hit && r.value.text !== null) { rmSync(file, { force: true }); r.keep(true); }   // (asked again as it was asked: with no draft there)
+  if (r.value.text !== null && !existsSync(file)) { mkdirSync(folders, { recursive: true }); writeFileSync(`${file}.${process.pid}.tmp`, r.value.text); renameSync(`${file}.${process.pid}.tmp`, file); }
+}
+/** A tool of the language server, run over a folder: `{ status, signal, stdout, stderr, extra, keep }`. `keep(ok)`: the
+ *  answer is kept, if whoever judges it says it is right. `file`: one it writes beside its answer (its name is this
+ *  process's, so it is no part of the key). `sealed`: it reaches more of the crate than the requests it makes (a host's
+ *  routes, a build's output): keyed by the builds themselves. */
+function tool(kind, flags, bin, args, { cwd, dir = cwd, env = {}, timeout, file, sealed = opaque.has(dir) }) {
+  const at = bin => path.join(repo, "tooling/rx-language-server/bin", bin);
+  const key = cache.enabled ? { flags, bin, args, cwd, dir, env, environment: cache.environment(), rxc: !!(env.RXC ?? process.env.RXC), folder: folder(dir), deps: deps(dir), timeout, ...pick("harness", "tools", "installed", "runtime", ...(sealed ? ["builds"] : [])) } : null;
+  const r = cache.resultSync(`tool ${kind}`, key, answer, () => timed(kind, () => {
+    const log = cache.enabled ? path.join(ws, `.trace-${process.pid}`) : null; if (log) rmSync(log, { force: true });
+    if (file) rmSync(file, { force: true });
+    const r = spawnSync(process.execPath, [...flags, at(bin), ...args, ...(file ? ["--causes", file] : [])], { cwd, encoding: "utf8", maxBuffer: 1 << 26, timeout, env: { ...process.env, ...env, ...(log ? { RX_TRACE: log } : {}) } });
+    let extra; if (file) { try { extra = readFileSync(file, "utf8"); } catch { /* none */ } rmSync(file, { force: true }); }
+    const trace = log ? asks(log, !!(env.RXC ?? process.env.RXC)) : [], files = {};
+    if (log) { try { for (const m of readFileSync(log, "utf8").matchAll(/"([^"]*node_modules\/\.rx-types\/[^"]+\.d\.rx)"/g)) if (existsSync(m[1])) files[m[1]] = readFileSync(m[1], "utf8"); } catch { /* it asked nothing */ } rmSync(log, { force: true }); }
+    return { value: { status: r.status, signal: r.signal, stdout: r.stdout, stderr: r.stderr, extra }, trace, files };
+  }));
+  return { ...r.value, keep: ok => r.keep(ok && !r.value.signal) };
+}
+const pick = (...ks) => Object.fromEntries(ks.map(k => [k, shared()[k]]));
+/** Folders whose task reaches past the crate's answers: it prepares itself with a build, or is under a JS host. */
+const opaque = new Set();
+export const reaches = dir => opaque.add(dir);
+/** What a task does with its compiled program (`drive(h)`): the checks it made, the problems the page reported, what it
+ *  threw. Kept under the crate's answer for each program it compiled. A task whose file imports anything, or reads the
+ *  process, may do anything: it is keyed by the builds; one that looks at a moment of an animation is run every time. */
+export async function driven(what, { dir, entry, spa, module }, drive) {
+  const text = readFileSync(module, "utf8"), free = /\bimport\b(?!\.meta)|\brequire\b|\bprocess\b/.test(text.replace(/^import \{ use \} from "\.\.\/\.\.\/\.\.\/cover\.mjs";$/m, ""));
+  const key = cache.enabled && !/\b(?:Date\.now|performance\.now|getComputedStyle|opacity)\b/.test(text) ? { what, entry, spa, module: cache.treeHash(path.dirname(module)), dir, environment: cache.environment(), folder: folder(dir), deps: deps(dir), ...pick("harness", "installed", "runtime", "browser", ...(free || opaque.has(dir) ? ["builds", "tools"] : [])) } : null;
+  const r = await cache.result("drive", key, answer, () => timed("drive", async () => {
+    const h = new Runner(dir, entry, spa); let threw = "", stack = "";
+    try { await drive(h); } catch (e) { threw = String(e.message ?? e); stack = e.stack ?? String(e); }
+    await h.close();
+    return { value: { checks: h.checks, problems: h.problems, threw, stack }, trace: h.asked, files: {} };
+  }));
+  return { ...r.value, keep: r.keep };
+}
+
 /** The compiler as npm installs it: a folder with the manifest it is published with (compiler/scripts/published.mjs:
  *  the runtime its dependency, Solid its peer — what Solid's plugin reads to load the runtime with the app, so no task
  *  lists the runtime for the plugin's sake) and the files it ships, each linked to the repository's. */
@@ -98,10 +194,10 @@ export async function pool(items, fn, few = () => false) {
  *  ends. `crash`: what stands for a result that is not there. */
 export const alone = (args, id, crash, timeout = 600000) => new Promise(res => {
   const at = path.join(ws, "tasks", `${id}.result.json`); rmSync(at, { force: true });
-  const c = spawn(process.execPath, [path.join(here, "run.mjs"), ...args], { stdio: ["ignore", "ignore", "pipe"] });
+  const c = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(here, "run.mjs"), ...args], { stdio: ["ignore", "ignore", "pipe"] });
   let err = ""; c.stderr.on("data", d => { err += d; });
   const timer = setTimeout(() => c.kill("SIGKILL"), timeout);
-  c.on("close", (code, signal) => { clearTimeout(timer); let r; try { r = JSON.parse(readFileSync(at, "utf8")); } catch { r = crash(`no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`); } res([r, err]); });
+  c.on("close", (code, signal) => { clearTimeout(timer); let r; try { r = JSON.parse(readFileSync(at, "utf8")); } catch { r = crash(`no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`); } if (r.cache) { cache.merge(cache.stats, r.cache); delete r.cache; } res([r, err]); });
 });
 
 /** A record as data, one line an entry: what `--check` compares with, and a diff shows entry by entry. */
@@ -131,12 +227,17 @@ export function stage(id, from) {
 
 const codes = ds => ds.map(d => `${d.code}@${path.basename(d.file ?? "")}:${d.line}`);
 /** The crate's diagnostics for a program (`rxc check --json`). */
-export function crate(entry, spa, host) {
+export const crate = (entry, spa, host) => timed("crate", () => crateNow(entry, spa, host));
+function crateNow(entry, spa, host) {
   const r = spawnSync(rxc, ["check", "--json", ...(spa ? ["--spa"] : []), ...(host ? ["--whole-program", "--host", entry] : []), entry], { encoding: "utf8", maxBuffer: 1 << 26 });
   try { const out = JSON.parse(r.stdout); return { diagnostics: out.diagnostics ?? [], advice: out.advice ?? [] }; } catch { return { diagnostics: [{ code: "CRASH", line: 0, file: entry, message: (r.stderr || r.stdout || "").slice(0, 400) }], advice: [] }; }
 }
-/** The reference checker's (`ref/src/check.ts`). */
-export function ref(entry, spa, host) {
+/** The reference checker's (`ref/src/check.ts`): in this process once `loadRef` has been waited for, else in one of its own (ref-check.ts). */
+let refChecker;
+export async function loadRef() { refChecker ??= (await import("./ref-check.ts")).answer; }
+export const ref = (entry, spa, host) => timed("ref", () => refNow(entry, spa, host));
+function refNow(entry, spa, host) {
+  if (refChecker) { const out = JSON.parse(JSON.stringify(refChecker(entry, !!spa, !!host))); return out.error ? { diagnostics: [{ code: out.code ?? "PARSE", line: 0, file: entry, message: out.error }], advice: [] } : out; }
   const r = spawnSync(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(here, "ref-check.ts"), ...(spa ? ["--spa"] : []), ...(host ? ["--host"] : []), entry], { encoding: "utf8", maxBuffer: 1 << 26 });
   try { const out = JSON.parse(r.stdout); return out.error ? { diagnostics: [{ code: out.code ?? "PARSE", line: 0, file: entry, message: out.error }], advice: [] } : out; } catch { return { diagnostics: [{ code: "CRASH", line: 0, file: entry, message: (r.stderr || r.stdout || "").slice(0, 400) }], advice: [] }; }
 }
@@ -151,8 +252,9 @@ export function both(entry, spa, host) {
 
 /** rx-tsc over the task's tsconfig: TypeScript's errors and the crate's, as text ("" when clean). */
 export function rxTsc(dir) {
-  const r = spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/bin/tsc.js"), "--noEmit", "-p", "tsconfig.json"], { cwd: dir, encoding: "utf8", env: { ...process.env, RXC: rxc } });
-  return r.status === 0 ? "" : String(r.stdout ?? "") + String(r.stderr ?? "") || `exit ${r.status}`;
+  const r = tool("tsc", [], "tsc.js", ["--noEmit", "-p", "tsconfig.json"], { cwd: dir, env: { RXC: rxc } });
+  const out = r.status === 0 ? "" : String(r.stdout ?? "") + String(r.stderr ?? "") || `exit ${r.status}`;
+  return Object.assign(new String(out), { keep: r.keep });
 }
 
 /** One edit of one file, undone by the function it returns. A variant is one line changed: `[from, to]`, each once. */
@@ -166,9 +268,13 @@ export function edit(dir, file, [from, to]) {
 let seq = 0;
 /** The program compiled by the crate for one target (`rxc app`), each module written beside its `.rx` (`x.rx.<n>.<target>.mjs`),
  *  importing the others by those names. Returns the entry's file, or `{ diagnostics }`. */
-export function compile(entry, target, spa) {
-  const r = spawnSync(rxc, ["app", entry, "--target", target, ...(spa ? ["--spa"] : [])], { encoding: "utf8", maxBuffer: 1 << 27 });
-  let out; try { out = JSON.parse(r.stdout); } catch { return { error: (r.stderr || r.stdout || "").slice(0, 600) }; }
+function appOf(entry, target, spa) {
+  const r = timed("app", () => spawnSync(rxc, ["app", entry, "--target", target, ...(spa ? ["--spa"] : [])], { encoding: "utf8", maxBuffer: 1 << 27 }));
+  try { JSON.parse(r.stdout); return r.stdout; } catch { return JSON.stringify({ error: (r.stderr || r.stdout || "").slice(0, 600) }); }
+}
+export function compile(entry, target, spa, asked) {
+  const text = appOf(entry, target, spa); asked?.push({ ask: { k: "app", entry, target, spa: !!spa }, said: cache.said(text) });
+  const out = JSON.parse(text);
   if (!out.modules) return out;
   const n = ++seq; const name = p => `${p}.${n}.${target}.mjs`;
   for (const [p, m] of Object.entries(out.modules)) writeFileSync(name(p), m.code.replace(/from "(\.{1,2}\/[^"]+\.rx)"/g, (_, s) => `from "${s}.${n}.${target}.mjs"`));
@@ -184,11 +290,11 @@ const pw = () => createRequire(path.join(ws, "package.json"))("playwright");
 
 /** What a task's `run` drives the compiled program with. */
 export class Runner {
-  constructor(dir, entry, spa) { this.dir = dir; this.entry = path.join(dir, entry); this.spa = spa; this.checks = []; this.servers = []; this.problems = []; }
+  constructor(dir, entry, spa) { this.dir = dir; this.entry = path.join(dir, entry); this.spa = spa; this.checks = []; this.servers = []; this.problems = []; this.asked = []; }
   check(name, ok, got) { this.checks.push({ name, ok: !!ok, got: ok ? undefined : typeof got === "string" ? got.slice(0, 600) : JSON.stringify(got)?.slice(0, 600) }); return !!ok; }
   /** The server's render of one URL: `{ html, text, error }` (the stream, to its end; hydration comments dropped from `text`). */
   async ssr(url = "/", { wait = 4000 } = {}) {
-    const built = this.server ??= compile(this.entry, "ssr", this.spa);
+    const built = this.server ??= compile(this.entry, "ssr", this.spa, this.asked);
     if (!built.file) return { html: "", text: "", error: new Error(JSON.stringify(built).slice(0, 600)) };
     const { createApp } = await import(pathToFileURL(path.join(ws, "node_modules/@reactivescript/runtime/dist/server.js")).href);
     let html = "", error = null;
@@ -205,11 +311,11 @@ export class Runner {
   }
   /** The client's bundle (the dom build, with Solid's development build, so its dev errors are loud). */
   client(hydrate) {
-    const built = compile(this.entry, "dom", this.spa);
+    const built = compile(this.entry, "dom", this.spa, this.asked);
     if (!built.file) throw new Error(JSON.stringify(built).slice(0, 600));
     const entry = built.file + ".entry.mjs";
     writeFileSync(entry, `import main from ${JSON.stringify("./" + path.basename(built.file))};\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp({ root: document.getElementById("app") });\ntry { app.mount(main(app)${hydrate ? ", true" : ""}); } catch (e) { console.error("mount threw: " + (e && e.message)); }\nwindow.__mounted = true;\n`);
-    const r = esbuild().buildSync({ entryPoints: [entry], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}", absWorkingDir: this.dir, loader: { ".css": "empty" }, alias: nodeBuiltins() });
+    const r = timed("esbuild", () => esbuild().buildSync({ entryPoints: [entry], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}", absWorkingDir: this.dir, loader: { ".css": "empty" }, alias: nodeBuiltins() }));
     return r.outputFiles[0].text;
   }
   /** Serves the program: `ssr` renders each URL on the server and hydrates it; otherwise an empty page the client mounts in. */
@@ -217,7 +323,7 @@ export class Runner {
     const client = this.client(ssr);
     let render = null;
     if (ssr) {
-      const built = this.server ??= compile(this.entry, "ssr", this.spa);
+      const built = this.server ??= compile(this.entry, "ssr", this.spa, this.asked);
       if (!built.file) throw new Error(JSON.stringify(built).slice(0, 600));
       const rt = await import(pathToFileURL(path.join(ws, "node_modules/@reactivescript/runtime/dist/server.js")).href);
       const main = (await import(pathToFileURL(built.file).href)).default;
@@ -241,7 +347,7 @@ export class Runner {
   }
   /** A page in Chromium; console errors and warnings and page errors are collected in `problems`. */
   async page() {
-    this.browser ??= await pw().chromium.launch();
+    this.browser ??= await timed("launch", () => pw().chromium.launch());
     const page = await this.browser.newPage();
     page.on("console", m => { if (["error", "warning"].includes(m.type())) this.problems.push(m.text().slice(0, 300)); });
     page.on("pageerror", e => this.problems.push(String(e).slice(0, 300)));
@@ -304,7 +410,7 @@ function hostDraft(file) {
   // drafted from there, whole: the command its first line records
   const from = /^[ \t]*\/\/@[ \t]*routes[ \t]+(\S+)((?:[ \t]+\S+)*)[ \t]*$/m.exec(text);
   if (from) {
-    const r = spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/bin/declare.js"), "--host", "--routes", from[1], ...from[2].trim().split(/\s+/).filter(Boolean)], { cwd: path.dirname(file), encoding: "utf8", env: { ...process.env, RXC: rxc } });
+    const r = timed("host", () => spawnSync(process.execPath, [path.join(repo, "tooling/rx-language-server/bin/declare.js"), "--host", "--routes", from[1], ...from[2].trim().split(/\s+/).filter(Boolean)], { cwd: path.dirname(file), encoding: "utf8", env: { ...process.env, RXC: rxc } }));
     const lines = r.status === 0 ? hostRows(r.stdout) : [];
     lines.whole = { rows: lines.length, any: 0, vendor: 0, introduced: 0, places: 0, introducedRows: [], drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
     return lines;
@@ -336,13 +442,11 @@ export function draftOf(spec, from, flags = []) {
   const lines = draftNow(spec, from, flags); drafted.set(key, lines); return lines;
 }
 function draftNow(spec, from, flags) {
-  const at = path.join(ws, `.causes-${process.pid}.json`); rmSync(at, { force: true });
-  const r = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/declare.js"), spec, "--causes", at, ...flags], { cwd: from, encoding: "utf8", maxBuffer: 1 << 26 });
+  const r = tool("draft", ["--conditions=browser"], "declare.js", [spec, ...flags], { cwd: from, file: path.join(ws, `.causes-${process.pid}.json`) }); r.keep(r.status === 0 && r.extra !== undefined);
   const inherited = new Map(), caused = new Map(), why = new Map();
   let said = {}, anyRows = [];
-  try { const j = JSON.parse(readFileSync(at, "utf8")); said = j.inferred ?? {}; anyRows = j.rows ?? []; } catch { /* no draft */ }
-  try { for (const c of JSON.parse(readFileSync(at, "utf8")).causes) { if (!c.name) continue; caused.set(c.name, (caused.get(c.name) ?? 0) + 1); if (c.cause === "vendor-any") inherited.set(c.name, (inherited.get(c.name) ?? 0) + 1); else why.set(c.name, [...(why.get(c.name) ?? []), c.cause]); } } catch { /* no draft */ }
-  rmSync(at, { force: true });
+  try { const j = JSON.parse(r.extra); said = j.inferred ?? {}; anyRows = j.rows ?? []; } catch { /* no draft */ }
+  try { for (const c of JSON.parse(r.extra).causes) { if (!c.name) continue; caused.set(c.name, (caused.get(c.name) ?? 0) + 1); if (c.cause === "vendor-any") inherited.set(c.name, (inherited.get(c.name) ?? 0) + 1); else why.set(c.name, [...(why.get(c.name) ?? []), c.cause]); } } catch { /* no draft */ }
   const lines = r.status === 0 ? code(r.stdout).map(l => l.trim()).filter(Boolean) : [];
   lines.vendorAt = r.status === 0 ? vendorPlaces(r.stdout, anyRows) : new Map();
   // 09 MO-8v, MO-8w: the words the draft read from the code that runs (said beside the draft, not in it: `--causes`),
@@ -464,8 +568,8 @@ export function declarations(dir, flagsFor = {}) {
 /** 09 MO-8w: a declaration's words, each sorted by what the code shows (`rx-declare --audit --json`). `error`: the audit
  *  did not answer — which is not an audit with nothing to say. */
 function audited(file, from) {
-  const r = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/declare.js"), "--audit", "--json", file], { cwd: from, encoding: "utf8", maxBuffer: 1 << 26, timeout: 300000 });
-  try { const out = JSON.parse(r.stdout); if (!Array.isArray(out)) throw new Error("not a list"); return out[0] ?? { rows: [] }; } catch { return { rows: [], error: String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${r.status ?? r.signal}` }; }
+  const r = tool("audit", ["--conditions=browser"], "declare.js", ["--audit", "--json", file], { cwd: from, timeout: 300000 });
+  try { const out = JSON.parse(r.stdout); if (!Array.isArray(out)) throw new Error("not a list"); r.keep(!out.some(x => x.rows?.some(y => y.words.some(w => w.verdict === "contradicted")))); return out[0] ?? { rows: [] }; } catch { return { rows: [], error: String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${r.status ?? r.signal}` }; }
 }
 /** The claims of several files, kind by kind. */
 export const claimKinds = bys => { const o = {}; for (const by of bys) for (const [k, c] of Object.entries(by ?? {})) { o[k] ??= { run: 0, code: 0, unverified: 0, mismatch: 0 }; for (const s in c) o[k][s] += c[s]; } return o; };
@@ -478,8 +582,9 @@ export const claimsSaid = by => Object.entries(by).sort((a, b) => a[0].localeCom
 export function claimsIn(dir, file, read = audited(file, declares(file)?.from ?? path.dirname(file))) {
   const problems = []; const claims = [];
   if (read.error) problems.push(`the audit did not run (${read.error})`);
-  const v = spawnSync(process.execPath, ["--conditions=browser", path.join(repo, "tooling/rx-language-server/bin/verify.js"), "--dom", "--json", path.relative(dir, file)], { cwd: dir, encoding: "utf8", timeout: 180000, maxBuffer: 1 << 26 });
+  const v = tool("verify", ["--conditions=browser"], "verify.js", ["--dom", "--json", path.relative(dir, file)], { cwd: dir, timeout: 180000 });
   let res; try { res = JSON.parse(String(v.stdout).trim().split("\n").pop())[0].results; } catch { return { claims, problems: [...problems, `rx-verify did not run (${String(v.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${v.status ?? v.signal}`})`], mismatches: [] }; }
+  v.keep(!res.some(r => r.status === "mismatch"));
   const worst = new Map(); const RANK = { mismatch: 3, unverified: 2, read: 1, held: 1, na: 0 };
   for (const r of res) { const k = `${r.line}:${r.ob}`; const was = worst.get(k); if (!was || RANK[r.status] > RANK[was.status]) worst.set(k, r); }
   const mismatches = [...worst.values()].filter(r => r.status === "mismatch").map(r => String(r.what).slice(0, 300));   // (an export that is not there, too)

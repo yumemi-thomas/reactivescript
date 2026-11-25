@@ -59,7 +59,13 @@ function viaProcess(method, params) {
 }
 
 let wasm;
+/** RX_TRACE=<file>: each request and its answer, a line each (what a result of a tool depended on: scripts/lib/cache.mjs). */
 function ask(method, params) {
+  const result = answer(method, params);
+  if (process.env.RX_TRACE) require("node:fs").appendFileSync(process.env.RX_TRACE, JSON.stringify({ cwd: process.cwd(), method, params, result, ...(/\.trial\.d\.rx$/.test(params.file ?? "") ? { trial: readFileSync(params.file, "utf8") } : {}) }) + "\n");   // (a trial is gone by the time it is asked again: its text with it)
+  return result;
+}
+function answer(method, params) {
   if (process.env.RXC || !wasmPath()) return viaProcess(method, params);
   try {
     return (wasm ??= loadWasm(wasmPath()))(method, params);
@@ -116,4 +122,4 @@ function lookup(file, spec) {
 function rows(file, text) {
   return ask("rows", text === undefined ? { file } : { file, text });
 }
-module.exports = { analyze, checkProgram, preludeFor, boundary, declaration, lookup, rows };
+module.exports = { ask, analyze, checkProgram, preludeFor, boundary, declaration, lookup, rows };

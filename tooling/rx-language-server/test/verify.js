@@ -1,6 +1,6 @@
 // `rx-verify` (bin/verify.js) on a small module: a hook that really reads a context passes, one that does not is a
 // mismatch, as are an export the module lacks and an "error" that is not an Error subclass.
-//   node test/verify.js
+//   node test/verify.js         (its four parts at once; `node test/verify.js 2` is the second)
 // (MO-8v) The modules these tests draft are stand-ins for their types: a body of one line that does nothing. What the code
 // proves is test/infer.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
 process.env.RX_DECLARE_INFER = "0";
@@ -9,7 +9,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const repo = path.resolve(__dirname, "../../..");
-const ws = path.join(__dirname, "../.test/verify");
+const only = Number(process.argv[2]) || 0, part = n => n === only;
+if (!only) {   // each part in a folder and a process of its own, said in their order
+  const { spawn } = require("node:child_process");
+  Promise.all([1, 2, 3, 4].map(n => new Promise(res => { const c = spawn(process.execPath, [__filename, String(n)], { stdio: ["ignore", "pipe", "pipe"] }); let out = ""; c.stdout.on("data", d => { out += d; }); c.stderr.on("data", d => { out += d; }); c.on("close", code => res({ n, code, out })); })))
+    .then(rs => { for (const r of rs) { process.stdout.write(r.out); if (r.code) console.log(`part ${r.n}: exit ${r.code}`); } const n = k => rs.reduce((a, r) => a + Number(new RegExp(`(\\d+) ${k}`).exec(r.out)?.[1] ?? 0), 0); console.log(`\n${n("passed")} passed, ${n("failed")} failed, all parts`); process.exit(rs.some(r => r.code) ? 1 : 0); });
+  return;
+}
+const ws = path.join(__dirname, `../.test/verify-${only}`);
 fs.rmSync(ws, { recursive: true, force: true });
 fs.mkdirSync(ws, { recursive: true });
 fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(ws, "node_modules"), "dir");
@@ -82,6 +89,7 @@ function check(name, ok, got) {
   if (ok) pass++; else fail++;
   console.log(`${ok ? "  ✓" : "  ✗"} ${name}${!ok || process.env.VERBOSE ? `\n      ${JSON.stringify(got).slice(0, 2000)}` : ""}`);
 }
+if (part(1)) {
 const r = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "lib.d.rx"], { cwd: ws, encoding: "utf8" });
 const out = r.stdout + r.stderr;
 check("a hook that throws with no provider holds its uses(…)", /lib\.d\.rx:2 held\s+useTheme: uses\(theme\) holds: with no provider it fails \(.*\), and under ThemeProvider it runs/.test(out), out);
@@ -437,6 +445,8 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
 
 // MO-8k's first place: a project's declaration of a package, `rx-types/<package>.d.rx`, is paired with the module that
 // import resolves to from the folder that holds `rx-types/` (it was "no JS module beside": no such row could be shown)
+}
+if (part(2)) {
 {
   const pkg = path.join(ws, "node_modules/tickpkg"); fs.mkdirSync(pkg, { recursive: true }); fs.mkdirSync(path.join(ws, "rx-types"), { recursive: true });
   fs.writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ name: "tickpkg", version: "1.0.0", type: "module", exports: { ".": "./index.mjs" } }));
@@ -451,8 +461,10 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   check("...its record is written beside it, and strict mode accepts the row", fs.existsSync(path.join(ws, "rx-types/tickpkg.verified.json")) && checkStrict(path.join(ws, "rx-types/tickpkg.d.rx")).length === 0, checkStrict(path.join(ws, "rx-types/tickpkg.d.rx")));
   check("...and one whose package does not resolve says so", /nopkg\.d\.rx.*not a project's declaration of a package that resolves/.test(outp), outp);
 }
+}
 
 // 09 MO-14: a host declaration (`host.d.rx`) declares no module's exports: its view is run against the probe's scene
+if (part(2)) {
 {
   const NAV = "import { createContext, useContext } from \"solid-js\";\nexport const Nav = createContext();\nexport const useNav = () => { const n = useContext(Nav); if (!n) throw new Error(\"no nav\"); return n; };\n";
   const HOST = "// what the host renders\nimport { Layout, Home } from \"./pages.rx\"\nimport { Page } from \"./page.rx\"\nexport context nav from \"./nav.mjs\"\nexport default component provides(nav) nests(children in component) = [\n  { component: Layout, children: [{ component: Home }, { component: Page }] }\n]\n";
@@ -505,8 +517,10 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   const ungiven = run2("ungiven", probe2(routed("createComponent(rx.Slot, {})"), ""));
   check("with no component given for it, it is not verified", /host\.d\.rx:2 unverified the host's view: Slot is not run: give the component as the probe's through\.Slot/.test(ungiven.out), ungiven.out);
 }
+}
 
 // 10 SV-7c: `pure` is run on the other side too — a second process, with a browser's globals when this one has none
+if (part(3)) {
 {
   const dir = path.join(ws, "sides"); fs.mkdirSync(dir, { recursive: true });
   fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(dir, "node_modules"), "dir");
@@ -527,9 +541,11 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   check("...one that answers anew each call is refuted by its own two calls, as before", /env\.d\.rx:3 MISMATCH\s+nextId: declared pure, but two calls with the same arguments answer differently/.test(o), o);
   check("...and a `client` fn is asked on one side only", !/whereAmI: declared pure, but it answers differently/.test(o), o);
 }
+}
 
 // 2026-11-26 (an independent review of the record): three rows strict mode passed that nothing had tested. Each claim has
 // a name and a result of its own; nothing answers for a whole row.
+if (part(3)) {
 {
   const dir = path.join(ws, "claims"); fs.mkdirSync(dir, { recursive: true });
   fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(dir, "node_modules"), "dir");
@@ -580,8 +596,10 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   const want = run("want", "import { createContext, useContext } from \"solid-js\";\nconst C = createContext();\nexport const P = props => C({ value: {}, get children() { return props.children; } });\nexport const useIt = () => { const c = useContext(C); return c.router.options; };\n", "export context it\nexport component P(props: { children?: View }) provides(it)\nexport fn useIt(): string uses(it)\n", undefined, []);
   check("a hook that fails under its provider otherwise than alone: provides is unverified, not a mismatch", /want\.d\.rx:2 unverified P: provides\(it\) not shown: useIt, which uses it, fails under it for another reason/.test(want.out) && !/MISMATCH/.test(want.out), want.out);
 }
+}
 
 // what a run holds is tested: each claim false in the library is found, and a probe that shows nothing of it is no evidence
+if (part(4)) {
 {
   const run = (name, js, decl, probe) => {
     fs.writeFileSync(path.join(ws, `${name}.mjs`), js); fs.writeFileSync(path.join(ws, `${name}.d.rx`), decl); fs.writeFileSync(path.join(ws, `${name}.probe.mjs`), probe);
@@ -606,6 +624,7 @@ check("...and strict mode accepts those rows, refusing only the mismatch", !prSt
   check("...one it never calls does not", /:2 unverified ignores/.test(own), own);
   const { mutant } = require("../src/verify-mutate.js");
   check("a changed module is the module but for the claim", Object.keys(mutant({ a: 1, f: () => 2 }, [], "uses", {})).join() === "a,f" && mutant({ f: () => 2 }, [{ name: "f", kind: "fn", facts: { uses: ["c"], params: [] } }], "uses", {}).f() === undefined && mutant({ k: { m: () => 2, n: 3 } }, [{ name: "k.m", kind: "fn", facts: { uses: ["c"], params: [] } }], "uses", {}).k.m() === undefined && mutant({ k: { m: () => 2, n: 3 } }, [{ name: "k.m", kind: "fn", facts: { uses: ["c"], params: [] } }], "uses", {}).k.n === 3);
+}
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -192,6 +192,39 @@ npx rx-declare --audit <file.d.rx>        # every word a declaration has, whoeve
 # `vite build`), and its host.d.rx is derived from that tree: `rx-declare --host --sync <host.d.rx>` after a route moves
 ```
 
+### Faster runs
+
+```sh
+scripts/quick                  # while working: both checkers and their parity over every program, the interpreter, the oracle, both emitters, the crate's tests, and in the browser and the benchmark what is new
+scripts/ci                     # everything, nothing kept from before: the run before a push. --list, --only a,b, --skip a,b, --jobs n, --cached
+node scripts/matrix.mjs <folder of scenarios> [--rev before=<checkout> --rev after=<checkout>]   # small programs through every runner and what each shows; two revisions compared
+node scripts/heavy.mjs <name> -- <command…>       # any command under the machine's lock; --who: who holds it
+```
+
+- **Results kept.** The benchmark's tools and pages (`bench/run.mjs`,
+  `bench/generated.mjs`), `ref`'s `npm run ssr` and `proposals/check.mjs`
+  use a result again when nothing that could change it has
+  (`scripts/lib/cache.mjs`): the key is the content of the files it reads,
+  of the install, the runtime, Solid, the tools and the harness, with the
+  versions, the flags and the environment; the compiler is not in it, but
+  asked again — what a tool or a page asked of the crate must be answered
+  as it was. Both checkers are run every time. Only a check that passed
+  is kept; one that looks at a moment in time, Vite's suites and the
+  crate's own are not. `--no-cache` or `RX_NO_CACHE=1` runs everything;
+  `--write` does, CI does, and `scripts/ci` does: **a run before a push
+  uses nothing kept.** The results are in `RX_CACHE_DIR` (macOS:
+  `~/Library/Caches/reactivescript-results`), shared by every checkout, at
+  most `RX_CACHE_MB` (512); deleting the folder is safe. `RX_CACHE_LOG=<file>`
+  writes each hit and miss, `RX_CACHE_KEYS=1` with the misses' keys.
+- **One heavy run at a time.** A whole benchmark, `generated`, and
+  `scripts/ci`'s steps with several browsers take a lock of the machine's
+  (`scripts/lib/lock.mjs`) and wait for it at most `RX_LOCK_WAIT` seconds
+  (3600), then go on. A holder that is gone holds nothing. Off in CI and
+  under `RX_LOCK=0`; a run of one task does not take it.
+- A new suite that keeps results says in its key everything it reads: a
+  key that leaves something out is a check that no longer checks. The
+  crate's answers belong in the trace, not the key.
+
 `ref/README.md` describes each runner. Please run the suite before opening a
 pull request and note any scenario whose result changed.
 

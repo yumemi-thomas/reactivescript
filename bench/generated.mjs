@@ -11,7 +11,10 @@ import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
-import { here, repo, rxc, workspace, ws } from "./harness.mjs";
+import { spawn } from "node:child_process";
+import { here, repo, rxc, workspace, ws, jobs, shareKeys, generate } from "./harness.mjs";
+import * as cache from "../scripts/lib/cache.mjs";
+import { heavy } from "../scripts/lib/lock.mjs";
 import { entries } from "./coverage.mjs";
 import { readDisk } from "../ref/disk.ts";
 import { loadModules } from "../ref/src/modules.ts";
@@ -19,9 +22,23 @@ import { checkModules } from "../ref/src/check.ts";
 const require_ = createRequire(import.meta.url);
 const { reading } = require_("../tooling/rx-language-server/src/questions.js");
 const { rowsOf } = require_("../tooling/rx-language-server/src/rows.js");
-const { ensureDeclarations } = require_("../tooling/rx-language-server/src/generate.js");
+const { ensureDeclarations, packageImportSites } = require_("../tooling/rx-language-server/src/generate.js");
 const ts = require_("../tooling/rx-language-server/node_modules/typescript");
 const args = process.argv.slice(2);
+if (args[0] === "--draft") { await new Promise(res => { process.on("message", m => { if (m === null) return process.send(cache.stats, res); generate(...m); process.send("done"); }); process.send("ready"); }); process.exit(0); }   // (a process of `draftAll`'s)
+if (!args.length) await heavy("generated");
+/** The declarations of what `entries` import, drafted by several processes: each package as the first module that imports it
+ *  does (they share one install). What each entry then asks for is there, and is looked at again (`ensureDeclarations`). */
+async function draftAll(entries) {
+  const sites = new Map(); for (const e of entries) for (const [spec, from] of packageImportSites(e)) if (!sites.has(spec)) sites.set(spec, from);
+  shareKeys();
+  const todo = [...sites], n = Math.min(jobs, todo.length);
+  await Promise.all(Array.from({ length: n }, () => new Promise(res => {
+    const c = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", import.meta.filename, "--draft"], { stdio: ["ignore", "ignore", "inherit", "ipc"] });
+    c.on("message", m => { if (typeof m === "object") return cache.merge(cache.stats, m); c.send(todo.shift() ?? null); });
+    c.on("close", res);   // (one that ends early leaves what it had to `ensureDeclarations`)
+  })));
+}
 
 const crate = (entry, spa, host) => {
   const r = spawnSync(rxc, ["check", "--json", ...(spa ? ["--spa"] : []), ...(host ? ["--whole-program", "--host", entry] : []), entry], { encoding: "utf8", maxBuffer: 1 << 28 });
@@ -136,7 +153,7 @@ if (args.includes("--package")) {
   const step = Math.ceil(names.length / 40);
   kinds(spec, names.filter((n, i) => i % step === 0), at);
 } else {
-  workspace();
+  workspace(); shareKeys();
   const at = path.join(ws, "tasks/generated"); rmSync(at, { recursive: true, force: true }); mkdirSync(path.join(at, "node_modules"), { recursive: true });
   cpSync(path.join(here, "generated/kinds"), path.join(at, "node_modules/kinds"), { recursive: true });
   kinds("kinds", "plain proven load rejecting NotFound Cart limit client double Side Merged OnlyType sortInPlace later each on makes makesFn makesRef makesPair Ctx useCtx Provider Card Dialog toast mapped default".split(" "), at);
@@ -168,6 +185,7 @@ if (!args.includes("--kinds") && !args.includes("--package")) {
   for (const r of runs) r.base = both(r.entry, ...r.a);
   // (a host's declaration names components of the package it imports from: with none of it, the program is not read)
   for (const r of runs) r.read = !r.base.flat().some(d => d.file.endsWith(".d.rx") || d.line === 0);
+  await draftAll(runs.map(r => r.entry));
   for (const r of runs) ensureDeclarations(r.entry);
   const used = new Set();
   for (const r of runs) {
@@ -186,4 +204,6 @@ if (!args.includes("--kinds") && !args.includes("--package")) {
 }
 for (const [why, xs] of listed) console.log(`· ${why}: ${xs.size}${process.env.VERBOSE ? `\n    ${[...xs].join("\n    ")}` : ""}`);
 console.log(`generated: ${checked} accepted uses and programs read again with the generated declaration, ${fails} newly refused with no reason`);
+if (cache.summary()) console.log(cache.summary());
+cache.prune();
 process.exit(fails ? 1 : 0);

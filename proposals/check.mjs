@@ -20,8 +20,11 @@
 // `prototype=` is a verdict of the prototype of 19, 20 and 21, a local branch that is not published: this tree does not run
 // it. `--prototype <folder>` runs the programs so marked there.
 // `says-branch="text"` and `says-upstream="text"` ask that the output hold the text. `files=<dir>` copies a folder of proposals/ beside.
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
+import * as cache from "../scripts/lib/cache.mjs";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -31,16 +34,19 @@ const verbose = process.argv.includes("-v"), only = arg("--only"), up = arg("--u
 const roots = { branch: repo, ...(up ? { upstream: resolve(up) } : {}), ...(proto ? { prototype: resolve(proto) } : {}) };
 for (const [name, root] of Object.entries(roots)) for (const f of ["compiler/target/release/rxc", "ref/node_modules/solid-js", "runtime/dist/web.js", "tooling/rx-language-server/node_modules"]) if (!existsSync(join(root, f))) { console.log(`SETUP ${name}: no ${f} in ${root} (README.md says how it is built)`); process.exit(2); }
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "rx-proposals-")));
-const node = (args, cwd, env = {}) => { const r = spawnSync(process.execPath, args, { cwd, encoding: "utf8", env: { ...process.env, ...env } }); return (r.stdout ?? "") + (r.stderr ?? ""); };
+/** A process to its end: `{ status, stdout, stderr }`. */
+const run = (cmd, args, cwd, env = {}) => new Promise(res => { const c = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; c.stdout.setEncoding("utf8").on("data", d => { stdout += d; }); c.stderr.setEncoding("utf8").on("data", d => { stderr += d; }); c.on("error", e => res({ status: null, stdout, stderr: stderr + e.message })); c.on("close", status => res({ status, stdout, stderr })); });
+const node = async (args, cwd, env = {}) => { const r = await run(process.execPath, args, cwd, env); return r.stdout + r.stderr; };
 const uniq = xs => [...new Set(xs)].sort();
 
 /** The reference with scenarios of our own beside it: ref/ copied, the rest linked. */
-function mirror(name, root) {
-  const at = join(tmp, name); if (existsSync(at)) return at;
+/** (one for each of the programs run at once: a run reads every scenario of its folder) */
+function mirror(name, root, slot) {
+  const at = join(tmp, `${name}.${slot}`); if (existsSync(at)) return at;
   mkdirSync(join(at, "scenarios"), { recursive: true });
   cpSync(join(root, "ref"), join(at, "ref"), { recursive: true, filter: f => !/\/ref\/(node_modules|ssr\/\.out|compile\/\.out|types\/\.out|.*\/node_modules)$/.test(f) && !/\/\.out$/.test(f) });
   symlinkSync(join(root, "ref/node_modules"), join(at, "ref/node_modules"));
-  for (const d of ["compiler", "runtime", "spec", "examples", "tooling", "guide"]) if (existsSync(join(root, d))) symlinkSync(join(root, d), join(at, d));
+  for (const d of ["compiler", "runtime", "spec", "examples", "tooling", "guide", "scripts"]) if (existsSync(join(root, d))) symlinkSync(join(root, d), join(at, d));
   return at;
 }
 function filesOf(body) {
@@ -59,45 +65,45 @@ function folder(b) {
 const codes = text => uniq([...text.matchAll(/\berror ([A-Z][A-Z0-9_]*|TS\d+)\b/g)].map(m => m[1]));
 const said = text => { const c = codes(text); return c.length ? c.join("+") : "ok"; };
 const kinds = {
-  check(root, b) {
+  async check(root, b) {
     const dir = folder(b), flags = (b.attrs.flags ?? "").split(",").filter(Boolean), file = b.attrs.main ?? "main.rx";
-    const a = spawnSync(join(root, "compiler/target/release/rxc"), ["check", ...flags, file], { cwd: dir, encoding: "utf8" });
-    const c = a.stdout + a.stderr, r = node(["--experimental-strip-types", join(root, "ref/check.ts"), ...flags.filter(f => f !== "--spa"), file], dir);
+    const a = await run(join(root, "compiler/target/release/rxc"), ["check", ...flags, file], dir);
+    const c = a.stdout + a.stderr, r = await node(["--experimental-strip-types", join(root, "ref/check.ts"), ...flags.filter(f => f !== "--spa"), file], dir);
     const cv = said(c) === "ok" && a.status !== 0 ? "failed" : said(c), parse = /: parse error: /.test(r) && cv !== "ok";   // a parse error the reference prints without a code
     const rv = parse ? cv : said(r) === "ok" && !/^ok /m.test(r) ? "failed" : said(r);
     return { got: flags.includes("--spa") || cv === rv ? cv : `${cv}|${rv}`, out: c + "\n--- ref\n" + r };
   },
-  frames(root, b, name) {
-    const at = mirror(name, root); for (const f of readdirSync(join(at, "scenarios"))) rmSync(join(at, "scenarios", f));
+  async frames(root, b, name, slot) {
+    const at = mirror(name, root, slot); for (const f of readdirSync(join(at, "scenarios"))) rmSync(join(at, "scenarios", f));
     const fs = filesOf(b.body), mods = [...fs].filter(([f]) => f !== "main.rx");
     const md = `# S-proposal-1 — a program of proposals/\n\nRules exercised: none.\n\n` + (mods.length ? "## Modules\n\n" + mods.map(([f, t]) => "```rx\n-- module: ./" + f + "\n" + t + "```\n").join("\n") + "\n" : "") + "## Program\n\n```rx\n" + fs.get("main.rx") + "```\n\n## Frames\n\n" + b.table + "\n" + (b.attrs.runner === "ssr" ? "## Server frames\n\n" + b.table + "\n" : "");
     writeFileSync(join(at, "scenarios/S-proposal-1.md"), md);
-    const out = b.attrs.runner === "ref" ? node(["--experimental-strip-types", "run.ts"], join(at, "ref"))
+    const out = await (b.attrs.runner === "ref" ? node(["--experimental-strip-types", "run.ts"], join(at, "ref"))
       : b.attrs.runner === "ref-compiled" ? node(["--experimental-strip-types", "--conditions=browser", "--conditions=development", "compile/run.ts"], join(at, "ref"))
       : b.attrs.runner === "ssr" ? node(["--experimental-strip-types", "ssr/run.ts"], join(at, "ref"), { RX_CRATE: "1" })
-      : node(["--experimental-strip-types", "--conditions=browser", "--conditions=development", "compile/run.ts"], join(at, "ref"), { RX_CRATE: "1" });
+      : node(["--experimental-strip-types", "--conditions=browser", "--conditions=development", "compile/run.ts"], join(at, "ref"), { RX_CRATE: "1" }));
     return { got: /refused by the checker|not compiled/.test(out) ? "refused" : /^PASS S-proposal-1/m.test(out) ? "pass" : "fail", out };
   },
-  app(root, b) {
-    const dir = folder(b), a = spawnSync(join(root, "compiler/target/release/rxc"), ["app", "main.rx"], { cwd: dir, encoding: "utf8", maxBuffer: 1 << 26 });
+  async app(root, b) {
+    const dir = folder(b), a = await run(join(root, "compiler/target/release/rxc"), ["app", "main.rx"], dir);
     return { got: a.status || /"diagnostics":\s*\[\s*\{/.test(a.stdout) ? "failed" : "ok", out: a.stdout + a.stderr };
   },
-  scenario(root, b, name) {
-    const at = mirror(name, root); for (const f of readdirSync(join(at, "scenarios"))) rmSync(join(at, "scenarios", f));
+  async scenario(root, b, name, slot) {
+    const at = mirror(name, root, slot); for (const f of readdirSync(join(at, "scenarios"))) rmSync(join(at, "scenarios", f));
     writeFileSync(join(at, "scenarios/S-proposal-1.md"), b.body + "\n");
-    const out = node(["--experimental-strip-types", "run.ts", "S-proposal-1"], join(at, "ref"));
+    const out = await node(["--experimental-strip-types", "run.ts", "S-proposal-1"], join(at, "ref"));
     return { got: /^PASS S-proposal-1/m.test(out) ? "pass" : "fail", out };
   },
-  tool(root, b) {
+  async tool(root, b) {
     const dir = folder(b); symlinkSync(join(repo, "ref/node_modules"), join(dir, "node_modules"));
-    const r = spawnSync(process.execPath, [join(root, `tooling/rx-language-server/bin/${b.attrs.tool}.js`), ...(b.attrs.args ?? "").split(",").filter(Boolean)], { cwd: dir, encoding: "utf8" });
+    const r = await run(process.execPath, [join(root, `tooling/rx-language-server/bin/${b.attrs.tool}.js`), ...(b.attrs.args ?? "").split(",").filter(Boolean)], dir);
     return { got: r.status ? "failed" : "ok", out: r.stdout + r.stderr };
   },
-  types(root, b) {
+  async types(root, b) {
     const dir = folder(b);
     symlinkSync(join(repo, "ref/node_modules"), join(dir, "node_modules"));
     if (!existsSync(join(dir, "tsconfig.json"))) writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { target: "esnext", module: "esnext", moduleResolution: "bundler", strict: true, noEmit: true, skipLibCheck: true, jsx: "preserve", jsxImportSource: "@solidjs/web", types: [], allowJs: true, allowArbitraryExtensions: true }, include: ["**/*"], exclude: ["node_modules"] }));
-    const out = node([join(root, "tooling/rx-language-server/bin/tsc.js"), "-p", "tsconfig.json", "--noEmit"], dir, { RX_GENERATE: "0" });
+    const out = await node([join(root, "tooling/rx-language-server/bin/tsc.js"), "-p", "tsconfig.json", "--noEmit"], dir, { RX_GENERATE: "0" });
     return { got: said(out), out };
   },
 };
@@ -118,16 +124,38 @@ function blocks(file) {
 const noSetup = out => /ERR_MODULE_NOT_FOUND|Cannot find (module|package) '(?!\.{1,2}\/)|browserType\.launch|Executable doesn't exist/.test(out);
 let ran = 0, bad = 0, setup = 0;
 const docs = [...readdirSync(here).filter(f => f.endsWith(".md")).map(f => join(here, f)), ...readdirSync(join(here, "bugs")).filter(f => f.endsWith(".md")).map(f => join(here, "bugs", f))].filter(f => !only || f.includes(only)).sort();
+// the programs are read in order and run several at once (RX_JOBS: default 4, at most half the cores), and said in their order
+const work = [];
 for (const d of docs) for (const b of blocks(d)) for (const [name, root] of Object.entries(roots)) {
   const want = b.attrs[name]; if (want === undefined && name === "prototype") continue;
   if (want === undefined) { console.log(`${relative(repo, d)}:${b.line}: no verdict stated for ${name}`); bad++; continue; }
-  if (want === "-") continue;
-  const r = kinds[b.kind](root, b, name), out = r.out, text = b.attrs[`says-${name}`]; let got = r.got;
-  if (got !== want && (noSetup(out) || !out.trim() || (b.kind === "frames" && !/^(PASS|FAIL|SKIP) S-proposal-1/m.test(out)))) { setup++; console.log(`SETUP ${relative(repo, d)}:${b.line} ${b.kind} ${name}: not run — ${(out.split("\n").find(l => noSetup(l)) ?? "no output").trim().slice(0, 200)}`); continue; }
-  ran++;
-  const ok = got === want && (!text || out.includes(text)); if (!ok) bad++;
-  if (!ok || verbose) console.log(`${ok ? "ok  " : "FAIL"} ${relative(repo, d)}:${b.line} ${b.kind} ${name}: ${got}${ok ? "" : `, stated ${want}${text && !out.includes(text) ? `, saying ${JSON.stringify(text)}` : ""}`}${verbose ? "\n" + out.replaceAll(/^/gm, "     | ").slice(0, 1600) : ""}`);
+  if (want !== "-") work.push({ d, b, name, root, want });
 }
+// a verdict is kept (scripts/lib/cache.mjs) while the program, the runner and everything it runs with are the same
+const keyOf = root => { const at = (...p) => cache.inputs(...p.map(p => join(root, p))), solid = p => cache.treeHash(realpathSync(join(root, "ref/node_modules", p)), { skip: (r, n) => n === "node_modules" || n === "target" || r === "test" || r === "tests" });
+  return { checker: cache.fileHash(import.meta.filename), builds: at("compiler/target/release/rxc", "compiler/target/wasm32-unknown-unknown/release/reactivescript.wasm"), ref: ["src", "compile", "oracle", "ssr", "run.ts", "check.ts", "disk.ts", "units.ts", "solid-version.ts", "SOLID_NEXT"].map(f => cache.inputs(join(root, "ref", f))[0].split(" ").pop()), tools: at("tooling/rx-language-server/bin", "tooling/rx-language-server/src", "tooling/rx-language-server/package.json", "tooling/rx-language-server/node_modules"), beside: at("runtime/dist", "declarations", "examples"), installed: cache.treeHash(join(root, "ref/node_modules"), { skip: (r, n) => n === ".package-lock.json" }), solid: ["@solidjs/compiler", "@solidjs/signals", "@solidjs/universal", "@solidjs/web", "solid-js"].map(solid), browser: cache.browser(createRequire(join(root, "ref/package.json"))("playwright")) }; };
+const keys = cache.enabled ? Object.fromEntries(Object.entries(roots).map(([n, r]) => [n, keyOf(r)])) : {}; cache.saveIndex();
+const judged = (w, out, got) => { const text = w.b.attrs[`says-${w.name}`]; return got === w.want && (!text || out.includes(text)); };
+const results = new Array(work.length); let next = 0, told = 0;
+const say = (w, r) => {
+  const { d, b, name, want } = w, out = r.out, text = b.attrs[`says-${name}`], got = r.got;
+  if (got !== want && (noSetup(out) || !out.trim() || (b.kind === "frames" && !/^(PASS|FAIL|SKIP) S-proposal-1/m.test(out)))) { setup++; console.log(`SETUP ${relative(repo, d)}:${b.line} ${b.kind} ${name}: not run — ${(out.split("\n").find(l => noSetup(l)) ?? "no output").trim().slice(0, 200)}`); return; }
+  ran++;
+  const ok = judged(w, out, got); if (!ok) bad++;
+  if (!ok || verbose) console.log(`${ok ? "ok  " : "FAIL"} ${relative(repo, d)}:${b.line} ${b.kind} ${name}: ${got}${ok ? "" : `, stated ${want}${text && !out.includes(text) ? `, saying ${JSON.stringify(text)}` : ""}`}${verbose ? "\n" + out.replaceAll(/^/gm, "     | ").slice(0, 1600) : ""}`);
+};
+const jobs = Math.max(1, Number(process.env.RX_JOBS) || Math.min(4, Math.ceil(availableParallelism() / 2)));
+await Promise.all(Array.from({ length: jobs }, async (_, slot) => {
+  for (let i; (i = next++) < work.length;) {
+    const w = work[i], { b } = w;
+    const r = await cache.result("proposal", cache.enabled ? { ...keys[w.name], kind: b.kind, attrs: Object.fromEntries(Object.entries(b.attrs).filter(([k]) => !/^(says-)?(branch|upstream|prototype)$/.test(k))), body: b.body, table: b.table, files: b.attrs.files ? cache.treeHash(join(here, b.attrs.files)) : null, environment: cache.environment() } : null, () => undefined, async () => ({ value: await kinds[b.kind](w.root, b, w.name, slot), trace: [] }));
+    r.keep(judged(w, r.value.out, r.value.got) && !noSetup(r.value.out));
+    results[i] = r.value;
+    for (; results[told] !== undefined; told++) say(work[told], results[told]);
+  }
+}));
 rmSync(tmp, { recursive: true, force: true });
+if (cache.summary()) console.log(cache.summary());
+cache.prune();
 console.log(`${ran} verdicts compared over ${docs.length} documents${up ? "" : " (this branch only: --upstream <path> for both)"}: ${bad ? `${bad} differ` : "all as stated"}${setup ? `; ${setup} could not be run (setup)` : ""}`);
 process.exit(bad ? 1 : setup ? 2 : 0);

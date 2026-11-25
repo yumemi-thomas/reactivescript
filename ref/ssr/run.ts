@@ -11,7 +11,7 @@
 // env: RX_CRATE=1 serves and hydrates the Rust crate's output (compiler/, compile/lowered.ts); CSR=1 also mounts each table in the browser with no server; NO_HYDRATE=1 serves only; SV_SCOPE=1 renders in
 // Solid's server-component scope (DV-9); DEBUG=1, DEBUG_NAMES=a,b and WAIT=ms help when a table disagrees.
 import { SOLID } from "../solid-version.ts";
-import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -45,21 +45,40 @@ async function serverFunction(req: import("node:http").IncomingMessage, res: imp
   res.end();
 }
 
-const filter = process.argv[2];
+const filter = process.argv.slice(2).find(a => !a.startsWith("--"));
 const scenarios = new URL("../../scenarios/", import.meta.url);
 const names = readdirSync(scenarios).filter(f => f.endsWith(".md") && f !== "TEMPLATE.md" && !f.startsWith("OPEN-") && (!filter || f.includes(filter))).sort();
 type Result = { name: string; verdict: string; lines: string[] };
 const report = (rs: Result[]) => { for (const r of rs) { console.log(`${r.verdict} ${r.name}`); for (const l of r.lines) console.log(l); } };
 const counted = (rs: Result[]) => { const n = (v: string) => rs.filter(r => r.verdict === v).length; console.log(`\n${n("PASS")} pass, ${n("FAIL")} fail, ${n("SKIP")} skip (server render → ${SOLID}, streamed to Chromium)`); process.exit(n("FAIL") ? 1 : 0); };
-const shard = process.env.RX_SHARD?.split("/").map(Number);   // `i/n`, a worker's: every n-th scenario
+/** What a scenario's result was kept for (scripts/lib/cache.mjs; none where the runner stands alone, a copy of ref/): nothing
+ *  it depends on is different. `null`: results are not kept. */
+const cache = process.env.DEBUG || process.env.DEBUG_NAMES || process.env.DEBUG_RPC || process.env.SSR_STACK ? null : await import(new URL("../../scripts/lib/cache.mjs", import.meta.url).href).catch(() => null) as any;
+const at = (f: string) => fileURLToPath(new URL(f, import.meta.url));
+function kept() {
+  if (!cache?.enabled) return null;
+  if (process.env.RX_SSR_KEYS) return JSON.parse(process.env.RX_SSR_KEYS);
+  const req = createRequire(import.meta.url), solid = (p: string) => cache.treeHash(realpathSync(at(`../node_modules/${p}`)), { skip: (r: string, n: string) => n === "node_modules" || n === "target" || r === "test" || r === "tests" });
+  const keys = { runner: cache.inputs(at("./run.ts"), at("../src/scenario.ts"), at("../solid-version.ts")).map((x: string) => x.split(" ").pop()), runtime: ["rt-web.ts", "rt-server.ts", "rt.ts", "server-functions-local.ts", "solid-internals.ts"].map(f => cache.fileHash(at(`../compile/${f}`))),
+    solid: ["@solidjs/compiler", "@solidjs/signals", "@solidjs/web", "solid-js"].map(solid), installed: cache.treeHash(at("../node_modules"), { skip: (r: string, n: string) => n === "typescript" || n === ".package-lock.json" }), browser: cache.browser(req("playwright")) };
+  cache.saveIndex(); return keys;
+}
+const queued = process.env.RX_SHARD === "queue";   // a worker: it is given one scenario at a time
 const jobs = Math.min(Number(process.env.RX_JOBS) || Math.min(4, Math.ceil(availableParallelism() / 2)), names.length);
-if (!shard && jobs > 1) {
-  const all = (await Promise.all(Array.from({ length: jobs }, (_, i) => new Promise<(Result & { at: number })[]>(res => {
-    const c = spawn(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { env: { ...process.env, RX_SHARD: `${i}/${jobs}` }, stdio: ["ignore", "ignore", "inherit", "ipc"] });
-    const got: (Result & { at: number })[] = []; c.on("message", m => got.push(m as Result & { at: number }));
-    c.on("close", code => { for (let at = i; at < names.length; at += jobs) if (!got.some(r => r.at === at)) got.push({ at, name: names[at].replace(/\.md$/, ""), verdict: "FAIL", lines: [`  ✗ no result (its process ended: ${code})`] }); res(got); });
-  })))).flat().sort((a, b) => a.at - b.at);
-  report(all); counted(all);
+if (!queued && jobs > 1) {
+  // the scenarios are handed out one by one, so that no process waits while another has several left
+  const keys = kept(); if (keys) process.env.RX_SSR_KEYS = JSON.stringify(keys);
+  const todo = names.map((_, i) => i), all: (Result & { at: number })[] = []; let hits = 0, ran = 0;
+  await Promise.all(Array.from({ length: jobs }, () => new Promise<void>(res => {
+    const c = spawn(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { env: { ...process.env, RX_SHARD: "queue" }, stdio: ["ignore", "ignore", "inherit", "ipc"] });
+    let on: number | undefined;
+    c.on("message", (m: any) => { if (m.verdict) { all.push(m); m.hit ? hits++ : ran++; } on = todo.shift(); c.send(on ?? null); });
+    c.on("close", code => { if (on !== undefined && !all.some(r => r.at === on)) all.push({ at: on, name: names[on].replace(/\.md$/, ""), verdict: "FAIL", lines: [`  ✗ no result (its process ended: ${code})`] }); res(); });
+  })));
+  for (const [i, f] of names.entries()) if (!all.some(r => r.at === i)) all.push({ at: i, name: f.replace(/\.md$/, ""), verdict: "FAIL", lines: ["  ✗ no result (no process was left to run it)"] });
+  all.sort((a, b) => a.at - b.at); report(all);
+  if (hits) console.log(`\ncache: ${hits} of ${hits + ran} results used again — --no-cache runs everything`);
+  cache?.prune?.(); counted(all);
 }
 
 process.on("unhandledRejection", () => {});
@@ -75,9 +94,14 @@ let clientJs = "";   // the current table's client bundle (SV-3)
 const http = createServer((req, res) => { if (req.url?.startsWith("/_server")) { serverFunction(req, res).catch(e => { res.statusCode = 500; res.end(String(e)); }); return; } if (req.url === "/favicon.ico") { res.statusCode = 404; res.end(); return; } if (req.url === "/client.js") { res.writeHead(200, { "content-type": "text/javascript" }); res.end(clientJs); return; } res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); const p = pending; pending = null; if (p) p(res); else res.end("no render"); });
 await new Promise<void>(r => http.listen(0, "127.0.0.1", () => r()));
 const port = (http.address() as { port: number }).port;
-const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});   // CHROMIUM: a system browser (as eval/harness/driver.mjs)
-const page = await browser.newPage();
-const pageErrors: string[] = []; page.on("pageerror", (e: Error) => pageErrors.push(e.message)); page.on("console", (m: any) => { if (m.type() === "error" || (m.type() === "warning" && /hydrat/i.test(m.text()))) pageErrors.push(m.text()); });
+let browser: any, page: any;   // started with the first scenario that is run
+const pageErrors: string[] = [];
+async function open() {
+  if (page) return;
+  browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});   // CHROMIUM: a system browser (as eval/harness/driver.mjs)
+  page = await browser.newPage();
+  page.on("pageerror", (e: Error) => pageErrors.push(e.message)); page.on("console", (m: any) => { if (m.type() === "error" || (m.type() === "warning" && /hydrat/i.test(m.text()))) pageErrors.push(m.text()); });
+}
 const textOf = () => page.evaluate(() => {
   const root = document.getElementById("app"); if (!root) return "";
   let s = ""; const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => { for (let p = n.parentElement; p && p !== root; p = p.parentElement) if (p.tagName === "SCRIPT" || p.tagName === "TEMPLATE" || p.tagName === "STYLE") return NodeFilter.FILTER_REJECT; return NodeFilter.FILTER_ACCEPT; } });
@@ -401,19 +425,43 @@ function redactedMatch(client: string, server: string): boolean {
   return client.startsWith(pre) && client.endsWith(post) && client.length > pre.length + post.length - 1;
 }
 
-const results: Result[] = [];
-for (const [at, f] of names.entries()) {
-  if (shard && at % shard[1] !== shard[0]) continue;
-  const sc = parseScenario(f.replace(/\.md$/, ""), readFileSync(new URL(f, scenarios), "utf8"), fileURLToPath(scenarios));
-  const lines: string[] = []; let ok = true;
+/** What a scenario's run is given by the checker and the compiler, as they answer now: each program's modules for each
+ *  target — without the handlers and with a table's —, or that it is refused or not compiled; what each row's action compiles
+ *  to; the questions that are the browser's. With the scenario, the runner, the runtime, Solid and the browser, it is all
+ *  a run depends on. */
+function given(sc: Scenario): unknown {
+  const program = (src: string, handlers: string[], targets: ("ssr" | "dom")[]) => { try { if (checkModules(moduleSet(sc, src)).diags.length) return "refused"; const o = build(sc, src, handlers); return { entry: o.entry, css: o.css, views: targets.map(t => [...o.views(t)]) }; } catch (e) { return `${(e as Error).name}: ${(e as Error).message}`; } };
+  const dynamic = (r: Row) => { try { const h = r.action.startsWith("handler"); const b = parseStmts(h ? r.action.slice(7) : /^(?:resolve|reject)\s+\S+\s+([\s\S]*)$/.exec(r.action)?.[1] ?? ""); return h ? compileDynamic(b) : b.map(x => x.k === "expr" ? compileDynamicExpr(x.e) : x.k); } catch (e) { return String(e); } };
   const base = sc.tables.find(t => t.title === "Frames");
-  for (const t of sc.tables) { try { ok = (await runTable(sc, t, base, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ ${t.title}: ${(e as Error).stack}`); } }
-  if (sc.server.length) { try { ok = (await runServerTable(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Server frames: ${(e as Error).stack}`); } }
-  if (sc.before.length) { try { ok = (await runBeforeHydration(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Before hydration: ${(e as Error).stack}`); } }
-  const skipped = lines.some(l => l.includes("~ ")) && !lines.some(l => l.includes("✗"));
-  const r = { name: sc.name, verdict: ok ? (skipped ? "SKIP" : "PASS") : "FAIL", lines };
-  if (shard) await new Promise<void>(done => process.send!({ at, ...r }, () => done())); else { report([r]); results.push(r); }
+  const browsers = (src: string) => { try { return [...clientFns(sc, src)].sort(); } catch (e) { return String(e); } };
+  return { sc: JSON.stringify(sc, (_k, v) => v instanceof Map ? [...v] : v), tables: sc.tables.map(t => {
+    const src = t.program ?? sc.program; const rows = t !== base && base && t.rows.length && t.rows[0].instant > 0 ? [...base.rows.filter(r => r.instant < t.rows[0].instant), ...t.rows] : t.rows;
+    return [program(src, [], ["ssr"]), program(src, rows.filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7)), ["ssr", "dom"]), browsers(src)];
+  }), own: sc.program && (sc.server.length || sc.before.length) ? program(sc.program, [], ["ssr", "dom"]) : null, rows: [...sc.tables.flatMap(t => t.rows), ...sc.server].map(dynamic) };
 }
-await browser.close(); http.close();
-if (shard) process.disconnect(), process.exit(0);
+const keys = kept();
+async function run(f: string): Promise<Result & { hit?: boolean }> {
+  const text = readFileSync(new URL(f, scenarios), "utf8");
+  const sc = parseScenario(f.replace(/\.md$/, ""), text, fileURLToPath(scenarios));
+  const go = async () => {
+    await open(); const lines: string[] = []; let ok = true;
+    const base = sc.tables.find(t => t.title === "Frames");
+    for (const t of sc.tables) { try { ok = (await runTable(sc, t, base, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ ${t.title}: ${(e as Error).stack}`); } }
+    if (sc.server.length) { try { ok = (await runServerTable(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Server frames: ${(e as Error).stack}`); } }
+    if (sc.before.length) { try { ok = (await runBeforeHydration(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Before hydration: ${(e as Error).stack}`); } }
+    const skipped = lines.some(l => l.includes("~ ")) && !lines.some(l => l.includes("✗"));
+    return { name: sc.name, verdict: ok ? (skipped ? "SKIP" : "PASS") : "FAIL", lines };
+  };
+  if (!keys) return go();
+  const r = await cache.result("ssr", { ...keys, text, given: given(sc), environment: { ...cache.environment(), RX_CRATE: undefined } }, () => undefined, async () => ({ value: await go(), trace: [] }));
+  r.keep(r.value.verdict === "PASS"); return { ...r.value, hit: r.hit };
+}
+const end = async () => { await browser?.close(); http.close(); };
+if (queued) {
+  await new Promise<void>(done => { process.on("message", async (i: number | null) => { if (i === null) return done(); const r = await run(names[i]); process.send!({ at: i, ...r }); }); process.send!({}); });
+  await end(); process.disconnect(); process.exit(0);
+}
+const results: Result[] = [];
+for (const f of names) { const r = await run(f); report([r]); results.push(r); }
+await end();
 counted(results);

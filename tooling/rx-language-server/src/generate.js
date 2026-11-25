@@ -177,4 +177,4 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
   return out;
 }
 
-module.exports = { ensureDeclarations, parsing };
+module.exports = { ensureDeclarations, parsing, packageImportSites, rootOf };
