@@ -578,3 +578,86 @@ fn first<T>(xs: T[]): T => xs
     (type_annotation
       (type_identifier))
     (identifier)))
+
+================================================================================
+A generic component and a generic type
+================================================================================
+
+type Render<T> = (r: { item: T }) => View
+component List<T extends { id: number }>(props: { items: T[]; children: Render<T> }) {
+  <ul>{for x in props.items { <li><props.children item={x} /></li> }}</ul>
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (type_alias_declaration
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (function_type
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))))))
+      (type_identifier)))
+  (component_declaration
+    (identifier)
+    (type_parameters
+      (type_parameter
+        (type_identifier)
+        (constraint
+          (object_type
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (predefined_type)))))))
+    (formal_parameters
+      (required_parameter
+        (identifier)
+        (type_annotation
+          (object_type
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (array_type
+                  (type_identifier))))
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (generic_type
+                  (type_identifier)
+                  (type_arguments
+                    (type_identifier)))))))))
+    (view_block
+      (jsx_element
+        (jsx_opening_element
+          (identifier))
+        (jsx_expression
+          (for_block
+            (identifier)
+            (member_expression
+              (identifier)
+              (property_identifier))
+            (view_block
+              (jsx_element
+                (jsx_opening_element
+                  (identifier))
+                (jsx_self_closing_element
+                  (member_expression
+                    (identifier)
+                    (property_identifier))
+                  (jsx_attribute
+                    (property_identifier)
+                    (jsx_expression
+                      (identifier))))
+                (jsx_closing_element
+                  (identifier))))))
+        (jsx_closing_element
+          (identifier))))))

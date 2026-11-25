@@ -1883,3 +1883,83 @@ export component T(props: { element: view? { attrs: any; state: S } provides(./t
               (type_annotation
                 (predefined_type))))
           (part_path))))))
+
+================================================================================
+A signature: a generic component and a generic type
+================================================================================
+
+//@ signature lib.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).
+export type Item<T, U = string> = { v: T; label: U }
+export type Render<T> = (r: { item: T }) => View
+export component List<T extends { id: number }>(props: { items; children: view { item: T; i: number } value(i, item) }) shape(roots ul; closes-p; children-at ul li)
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_type
+      (type_identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier))
+        (type_parameter
+          (type_identifier)
+          (default_type
+            (predefined_type))))
+      (object_type
+        (property_signature
+          (property_identifier)
+          (type_annotation
+            (type_identifier)))
+        (property_signature
+          (property_identifier)
+          (type_annotation
+            (type_identifier))))))
+  (signature_export
+    (signature_type
+      (type_identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (function_type
+        (formal_parameters
+          (required_parameter
+            (identifier)
+            (type_annotation
+              (object_type
+                (property_signature
+                  (property_identifier)
+                  (type_annotation
+                    (type_identifier)))))))
+        (type_identifier))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)
+          (constraint
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))))))
+      (signature_prop
+        (property_identifier))
+      (signature_prop
+        (property_identifier)
+        (signature_view
+          (object_type
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (type_identifier)))
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (predefined_type))))
+          (part_path)
+          (part_path)))
+      (signature_shape
+        (shape_words)))))

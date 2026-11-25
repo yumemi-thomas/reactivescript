@@ -78,7 +78,7 @@ module.exports = grammar(tsx, {
     ))),
 
     // `export type Product`: a name, its type is the projection's (13 TY-4c)
-    signature_type: $ => seq('type', field('name', alias($.identifier, $.type_identifier))),
+    signature_type: $ => seq('type', field('name', alias($.identifier, $.type_identifier)), optional(seq(optional(field('type_parameters', $.type_parameters)), '=', field('value', $.type)))),   // what it stands for, where a signature holds it (RG-4c)
     // `export error NotFound(id)`
     signature_error: $ => seq('error', field('name', alias($.identifier, $.type_identifier)), optional(seq('(', commaSep(field('parameter', $.identifier)), ')'))),
     signature_action: $ => seq('action', field('name', $.identifier)),
@@ -118,6 +118,7 @@ module.exports = grammar(tsx, {
     signature_component: $ => seq(
       'component',
       field('name', $.identifier),
+      optional(field('type_parameters', $.type_parameters)),
       '(', 'props', ':', '{', optional(seq($.signature_prop, repeat(seq(';', $.signature_prop)))), '}', ')',
       repeat(choice(
         alias('made', $.row_word),
@@ -427,6 +428,7 @@ module.exports = grammar(tsx, {
     component_declaration: $ => seq(
       'component',
       field('name', $.identifier),
+      optional(field('type_parameters', $.type_parameters)),   // 07 §2: `component List<T>(…)`
       field('parameters', $.formal_parameters),
       field('body', $.view_block),
     ),
