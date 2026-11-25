@@ -438,4 +438,13 @@ Run on the final code before the one full suite:
   rows under a provision 1.0; rows that ask `if props.children`, mount 0.78, change all 0.55. The module minified 1,492
   to 1,520 bytes, the bundle 151,392 to 151,941.
 
-SUITES
+One full suite, `../ci.sh`, every job of the workflows that runs on this Mac, on 41d85756 (the commit after it changes
+this paragraph alone): **44 of 46 pass** — cargo test, both napi builds, wasm, the Windows check, the runtime's tests and
+contract, names, spec-refs, the four scenario runners (209 scenarios), served and hydrated, the type pass, crate parity
+in eight modes, drafts, lib, js-host, leaks, confined, runtime-resolve, measure, generated, the benchmark's tasks and
+coverage `--check --strict`, tree-sitter, the language server's suites, the VS Code package, vite, vite-dir, vite-gate,
+vite-types, wardic, formisch, ssr-router, start, proposals. 2 fail in a second for want of a built Solid Vite plugin
+(`t-vite-hosts`, `t-vite-watch`), as on 54571c1d.
+
+Not run: the UI SDK's unit tests (vitest) and toolbar specs; the twelve packages' own suites; Windows and Linux; nothing
+on GitHub. The 3,802 and the 635 were not served again (their accepted programs were in the first round).
