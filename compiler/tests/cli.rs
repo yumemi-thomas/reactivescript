@@ -53,6 +53,28 @@ fn a_provision_given_from_its_own_context_ends() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// RG-4c, SV-7d: providers of one context that holds a view, nested, each of whose views shows the context again — what
+/// each view holds is placed once where it is shown, not once for every path through the others (six of them took a
+/// minute, eight never ended).
+#[test]
+fn nested_providers_of_one_view_context_are_placed_once() {
+    let rxc = env!("CARGO_BIN_EXE_rxc");
+    let dir = std::env::temp_dir().join(format!("rxc-nest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut body = String::from("<P />");
+    for _ in 0..14 {
+        body = format!("<R>{{view c (o) {{ <P /> }}}}{body}</R>");
+    }
+    let src = format!("context c: (o: {{ v: string }}) => View\ncomponent R(p: {{ c: (o: {{ v: string }}) => View; children?: View }}) {{ provide c = p.c\n  <div>{{p.children}}</div> }}\ncomponent P() {{ <b><use.c v=\"x\" /></b> }}\nexport default component App() {{ {body} }}\n");
+    std::fs::write(dir.join("main.rx"), src).unwrap();
+    let t = std::time::Instant::now();
+    let out = Command::new(rxc).current_dir(&dir).args(["check", "main.rx"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(t.elapsed().as_secs() < 10, "{:?}", t.elapsed());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// MO-6: a folder named as a module is no module (the reference's command line says the same, `ref/units.ts`
 /// `a_folder_named_as_a_module_is_no_module`): as the entry, and as an import.
 #[test]

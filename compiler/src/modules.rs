@@ -1127,6 +1127,8 @@ pub struct ViewUses {
     pub at: HashMap<usize, Vec<String>>,
     /// each `provide item = props.f` of a context that holds a view: the context's name, the props it carries
     pub carried: Vec<(String, Vec<String>)>,
+    /// the provisions of a context that holds a view whose every arm is a view of the component, or nothing: no text
+    pub only: HashSet<usize>,
 }
 pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String], dest: &dyn Fn(&str, &str) -> Option<bool>, ctx: &dyn Fn(&str) -> bool) -> ViewUses {
     use crate::ast::{Attr, Field, MarkupKind, PathSeg, Stmt, StmtKind, TplPart};
@@ -1182,6 +1184,20 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
         }
         fn form(&self, e: &Expr, sc: usize) -> bool {
             matches!(e.k, ExprKind::Id(_) | ExprKind::Member { .. }) && self.view(e, sc).is_some()
+        }
+        /// Whether an expression is a view of the component or nothing, whatever it chooses: no arm of it is a value,
+        /// which would be text where it is shown (`p.z ? p.b : undefined`, `p.b ?? p.c`).
+        fn views_only(&self, e: &Expr, sc: usize) -> bool {
+            // (`null` is shown as text)
+            if self.form(e, sc) || matches!(e.k, ExprKind::Lit(Lit::Undefined)) {
+                return true;
+            }
+            match &e.k {
+                ExprKind::If { t, f, .. } => self.views_only(t, sc) && self.views_only(f, sc),
+                ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||") => self.views_only(l, sc) && self.views_only(r, sc),
+                // (not `a && b`: where its left is false, or 0, it is that value, and `false` is shown as text)
+                _ => false,
+            }
         }
         fn left(&self, e: &Expr, sc: usize) -> Vec<String> {
             match self.given(e, sc) {
@@ -1412,6 +1428,12 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
             if self.form(c, sc) {
                 return;
             }
+            // a choice or a default of views is asked as one is (`if p.l ?? p.r`): each of its arms answers
+            if matches!(&c.k, ExprKind::If { .. }) || matches!(&c.k, ExprKind::Bin { op, .. } if op == "??") {
+                if self.view(c, sc).is_some() {
+                    return self.ve(c, sc, line, how);
+                }
+            }
             match &c.k {
                 ExprKind::Un { op, e } if op == "!" => self.test(e, sc, line, how),
                 ExprKind::Bin { op, l, r } if matches!(op.as_str(), "&&" | "||") => {
@@ -1535,6 +1557,9 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
                         if !fs.is_empty() {
                             self.out.at.insert(x as *const Decl as usize, fs.clone());
                             self.out.carried.push((name.clone(), fs));
+                            if self.views_only(e, sc) {
+                                self.out.only.insert(x as *const Decl as usize);
+                            }
                         }
                     }
                     Decl::Provide { e, .. } => self.plain(e, sc, at, near(how, "context")),

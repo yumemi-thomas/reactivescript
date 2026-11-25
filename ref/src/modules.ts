@@ -567,7 +567,7 @@ function mentions(x: unknown, name: string): boolean {
  *  the same spelling is another name. `bad`: every other mention, in the order of the text. `kids`: the readers that
  *  show a view. `skip`: the fields the component shows as `<props.f … />`, which have their own rule (`otherMention`).
  *  `dest`: what the prop `attr` of `<tag>` is declared (`takesView`). */
-export type ViewUses = { kids: Set<unknown>; bad: { field: string; line: number; how: string; of?: string }[]; /** each reader that shows a view, each argument and each content that gives one on: the props it is of (a choice names several) */ at: Map<unknown, string[]> };
+export type ViewUses = { kids: Set<unknown>; bad: { field: string; line: number; how: string; of?: string }[]; /** each reader that shows a view, each argument and each content that gives one on: the props it is of (a choice names several) */ at: Map<unknown, string[]>; /** the provisions of a context that holds a view whose every arm is a view of the component, or nothing: no text */ only: Set<unknown> };
 /** What refuses a view read as a value, and the way that is accepted, by what read it (`how`). */
 export function viewNotShown(comp: string, props: string, field: string, how: string, of = ""): string {
   const v = field === "props" || field === "view" ? `${props}.children` : `${props}.${field}`;
@@ -615,6 +615,12 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
     if (e.k === "bin" && (e.op === "??" || e.op === "||")) return [...fields(e.l, sc), ...fields(e.r, sc)];
     return [];
   };
+  /** Whether an expression is a view of the component or nothing, whatever it chooses: no arm of it is a value, which
+   *  would be text where it is shown (`p.z ? p.b : undefined`, `p.b ?? p.c`). */
+  const viewsOnly = (e: Expr, sc: Sc): boolean => form(e, sc) || (e.k === "lit" && e.v === undefined)   // (`null` is shown as text)
+    || (e.k === "if" && viewsOnly(e.t, sc) && viewsOnly(e.f, sc))
+    || (e.k === "bin" && (e.op === "??" || e.op === "||") && viewsOnly(e.l, sc) && viewsOnly(e.r, sc));   // (not `a && b`: where its left is false, or 0, it is that value, and `false` is shown as text)
+  const only = new Set<unknown>();
   const declared = (x: Decl): string[] => x.k === "import" ? x.names.map(n => n.alias) : x.k === "effect" || x.k === "provide" ? [] : [x.name];
   const block = (ds: Decl[], up: Sc): Sc => {
     const sc = sub(up); for (const x of ds) for (const n of declared(x)) sc.names.set(n, null);
@@ -656,6 +662,7 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
   /** A condition: a view in it is asked for. */
   const test = (c: Expr, sc: Sc, line: number, how = "value"): void => {
     if (form(c, sc)) return;
+    if ((c.k === "if" || (c.k === "bin" && c.op === "??")) && view(c, sc)) return ve(c, sc, line, how);   // a choice or a default of views is asked as one is (`if p.l ?? p.r`): each of its arms answers
     if (c.k === "un" && c.op === "!") return test(c.e, sc, line, how);
     if (c.k === "bin" && (c.op === "&&" || c.op === "||")) { test(c.l, sc, line, how); test(c.r, sc, line, how); return; }
     plain(c, sc, line, how);
@@ -694,7 +701,7 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
       case "component": { const b = block(x.decls, sub(sc, x.props)); dk(x.decls, b, at, near(how, "closure")); mk(x.view, b, at); break; }
       case "effect": plain(x.inputs, sc, at, "effect"); stmts(x.body, sc, at, "effect"); break;
       case "action": case "server": stmts(x.body, sub(sc, ...x.params), at, near(how, "handler")); break;
-      case "provide": if (ctx?.(x.name)) { ve(x.e, sc, at, how); const fs = fields(x.e, sc); if (fs.length) places.set(x, fs); } else plain(x.e, sc, at, near(how, "context")); break;   // a context that holds a view carries it to where it is shown (`{use item}`)
+      case "provide": if (ctx?.(x.name)) { ve(x.e, sc, at, how); const fs = fields(x.e, sc); if (fs.length) places.set(x, fs); if (fs.length && viewsOnly(x.e, sc)) only.add(x); } else plain(x.e, sc, at, near(how, "context")); break;   // a context that holds a view carries it to where it is shown (`{use item}`)
       case "context": plain(x.dflt, sc, at, how); break;
       case "error": plain(x.msg, sub(sc, ...x.params), at, how); break;
       default: break;   // import, typedecl
@@ -732,7 +739,7 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
     }
   } };
   inner(d.decls, d.view, { names: new Map([[d.props, { props: { less: [], views } }]]), up: null }, 0);
-  return { kids, bad, at: places };
+  return { kids, bad, at: places, only };
 }
 /** The readers that show a component's children, of every component of a program: for the interpreter. */
 export function heldReads(set: ModuleSet): Set<unknown> {

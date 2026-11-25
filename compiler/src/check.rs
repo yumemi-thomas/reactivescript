@@ -197,6 +197,14 @@ struct Carrier<'a> {
     content: Option<(Vec<&'a Markup>, EId)>,
     text: bool,
 }
+/// What a carrier holds, by a name: the markup (by its first node), text, or a view of the component given on.
+fn carrier_id(x: &Carrier) -> String {
+    match &x.content {
+        Some((ms, _)) => format!("c{}", ms.first().map(|m| *m as *const Markup as usize).unwrap_or(0)),
+        None if x.text => "t".into(),
+        None => format!("o{}", x.own.clone().unwrap_or_default()),
+    }
+}
 fn put_at(sh: &mut Shape, f: &str, anc: Vec<String>) {
     if f == "children" {
         sh.children_at.push(anc);
@@ -2142,12 +2150,15 @@ pub struct Checker<'a> {
     /// RG-4c: each reader that shows a view its component was given, each argument and each content that gives one on (by
     /// the address of the `Markup` or the `Attr`): the props it is of. Per component, once (`view_placed`).
     view_places: HashMap<usize, Vec<String>>,
+    view_only: HashSet<usize>,
     /// RG-4c: each component's views provided to a context that holds a view (the context's name, the props)
     view_carried: HashMap<SId, Vec<(String, Vec<String>)>>,
     sh_carried: Vec<Carrier<'a>>,
     sh_depth: HashMap<usize, u8>,
+    sh_walked: HashSet<String>,
     cc_carried: Vec<Carrier<'a>>,
     cc_depth: HashMap<usize, u8>,
+    cc_seen: HashSet<String>,
     /// the element whose application is being walked (the key of its content's place)
     cur_el: usize,
     cc_quiet: u32,
@@ -2580,11 +2591,14 @@ impl<'a> Checker<'a> {
             awaited: HashSet::new(),
             shapes: HashMap::new(),
             view_places: HashMap::new(),
+            view_only: HashSet::new(),
             view_carried: HashMap::new(),
             sh_carried: vec![],
             sh_depth: HashMap::new(),
+            sh_walked: HashSet::new(),
             cc_carried: vec![],
             cc_depth: HashMap::new(),
+            cc_seen: HashSet::new(),
             cur_el: 0,
             cc_quiet: 0,
             text_given: HashSet::new(),
@@ -4155,7 +4169,7 @@ impl<'a> Checker<'a> {
                 if let Some((false, _)) = &info.view {
                     // RG-4c: given what is no view of the component alone (a value, a choice with one), it may hold text
                     self.ensure_places(env);
-                    let pure = matches!(e.k, ExprKind::Id(_) | ExprKind::Member { .. }) && self.regions[region].component.is_some() && self.view_places.get(&(d as *const Decl as usize)).is_some_and(|fs| !fs.is_empty());
+                    let pure = self.regions[region].component.is_some() && self.view_only.contains(&(d as *const Decl as usize));
                     if !pure {
                         self.text_given.insert(info.key.clone());
                     }
@@ -7864,6 +7878,7 @@ impl<'a> Checker<'a> {
             let skip: Vec<String> = self.shown_by(c).keys().cloned().collect();
             let vu = view_uses(props, props_type.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
             self.view_places.extend(vu.at);
+            self.view_only.extend(vu.only);
             self.view_carried.insert(c, vu.carried);
         }
         self.shapes.insert(c, None);
@@ -7871,6 +7886,7 @@ impl<'a> Checker<'a> {
         let mut roots: IndexSet<String> = IndexSet::new();
         // RG-4c: a view of this component provided to a context: shown wherever that context is, beneath
         let saved = (std::mem::take(&mut self.sh_carried), std::mem::take(&mut self.sh_depth));
+        let walked = std::mem::take(&mut self.sh_walked);
         for (name, fs) in self.view_carried.get(&c).cloned().unwrap_or_default() {
             let Some(key) = self.lookup(cenv, &name).and_then(|s| self.syms[s].ctx.as_ref()).map(|i| i.key.clone()) else { continue };
             for f in fs {
@@ -7886,6 +7902,7 @@ impl<'a> Checker<'a> {
         }
         self.shape_walk(view, &[], false, cenv, &mut sh, &mut roots);
         (self.sh_carried, self.sh_depth) = saved;
+        self.sh_walked = walked;
         sh.roots = roots.into_iter().collect();
         self.shapes.insert(c, Some(sh.clone()));
         sh
@@ -8529,6 +8546,11 @@ impl<'a> Checker<'a> {
                 let id = ms.first().map(|m| *m as *const Markup as usize).unwrap_or(0);
                 let d = self.sh_depth.get(&id).copied().unwrap_or(0);
                 if d < 2 {
+                    // what was placed here once in this state (these ancestors, these providers around, these views under way) is placed
+                    let state = format!("{}|{}|{}|{}", carrier_id(&c), at.join(">"), scoped, self.sh_carried.iter().map(|x| format!("{}={}", x.key, carrier_id(x))).collect::<Vec<_>>().join(","));
+                    if !self.sh_walked.insert(state) {
+                        continue;
+                    }
                     self.sh_depth.insert(id, d + 1);
                     let sc = scoped || at.iter().any(|t| P_SCOPE.contains(t.as_str()));
                     for m in ms {
@@ -8627,10 +8649,10 @@ impl<'a> Checker<'a> {
     fn shown_check(&mut self, key: &str, anc: &[String]) {
         let cs: Vec<Carrier<'a>> = self.cc_carried.iter().filter(|c| c.key == key).cloned().collect();
         let quiet = std::mem::take(&mut self.cc_quiet);
-        self.shown_check0(cs, anc);
+        self.shown_check0(cs, anc, quiet as usize);
         self.cc_quiet = quiet;
     }
-    fn shown_check0(&mut self, cs: Vec<Carrier<'a>>, anc: &[String]) {
+    fn shown_check0(&mut self, cs: Vec<Carrier<'a>>, anc: &[String], quiet: usize) {
         for c in cs {
             if c.text {
                 let why = misnested(anc, "#text");
@@ -8639,6 +8661,12 @@ impl<'a> Checker<'a> {
                 let id = ms.first().map(|m| *m as *const Markup as usize).unwrap_or(0);
                 let d = self.cc_depth.get(&id).copied().unwrap_or(0);
                 if d < 2 {
+                    // what was placed here once, under these ancestors and these providers, is placed: nested providers of
+                    // one context, each of whose views shows the context again, were walked once for every path through them
+                    let seen = format!("{}|{}|{}|{}", carrier_id(&c), anc.join(">"), self.cc_carried.iter().map(|x| format!("{}={}", x.key, carrier_id(x))).collect::<Vec<_>>().join(","), quiet);
+                    if !self.cc_seen.insert(seen) {
+                        continue;
+                    }
                     let line = self.line;
                     self.cc_depth.insert(id, d + 1);
                     for m in ms {
@@ -8658,6 +8686,7 @@ impl<'a> Checker<'a> {
             let skip: Vec<String> = self.shown_by(c).keys().cloned().collect();
             let vu = view_uses(props, props_type.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
             self.view_places.extend(vu.at);
+            self.view_only.extend(vu.only);
             self.view_carried.insert(c, vu.carried);
         }
     }

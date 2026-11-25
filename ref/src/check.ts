@@ -1405,7 +1405,7 @@ class Checker {
         env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env, ...(c.ctx!.view && env.region.component ? { block: env.region } : {}) });
         if (c.ctx!.view && !c.ctx!.view.fn) {                                              // RG-4c: given what is no view of the component alone (a value, a choice with one), it may hold text
           const comp = env.region.component ? this.compSyms.get(env.region.component) : undefined;
-          if (!((d.e.k === "id" || d.e.k === "member") && comp && this.usesOf(comp)?.at.get(d)?.length)) this.textGiven.add(c.ctx!.key);
+          if (!(comp && this.usesOf(comp)?.only.has(d))) this.textGiven.add(c.ctx!.key);
         }
         if (c.ctx!.view?.fn) {                                                             // RG-4c: a context that holds a view with a parameter is given one the component was given, as it is
           const p = d.e.k === "member" && d.e.o.k === "id" ? env.lookup(d.e.o.name) : undefined; const cs = p?.kind === "props" && !p.viewOf ? this.compSyms.get(p.region) : undefined; const how = cs && this.shownBy(cs)?.get((d.e as { p: string }).p);
@@ -3127,12 +3127,19 @@ class Checker {
     return out;
   }
   private ccCarried: Carrier[] = []; private ccDepth = new Map<Markup[], number>(); private ccQuiet = 0;
+  private ccIds = new Map<Markup, number>(); private ccSeen = new Set<string>();
+  /** What a carrier holds, by a name: the markup (by its first node), text, or a view of the component given on. */
+  private ccId(x: Carrier): string { return x.content ? `c${x.content.length ? this.ccIds.get(x.content[0]) ?? (this.ccIds.set(x.content[0], this.ccIds.size), this.ccIds.size - 1) : ""}` : x.text ? "t" : `o${x.own}`; }
   /** … and, where a view is checked: markup given to a provider around this place is placed here. */
   private shownCheck(key: string, anc: string[]) {
     const quiet = this.ccQuiet; this.ccQuiet = 0;
     try { for (const c of this.ccCarried) if (c.key === key) {
       if (c.text) { const why = misnested(anc, "#text"); if (why) this.err("CONTENT_MODEL", "SV-7d", `the text a context is given inside <${anc[anc.length - 1]}>: the browser's HTML parser ${why}, so the served page is not the tree the client builds`); }
-      else if (c.content && (this.ccDepth.get(c.content) ?? 0) < 2) { const line = this.line; this.ccDepth.set(c.content, (this.ccDepth.get(c.content) ?? 0) + 1); try { this.contentCheck(c.content, c.env!, anc); } finally { this.ccDepth.set(c.content, this.ccDepth.get(c.content)! - 1); this.line = line; } }
+      else if (c.content && (this.ccDepth.get(c.content) ?? 0) < 2) { const line = this.line;
+        // what was placed here once, under these ancestors and these providers, is placed: nested providers of one
+        // context, each of whose views shows the context again, were walked once for every path through them
+        const id = (x: Carrier) => this.ccId(x);
+        const seen = `${id(c)}|${anc.join(">")}|${this.ccCarried.map(x => `${x.key}=${id(x)}`).join(",")}|${quiet}`; if (this.ccSeen.has(seen)) continue; this.ccSeen.add(seen); this.ccDepth.set(c.content, (this.ccDepth.get(c.content) ?? 0) + 1); try { this.contentCheck(c.content, c.env!, anc); } finally { this.ccDepth.set(c.content, this.ccDepth.get(c.content)! - 1); this.line = line; } }
     } } finally { this.ccQuiet = quiet; }
   }
   private shapes = new Map<Sym, Shape | null>();   // null: being computed (a recursive component contributes nothing more)
@@ -3148,13 +3155,20 @@ class Checker {
     // RG-4c: a context that holds a view is shown here. Whatever provides it above this component shows its view at
     // this place (`use:<key>-at …`); what is given to a provider written around it in this view is shown here: a view
     // of this component given on is placed here, markup written here is part of this component's tree
-    const carried: Carrier[] = []; const depth = new Map<Markup[], number>();
-    const shownAt = (key: string, at: string[], scoped: boolean, dflt = false) => {
+    const carried: Carrier[] = []; const depth = new Map<Markup[], number>(); const walked = new Set<string>();
+    const shownAt =(key: string, at: string[], scoped: boolean, dflt = false) => {
       ((sh.viewsAt ??= {})[USE + key] ??= []).push(at);
       if (dflt && !at.length) roots.add("#text");                                          // its default is a value: text
       for (const c of carried) if (c.key === key) {
         if (c.own !== undefined) put(c.own, at);
-        else if (c.content && (depth.get(c.content) ?? 0) < 2) { depth.set(c.content, (depth.get(c.content) ?? 0) + 1); try { if (at.includes("body")) links(c.content, at, c.env!); else walk(c.content, at, scoped || at.some(t => P_SCOPE.has(t)), c.env!); } finally { depth.set(c.content, depth.get(c.content)! - 1); } }
+        else if (c.content && (depth.get(c.content) ?? 0) < 2) {
+          // what was placed here once (these ancestors, these providers around) is placed: nested providers of one
+          // context, each of whose views shows the context again, were walked once for every path through them. (A
+          // view that shows itself through a context is followed twice, as before; which of its turns is the one
+          // kept no longer depends on the path.)
+          const state = `${this.ccId(c)}|${at.join(">")}|${scoped}|${carried.map(x => `${x.key}=${this.ccId(x)}`).join(",")}`;
+          if (walked.has(state)) continue; walked.add(state);
+          depth.set(c.content, (depth.get(c.content) ?? 0) + 1); try { if (at.includes("body")) links(c.content, at, c.env!); else walk(c.content, at, scoped || at.some(t => P_SCOPE.has(t)), c.env!); } finally { depth.set(c.content, depth.get(c.content)! - 1); } }
         else if (c.text && !at.length) roots.add("#text");
       }
     };
