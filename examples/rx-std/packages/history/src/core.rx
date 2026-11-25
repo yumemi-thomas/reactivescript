@@ -1,0 +1,34 @@
+// An undo history: each change of `entry` (a list of functions that set the state back) is a step; undo and redo move
+// among the steps and run theirs. The log is state derived from the entries and moved by `jump` (ST-5).
+import { soon } from "@reactivescript/std/time"
+import pure { max } from "@reactivescript/std/math"
+import pure { entries } from "./steps.js"
+
+export type Entry = (() => void)[] | null
+export type Log = { items: (() => void)[][]; offset: number; skip: boolean }
+export type Options = { limit?: number } | undefined
+
+fn at(log: Log, by: number): number => log.items.length - 1 - (log.offset - by)
+fn target(log: Log, by: number): number => at(log, by) >= 0 && at(log, by) < log.items.length ? at(log, by) : -1
+fn kept(items: (() => void)[][], limit: number): (() => void)[][] => items.slice(max(0, items.length - (limit + 1)))
+fn step(log: Log, entry: Entry, limit: number): Log => log.skip ? { ...log, skip: false } : entry === null ? log :
+  { items: kept([...log.items.slice(0, log.items.length - log.offset), entry], limit), offset: 0, skip: false }
+
+export fn createUndoHistory(sources: any, options: Options) {
+  entry = entries(sources)
+  source log: Log = step(pre log -> { items: [], offset: 0, skip: false }, entry, options?.limit ?? 100)
+  canUndo = target(log, -1) >= 0
+  canRedo = target(log, 1) >= 0
+  action jump(by: number) {
+    if (target(log, by) >= 0) {
+      let to = log.items[target(log, by)]
+      let from = log.items[target(log, by) - by]
+      log := l => ({ ...l, offset: l.offset - by, skip: true })
+      to.forEach((set, i) => { if (set && from[i] && set !== from[i]) { set() } })
+      soon(() => { log := l => ({ ...l, skip: false }) })
+    }
+  }
+  action undo() { jump(-1) }
+  action redo() { jump(1) }
+  { canUndo: canUndo, canRedo: canRedo, undo: undo, redo: redo }
+}

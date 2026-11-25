@@ -1,0 +1,5 @@
+export pure fn isArray(x: unknown): boolean
+export pure fn isFunction(x: unknown): boolean
+export pure fn isNumber(x: unknown): boolean
+export pure fn isString(x: unknown): boolean
+export pure fn isObject(x: unknown): boolean

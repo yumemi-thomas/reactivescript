@@ -1,0 +1,12 @@
+// x: 1 → 2. `x > 0` stays true, so the block does not run again (EF-2) — but its cleanup does: the listener is gone.
+import { on } from "./log.js"
+export fn useListening(ref x: number) {
+  effect (x > 0) { return on() }
+  null
+}
+/** The same with the input named: an equation that stays equal does not fire. */
+export fn useListeningNamed(ref x: number) {
+  positive = x > 0
+  effect (positive) { return on() }
+  null
+}

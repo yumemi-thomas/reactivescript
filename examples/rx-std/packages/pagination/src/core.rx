@@ -1,0 +1,24 @@
+// The page, kept between 1 and the number of pages, and what of the pager is shown.
+import pure { floor, max, min } from "@reactivescript/std/math"
+import pure { from } from "@reactivescript/std/object"
+export type Options = { pages: number; maxPages: number; jumpPages?: number; initialPage: number; showEllipsis: boolean }
+
+fn clamp(n: number, pages: number): number => max(1, min(n, pages))
+export type Shown = { count: number; start: number }
+/** The index of the first page shown, and how many are. */
+fn window(page: number, pages: number, count: number): Shown => ({ count: count, start: min(pages - count, max(1, page - floor(count / 2)) - 1) })
+/** The rows of the page, the list they were before while they are the same. */
+fn same(prev: any, part: any[]): any[] => prev && prev.length === part.length && from(part).every((x, i) => x === prev[i]) ? prev : part
+
+export fn createSegment(ref items: any[], ref limit: number, ref page: number): any[] {
+  part = same(pre part -> null, items.slice((page - 1) * limit, min(page * limit, items.length)))
+  part
+}
+
+export fn createPage(ref pages: number, ref maxPages: number, first: number) {
+  source raw := first
+  page = clamp(raw, pages)
+  shown = window(page, pages, min(maxPages, pages))
+  action set(n: number) { raw := clamp(n, pages) }
+  { page: page, shown: shown, set: set }
+}

@@ -1,0 +1,3 @@
+export type Clock = { follow: (delay: number | false) => () => void }
+export pure fn timer(run: handler () => void, set: any): Clock instantiates
+export const repeating: any

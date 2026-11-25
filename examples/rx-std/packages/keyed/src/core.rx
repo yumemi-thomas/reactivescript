@@ -1,0 +1,28 @@
+// Lists as components. In .rx itself none of these is needed: `for x in rows` with a key is the language's.
+import pure { from, keys as names } from "@reactivescript/std/object"
+import pure { isFunction } from "@reactivescript/std/is"
+
+fn keysOf(m: any): any[] => m ? from(m.keys ? m.keys() : names(m)) : []
+fn valueOf(m: any, k: any): any => m?.get ? m.get(k) : m?.[k]
+fn rowsOf(each: any, by: any): any[] => (each || []).map((v: any, i: number) => ({ k: isFunction(by) ? by(v) : v[by], v: v, i: i }))
+
+export component Key(props: { each?: any; by: any; fallback?: View; children: (v: any, i: any) => View }) {
+  rows key k = rowsOf(props.each, props.by)
+  if rows.length == 0 { {props.fallback} } else {
+    for r in rows { {props.children(() => r.v, () => r.i)} }
+  }
+}
+
+export component MapEntries(props: { of: any; fallback?: View; children: (k: any, v: any, i: any) => View }) {
+  keys = keysOf(props.of)
+  if keys.length == 0 { {props.fallback} } else {
+    for k in keys { {props.children(k, () => valueOf(props.of, k), () => keys.indexOf(k))} }
+  }
+}
+
+export component SetValues(props: { of: any; fallback?: View; children: (v: any, i: any) => View }) {
+  values = props.of ? from(props.of.values()) : []
+  if values.length == 0 { {props.fallback} } else {
+    for v in values { {props.children(v, () => values.indexOf(v))} }
+  }
+}

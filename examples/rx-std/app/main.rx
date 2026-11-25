@@ -1,0 +1,41 @@
+// The rewritten packages used from .rx: each is checked against the signature its package ships.
+import { createMediaQuery } from "@rx-primitives/media/core"
+import { dark } from "@rx-primitives/media/page"
+import { createPolled } from "@rx-primitives/timer/core"
+import { createSorted } from "@rx-primitives/sortable/core"
+import { createUndoHistory } from "@rx-primitives/history/core"
+import { createPage, createSegment } from "@rx-primitives/pagination/core"
+import { keys, held, createKeyHold } from "@rx-primitives/keyboard/core"
+import { createElementSize } from "@rx-primitives/resize-observer/core"
+import { windowSize } from "@rx-primitives/resize-observer/page"
+import { createPersisted } from "@rx-primitives/storage/core"
+import { createPresence } from "@rx-primitives/presence/core"
+import { NumberProp } from "@rx-primitives/controlled-props/core"
+import { createFormControl } from "@rx-primitives/form-control/core"
+
+component Saved() {
+  [theme, setTheme, clear] = createPersisted("theme", "light", null)
+  <b onClick={() => { try { setTheme("dark") } catch (e) { log(e.message) } }}>{theme}</b>
+}
+export default component App() {
+  source list := [3, 1, 2]
+  source box: Element | null := null
+  source shown: string | null := "hello"
+  source n := 1
+  action setN(v: number) { n := v }
+  wide = createMediaQuery("(min-width: 640px)", false)
+  sorted = createSorted(list, (a, b) => a - b)
+  pager = createPage(list.length, 3, 1)
+  part = createSegment(list, 2, pager.page)
+  hold = createKeyHold("a")
+  size = createElementSize(box)
+  seen = createPresence(shown, { transitionDuration: 100 })
+  control = createFormControl({ id: "id" })
+  <main ref={el => { box := el }}>
+    <p>{wide ? "wide" : "narrow"} {dark ? "dark" : "light"} {sorted.length} {part.length} {hold ? "a" : held} {keys.length} {size.width} {windowSize.width} {control.name}</p>
+    <button onClick={() => { pager.set(2) }}>{pager.page}</button>
+    {if seen.isMounted { <i>{seen.mountedItem}</i> }}
+    <NumberProp name="n" value={() => n} setValue={setN} />
+    {errored fallback(e) { <p>{e.message}</p> } { {loading fallback { <p>…</p> } { <Saved /> }} }}
+  </main>
+}

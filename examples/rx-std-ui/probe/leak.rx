@@ -1,0 +1,10 @@
+import pure { make } from "./make.js"
+component Row() {
+  x = make()
+  <p class="row">{x.big.length}</p>
+}
+export default component App() {
+  source open := true
+  <button id="t" onClick={() => { open := !open }}>t</button>
+  {if open { <Row /> }}
+}

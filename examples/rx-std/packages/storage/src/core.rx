@@ -1,0 +1,22 @@
+// A value kept in a storage, synchronous or not, and followed across tabs.
+import { onWindow } from "@reactivescript/std/browser"
+import pure { parse, stringify } from "@reactivescript/std/json"
+import { write } from "./store.js"
+import pure { read } from "./store.js"
+
+/** `key`'s value: `initial` until an asynchronous storage answers. A write is kept in the storage. */
+export fn createPersisted(key: string, initial: any, storage: any): [any, (v: any) => Promise<void>, () => Promise<void>] {
+  source stored = await read(storage, key) -> null
+  value = stored == null ? initial : parse(stored)
+  effect () { return onWindow("storage", (e) => { if (e.key == key) { stored := e.newValue } }) }
+  action set(next: any) {
+    let t = stringify(next)
+    stored := t
+    write(storage, key, t)
+  }
+  action clear() {
+    stored := null
+    write(storage, key, null)
+  }
+  [value, set, clear]
+}

@@ -1,0 +1,2 @@
+export pure fn parse(text: string): any
+export pure fn stringify(value: unknown): string

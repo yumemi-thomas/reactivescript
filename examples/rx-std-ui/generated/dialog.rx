@@ -1,0 +1,140 @@
+// Dialog and its parts over @ui-sdk/core's `dialog`.
+// Derived from dialog.tsx, dialog-parts.tsx and popup.tsx of @ui-sdk/solid 0.1.0-beta.17 (Apache-2.0, see ../NOTICE).
+import { fire, give, setOptions } from "./bridge.js"
+import { create, uniqueId, own, binder, elementProps, register, entryOf } from "./bridge.js"
+import { presentOf } from "./bridge.js"
+import { classOf, styleOf, viewOf, portalTarget } from "./bridge.js"
+import { dialog as primitive } from "./core.js"
+import { Portal } from "./portal.js"
+import { Attrs, Scope } from "./bridge.js"
+import { usePart } from "./part.rx"
+import { DialogProps, DialogTriggerProps, DialogBackdropProps, DialogContentProps, DialogTitleProps, DialogDescriptionProps, DialogCloseProps, DialogShortcutProps, Container } from "./bridge.js"
+
+context dialog: Scope
+// the dialog around, where there may be none; the trigger around, and what it opens; where popups render
+context nearest: Scope | null = null
+context trigger: { shortcut: string | undefined; target: Scope | null } | null = null
+context rootContainer: Container = undefined
+context inherited: Container = undefined
+
+export component DialogTrigger(props: DialogTriggerProps) {
+  { disabled, focusableWhenDisabled, payload, shortcut, render, ref: user, ...rest } = props
+  scope = use dialog
+  id = uniqueId()
+  { part, attrs, now } = usePart(scope.it, "trigger", { id: props.id ?? id, disabled: disabled, focusableWhenDisabled: focusableWhenDisabled, payload: payload, shortcut: shortcut }, rest, scope.options)
+  bind = binder(part)
+  on_ = own({
+    ref: (e: Element) => { bind(e); give(user, e) },
+    onClick: (e: Event) => { fire(part, "click", e, props.onClick) },
+    onKeyDown: (e: Event) => { fire(part, "keydown", e, props.onKeyDown) },
+    onPointerEnter: (e: Event) => { fire(part, "pointerenter", e, props.onPointerEnter) },
+    onPointerLeave: (e: Event) => { fire(part, "pointerleave", e, props.onPointerLeave) },
+    onFocusIn: (e: Event) => { fire(part, "focusin", e, props.onFocusIn) },
+    onFocusOut: (e: Event) => { fire(part, "focusout", e, props.onFocusOut) }
+  })
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <button {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</button>
+  }}
+}
+
+export component DialogBackdrop(props: DialogBackdropProps) {
+  { render, ref: user, ...rest } = props
+  scope = use dialog
+  named = {}
+  { part, attrs, now, tick } = usePart(scope.it, "backdrop", named, rest, scope.options)
+  present = presentOf(part, named, scope.options, tick)
+  {if present {
+    bind = binder(part)
+    on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+    {if render != undefined {
+      all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+      {viewOf(render(all, now))}
+    } else {
+      <div {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</div>
+    }}
+  }}
+}
+
+export component DialogContent(props: DialogContentProps) {
+  { container, initialFocus, finalFocus, keepMounted, inline, render, ref: user, ...rest } = props
+  scope = use dialog
+  named = { container: container, initialFocus: initialFocus, finalFocus: finalFocus, keepMounted: keepMounted, inline: inline }
+  { part, attrs, now, tick } = usePart(scope.it, "content", named, rest, scope.options)
+  present = presentOf(part, named, scope.options, tick)
+  {if present {
+    bind = binder(part)
+    on_ = own({
+      ref: (e: Element) => { bind(e); give(user, e) },
+      onKeyDown: (e: Event) => { fire(part, "keydown", e, props.onKeyDown) }
+    })
+    {if render != undefined {
+      all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+      {viewOf(render(all, now))}
+    } else {
+      <div {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</div>
+    }}
+  }}
+}
+
+export component DialogTitle(props: DialogTitleProps) {
+  { render, ref: user, ...rest } = props
+  scope = use dialog
+  { part, attrs, now } = usePart(scope.it, "title", {}, rest, scope.options)
+  bind = binder(part)
+  on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <h2 {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</h2>
+  }}
+}
+
+export component DialogDescription(props: DialogDescriptionProps) {
+  { render, ref: user, ...rest } = props
+  scope = use dialog
+  { part, attrs, now } = usePart(scope.it, "description", {}, rest, scope.options)
+  bind = binder(part)
+  on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <p {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</p>
+  }}
+}
+
+export component DialogClose(props: DialogCloseProps) {
+  { value, action: action_, render, ref: user, ...rest } = props
+  scope = use dialog
+  id = uniqueId()
+  { part, attrs, now } = usePart(scope.it, "close", { id: props.id ?? id, value: value, action: action_ }, rest, scope.options)
+  bind = binder(part)
+  on_ = own({
+    ref: (e: Element) => { bind(e); give(user, e) },
+    onClick: (e: Event) => { fire(part, "click", e, props.onClick) }
+  })
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <button {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</button>
+  }}
+}
+
+export component DialogShortcut(props: DialogShortcutProps) {
+  { shortcut, render, ref: user, ...rest } = props
+  scope = use dialog
+  { part, attrs, now } = usePart(scope.it, "shortcut", { shortcut: shortcut }, rest, scope.options)
+  bind = binder(part)
+  on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <span {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</span>
+  }}
+}

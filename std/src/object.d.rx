@@ -1,0 +1,4 @@
+export pure fn keys(o: object): string[]
+export pure fn entries<V>(o: { [key: string]: V }): [string, V][]
+export pure fn fromEntries<V>(list: readonly (readonly [string, V])[]): { [key: string]: V }
+export pure fn from<T>(list: Iterable<T> | ArrayLike<T>): T[]

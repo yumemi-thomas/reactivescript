@@ -1,0 +1,3 @@
+export component Btn(props: { onClick?: (e: MouseEvent) => void }) {
+  <button onClick={(e: MouseEvent) => { props.onClick?.(e) }}>a</button>
+}
