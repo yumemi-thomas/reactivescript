@@ -126,23 +126,71 @@ fn in_place<'m>(ms: &'m [Markup], apart: &dyn Fn(&str) -> bool, out: &mut Vec<&'
         }
     }
 }
-/// RG-7b, 08: whether what is written between `<P>` and `</P>` reads a context in its own place (`rx`: an .rx component's
-/// children are its own). With an `await` there it does not: that is hoisted to where it is written, and what is asked and
-/// what is shown are of one place (proposals/bugs/36).
-pub fn placed(kids: &[Markup], rx: &dyn Fn(&str) -> bool) -> bool {
-    let (mut own, mut all) = (vec![], vec![]);
-    in_place(kids, rx, &mut own);
-    if !own.into_iter().any(|e| crate::ast::reads_context(Node::E(e))) {
-        return false;
-    }
-    in_place(kids, &|_| false, &mut all);
-    !all.into_iter().any(awaits_in)
+/// What is written between `<P>` and `</P>`, as far as a context goes (RG-7b, 08).
+pub enum InChildren {
+    Neither,
+    /// a `use` in their own place (`rx`: an .rx component's children are its own), and no `await`: they are owned where P
+    /// shows them
+    ReadsContext,
+    /// an `await`, which is hoisted to where it is written …
+    Awaits,
+    /// … beside a `use` (proposals/bugs/36)
+    AwaitsBesideContext,
 }
-fn awaits_in(e: &Expr) -> bool {
-    fn go(n: Node) -> bool {
-        matches!(n, Node::E(Expr { k: ExprKind::Await { .. }, .. })) || children(n, true).into_iter().any(go)
+/// … and all they read, where they hold an `await`.
+pub fn in_children<'m>(kids: &[&'m Markup], rx: &dyn Fn(&str) -> bool) -> (InChildren, Vec<&'m Expr>) {
+    fn within<'m>(e: &'m Expr, out: &mut Vec<&'m Expr>) {
+        fn go<'m>(n: Node<'m>, out: &mut Vec<&'m Expr>) {
+            if let Node::E(e) = n {
+                out.push(e);
+            }
+            children(n, true).into_iter().for_each(|c| go(c, out));
+        }
+        go(Node::E(e), out)
     }
-    go(Node::E(e))
+    let (mut own, mut all, mut every) = (vec![], vec![], vec![]);
+    for k in kids {
+        in_place(std::slice::from_ref(*k), rx, &mut own);
+        in_place(std::slice::from_ref(*k), &|_| false, &mut all);
+    }
+    all.iter().for_each(|e| within(e, &mut every));
+    let reads = |e: &Expr| crate::ast::reads_context(Node::E(e));
+    if every.iter().any(|x| matches!(x.k, ExprKind::Await { .. })) {
+        return if all.into_iter().any(reads) { (InChildren::AwaitsBesideContext, vec![]) } else { (InChildren::Awaits, every) };
+    }
+    (if own.into_iter().any(reads) { InChildren::ReadsContext } else { InChildren::Neither }, vec![])
+}
+/// Whether some module writes a fn that instantiates (E-9), its own or one it imports, other than as what is called: a value
+/// that a call elsewhere may call where E-9 does not see it.
+pub fn instantiating_fn_as_value(set: &crate::modules::ModuleSet) -> bool {
+    use crate::ast::{instantiates, Decl};
+    use crate::{parse::JsDecl, signature::ExportSig};
+    use serde_json::Value;
+    let own = |path: &str, name: &str| set.programs.get(path).is_some_and(|p| p.decls.iter().any(|d| matches!(d, Decl::Fn { name: n, params, decls, tail, .. } if n == name && instantiates(params, decls, tail))));
+    fn mentions(v: &Value, names: &[&str]) -> bool {
+        match v {
+            Value::Array(xs) => xs.iter().any(|x| mentions(x, names)),
+            Value::Object(o) => {
+                let is = |k: &str| o.get("k").and_then(Value::as_str) == Some(k);
+                (is("id") && o.get("name").and_then(Value::as_str).is_some_and(|n| names.contains(&n))) || o.iter().any(|(f, x)| !(is("call") && f == "f" && x["k"] == "id") && mentions(x, names))
+            }
+            _ => false,
+        }
+    }
+    set.programs.values().any(|p| {
+        let mut names: Vec<&str> = vec![];
+        for d in &p.decls {
+            match d {
+                Decl::Fn { name, params, decls, tail, .. } if instantiates(params, decls, tail) => names.push(name),
+                Decl::Import { names: ns, resolved, declared, .. } => names.extend(ns.iter().filter(|n| {
+                    resolved.as_ref().is_some_and(|r| own(r, &n.name) || set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).is_some_and(|x| matches!(x, ExportSig::Fn { instantiating: true, .. })))
+                        || declared.as_ref().and_then(|f| set.declarations.get(f)).is_some_and(|ds| ds.iter().any(|x| matches!(x, JsDecl::Fn { name, uses, .. } if *name == n.name && !uses.is_empty())))
+                }).map(|n| n.alias.as_str())),
+                _ => {}
+            }
+        }
+        !names.is_empty() && mentions(&p.to_json(), &names)
+    })
 }
 
 /// `/^on[A-Z:]/`, or `ref` (called once with the element, 07 §4)
@@ -213,4 +261,73 @@ fn has_await(x: &Expr) -> bool {
     }
     go(Node::E(x), &mut hit);
     hit
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::emit::compile_linked;
+    use crate::modules::load_modules;
+    const HEAD: &str = "import pure { fetch } from \"./data.js\"\ncontext c: string = \"out\"\nfn r() { use c }\ncomponent P(props: { children?: View }) { provide c = \"in\"\n {loading fallback { <i>w</i> } { {props.children} }} }\ncomponent Seen(props: { v?: string }) { <b>{use c}{props.v}</b> }\n";
+    fn said(main: &str, read: &dyn Fn(&str) -> Option<String>) -> String {
+        let read = |f: &str| if f.ends_with("main.rx") { Some(main.to_string()) } else { read(f) };
+        let set = load_modules("/a/main.rx", &read).unwrap_or_else(|e| panic!("{main}: {}", e.0));
+        compile_linked(&set, &[], true).err().map(|e| e.0).unwrap_or_default()
+    }
+    fn app(decls: &str, view: &str) -> String {
+        format!("{HEAD}export default component App() {{\n{decls}\n{view} }}\n")
+    }
+    const REFUSED: &str = "`await` outside an equation's result position is not lowered yet";
+
+    /// proposals/bugs/36: asked, or shown beside what is read, where the children are written
+    #[test]
+    fn an_await_in_children_that_read_a_context_is_not_compiled() {
+        for (decls, view) in [
+            ("", "<P>{await fetch(use c)}</P>"),
+            ("", "<P>{await* fetch(use c)}</P>"),
+            ("", "<P>{use c}{await fetch(\"q\")}</P>"),
+            ("", "<P>{use c}{false ? await fetch(use c) : \"!\"}</P>"),
+            ("", "<P>{(use c) == \"in\" ? await fetch(\"q\") : \"\"}</P>"),
+            ("", "<P><b class={await fetch(use c)}>x</b></P>"),
+            ("", "<P>{await fetch(\"q\") catch (e) => use c}</P>"),
+            ("", "<P>{await fetch(\"q\") -> use c}</P>"),
+            ("", "<P><Seen v={use c} />{await fetch(\"q\")}</P>"),
+            ("", "<P>{await fetch(r())}</P>"),
+            ("g = r", "<P>{await fetch(g())}</P>"),
+            ("g = { k: r }", "<P>{await fetch(g.k())}</P>"),
+        ] {
+            assert_eq!(said(&app(decls, view), &|_| None), REFUSED, "{decls} {view}");
+        }
+        // a prop given a reader in the module; a reader of another module; a JavaScript fn that reads a context
+        let prop = format!("{HEAD}component M(props: {{ ask: () => string }}) {{ <P>{{await fetch(props.ask())}}</P> }}\nexport default component App() {{ <M ask={{r}} /> }}\n");
+        assert_eq!(said(&prop, &|_| None), REFUSED);
+        let far = |f: &str| match f {
+            "/a/two.rx" => Some("context d: string = \"x\"\nexport fn r() { use d }\n".to_string()),
+            "/a/js.d.rx" => Some("export context d\nexport pure fn useD(): string uses(d)\n".to_string()),
+            _ => None,
+        };
+        for (import, call) in [("import { r as q } from \"./two.rx\"", "q()"), ("import { useD as q } from \"./js.js\"", "q()")] {
+            assert_eq!(said(&format!("{import}\n{}", app("", &format!("<P>{{await fetch({call})}}</P>"))), &far), REFUSED, "{import}");
+        }
+    }
+    /// proposals/bugs/37
+    #[test]
+    fn an_await_in_children_is_compiled() {
+        for (decls, view) in [
+            ("", "<P>{await fetch(\"q\")}</P>"),
+            ("", "<P><p><P>{await fetch(\"q\")}</P></p>{await fetch(\"r\")}<Seen /></P>"),
+            ("source k := \"c\"", "<P>{k ? await fetch(k) : \"c\"}<Seen v={await fetch(\"v\")} /></P>"),
+            ("", "<Seen v={use c} /><P>{await fetch(\"q\")}</P>"),
+            // a closure reads where it is written, and a name is the caller's equation
+            ("", "<P>{if (use c) == \"in\" { <P>{await fetch(\"q\")}</P> }}</P>"),
+            ("", "<P>{use c}</P><P>{await fetch(\"q\")}</P>"),
+            ("v = use c", "<P>{await fetch(v)}</P>"),
+            ("v = use c\nw = v + \"!\"", "<P>{await fetch(w)}</P>"),
+            ("f = () => use c", "<P>{await fetch(f())}</P>"),
+            ("source g := () => \"\"\nh = () => { g := () => use c }", "<P>{await fetch(g())}</P>"),
+            ("g = [r].length", "<P>{await fetch(\"q\")}</P>"),
+            ("v = use c\nx = await fetch(v)", "<b>{v}{x}</b><P>{await fetch(\"q\")}</P>"),
+        ] {
+            assert_eq!(said(&app(decls, view), &|_| None), "", "{decls} {view}");
+        }
+    }
 }

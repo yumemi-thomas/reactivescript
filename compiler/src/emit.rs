@@ -5,7 +5,7 @@
 //! module is a tree (`js.rs`), never text (CP-3).
 
 use crate::ast::{instantiates, kept_parts, Decl, Expr, ExprKind, Field, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind, TplPart};
-use crate::awaits::{inner_catches, is_handler, non_tail_awaits, placed, view_readers};
+use crate::awaits::{in_children, inner_catches, instantiating_fn_as_value, is_handler, non_tail_awaits, view_readers, InChildren};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
 use crate::modules::{defaulted, given, shown_in, shows_view, type_only, view_fields, Given, ModuleSet};
@@ -335,6 +335,8 @@ struct Gen<'p> {
     views: crate::modules::ViewProps,
     /// what the module imports from JavaScript for its types alone
     type_only: HashSet<String>,
+    /// bug 36: whether the program writes an instantiating fn as a value, once it was asked
+    fn_values: Option<bool>,
     /// an equation's hoisted awaits were just written, for its accessor to claim (`reg`)
     claims: bool,
     sf_seq: usize,
@@ -348,6 +350,8 @@ struct Gen<'p> {
     /// RG-4c: `props.children`, in a component that shows its view
     shown: Option<String>,
 }
+
+const AWAIT_NOT_LOWERED: &str = "`await` outside an equation's result position is not lowered yet";
 
 /// MO-10: the scenario prelude's `./prims`, a JS module of Solid primitives (`ref/compile/prims-solid.ts`).
 fn is_prims(from: &str) -> bool {
@@ -389,6 +393,7 @@ impl<'p> Gen<'p> {
             sf_seq: 0,
             style_hash: None,
             hoisted: HashMap::new(),
+            fn_values: None,
             hoisted_catch: HashMap::new(),
             hoist_seq: 0,
             frames: vec![],
@@ -1753,7 +1758,7 @@ impl<'p> Gen<'p> {
                     });
                 }
                 if !ctx.tail {
-                    return fail("`await` outside an equation's result position is not lowered yet");
+                    return fail(AWAIT_NOT_LOWERED);
                 }
                 // the memo returns the flight (R-1): a stream for `await*`, else its one answer
                 let y = self.expr(x, env, &sub)?;
@@ -2269,6 +2274,19 @@ impl<'p> Gen<'p> {
         let f = self.region_fn(decls, view, env, None, None, None)?;
         Ok(Child::Expr(call(f, vec![])))
     }
+    /// Whether something read in a view may be a call that reads a context where it runs (bug 36). A fn that instantiates is
+    /// bound where it is called (E-9), so in a view its name is a value given on; what is called there, a name, a prop, a fn it
+    /// is given to, may be one where the program writes one as a value.
+    fn may_read_context(&mut self, e: &Expr, env: Env) -> bool {
+        match &e.k {
+            ExprKind::Id(n) => self.lookup(env, n).is_some_and(|b| matches!(b.kind, Kind::Ifn | Kind::Jfn)),
+            ExprKind::Call { f, .. } => {
+                let js = matches!(&f.k, ExprKind::Id(n) if self.lookup(env, n).is_none() || self.mod_decls.iter().any(|d| matches!(d, Decl::Import { names, resolved: None, .. } if names.iter().any(|x| x.alias == *n))));
+                !js && *self.fn_values.get_or_insert_with(|| instantiating_fn_as_value(self.set))
+            }
+            _ => false,
+        }
+    }
     /// RG-4c: the props a tag shows the view of, `<props.children … />` in a component that does.
     fn shown_from(&self, tag: &str, env: Env) -> Option<String> {
         self.lookup(env, shown_in(tag)?).filter(|b| b.shows).map(|b| b.js)
@@ -2345,27 +2363,41 @@ impl<'p> Gen<'p> {
                         xs.push((p.clone(), AttrValue::Expr(f)));
                     }
                 }
-                let rest: Vec<Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).cloned().collect();
+                let rest: Vec<&Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
                 if rest.is_empty() {
                     // MO-11: a JS component gets JSX's own `<X />`, with no children prop
                     if shape != Some(FShape::Comp) {
                         xs.push(("children".into(), AttrValue::Expr(E::Arr(vec![]))));
                     }
-                    el(name, xs, vec![], true)
-                } else if shape != Some(FShape::Comp) && placed(&rest, &|t| self.lookup(env, t).is_some_and(|b| b.kind == Kind::Comp && b.shape != Some(FShape::Comp))) {
+                    return Ok(Some(el(name, xs, vec![], true)));
+                }
+                let (found, reads) = in_children(&rest, &|t: &str| self.lookup(env, t).is_some_and(|b| b.kind == Kind::Comp && b.shape != Some(FShape::Comp)));
+                let place = match found {
+                    InChildren::Awaits if reads.into_iter().any(|e| self.may_read_context(e, env)) => return fail(AWAIT_NOT_LOWERED),
+                    // bug 36: hoisted above what the component provides, it would ask, or show, what is not there
+                    InChildren::AwaitsBesideContext => return fail(AWAIT_NOT_LOWERED),
+                    InChildren::ReadsContext => shape != Some(FShape::Comp),
+                    InChildren::Awaits | InChildren::Neither => false,
+                };
+                // each as it is in the program: an `await` in it was hoisted by its address (`hoisted`)
+                let mut kids = vec![];
+                for c in &rest {
+                    kids.extend(self.child(c, env)?);
+                }
+                if place {
                     // RG-7b, 08: owned where they are shown, so a `use` in them reads there. One reader is read in its reader's
                     // computation, as without a `use`
-                    let x = match &rest[..] {
-                        [m @ Markup { kind: MarkupKind::Read(_), .. }] => match self.child(m, env)? {
-                            Some(Child::Expr(x)) => x,
-                            _ => unreachable!(),
-                        },
-                        _ => self.markup(&rest, env)?,
+                    let one = matches!(&rest[..], [Markup { kind: MarkupKind::Read(_), .. }]);
+                    let x = match kids.pop() {
+                        Some(Child::Expr(x)) if one => x,
+                        last => {
+                            kids.extend(last);
+                            E::Jsx(Box::new(Jsx::Frag(kids, None)))
+                        }
                     };
-                    el(name, xs, vec![Child::Expr(call(arrow(&["__o"], x), vec![rtc("place", vec![id("__o")])]))], false)
-                } else {
-                    el(name, xs, self.kids(&rest, env)?, false)
+                    kids = vec![Child::Expr(call(arrow(&["__o"], x), vec![rtc("place", vec![id("__o")])]))];
                 }
+                el(name, xs, kids, false)
             }
             MarkupKind::El { tag, attrs, children } => {
                 let mut xs = vec![];
