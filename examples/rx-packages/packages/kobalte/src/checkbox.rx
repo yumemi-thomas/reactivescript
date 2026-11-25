@@ -1,0 +1,69 @@
+// Derived from checkbox/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+import { give, call, focus, put, formOf, announceChange } from "./dom.js"
+import client { on } from "@reactivescript/std/browser"
+import pure { hidden, flag } from "./dom.js"
+import { Div, Input as InputProps, Label as LabelProps, Validation } from "./dom.js"
+import { form, createForm, useField, FormLabel, FormDescription, FormError } from "./form.rx"
+
+type State = { value: string; on: boolean; mixed: boolean; toggle: () => void; check: (v: boolean) => void; focused: (v: boolean) => void; input: (e: any) => void }
+context box: State
+fn data(s: State) => ({ "data-checked": flag(s.on), "data-indeterminate": flag(s.mixed) })
+
+export type RootProps = Omit<Div, "children"> & { children?: View | ((s: { checked: boolean; indeterminate: boolean }) => View); value?: string; checked?: boolean; defaultChecked?: boolean; indeterminate?: boolean; onChange?: (checked: boolean) => void
+  name?: string; validationState?: Validation; required?: boolean; disabled?: boolean; readOnly?: boolean }
+export component Root(props: RootProps) {
+  { value = "on", checked, defaultChecked, indeterminate = false, onChange, onPointerDown, name, validationState, required, disabled, readOnly, id, children: shown, ref: user, ...rest } = props
+  f = createForm({ id: id, name: name, validationState: validationState, required: required, disabled: disabled, readOnly: readOnly }, "checkbox")
+  source mine := peek(defaultChecked) ?? false
+  source el: any := undefined
+  source inputEl: any := undefined
+  source focused := false
+  now = checked ?? mine
+  action check(v: boolean) {
+    if (!disabled && !readOnly && v != now) {
+      mine := v
+      if (onChange) { onChange(v) }
+    }
+  }
+  action toggle() { check(!now); focus(inputEl) }
+  action setFocused(v: boolean) { focused := v }
+  action setInput(e: any) { inputEl := e }
+  effect (el) { let owner = formOf($0)
+    return owner ? on(owner, "reset", () => { check(defaultChecked ?? false) }) : undefined }
+  provide form = f
+  provide box = { value: value, on: now, mixed: indeterminate, toggle: toggle, check: check, focused: setFocused, input: setInput }
+  <div ref={(e: Element) => { el := e; give(user, e) }} role="group" id={f.id} onPointerDown={(e) => { call(e, onPointerDown); if (focused) { e.preventDefault() } }} {...f.data} data-checked={flag(now)} data-indeterminate={flag(indeterminate)} {...rest}><props.children checked={now} indeterminate={indeterminate} /></div>
+}
+export component Control(props: Div) {
+  { id, onClick, onKeyDown, children, ...rest } = props
+  f = use form
+  s = use box
+  <div id={id ?? f.id + "-control"} onClick={(e) => { call(e, onClick); s.toggle() }} onKeyDown={(e) => { call(e, onKeyDown); if (e.key == " ") { s.toggle() } }} {...f.data} {...data(s)} {...rest}>{children}</div>
+}
+export component Indicator(props: Div & { forceMount?: boolean }) {
+  { id, forceMount, children, ...rest } = props
+  f = use form
+  s = use box
+  {if forceMount || s.mixed || s.on { <div id={id ?? f.id + "-indicator"} {...f.data} {...data(s)} {...rest}>{children}</div> }}
+}
+export component Input(props: InputProps) {
+  { id, style, onChange, onFocus, onBlur, ref: user, ...rest } = props
+  f = use form
+  s = use box
+  source el: any := undefined
+  source telling := false
+  field = useField(id, { label: props["aria-label"], by: props["aria-labelledby"], described: props["aria-describedby"] })
+  effect (s.on, s.value) { telling := true; announceChange(el); telling := false }
+  effect (el, s.mixed, s.on) { put($0, "indeterminate", $1) }
+  <input {...rest} ref={(e: Element) => { el := e; s.input(e); give(user, e) }} type="checkbox" id={field.id} name={f.name} value={s.value} checked={s.on} required={f.required} disabled={f.disabled} readonly={f.readOnly}
+    style={hidden(style)} aria-labelledby={field.by} aria-describedby={field.described}
+    aria-invalid={f.invalid ? "true" : undefined} aria-required={f.required ? "true" : undefined} aria-disabled={f.disabled ? "true" : undefined} aria-readonly={f.readOnly ? "true" : undefined}
+    onChange={(e) => { call(e, onChange); e.stopPropagation(); if (!telling) { s.check(e.currentTarget.checked); put(e.currentTarget, "checked", s.on) } }} onFocus={(e) => { call(e, onFocus); s.focused(true) }} onBlur={(e) => { call(e, onBlur); s.focused(false) }}
+    {...f.data} {...data(s)} />
+}
+export component Label(props: LabelProps) { s = use box
+  <FormLabel {...data(s)} {...props} /> }
+export component Description(props: Div) { s = use box
+  <FormDescription {...data(s)} {...props} /> }
+export component ErrorMessage(props: Div & { forceMount?: boolean }) { s = use box
+  <FormError {...data(s)} {...props} /> }

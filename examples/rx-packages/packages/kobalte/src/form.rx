@@ -1,0 +1,64 @@
+// The form control: one field's ids and states, and the three parts that name it.
+// Derived from form-control/* of @kobalte/core 2.0.0-alpha.5 and a11y's form-control (MIT, see ../NOTICE).
+import { give } from "./dom.js"
+import pure { uniqueId, flag, words } from "./dom.js"
+import { Div, Label, Validation } from "./dom.js"
+
+export type Control = { id?: string; name?: string; validationState?: Validation; required?: boolean; disabled?: boolean; readOnly?: boolean }
+export type Data = { "data-valid": "" | undefined; "data-invalid": "" | undefined; "data-required": "" | undefined; "data-disabled": "" | undefined; "data-readonly": "" | undefined }
+export type Form = {
+  id: string; name: string; data: Data; invalid: boolean; required: boolean | undefined; disabled: boolean | undefined; readOnly: boolean | undefined
+  label: string | undefined; field: string | undefined; described: string | undefined
+  set: (part: "label" | "field" | "description" | "error", id: string | undefined) => void
+}
+export context form: Form
+
+/** A field's state, from its root's props. */
+export fn createForm(ref of: Control, prefix: string): Form {
+  own = uniqueId(prefix)
+  id = of.id ?? own
+  source label: string | undefined := undefined
+  source field: string | undefined := undefined
+  source description: string | undefined := undefined
+  source error: string | undefined := undefined
+  action set(part: "label" | "field" | "description" | "error", v: string | undefined) {
+    if (part == "label") { label := v }
+    if (part == "field") { field := v }
+    if (part == "description") { description := v }
+    if (part == "error") { error := v }
+  }
+  data: Data = { "data-valid": flag(of.validationState == "valid"), "data-invalid": flag(of.validationState == "invalid"), "data-required": flag(of.required), "data-disabled": flag(of.disabled), "data-readonly": flag(of.readOnly) }
+  { id: id, name: of.name ?? id, data: data, invalid: of.validationState == "invalid", required: of.required, disabled: of.disabled, readOnly: of.readOnly,
+    label: label, field: field, described: words(description, error), set: set }
+}
+
+export component FormLabel(props: Label) {
+  { id, ref: user, children, ...rest } = props
+  f = use form
+  mine = id ?? f.id + "-label"
+  effect (mine) { f.set("label", $0); return () => { f.set("label", undefined) } }
+  <label id={mine} ref={(e: Element) => { give(user, e) }} for={f.field} {...f.data} {...rest}>{children}</label>
+}
+export component FormDescription(props: Div) {
+  { id, children, ...rest } = props
+  f = use form
+  mine = id ?? f.id + "-description"
+  effect (mine) { f.set("description", $0); return () => { f.set("description", undefined) } }
+  <div id={mine} {...f.data} {...rest}>{children}</div>
+}
+export component FormError(props: Div & { forceMount?: boolean }) {
+  { id, forceMount, children, ...rest } = props
+  f = use form
+  mine = id ?? f.id + "-error-message"
+  shown = f.invalid ? mine : undefined
+  effect (shown) { f.set("error", $0); return () => { f.set("error", undefined) } }
+  {if forceMount || f.invalid { <div id={mine} role="alert" {...f.data} {...rest}>{children}</div> }}
+}
+/** The field's own part: it is registered, and named by the label and what describes it. */
+export fn useField(ref id: string | undefined, ref aria: { label?: string; by?: string; described?: string }) {
+  f = use form
+  mine = id ?? f.id + "-input"
+  effect (mine) { f.set("field", $0); return () => { f.set("field", undefined) } }
+  by = words(aria.by, f.label, (aria.by ?? f.label) != undefined && aria.label != undefined ? mine : undefined)
+  { id: mine, by: by, described: words(f.described, aria.described) }
+}

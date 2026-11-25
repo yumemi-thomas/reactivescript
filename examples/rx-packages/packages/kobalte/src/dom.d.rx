@@ -1,0 +1,33 @@
+export type Div = import("./types.js").Div
+export type Span = import("./types.js").Span
+export type Label = import("./types.js").Label
+export type Input = import("./types.js").Input
+export type Button = import("./types.js").Button
+export type H3 = import("./types.js").H3
+export type Style = import("./types.js").Style
+export type Validation = import("./types.js").Validation
+export pure fn uniqueId(prefix: string): string instantiates
+export fn call(event: Event, handler: any): void
+export fn give(ref_: any, element: Element): void
+export fn focus(element: any): void
+export pure fn isActive(element: any): boolean
+export fn put(element: any, name: string, value: any): void
+export fn announceChange(element: any): void
+export fn formOf(element: any): any
+export pure fn mix(own: any, user: any): any
+export pure fn hidden(user: any): any
+export pure fn flag(on: any): "" | undefined
+export pure fn words(...parts: any[]): string | undefined
+export fn move(event: any, list: any, selector: string, orientation: string, wrap: boolean): void
+export fn sizeOf(element: any): { width: number; height: number }
+export pure fn percent(x: number): string
+export type Hr = import("./types.js").Hr
+export type Nav = import("./types.js").Nav
+export type Anchor = import("./types.js").Anchor
+export fn tell(f: any, value: any): void
+export fn enter(event: any, list: any, key: string | undefined): void
+export fn pickTab(list: any, key: string | undefined): string | undefined
+export fn tabOf(list: any, key: string | undefined): any
+export fn place(element: any, orientation: string): any
+export fn hasTabbable(element: any): boolean
+export fn syncRadios(root: any, value: string | undefined): void

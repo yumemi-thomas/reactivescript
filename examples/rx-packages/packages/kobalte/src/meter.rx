@@ -1,0 +1,36 @@
+// Meter and Progress. Derived from meter and progress of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+import { max, min } from "@reactivescript/std/math"
+import pure { uniqueId, flag, mix, percent } from "./dom.js"
+import { Div, Span } from "./dom.js"
+
+type Meter = { id: string; width: string | undefined; text: string | undefined; label: string | undefined; named: (id: string | undefined) => void; data: { "data-progress"?: "complete" | "loading"; "data-indeterminate"?: "" } }
+context meter: Meter
+export type RootProps = Div & { value?: number; minValue?: number; maxValue?: number; indeterminate?: boolean; getValueLabel?: (p: { value: number; min: number; max: number }) => string; role?: "meter" | "progressbar" }
+/** A progress bar is a meter that says how far it is. */
+export component Root(props: RootProps) {
+  { value = 0, minValue = 0, maxValue = 100, indeterminate = false, getValueLabel, role = "meter", id, children, ...rest } = props
+  own = uniqueId(peek(role) == "meter" ? "meter" : "progress")
+  source label: string | undefined := undefined
+  action named(v: string | undefined) { label := v }
+  now = min(max(value, minValue), maxValue)
+  part = (now - minValue) / (maxValue - minValue)
+  text = indeterminate ? undefined : getValueLabel ? getValueLabel({ value: now, min: minValue, max: maxValue }) : percent(part)
+  data: { "data-progress"?: "complete" | "loading"; "data-indeterminate"?: "" } = role == "progressbar" ? { "data-progress": indeterminate ? undefined : part == 1 ? "complete" : "loading", "data-indeterminate": flag(indeterminate) } : {}
+  provide meter = { id: id ?? own, width: indeterminate && role == "progressbar" ? undefined : `${part * 100}%`, text: text, label: label, named: named, data: data }
+  <div id={id ?? own} role={role} aria-valuenow={indeterminate ? undefined : now} aria-valuemin={minValue} aria-valuemax={maxValue} aria-valuetext={text} aria-labelledby={label} {...data} {...rest}>{children}</div>
+}
+export component Progress(props: RootProps) { <Root {...props} role="progressbar" /> }
+export component Track(props: Div) { c = use meter
+  { children, ...rest } = props
+  <div {...c.data} {...rest}>{children}</div> }
+export component Fill(props: Div) { c = use meter
+  { style, children, ...rest } = props
+  <div style={mix({ "--kb-meter-fill-width": c.width, "--kb-progress-fill-width": c.width }, style)} {...c.data} {...rest}>{children}</div> }
+export component Label(props: Span) { c = use meter
+  { id, children, ...rest } = props
+  mine = id ?? c.id + "-label"
+  effect (mine) { c.named($0); return () => { c.named(undefined) } }
+  <span id={mine} {...c.data} {...rest}>{children}</span> }
+export component ValueLabel(props: Div) { c = use meter
+  { children: none, ...rest } = props
+  <div {...c.data} {...rest}>{c.text ?? ""}</div> }

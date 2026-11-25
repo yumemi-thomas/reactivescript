@@ -1,0 +1,64 @@
+// Derived from switch/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+import { give, call, focus, put, formOf } from "./dom.js"
+import client { on } from "@reactivescript/std/browser"
+import pure { hidden, flag } from "./dom.js"
+import { Div, Input as InputProps, Label as LabelProps, Validation } from "./dom.js"
+import { form, createForm, useField, FormLabel, FormDescription, FormError } from "./form.rx"
+
+type State = { value: string; on: boolean; toggle: () => void; check: (v: boolean) => void; focused: (v: boolean) => void; input: (e: any) => void }
+context sw: State
+
+export type RootProps = Omit<Div, "children"> & { children?: View | ((s: { checked: boolean }) => View); value?: string; checked?: boolean; defaultChecked?: boolean; onChange?: (checked: boolean) => void
+  name?: string; validationState?: Validation; required?: boolean; disabled?: boolean; readOnly?: boolean }
+export component Root(props: RootProps) {
+  { value = "on", checked, defaultChecked, onChange, onPointerDown, name, validationState, required, disabled, readOnly, id, children: shown, ref: user, ...rest } = props
+  f = createForm({ id: id, name: name, validationState: validationState, required: required, disabled: disabled, readOnly: readOnly }, "switch")
+  source mine := peek(defaultChecked) ?? false
+  source el: any := undefined
+  source inputEl: any := undefined
+  source focused := false
+  now = checked ?? mine
+  action check(v: boolean) {
+    if (!disabled && !readOnly && v != now) {
+      mine := v
+      if (onChange) { onChange(v) }
+    }
+  }
+  action toggle() { check(!now); focus(inputEl) }
+  action setFocused(v: boolean) { focused := v }
+  action setInput(e: any) { inputEl := e }
+  effect (el) { let owner = formOf($0)
+    return owner ? on(owner, "reset", () => { check(defaultChecked ?? false) }) : undefined }
+  provide form = f
+  provide sw = { value: value, on: now, toggle: toggle, check: check, focused: setFocused, input: setInput }
+  <div ref={(e: Element) => { el := e; give(user, e) }} role="group" id={f.id} onPointerDown={(e) => { call(e, onPointerDown); if (focused) { e.preventDefault() } }} {...f.data} data-checked={flag(now)} {...rest}><props.children checked={now} /></div>
+}
+export component Control(props: Div) {
+  { id, onClick, onKeyDown, children, ...rest } = props
+  f = use form
+  s = use sw
+  <div id={id ?? f.id + "-control"} onClick={(e) => { call(e, onClick); s.toggle() }} onKeyDown={(e) => { call(e, onKeyDown); if (e.key == " ") { s.toggle() } }} {...f.data} data-checked={flag(s.on)} {...rest}>{children}</div>
+}
+export component Thumb(props: Div) {
+  { id, children, ...rest } = props
+  f = use form
+  s = use sw
+  <div id={id ?? f.id + "-thumb"} {...f.data} data-checked={flag(s.on)} {...rest}>{children}</div>
+}
+export component Input(props: InputProps) {
+  { id, style, onChange, onFocus, onBlur, ref: user, ...rest } = props
+  f = use form
+  s = use sw
+  field = useField(id, { label: props["aria-label"], by: props["aria-labelledby"], described: props["aria-describedby"] })
+  <input {...rest} ref={(e: Element) => { s.input(e); give(user, e) }} type="checkbox" role="switch" id={field.id} name={f.name} value={s.value} checked={s.on} required={f.required} disabled={f.disabled} readonly={f.readOnly}
+    style={hidden(style)} aria-checked={s.on ? "true" : "false"} aria-labelledby={field.by} aria-describedby={field.described}
+    aria-invalid={f.invalid ? "true" : undefined} aria-required={f.required ? "true" : undefined} aria-disabled={f.disabled ? "true" : undefined} aria-readonly={f.readOnly ? "true" : undefined}
+    onChange={(e) => { call(e, onChange); e.stopPropagation(); s.check(e.currentTarget.checked); put(e.currentTarget, "checked", s.on) }} onFocus={(e) => { call(e, onFocus); s.focused(true) }} onBlur={(e) => { call(e, onBlur); s.focused(false) }}
+    {...f.data} data-checked={flag(s.on)} />
+}
+export component Label(props: LabelProps) { s = use sw
+  <FormLabel data-checked={flag(s.on)} {...props} /> }
+export component Description(props: Div) { s = use sw
+  <FormDescription data-checked={flag(s.on)} {...props} /> }
+export component ErrorMessage(props: Div & { forceMount?: boolean }) { s = use sw
+  <FormError data-checked={flag(s.on)} {...props} /> }

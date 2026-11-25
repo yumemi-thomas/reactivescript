@@ -1,0 +1,5 @@
+export default component App() {
+  source a := true
+  on = !a
+  <p>{on ? "y" : "n"}</p>
+}
