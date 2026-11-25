@@ -1783,7 +1783,9 @@ another component, as content or as an argument typed `View`; or asked for, `if 
 answered by a closure, held in a record or a list, given to a fn, or given to a prop whose type is a value's. The
 message says what to write for the one it found. The rule is of a prop declared `View` (children declared `number` are a
 number) and of the names bound to it: a parameter or an inner equation of the same spelling is another name.
-"Was it given" is whether something was written: content, or an argument that is no literal nothing.
+"Was it given" is asked of the argument as it was written, and makes nothing: content was given, a view given on asks
+its giver (through an argument, a spread, a rest or a default alike), a choice follows its branch, and a value answers as
+JavaScript has it (`0`, `""` and `undefined` are nothing under `if`; only `undefined` is under `??`).
 
 ```rx before
 component Reveal(props: { children: View }) {

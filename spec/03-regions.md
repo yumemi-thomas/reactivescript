@@ -150,22 +150,29 @@ A component is a function from a props value to a region whose tail is a view.
   a choice, `c ? props.children : e`); gives it on, as another component's
   content or argument, or in a spread of its props; names it by a projection
   of the props (RG-4b); or asks whether it was given (`if props.children`,
-  `!props.children`, `props.children != undefined`), which is whether
-  something was written for it and makes nothing: content between the tags,
-  an argument that is no literal nothing (its value is not read: it may be a
-  view given on), what a spread or a rest hands on. A literal is the value it
-  is (`part={undefined}`, `""`, `0`, `false` were not given; `!= undefined`
-  asks only that), and so is what JavaScript gives as a value, as Solid's
-  `props.children ? … : …` answers; what JavaScript gives as a getter (JSX
-  content) was given, and is not read. A view given on is written: whether
-  the giver was given one is not handed on by an argument (a spread hands it
-  on). An argument's expression is a value of the caller (`title={use c}`
+  `!props.children`, `props.children != undefined`). That question makes
+  nothing, and is asked of the argument as it was *written*: it is read with
+  each view in it standing for itself. Content between the tags was given; a
+  view given on (an argument, content that is one `{e}` asking nothing of its
+  place, a spread, a rest, a default, a name, through any number of
+  components) asks its giver; a choice (`c ? a : b`, `a ?? b`, `a && b`)
+  follows its branch, whose condition is read where the question is asked,
+  and tracked; any other expression is a value and answers as JavaScript has
+  it (`0`, `""`, `false`, `undefined` under `if`, `!`, `&&`; `undefined`
+  alone under `??` and `!= undefined`), which is what it answered before this
+  rule. So an explicit argument, a spread and a rest answer alike, and
+  `if p.label` agrees with `p.label ?? x`. What JavaScript gives as a value
+  answers so too, as Solid's `props.children ? … : …`; its getter (JSX
+  content) is read, as Solid reads it, unless the host offers the answer
+  (`slot(make, when?)` of the runtime), which is then not made
+  (S-context-7).
+  An argument's expression is a value of the caller (`title={use c}`
   reads what is provided where it is written); only content, and a
   `view name (…) { … }`, is a block of the place that shows it. Read as a
   value — kept by `peek`, a source or `pre`, carried by a context, read by an
   effect or a handler, answered by a closure, held in a record or a list,
   given to a fn, or given on to a prop whose declared type is a value's — it
-  is `VIEW_NOT_SHOWN` (S-context-4, S-context-5, S-context-6). Content that takes what the component knows is
+  is `VIEW_NOT_SHOWN` (S-context-4, S-context-5, S-context-6, S-context-7). Content that takes what the component knows is
   a view with a parameter, below. (Until this proposal: "evaluated in the
   caller's region: its readers are the caller's, its lifetime is the caller's,
   and the child only decides where it is placed", which 08 and RG-7b
