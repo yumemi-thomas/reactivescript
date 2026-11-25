@@ -21,7 +21,7 @@ import { instance } from "../src/parse.ts";
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "jfn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; given?: Given; asked?: string; shows?: Map<string, boolean>; plain?: boolean; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[] };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Bind = { kind: Kind; js: string; given?: Given; asked?: string; askedSome?: string; shows?: Map<string, boolean>; plain?: boolean; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[] };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
 /** RG-4c: a view given to an .rx component, a function of one parameter. */
 const viewParam = (v: { params: string[] }) => v.params.map(mg).join(", ") || "__s";
@@ -385,7 +385,7 @@ class Gen {
       return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});${this.reg(d.name, `{ get: ${b.js}, w: ${b.w} }`, pad)}${prev}`;
     }
     const reg = `${this.reg(d.name, `{ get: ${b.js} }`, pad)}${prev}`;
-    if (b.given?.held) { b.asked = this.asked(d.e, env); return `${pad}const ${b.js} = ${this.held(d.e, env)};${reg}`; }
+    if (b.given?.held) { b.asked = this.asked(d.e, env); b.askedSome = this.asked(d.e, env, true); return `${pad}const ${b.js} = ${this.held(d.e, env)};${reg}`; }
     if (d.e.k === "draft") {                                                                   // ST-3
       const seed = d.e.seed; if (seed.k !== "pre" || seed.name !== d.name || !seed.init) throw new CompileError("a draft's seed must be `pre self -> seed`");
       const inner = new Env(env); inner.vars.set("d", { kind: "val", js: "v$d" });
@@ -409,17 +409,21 @@ class Gen {
     return `() => ${e.k === "if" && defaulted(e, n => env.lookup(n)?.given) ? `__rt.preOr(${x(e.f)}, () => ${x(e.t)})` : x(e)}`;
   }
   /** RG-4c: whether a view was given, asked without making it: `props.children`, a name for it, one with a default. */
-  private asked(e: Expr, env: Env): string | undefined {
+  private asked(e: Expr, env: Env, some = false): string | undefined {
     const look = (n: string) => env.lookup(n)?.given;
-    if (e.k === "id") { const b = env.lookup(e.name); return b?.given?.held && b.given.view ? b.asked : undefined; }
-    if (e.k === "member") { const g = given(e, look); return g?.held && g.view ? `__rt.given(${this.expr(e.o, env, { imp: false })}, ${J(e.p)})` : undefined; }   // a prop declared `View`: of anything else, the question is its value's
-    // a choice, a default: what its arms answer, a value's own truth where an arm is one
-    const x = (y: Expr) => this.asked(y, env) ?? this.expr(y, env, { imp: false });
-    if (e.k === "if") { if (!this.asked(e.t, env) && !this.asked(e.f, env)) return undefined; return `(${this.asks(e.c, env, true) ?? this.expr(e.c, env, { imp: false })} ? ${x(e.t)} : ${x(e.f)})`; }
-    if (e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&")) {
-      const l = this.asked(e.l, env), r = this.asked(e.r, env); if (!l && !r) return undefined;
-      if (e.op === "&&") return `(${l ?? this.asks(e.l, env, true) ?? this.expr(e.l, env, { imp: false })} && ${x(e.r)})`;
-      return l ? `(${l} || ${x(e.r)})` : `(${this.expr(e.l, env, { imp: false })} ${e.op} ${r})`;
+    if (e.k === "id") { const b = env.lookup(e.name); return b?.given?.held && b.given.view ? (some ? b.askedSome : b.asked) : undefined; }
+    if (e.k === "member") { const g = given(e, look); return g?.held && g.view ? `__rt.given(${this.expr(e.o, env, { imp: false })}, ${J(e.p)}${some ? ", true" : ""})` : undefined; }   // a prop declared `View`: of anything else, the question is its value's
+    // a choice, a default: what its arms answer, a value's own answer where an arm is one. `some`: whether it is not `undefined`
+    const has = (y: Expr) => this.asked(y, env) !== undefined;
+    const T = (y: Expr) => this.asked(y, env) ?? this.expr(y, env, { imp: false });
+    const N = (y: Expr) => this.asked(y, env, true) ?? `(${this.expr(y, env, { imp: false })}) != null`;
+    const A = some ? N : T;
+    if (e.k === "if") return has(e.t) || has(e.f) ? `(${this.asks(e.c, env, true) ?? this.expr(e.c, env, { imp: false })} ? ${A(e.t)} : ${A(e.f)})` : undefined;
+    if (e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&") && (has(e.l) || has(e.r))) {
+      const c = this.asks(e.l, env, true) ?? T(e.l);                                   // the left as a condition
+      if (e.op === "&&") return `(${c} ? ${A(e.r)} : ${A(e.l)})`;
+      if (e.op === "||") return some ? `(${c} || ${N(e.r)})` : `(${c} || ${T(e.r)})`;
+      return some ? `(${N(e.l)} || ${N(e.r)})` : `(${N(e.l)} ? ${T(e.l)} : ${T(e.r)})`;
     }
     return undefined;
   }
@@ -427,7 +431,7 @@ class Gen {
   private asks(c: Expr, env: Env, bare: boolean): string | undefined {
     if (bare && (c.k === "id" || c.k === "member")) return this.asked(c, env);
     if (c.k === "un" && c.op === "!") { const a = this.asks(c.e, env, true); return a && `(!${a})`; }
-    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null && (c.l.k === "id" || c.l.k === "member")) { const a = this.asked(c.l, env); return a && (c.op === "==" ? `(!${a})` : a); }
+    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null && (c.l.k === "id" || c.l.k === "member")) { const a = this.asked(c.l, env, true); return a && (c.op === "==" ? `(!${a})` : a); }
     if (bare && c.k === "bin" && (c.op === "&&" || c.op === "||")) { const l = this.asks(c.l, env, true), r = this.asks(c.r, env, true); return l || r ? `(${l ?? this.expr(c.l, env, { imp: false })} ${c.op} ${r ?? this.expr(c.r, env, { imp: false })})` : undefined; }
     return undefined;
   }
@@ -652,7 +656,7 @@ class Gen {
       }
       case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
-        { const a = this.asks(e, env, false); if (a) return a; if (e.op === "&&") { const l = this.asks(e.l, env, true); if (l) return `(${l} && ${go(e.r)})`; } }   // RG-4c: asked, not made
+        { const a = this.asks(e, env, false); if (a) return a; if (e.op === "&&") { const l = this.asks(e.l, env, true); if (l) return `(${l} ? ${go(e.r)} : ${go(e.l)})`; } }   // RG-4c: asked, not made; one that was not given is the nothing it is
         if (e.op !== "??" && e.op !== "||" && e.op !== "&&") { this.raw.add(e.l); this.raw.add(e.r); }   // MO-10i: an operator that makes a primitive keeps nothing of what it reads
         if (e.op === "==") return `__rt.eq(${go(e.l)}, ${go(e.r)})`;
         if (e.op === "!=") return `!__rt.eq(${go(e.l)}, ${go(e.r)})`;
@@ -797,7 +801,7 @@ class Gen {
       // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another value
       // is formatted. A JS library hands a component its text as an array of strings (solid-marked's paragraphs), which
       // `show` would print as the list it also is (2026-11-24)
-      case "read": return `{__rt.${given(m.e, n => env.lookup(n)?.given)?.held ? "kids" : "show"}(${this.expr(m.e, env, re)})}`;
+      case "read": { const h = given(m.e, n => env.lookup(n)?.given)?.held; return `{__rt.${h === "children" ? "kids" : h ? "opt" : "show"}(${this.expr(m.e, env, re)})}`; }
       case "el": {
         if (m.tag === "") return this.markup(m.children, env, ind);
         { const p = this.shownFrom(m.tag, env); if (p) return `{__rt.view(${p.view}, V$view => <V$view${m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("")} />${p.mixed ? ", true" : ""})}`; }   // RG-4c: the view the component was given, applied (plain content, as it is)
@@ -810,7 +814,7 @@ class Gen {
           const props = attrs + named.map(v => ` ${v.prop}={${this.regionFn(v.decls, v.body, env, ind + 1, b.shape === "comp" ? v.params.map(mg).join(", ") : viewParam(v), e => { for (const p of v.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}`).join("");
           const view = b.shape === "comp" ? undefined : kids.length === 1 && kids[0].k === "mview" ? kids[0] : kids.length && "plain" in b && b.plain ? { k: "mview" as const, params: [], decls: [], body: kids } : undefined;   // RG-4c: what is given as plain content where a view is taken is one that asks nothing
           if (view) return `<${b.js}${props}>{${this.regionFn(view.decls, view.body, env, ind + 2, viewParam(view), e => { for (const p of view.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}</${b.js}>`;
-          if (kids.length === 1 && kids[0].k === "read" && (kids[0].e.k === "fn" || given(kids[0].e, n => env.lookup(n)?.given)?.held)) return `<${b.js}${props}>${this.child(kids[0], env, ind + 1)}</${b.js}>`;   // one closure is a function prop (RG-4c), a value; children given on are made where they are shown, as they are
+          if (kids.length === 1 && kids[0].k === "read" && (kids[0].e.k === "fn" || given(kids[0].e, n => env.lookup(n)?.given)?.held)) return `<${b.js}${props}>${kids[0].e.k === "fn" ? this.child(kids[0], env, ind + 1) : this.child(kids[0], env, ind + 1).replace(/\}\s*$/, " ?? []}")}</${b.js}>`;   // content that is written is given, also where what it gives on was not;   // one closure is a function prop (RG-4c), a value; children given on are made where they are shown, as they are
           return kids.some(c => c.k !== "text" || c.s.trim()) ? `<${b.js}${props}>${this.content(kids, env, ind + 1)}</${b.js}>` :   // RG-4c: content is a block of the caller's names, made and owned where it is shown
             kids.length ? `<${b.js}${props}>${kids.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : `<${b.js}${props} />`;   // MO-11: a JS component gets JSX's own <X />
         }

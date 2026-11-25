@@ -58,9 +58,6 @@ pub struct PropSig {
     pub takes: Vec<(String, bool, Vec<String>)>,
     /// RG-4c
     pub view: Option<ViewSig>,
-    /// RG-7b: of what `provides(…)` says, what is not around every place the children are shown in the component's own view
-    /// (`only_shown`)
-    pub apart: Vec<String>,
 }
 /// RG-4c: a view the component shows: whether it is optional, what its parameter's type says, and the fields it is shown with
 /// that hold no closure of the component's (O-3).
@@ -480,9 +477,6 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                             ));
                         }
                     }
-                    if !v.apart.is_empty() {
-                        parts.push(format!("apart({})", v.apart.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")));
-                    }
                     if let Some((af, an)) = &v.action {
                         parts.push(format!("action {} catches({})", an, cls(af)));
                     }
@@ -553,7 +547,6 @@ re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(
 re!(P_UNRENDERED, r"(^|[^A-Za-z0-9_])unrendered([^A-Za-z0-9_]|$)");
 re!(P_TAKES, r"(^|[^A-Za-z0-9_])takes\(((?:[^()]|\([^()]*\))*)\)");
 re!(P_VIEW, r"^view(\??)(\s*\|\s*View)?(?:\s|$)");
-re!(P_APART, r"(^|[^A-Za-z0-9_])apart\(([^)]*)\)");
 re!(P_VALUE, r"^value\(([^)]*)\)");
 re!(P_PENDING, r"(^|\s)pending(\s|$)");
 re!(P_FAILS, r"fails\(([^)]*)\)");
@@ -758,7 +751,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     None => (crate::parse::js_trim(&f).to_string(), String::new()),
                 };
                 let fname = if fname0 == "...props" { "*".to_string() } else { fname0 };
-                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, components: false, takes: vec![], view: None, apart: vec![] };
+                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, components: false, takes: vec![], view: None };
                 let mut spec = spec;
                 if let Some(m) = P_VIEW.captures(&spec) {
                     // RG-4c
@@ -814,9 +807,6 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     } else {
                         Catch::Set(p[2].split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).filter(|x| !x.is_empty()).collect())
                     };
-                }
-                if let Some(a) = P_APART.captures(&rest) {
-                    v.apart = a[2].split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).filter(|x| !x.is_empty()).collect();
                 }
                 sig.props.insert(fname, v);
             }

@@ -520,12 +520,15 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     view(c: unknown, f: (view: unknown) => unknown, plain?: boolean) { return typeof c === "function" && (!plain || c.length) ? f(c) : app.kids(c); },
     /** RG-4c: whether a view was given, without making it. Content that is written, and an argument that is no literal,
      *  is a getter: given, and not read. A value (a literal; what JavaScript gives as one) answers as JavaScript does:
-     *  `undefined`, `null`, `false`, `0`, `""` are nothing given, as Solid's `props.children ? … : …` has it. */
-    given(o: any, k: string): boolean {
+     *  `undefined`, `null`, `false`, `0`, `""` are nothing given, as Solid's `props.children ? … : …` has it.
+     *  `some`: the question is `!= undefined` (and `??`), which of a value only `undefined` and `null` answer no. */
+    given(o: any, k: string, some?: boolean): boolean {
       if (o == null || !(k in o)) return false;
       const d = Object.getOwnPropertyDescriptor(o, k);
-      return d && "value" in d ? !!d.value : true;
+      return d && "value" in d ? (some ? d.value != null : !!d.value) : true;
     },
+    /** `{props.part}` of a prop declared `View`: one that was not given shows nothing. */
+    opt: (v: unknown) => v === undefined ? v : isView(v) ? v : fmt(v),
     /** An argument that is written, and is no literal: read where it is asked for (`given`). */
     v: (x: unknown) => x,
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */

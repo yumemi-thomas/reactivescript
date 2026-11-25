@@ -75,6 +75,8 @@ struct Bind {
     given: Option<Given>,
     /// RG-4c: of a name for a view the component was given, whether it was given
     asked: Option<E>,
+    /// … and whether it is not `undefined`
+    asked_some: Option<E>,
     /// RG-4c: a component's props: the views it shows (`<props.f … />`), and whether it takes plain content as well
     shows: Vec<(String, bool)>,
     /// RG-4c: a component whose children are a view or plain content
@@ -103,7 +105,7 @@ fn takes_plain(d: &Decl, types: &Types) -> bool {
     matches!(d, Decl::Component { props, props_type, decls, view, .. } if shown(props, props_type.as_deref(), decls, view, types).get("children").is_some_and(|v| v.mixed))
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), given: None, asked: None, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
+    Bind { kind, js: js.into(), given: None, asked: None, asked_some: None, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -1309,8 +1311,9 @@ impl<'p> Gen<'p> {
                     Ok(out)
                 };
                 if b.given.as_ref().is_some_and(|g| g.held()) {
-                    let a = self.asked(e, env)?;
+                    let (a, n) = (self.asked(e, env, false)?, self.asked(e, env, true)?);
                     if let Some(x) = self.frames[env].vars.get_mut(name) {
+                        x.asked_some = n;
                         x.asked = a;
                     }
                     let v = self.held(e, env)?;
@@ -1413,50 +1416,67 @@ impl<'p> Gen<'p> {
         }
         Ok(thunk(self.expr(e, env, &reactive())?))
     }
-    /// RG-4c: whether a view was given, asked without making it: `props.children`, a name for it, one with a default.
-    fn asked(&mut self, e: &Expr, env: Env) -> R<Option<E>> {
+    /// RG-4c: whether a view was given, asked without making it: `props.children`, a name for it, a choice or a default
+    /// of them (what its arms answer, a value's own answer where an arm is one). `some`: whether it is not `undefined`.
+    fn asked(&mut self, e: &Expr, env: Env, some: bool) -> R<Option<E>> {
         Ok(match &e.k {
-            ExprKind::Id(n) => self.lookup(env, n).filter(|b| b.given.as_ref().is_some_and(|g| g.held() && g.view())).and_then(|b| b.asked),
+            ExprKind::Id(n) => self.lookup(env, n).filter(|b| b.given.as_ref().is_some_and(|g| g.held() && g.view())).and_then(|b| if some { b.asked_some } else { b.asked }),
             // a prop declared `View`: of anything else, the question is its value's
-            ExprKind::Member { o, p, .. } if self.given(e, env).is_some_and(|g| g.held() && g.view()) => Some(rtc("given", vec![self.expr(o, env, &reactive())?, str(p.clone())])),
-            // a choice, a default: what its arms answer, a value's own truth where an arm is one
+            ExprKind::Member { o, p, .. } if self.given(e, env).is_some_and(|g| g.held() && g.view()) => {
+                let mut args = vec![self.expr(o, env, &reactive())?, str(p.clone())];
+                if some {
+                    args.push(E::Bool(true));
+                }
+                Some(rtc("given", args))
+            }
             ExprKind::If { c, t, f } => {
-                let (a, b) = (self.asked(t, env)?, self.asked(f, env)?);
-                if a.is_none() && b.is_none() {
+                if self.asked(t, env, false)?.is_none() && self.asked(f, env, false)?.is_none() {
                     return Ok(None);
                 }
                 let c = match self.asks(c, env, true)? { Some(x) => x, None => self.expr(c, env, &reactive())? };
-                let a = match a { Some(a) => a, None => self.expr(t, env, &reactive())? };
-                let b = match b { Some(b) => b, None => self.expr(f, env, &reactive())? };
+                let (a, b) = (self.answer(t, env, some)?, self.answer(f, env, some)?);
                 Some(E::Cond(Box::new(c), Box::new(a), Box::new(b)))
             }
             ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => {
-                let (a, b) = (self.asked(l, env)?, self.asked(r, env)?);
-                if a.is_none() && b.is_none() {
+                if self.asked(l, env, false)?.is_none() && self.asked(r, env, false)?.is_none() {
                     return Ok(None);
                 }
-                if op == "&&" {
-                    let a = match a { Some(a) => a, None => match self.asks(l, env, true)? { Some(x) => x, None => self.expr(l, env, &reactive())? } };
-                    let b = match b { Some(b) => b, None => self.expr(r, env, &reactive())? };
-                    Some(bin("&&", a, b))
-                } else if let Some(a) = a {
-                    let b = match b { Some(b) => b, None => self.expr(r, env, &reactive())? };
-                    Some(bin("||", a, b))
-                } else {
-                    let a = self.expr(l, env, &reactive())?;
-                    Some(bin(static_op(op), a, b.unwrap()))
+                // the left as a condition
+                let c = match self.asks(l, env, true)? { Some(x) => x, None => self.answer(l, env, false)? };
+                match op.as_str() {
+                    "&&" => {
+                        let (a, b) = (self.answer(r, env, some)?, self.answer(l, env, some)?);
+                        Some(E::Cond(Box::new(c), Box::new(a), Box::new(b)))
+                    }
+                    "||" => Some(bin("||", c, self.answer(r, env, some)?)),
+                    _ if some => {
+                        let (a, b) = (self.answer(l, env, true)?, self.answer(r, env, true)?);
+                        Some(bin("||", a, b))
+                    }
+                    _ => {
+                        let (n, a, b) = (self.answer(l, env, true)?, self.answer(l, env, false)?, self.answer(r, env, false)?);
+                        Some(E::Cond(Box::new(n), Box::new(a), Box::new(b)))
+                    }
                 }
             }
             _ => None,
         })
     }
+    /// What an arm answers: a view's, or a value's own (`some`: `(e) != null`).
+    fn answer(&mut self, e: &Expr, env: Env, some: bool) -> R<E> {
+        if let Some(a) = self.asked(e, env, some)? {
+            return Ok(a);
+        }
+        let x = self.expr(e, env, &reactive())?;
+        Ok(if some { bin("!=", x, E::Null) } else { x })
+    }
     /// … and a condition that asks it: `!v`, `v == undefined`, `a && b`, `a || b`. `bare`: the view itself is one (an `if`,
     /// a `?:`, the left of `&&`).
     fn asks(&mut self, c: &Expr, env: Env, bare: bool) -> R<Option<E>> {
         Ok(match &c.k {
-            ExprKind::Id(_) | ExprKind::Member { .. } if bare => self.asked(c, env)?,
+            ExprKind::Id(_) | ExprKind::Member { .. } if bare => self.asked(c, env, false)?,
             ExprKind::Un { op, e } if op == "!" => self.asks(e, env, true)?.map(not),
-            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "==" | "!=") && matches!(r.k, ExprKind::Lit(Lit::Undefined | Lit::Null)) && matches!(l.k, ExprKind::Id(_) | ExprKind::Member { .. }) => self.asked(l, env)?.map(|a| if op == "==" { not(a) } else { a }),
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "==" | "!=") && matches!(r.k, ExprKind::Lit(Lit::Undefined | Lit::Null)) && matches!(l.k, ExprKind::Id(_) | ExprKind::Member { .. }) => self.asked(l, env, true)?.map(|a| if op == "==" { not(a) } else { a }),
             ExprKind::Bin { op, l, r } if bare && matches!(op.as_str(), "&&" | "||") => {
                 let (a, b) = (self.asks(l, env, true)?, self.asks(r, env, true)?);
                 if a.is_none() && b.is_none() {
@@ -2057,8 +2077,9 @@ impl<'p> Gen<'p> {
                     }
                     if op == "&&" {
                         if let Some(a) = self.asks(l, env, true)? {
-                            let r = self.expr(r, env, &sub)?;
-                            return Ok(bin("&&", a, r));
+                            // one that was not given is the nothing it is
+                            let (r, l) = (self.expr(r, env, &sub)?, self.expr(l, env, &sub)?);
+                            return Ok(E::Cond(Box::new(a), Box::new(r), Box::new(l)));
                         }
                     }
                 }
@@ -2411,8 +2432,13 @@ impl<'p> Gen<'p> {
             // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another
             // value is formatted (a JS library hands a component its text as an array of strings)
             MarkupKind::Read(e) => {
-                let kids = self.given(e, env).is_some_and(|g| g.held()); // RG-4c: a view that was not given shows nothing
-                Child::Expr(rtc(if kids { "kids" } else { "show" }, vec![self.expr(e, env, &re)?]))
+                // RG-4c: a view that was not given shows nothing
+                let f = match self.given(e, env) {
+                    Some(Given::Children { .. }) => "kids",
+                    Some(g) if g.held() => "opt",
+                    _ => "show",
+                };
+                Child::Expr(rtc(f, vec![self.expr(e, env, &re)?]))
             }
             MarkupKind::El { tag, children, .. } if tag.is_empty() => {
                 if children.is_empty() {
@@ -2507,8 +2533,13 @@ impl<'p> Gen<'p> {
                     return Ok(Some(el(name, xs, vec![r], false)));
                 }
                 let mut kids = vec![];
+                // content that is written is given, also where what it gives on was not
+                let on = matches!(&rest[..], [Markup { kind: MarkupKind::Read(e), .. }] if !matches!(e.k, ExprKind::Fn { .. }) && self.given(e, env).is_some_and(|g| g.held()));
                 for c in rest {
-                    kids.extend(self.child(c, env)?);
+                    kids.extend(self.child(c, env)?.map(|k| match k {
+                        Child::Expr(x) if on => Child::Expr(bin("??", x, E::Arr(vec![]))),
+                        k => k,
+                    }));
                 }
                 el(name, xs, kids, false)
             }

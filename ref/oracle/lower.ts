@@ -177,7 +177,7 @@ type Binding =
   | { k: "ctx"; ctx: ReturnType<typeof createContext<Binding | undefined>>; dflt: Expr | null; home: Scope; dv: Binding | null };   // RG-7: a declared context; its createContext is its identity
 class Scope {
   static all: Scope[] = [];
-  vars = new Map<string, Binding>(); givens = new Map<string, Given>(); asked = new Map<string, () => boolean | undefined>();   // asked: RG-4c, whether a view under this name was given
+  vars = new Map<string, Binding>(); givens = new Map<string, Given>(); asked = new Map<string, (some: boolean) => boolean | undefined>();   // asked: RG-4c, whether a view under this name was given
   given = (n: string): Given | undefined => this.vars.has(n) || this.givens.has(n) ? this.givens.get(n) : this.parent?.given(n);
   parent: Scope | null; owner: ReturnType<typeof getOwner>;
   constructor(parent: Scope | null) { this.parent = parent; this.owner = getOwner(); Scope.all.push(this); }   // the owner at declaration: provisions are read against it (RG-7)
@@ -315,22 +315,26 @@ export class Oracle {
   private lang(name: string, scope: Scope, env?: Map<string, unknown>) { return language(name, env?.has(name) || scope.lookup(name)); }
   /** RG-4c: a view the component was given, made where it is read (as the compiled module's). */
   /** RG-4c: whether a view was given, asked without making it (content that was written is a getter; nothing is nothing, or `[]`). */
-  private asked(e: Expr, scope: Scope): boolean | undefined {
-    if (e.k === "id") { for (let s: Scope | null = scope; s; s = s.parent) { if (s.asked.has(e.name)) return s.asked.get(e.name)!(); if (s.vars.has(e.name) || s.givens.has(e.name)) return undefined; } return undefined; }
+  private asked(e: Expr, scope: Scope, some = false): boolean | undefined {
+    const named = (n: string): ((some: boolean) => boolean | undefined) | undefined => { for (let s: Scope | null = scope; s; s = s.parent) { if (s.asked.has(n)) return s.asked.get(n)!; if (s.vars.has(n) || s.givens.has(n)) return undefined; } return undefined; };
+    if (e.k === "id") return named(e.name)?.(some);
     if (e.k === "member") {
       const g = given(e, scope.given); if (!g?.held || !g.view) return undefined;   // a prop declared `View`: of anything else, the question is its value's
       const o = this.ev(e.o, scope) as any; if (o == null || !(e.p in o)) return false;
       const d = Object.getOwnPropertyDescriptor(o, e.p);
-      return d && "value" in d ? !!d.value : true;
+      return d && "value" in d ? (some ? d.value != null : !!d.value) : true;
     }
-    // a choice, a default: what its arms answer, a value's own truth where an arm is one
-    const has = (y: Expr): boolean => y.k === "id" ? (() => { for (let s: Scope | null = scope; s; s = s.parent) { if (s.asked.has(y.name)) return true; if (s.vars.has(y.name) || s.givens.has(y.name)) return false; } return false; })() : y.k === "member" ? !!given(y, scope.given)?.view : y.k === "if" ? has(y.t) || has(y.f) : y.k === "bin" && (y.op === "??" || y.op === "||" || y.op === "&&") ? has(y.l) || has(y.r) : false;
-    const x = (y: Expr): boolean => has(y) ? !!this.asked(y, scope) : !!this.ev(y, scope);
-    if (e.k === "if" && (has(e.t) || has(e.f))) return (this.asks(e.c, scope, true) ?? !!this.ev(e.c, scope)) ? x(e.t) : x(e.f);
+    // a choice, a default: what its arms answer, a value's own answer where an arm is one. `some`: whether it is not `undefined`
+    const has = (y: Expr): boolean => y.k === "id" ? !!named(y.name) : y.k === "member" ? !!given(y, scope.given)?.view : y.k === "if" ? has(y.t) || has(y.f) : y.k === "bin" && (y.op === "??" || y.op === "||" || y.op === "&&") ? has(y.l) || has(y.r) : false;
+    const T = (y: Expr): boolean => has(y) ? !!this.asked(y, scope) : !!this.ev(y, scope);
+    const N = (y: Expr): boolean => has(y) ? !!this.asked(y, scope, true) : this.ev(y, scope) != null;
+    const A = some ? N : T;
+    if (e.k === "if" && (has(e.t) || has(e.f))) return (this.asks(e.c, scope, true) ?? !!this.ev(e.c, scope)) ? A(e.t) : A(e.f);
     if (e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&") && (has(e.l) || has(e.r))) {
-      if (e.op === "&&") return (has(e.l) ? !!this.asked(e.l, scope) : this.asks(e.l, scope, true) ?? !!this.ev(e.l, scope)) && x(e.r);
-      if (has(e.l)) return !!this.asked(e.l, scope) || x(e.r);
-      const l = this.ev(e.l, scope); return e.op === "??" ? (l != null ? !!l : x(e.r)) : !!l || x(e.r);
+      const c = () => this.asks(e.l, scope, true) ?? T(e.l);
+      if (e.op === "&&") return c() ? A(e.r) : A(e.l);
+      if (e.op === "||") return c() || (some ? N(e.r) : T(e.r));
+      return some ? N(e.l) || N(e.r) : N(e.l) ? T(e.l) : T(e.r);
     }
     return undefined;
   }
@@ -338,7 +342,7 @@ export class Oracle {
   private asks(c: Expr, scope: Scope, bare: boolean): boolean | undefined {
     if (bare && (c.k === "id" || c.k === "member")) return this.asked(c, scope);
     if (c.k === "un" && c.op === "!") { const a = this.asks(c.e, scope, true); return a === undefined ? undefined : !a; }
-    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null && (c.l.k === "id" || c.l.k === "member")) { const a = this.asked(c.l, scope); return a === undefined ? undefined : c.op === "==" ? !a : a; }
+    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null && (c.l.k === "id" || c.l.k === "member")) { const a = this.asked(c.l, scope, true); return a === undefined ? undefined : c.op === "==" ? !a : a; }
     if (bare && c.k === "bin" && (c.op === "&&" || c.op === "||")) { const l = this.asks(c.l, scope, true), r = this.asks(c.r, scope, true); if (l === undefined && r === undefined) return undefined; const L = l ?? !!this.ev(c.l, scope); return c.op === "&&" ? L && (r ?? !!this.ev(c.r, scope)) : L || (r ?? !!this.ev(c.r, scope)); }
     return undefined;
   }
@@ -412,7 +416,7 @@ export class Oracle {
         }
         case "eq": {
           for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x);
-          if (scope.givens.get(d.name)?.held) { scope.vars.set(d.name, { k: "memo", get: this.held(d.e, scope) }); scope.asked.set(d.name, () => this.asked(d.e, scope)); break; }
+          if (scope.givens.get(d.name)?.held) { scope.vars.set(d.name, { k: "memo", get: this.held(d.e, scope) }); scope.asked.set(d.name, some => this.asked(d.e, scope, some)); break; }
           if (this.foreign(d, scope)) break;
           if (d.e.k !== "draft") this.hoistAwaits(d.name, d.e, scope);
           if (d.e.k === "draft") {                                      // ST-3: createProjection((draft) => …, seed)
@@ -606,7 +610,7 @@ export class Oracle {
       }
       case "un": { const a = this.asks(e, scope, false); if (a !== undefined) return a; const v = this.ev(e.e, scope, env) as any; noFlight(v); return e.op === "!" ? !v : -v; }
       case "bin": {
-        { const a = this.asks(e, scope, false); if (a !== undefined) return a; if (e.op === "&&") { const l = this.asks(e.l, scope, true); if (l !== undefined) return l && this.ev(e.r, scope, env); } }   // RG-4c: asked, not made
+        { const a = this.asks(e, scope, false); if (a !== undefined) return a; if (e.op === "&&") { const l = this.asks(e.l, scope, true); if (l !== undefined) return this.ev(l ? e.r : e.l, scope, env); } }   // RG-4c: asked, not made
         const l = this.ev(e.l, scope, env) as any; noFlight(l);
         if (e.op === "&&") return l ? this.ev(e.r, scope, env) : l;
         if (e.op === "||") return l ? l : this.ev(e.r, scope, env);
@@ -771,7 +775,7 @@ export class Oracle {
     switch (m.k) {
       case "text": return R.createTextNode(m.s);
       case "style": return "";                                                            // CSS-4: removed from the view
-      case "read": { const view = !!given(m.e, scope.given)?.held; const g = () => { const v = this.ev(m.e, scope); return isView(v) || (view && (v == null || typeof v === "boolean")) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; }   // RG-4c: a view that was not given shows nothing;   // a view value (children) is inserted as structure
+      case "read": { const view = !!given(m.e, scope.given)?.held; const g = () => { const v = this.ev(m.e, scope); return isView(v) || (view && v === undefined) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; }   // RG-4c: a view that was not given shows nothing;   // a view value (children) is inserted as structure
       case "el": {
         if (m.tag === "") return this.fragment(m.children, scope, inEl);     // `<>…</>`
         const n = shownIn(m.tag), given = n && scope.lookup(n[0]);

@@ -1255,7 +1255,7 @@ export class Runtime {
         return { k: "read", node: this.mkNode("reader", "reader", region, rt => {
           const v = rt.evalExpr(m.e, region);
           if (held && held.of !== v) { held.view.region.dispose(); held = null; }
-          if (!(v instanceof ViewFn) || !v.plain) return (v === undefined || typeof v === "boolean") && this.held.has(m) ? "" : v;   // children that were not given show nothing
+          if (!(v instanceof ViewFn) || !v.plain) return v === undefined && this.held.has(m) ? "" : v;   // children that were not given show nothing
           if (!held) { const cr = new Region(region, this, region.boundary, v.region); held = { of: v, view: new ViewValue(cr, v.m.body.map(c => this.inst1(c, cr))) }; }
           return held.view;
         }), shown: null };

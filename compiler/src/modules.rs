@@ -1615,61 +1615,6 @@ pub fn view_not_shown(comp: &str, props: &str, field: &str, how: &str, of: &str)
     format!("{comp} is given a view, {}, and a view is only shown: {tail}", if field == "view" { "a prop typed View" } else { field })
 }
 
-/// RG-7b, 08: whether a component's children are shown in its own view and go nowhere else: named by `{props.children}`, by
-/// what a pattern or a rest of the props calls them, or by `if props.children`. Read by a snapshot, carried by a context, kept in a
-/// value, given as a prop or spread, they may be read where they are written, or where nothing of the component is.
-pub fn only_shown(props: &str, decls: &[Decl], view: &[Markup]) -> bool {
-    use serde_json::Value;
-    fn name(v: &Value) -> Option<&str> {
-        (v["k"] == "id" || v["k"] == "pre").then(|| v["name"].as_str()).flatten()
-    }
-    struct Names {
-        /// names of the children, and of records that hold them
-        kids: HashSet<String>,
-        of: HashSet<String>,
-    }
-    impl Names {
-        fn form(&self, v: &Value) -> bool {
-            (v["k"] == "id" && name(v).is_some_and(|n| self.kids.contains(n)))
-                || (v["k"] == "member" && v["p"] == "children" && v["o"]["k"] == "id" && name(&v["o"]).is_some_and(|n| self.of.contains(n)))
-                || (v["k"] == "if" && v["c"]["k"] == "bin" && v["c"]["op"] == "==" && self.form(&v["c"]["l"]) && self.form(&v["f"]) && !self.mentions(&v["t"]))
-        }
-        fn mentions(&self, v: &Value) -> bool {
-            match v {
-                Value::Array(xs) => xs.iter().any(|x| self.mentions(x)),
-                Value::Object(o) => {
-                    if self.form(v) || name(v).is_some_and(|n| self.kids.contains(n) || self.of.contains(n)) {
-                        return true;
-                    }
-                    let k = o.get("k").and_then(Value::as_str);
-                    // another field of the props, a rest without the children
-                    let of = |f: &str| name(&v[f]).is_some_and(|n| self.of.contains(n));
-                    if (k == Some("member") && of("o")) || (k == Some("omit") && of("e") && v["keys"].as_array().is_some_and(|ks| ks.iter().any(|x| x == "children"))) {
-                        return false;
-                    }
-                    o.iter().any(|(f, x)| !((k == Some("read") && f == "e" || k == Some("mif") && f == "c") && self.form(x)) && self.mentions(x))
-                }
-                _ => false,
-            }
-        }
-    }
-    let mut ns = Names { kids: HashSet::new(), of: HashSet::from([props.to_string()]) };
-    let all: Vec<Value> = decls.iter().map(|d| d.to_json()).chain(view.iter().map(|m| m.to_json())).collect();
-    let mut named = HashSet::new();
-    for (i, d) in all.iter().enumerate().filter(|(_, d)| d["k"] == "eq" && d["key"].is_null() && d["deferred"] != true) {
-        let Some(n) = d["name"].as_str() else { continue };
-        let rest = d["e"]["k"] == "omit" && name(&d["e"]["e"]).is_some_and(|x| ns.of.contains(x));
-        if ns.form(&d["e"]) {
-            ns.kids.insert(n.to_string());
-            named.insert(i);
-        } else if rest && !d["e"]["keys"].as_array().is_some_and(|ks| ks.iter().any(|x| x == "children")) {
-            ns.of.insert(n.to_string());
-            named.insert(i);
-        }
-    }
-    !all.iter().enumerate().any(|(i, x)| !named.contains(&i) && ns.mentions(x))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
