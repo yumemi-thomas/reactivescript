@@ -65,9 +65,9 @@ component Leaf() { <i>{use c}</i> }
 export default component App() { <P><Leaf /></P> }
 ```
 
-With nothing above and no default, the `use` in the provision has nothing to read (it threw *no provision for c* when it ran):
+With nothing above and no default, the `use` in the provision has nothing to read (upstream accepts it — the checkers took the provision for its own provider — and it threw *no provision for c* when it ran):
 
-<!-- check branch=CONTEXT_NOT_FOUND upstream=failed -->
+<!-- check branch=CONTEXT_NOT_FOUND upstream=ok -->
 ```rx
 context c: string
 component P(props: { children: View }) {

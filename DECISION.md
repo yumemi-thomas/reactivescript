@@ -503,3 +503,91 @@ suite was run once on the branch that holds this one merged (`rx-best`), not her
 What is weaker than before: nothing is accepted that was refused for a reason that still holds, by the sets above.
 What changed its answer on purpose: a closure written in a provision reads what is above it (it read the provision);
 `x = use c; provide c = x` is `CYCLE` (it froze); `slot` has no `when`.
+
+## `rx-best`: the parts in one branch (2026-11-26, local, nothing pushed)
+
+One branch from PR #1's head (8155d684), with, in this order, each merged green before the next (`scripts/quick`):
+upstream main (bbe2a189: AC-1h, R-8 through components), `proto-children-rule` (explicit views, a view is only shown,
+whether one was given, a context that holds a view, and the third review's fixes above), `rx-std` (f208152a: `std/`
+and the twelve packages written on it), `proto-optional` (3a4847ec, E-9a) and `proto-generic` (b36ab25d, 07 §2), and
+`examples/rx-ui-sdk` (fd2eb969) rewritten for the rule. Upstream's acceptance was not weighed; what does not merge
+soundly was to be left out and listed.
+
+### What is in, and what had to be reconciled
+
+| merged | what met what | what was done |
+| --- | --- | --- |
+| upstream main | AC-1h's `waits` (an action whose change outlasts the call) and MO-10l's `waits` (a JS fn whose result waits or fails), one field name in both checkers | upstream's is `outlasts` |
+| | the run checks: this branch's take their scope (AC-1g's answers, AC-3's hooks), upstream's take `actions_in` | both, one signature |
+| | R-8: upstream covers a snapshot by a prop the child shows, this branch by the component's own regions; upstream records a component's handler props | both covers, in that order; the handler props from the arguments as this branch reads them |
+| | the guide's `STALE_NEXT_READ` examples call `fetch`, which an app's program does not have here | they import their request |
+| `proto-children-rule` | C-1 for a provision of itself: PR #1 (04087769) refuses the direct form and accepts it through a name; the merged rule is the other way (above) | the merged rule; `provisionCycles` and what fed it are gone from both checkers; what 04087769 kept of a name's failures (never cut short by who asked first) is kept. PR #1's S-context-4 is S-context-11, each form with its verdict under the rule; bugs/40 rewritten with its marks |
+| | the closure kept in a provision: PR #1's scenario said it reads the provision (`4`, `6`) | it reads what is above it (`710`, `712` with two providers): the one result this branch changes on purpose |
+| | `NESTED_NOT_RENDERED`, twice on a line: by name (the prototype) or as written (a4cba8ef) | as written |
+| | `compiler/test/js-host.mjs` bundled with esbuild, which the tools' move took out of the workspace | Rolldown (`scripts/lib/bundle.mjs`) |
+| | a merged loop that never advanced (`fails_of` over a context's provisions: one side's `while`, the other's body) | found by the compiler's own warning before it ran; fixed |
+| `rx-std` | nothing in the language; `std/test/browser.mjs` needed esbuild | Rolldown; the twelve packages build to the same code and their tests answer as on `rx-std` (230 of 276, 31 of 34 served: the same tests fail) |
+| `proto-optional`, `proto-generic` | a printed fn row is read from its end here (its words, then the result), and each prototype read it from its start; both mark the same row (`f<T>(a: T, b?: T)`) | read from the end, past the type parameters, with the optional mark; the projection writes both; spec 09's table has a row for each |
+| | the tree-sitter parser is a generated file, and git merged its text | generated again from the merged grammar (92 corpus tests) |
+| `examples/rx-ui-sdk` | the package as written is refused in two places (a module's own `children: View` handed to a JavaScript function) | rewritten: children shown, children told the part's state as a view with a parameter, `render` as a view of the part for two parts (its REPORT.md); 44 of 44 |
+
+**Left out**: nothing that was asked for. Not in any of the parts, and so not here: a type alias with type parameters
+(`type Item<T> = …` is a parse error; a generic fn's own parameters are the prototype's whole scope); locals in fns
+(the third prototype, 21: not asked for); `renderItem={use item}` and an exported context that holds a view (above).
+
+### Interactions: 516 programs that mix the parts, and what they found
+
+`mkx.py` (kept beside the worktree, `../a/`): 12 places a value goes (plain, content, a view asked for, a view with a
+parameter, a context, a provision given from what is above it, a context that holds a view — plain, with a parameter,
+optional, a choice in a table —, inside a component, inside a provision) × 8 calls (a generic fn, one with two type
+parameters and `keyof`, an optional parameter given and left out, both at once, a fn that instantiates with and
+without its optional argument) × the fns, components and contexts in the program's module or in one it imports ×
+AC-1h's handler (none; in plain markup, in content, in a view with a parameter, as a callback prop), and the same
+handlers without `latest` (60, to be refused), and 72 that run the held action (two ids minted while the first still
+waits, then both answers).
+
+| | |
+| --- | --- |
+| alike in the interpreter, the oracle, both emitters | 456 of 456 accepted |
+| refused, as written to be (`STALE_NEXT_READ`, wherever the handler is written) | 60 of 60 |
+| both checkers alike; lowered alike; projected alike | 516, 516, 516 |
+| the type pass | 456 of 456 |
+| served and hydrated, both emitters | 456 of 456 |
+
+They found **no fault** of the merged tree. Nine of them are S-mix-1. Nine more written by hand for what the product
+would not reach (a view with a parameter whose body instantiates a generic fn; a provision's own `use` as a fn's
+argument beside a second context of the block; an action reached through a context from a handler in a view; a tree
+with a generic fn over its own type and a depth counted from above; a theme merged from above beside an optional
+carried view): six alike in every runner and served, two refused as meant, one a parse error (the type alias above).
+
+What the merges themselves found is the table above: two clashes of names or signatures, one rule decided twice, one
+loop, three tests on a bundler that was gone, one generated file.
+
+### Suites
+
+`scripts/quick` after each merge: 20 passed, 0 failed (the benchmark part is time-boxed there).
+
+`scripts/ci`, every job of the workflows that runs on this Mac, once, on the merged tree (8 at once, 429 s, 1,282 s of
+CPU): **41 passed, 4 failed, 2 not run here**. The four, each looked at and run again:
+
+| failed | why | then |
+| --- | --- | --- |
+| tree-sitter | **a fault of the merged tree**: the grammar had no rule for a printed signature's `view` rows, which `examples/rx-ui-sdk/dist/*.d.rx` hold (no file of the repository had one before) | a rule and a corpus test; 93 corpus tests, the repository parses |
+| bench-tasks | 4 checks of one task's dev server (`__rt.slot is not a function`): Vite had pre-bundled the runtime of the baseline run made in this folder before the merges, and kept it. Not the product's; the benchmark's workspace now drops that copy when the runtime it is given is another | all as the scorecard or better: good 44 of 44, types 186 of 186, runtime 279 of 279, bad caught 247 of 247, unrepresentable 13 of 13 |
+| t-vite-types, t-ssr-router | they need what `t-vite` installs, and ran before it in a folder that had never run it | pass |
+
+Not run here: `t-vite-hosts`, `t-vite-watch` (they need a built Solid Vite plugin, as on every branch).
+
+Beside it: `compiler/test/js-host.mjs` 17 of 17; `proposals/check.mjs` with `--upstream` (the export of e650b851): 347
+verdicts over 72 documents, all as stated but one of upstream's own (`bugs/25`, the type pass on that export says
+`TS2322` where the document says it accepts: not looked into, and no mark of this branch); `examples/rx-std`: its
+twelve packages build, 230 of 276 and 31 of 34 as on `rx-std`, `std/test/browser.mjs` 39 of 39; `examples/rx-ui-sdk`:
+44 of 44.
+
+Sizes against PR #1's head (8155d684): the crate 25,979 to 28,555 lines, `ref/` 12,148 to 13,160, scenarios 201 to
+218 files; the runtime's browser build 32,564 to 33,289 bytes.
+
+Not run: the UI SDK's Playwright specs, unit tests and leak gates on this tree (552 of 553 on the children-rule
+branch); the twelve packages' originals as a baseline again; run-time performance; Windows and Linux; nothing on
+GitHub; the 3,802 and 635 programs of the first review rounds; the first rounds' sets on this tree (the 1,642, 1,147,
+979 and 505 were run on the children-rule branch's final code, which is merged here unchanged).
