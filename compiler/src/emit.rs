@@ -8,7 +8,7 @@ use crate::ast::{instantiates, kept_parts, Decl, Expr, ExprKind, Field, Lit, Mar
 use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
-use crate::modules::ModuleSet;
+use crate::modules::{defaulted, given, type_only, view_fields, Given, ModuleSet};
 use crate::names::{in_prelude, language, scalar, Lang};
 use crate::parse::{JsDecl, Part, Shape as FShape};
 use crate::signature::ExportSig;
@@ -71,8 +71,8 @@ struct FnRef {
 struct Bind {
     kind: Kind,
     js: String,
-    /// a component's props: `{props.children}` is the component's children, inserted as they are
-    props: bool,
+    /// RG-4b: a component's props, or a projection of them that holds a view
+    given: Option<Given>,
     w: Option<String>,
     f: Option<FnRef>,
     prev: Option<String>,
@@ -93,7 +93,7 @@ struct Bind {
     draft_args: Vec<usize>,
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), props: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
+    Bind { kind, js: js.into(), given: None, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -108,6 +108,8 @@ type Env = usize;
 #[derive(Clone, Default)]
 struct Ctx {
     imp: bool,
+    /// an element's `ref`: its closure is called while the view is made
+    is_ref: bool,
     gen: bool,
     is_async: bool,
     tail: bool,
@@ -242,7 +244,7 @@ pub fn compile_linked_as<'a>(set: &'a ModuleSet, extra: &[Vec<Stmt>], by_source:
     for path in &set.order {
         let p = &set.programs[path];
         let css0 = g.css.len();
-        g.begin_module(path, &p.decls);
+        g.begin_module(path, p);
         let mut deps: Vec<&str> = vec![];
         // MO-13c: a module a JS import's printed signature stands for is the compiled JavaScript that import names,
         // whose `__rx` is the module's factory
@@ -329,6 +331,10 @@ struct Gen<'p> {
     mod_decls: &'p [Decl],
     /// MO-11t: the props of the JS components this module imports that take a view
     views: crate::modules::ViewProps,
+    /// what the module imports from JavaScript for its types alone
+    type_only: HashSet<String>,
+    /// an equation's hoisted awaits were just written, for its accessor to claim (`reg`)
+    claims: bool,
     sf_seq: usize,
     /// CSS-2: the scope class of the view being emitted
     style_hash: Option<String>,
@@ -374,6 +380,8 @@ impl<'p> Gen<'p> {
             server_names: IndexMap::new(),
             mod_decls: &[],
             views: Default::default(),
+            claims: false,
+            type_only: HashSet::new(),
             sf_seq: 0,
             style_hash: None,
             hoisted: HashMap::new(),
@@ -433,7 +441,9 @@ impl<'p> Gen<'p> {
         format!("__m{}", self.mod_index(path))
     }
     /// Begin a module: what a hoisted server function may name at module level (SF-3: imports, error classes, server fns).
-    fn begin_module(&mut self, path: &str, decls: &'p [Decl]) {
+    fn begin_module(&mut self, path: &str, p: &'p Program) {
+        let decls = &p.decls[..];
+        self.type_only = type_only(p, self.set);
         self.file = path.to_string();
         self.top = vec![];
         self.top_fns = HashSet::new();
@@ -465,7 +475,7 @@ impl<'p> Gen<'p> {
                 }
                 // a type its declaration file declares binds nothing: the JS module exports no such name
                 let is_type = |n: &str| declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| matches!(y, JsDecl::Type { name, .. } if name == n)));
-                let ns: Vec<(String, String)> = names.iter().filter(|n| !in_prelude(d, &n.name, self.set.conformance) && !is_type(&n.name)).map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
+                let ns: Vec<(String, String)> = names.iter().filter(|n| !in_prelude(d, &n.name, self.set.conformance) && !is_type(&n.name) && !self.type_only.contains(&n.alias)).map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
                 if !ns.is_empty() {
                     self.top.push(S::ImportNamed(ns, from.clone()));
                 }
@@ -826,11 +836,28 @@ impl<'p> Gen<'p> {
                 _ => {}
             }
         }
+        // RG-4b: the equations that are projections of the component's props, in whatever order they are written
+        let mut more = true;
+        while std::mem::take(&mut more) {
+            for d in decls {
+                let Decl::Eq { name, e, deferred: false, key: None, .. } = d else { continue };
+                if unwrap_server(e).is_some() || self.guessed_eq(name, e, false) || self.frames[env].vars.get(name).is_none_or(|b| b.given.is_some()) {
+                    continue;
+                }
+                if let Some(g) = self.given(e, env) {
+                    self.frames[env].vars.get_mut(name).unwrap().given = Some(g);
+                    more = true;
+                }
+            }
+        }
         for d in decls {
             let Decl::Import { resolved: None, names, from, declared_errors, declared_error_fields, declared, .. } = d else { continue };
             let n0 = out.len();
             for n in names {
                 let (name, alias) = (&n.name, &n.alias);
+                if self.type_only.contains(alias) {
+                    continue;
+                }
                 // a type its declaration file declares binds nothing
                 if declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| matches!(y, JsDecl::Type { name: tn, .. } if tn == name))) {
                     continue;
@@ -860,7 +887,7 @@ impl<'p> Gen<'p> {
                 };
                 let js = if self.lookup(env, alias).is_some_and(|b| b.kind == Kind::Comp) { cm(alias) } else { mg(alias) };
                 out.push(konst(js.clone(), v));
-                out.push(sexpr(rtc("reg", vec![str(alias.clone()), obj(vec![("value", id(js))])])));
+                out.extend(self.reg(alias, vec![("value", id(js))]));
             }
             at(&mut out, n0, d.line());
         }
@@ -903,7 +930,7 @@ impl<'p> Gen<'p> {
             };
             // RG-7: the declaration is the context's identity
             out.push(konst(mg(name), rtc("context", vec![str(name.clone()), dv])));
-            out.push(sexpr(rtc("reg", vec![str(name.clone()), obj(vec![("value", id(mg(name)))])])));
+            out.extend(self.reg(name, vec![("value", id(mg(name)))]));
             at(&mut out, n0, d.line());
         }
         for d in decls {
@@ -925,7 +952,7 @@ impl<'p> Gen<'p> {
             let body = self.stmts(body, penv, &Ctx { imp: true, gen: true, ..Ctx::default() }, false)?;
             let gen = E::Func(Box::new(Func { name: None, params: params.iter().map(|p| P::Id(mg(p))).collect(), directives: vec![], body, is_async: false, generator: true }));
             out.push(konst(mg(name), rtc("action", vec![gen])));
-            out.push(sexpr(rtc("reg", vec![str(name.clone()), obj(vec![("value", id(mg(name)))])])));
+            out.extend(self.reg(name, vec![("value", id(mg(name)))]));
             at(&mut out, n0, d.line());
         }
         for d in decls {
@@ -1070,12 +1097,18 @@ impl<'p> Gen<'p> {
         }
     }
 
-    fn reg(&self, name: &str, b: &Bind, writer: bool) -> S {
+    /// The scenario harness's table of names (CP-4c): a conformance build's, and an app's where an equation's accessor
+    /// claims its hoisted awaits. An app has no such table, and one would keep every instance.
+    fn reg(&mut self, name: &str, entry: Vec<(&'static str, E)>) -> Option<S> {
+        let claims = std::mem::take(&mut self.claims);
+        (self.set.conformance || claims).then(|| sexpr(rtc("reg", vec![str(name), obj(entry)])))
+    }
+    fn reg_get(&mut self, name: &str, b: &Bind, writer: bool) -> Option<S> {
         let mut kv = vec![("get", id(b.js.clone()))];
         if writer {
             kv.push(("w", id(b.w.clone().unwrap())));
         }
-        sexpr(rtc("reg", vec![str(name), obj(kv)]))
+        self.reg(name, kv)
     }
     fn value(&mut self, d: &Decl, env: Env) -> R<Vec<S>> {
         if let Decl::Provide { name, e, .. } = d {
@@ -1085,8 +1118,8 @@ impl<'p> Gen<'p> {
             let entry = match src {
                 Some(b) => obj(vec![("get", id(b.js.clone())), ("w", id(b.w.clone().unwrap()))]),
                 None => {
-                    let x = self.expr(e, env, &reactive())?;
-                    obj(vec![("get", rtc("memo", vec![E::Null, thunk(x)]))])
+                    let get = if self.given(e, env).is_some_and(|g| g.held()) { self.held(e, env)? } else { rtc("memo", vec![E::Null, thunk(self.expr(e, env, &reactive())?)]) };
+                    obj(vec![("get", get)])
                 }
             };
             let c = self.reference(name, env, &reactive())?;
@@ -1140,6 +1173,7 @@ impl<'p> Gen<'p> {
             out.push(konst(v.clone(), rtc("memo", vec![name.map(str).unwrap_or(E::Null), thunk(f), lv])));
             if let Some(n) = name {
                 out.push(sexpr(rtc("hoisted", vec![str(n), id(v)])));
+                self.claims = true;
             }
         }
         Ok(out)
@@ -1206,7 +1240,8 @@ impl<'p> Gen<'p> {
                 if let Some(k) = key {
                     args.push(str(k.clone())); // ST-4a: a new value written to it is reconciled by its key
                 }
-                let mut out = vec![S::Const(pair(), rtc("source", args)), self.reg(name, b, true)];
+                let mut out = vec![S::Const(pair(), rtc("source", args))];
+                out.extend(self.reg_get(name, b, true));
                 prev(&mut out);
                 Ok(out)
             }
@@ -1218,7 +1253,8 @@ impl<'p> Gen<'p> {
                 if let Some(k) = key {
                     args.push(str(k.clone()));
                 }
-                let mut out = vec![S::Const(pair(), rtc("question", args)), self.reg(name, b, true)];
+                let mut out = vec![S::Const(pair(), rtc("question", args))];
+                out.extend(self.reg_get(name, b, true));
                 prev(&mut out);
                 Ok(out)
             }
@@ -1233,16 +1269,21 @@ impl<'p> Gen<'p> {
                 if let Some(k) = key {
                     args.push(str(k.clone()));
                 }
-                let mut out = vec![S::Const(pair(), rtc("question", args)), self.reg(name, b, true)];
+                let mut out = vec![S::Const(pair(), rtc("question", args))];
+                out.extend(self.reg_get(name, b, true));
                 prev(&mut out);
                 Ok(out)
             }
             Decl::Eq { name, e, key, deferred, .. } => {
-                let fin = |mut out: Vec<S>, g: &Self| {
-                    out.push(g.reg(name, b, false));
+                let fin = |mut out: Vec<S>, g: &mut Self| {
+                    out.extend(g.reg_get(name, b, false));
                     prev(&mut out);
                     Ok(out)
                 };
+                if b.given.as_ref().is_some_and(|g| g.held()) {
+                    let v = self.held(e, env)?;
+                    return fin(vec![konst(b.js.clone(), v)], self);
+                }
                 // ST-3
                 if let ExprKind::Draft { seed, body } = &e.k {
                     let ExprKind::Pre { name: sn, init: Some(si) } = &seed.k else { return fail("a draft's seed must be `pre self -> seed`") };
@@ -1266,7 +1307,7 @@ impl<'p> Gen<'p> {
                 }
                 if let Some(mut fx) = self.foreign(e, env, &b)? {
                     if b.kind == Kind::Comp {
-                        fx.push(sexpr(rtc("reg", vec![str(name.clone()), obj(vec![("value", id(b.js.clone()))])])));
+                        fx.extend(self.reg(name, vec![("value", id(b.js.clone()))]));
                         return Ok(fx);
                     }
                     return fin(fx, self);
@@ -1311,6 +1352,18 @@ impl<'p> Gen<'p> {
             }
             _ => fail("unreachable"),
         }
+    }
+    fn given(&self, e: &Expr, env: Env) -> Option<Given> {
+        given(e, &|n| self.lookup(env, n).and_then(|b| b.given))
+    }
+    /// RG-4c: a view the component was given, as it is read: no computation of its own, so it is made where it is read.
+    fn held(&mut self, e: &Expr, env: Env) -> R<E> {
+        if defaulted(e, &|n| self.lookup(env, n).and_then(|b| b.given)).is_some() {
+            let ExprKind::If { t, f, .. } = &e.k else { unreachable!() };
+            let (v, d) = (self.expr(f, env, &reactive())?, self.expr(t, env, &reactive())?);
+            return Ok(thunk(rtc("preOr", vec![v, thunk(d)])));
+        }
+        Ok(thunk(self.expr(e, env, &reactive())?))
     }
     /// SV-7b: a call into `client` JS — awaited, a client question: Solid's `ssrSource: "client"`, never asked on the server.
     fn client_call(&self, e: &Expr, env: Env) -> bool {
@@ -1574,12 +1627,16 @@ impl<'p> Gen<'p> {
         Ok(call(id(b.js), out))
     }
     fn component(&mut self, d: &Decl, env: Env) -> R<S> {
-        let Decl::Component { name, props, decls, view, .. } = d else { unreachable!() };
+        let Decl::Component { name, props, decls, view, props_type, .. } = d else { unreachable!() };
         let inner = self.new_env(Some(env));
         let mut pb = val(mg(props));
-        pb.props = true;
+        let mut views = HashSet::new();
+        if let Some(t) = props_type {
+            view_fields(t, self.mod_decls, 0, &mut views);
+        }
+        pb.given = Some(Given::Props { less: vec![], views: views.into() });
         self.set(inner, props, pb);
-        let body = self.block(decls, view, inner, None, true)?;
+        let body = self.owned(decls, view, inner, true)?;
         Ok(S::Func(Func { name: Some(cm(name)), params: vec![P::Id(mg(props))], directives: vec![], body, is_async: false, generator: false }))
     }
 
@@ -1856,8 +1913,9 @@ impl<'p> Gen<'p> {
                     }
                     self.raw.insert(&**body as *const Expr); // what the callback gives back is the library's
                 }
-                let ps: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
-                match stmts {
+                let own: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
+                let ps = if ctx.is_ref { vec![] } else { own.clone() };
+                let f = match stmts {
                     Some(ss) if crate::infer::inferred_action(ss).is_some() => {
                         // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
                         let b = self.stmts(ss, inner, &Ctx { imp: true, gen: true, dynamic: ctx.dynamic, effect: ctx.effect, ..Ctx::default() }, false)?;
@@ -1873,7 +1931,10 @@ impl<'p> Gen<'p> {
                         let b = self.expr(body, inner, &Ctx { imp: ctx.imp, dynamic: ctx.dynamic, effect: ctx.effect, ..Ctx::default() })?;
                         E::Arrow { params: ps, body: Body::Expr(Box::new(b)), is_async: false }
                     }
-                }
+                };
+                // H-10: what a `ref` closure reads is a snapshot, a prop as a source is — it is called while the view is
+                // made, where Solid's development build reports a read nothing tracks
+                if ctx.is_ref { E::Arrow { params: own, body: Body::Expr(Box::new(rtc("untrack", vec![f]))), is_async: false } } else { f }
             }
             ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
             ExprKind::Bin { op, l, r } => {
@@ -2185,15 +2246,21 @@ impl<'p> Gen<'p> {
         if let Some(n) = bind_name {
             self.set(inner, &n, val(mg(&n)));
         }
-        pre.append(&mut self.block(decls, view, inner, None, false)?);
+        pre.append(&mut self.owned(decls, view, inner, false)?);
         Ok(arrow_block(param.into_iter().map(P::Id).collect(), pre, false))
+    }
+    /// RG-7a: what a region provides is for what is in it, so it has an owner of its own: in Solid's production build a
+    /// component has none, and a branch's is its condition's, made again and again under what the last one provided.
+    fn owned(&mut self, decls: &[Decl], view: &[Markup], env: Env, root: bool) -> R<Vec<S>> {
+        let body = self.block(decls, view, env, None, root)?;
+        Ok(if decls.iter().any(|x| matches!(x, Decl::Provide { .. })) { vec![S::Return(Some(rtc("inst", vec![arrow_block(vec![], body, false)])))] } else { body })
     }
     fn region(&mut self, decls: &[Decl], view: &[Markup], env: Env) -> R<Child> {
         let f = self.region_fn(decls, view, env, None, None, None)?;
         Ok(Child::Expr(call(f, vec![])))
     }
     fn attr(&mut self, name: &str, e: &Expr, env: Env) -> R<(String, AttrValue)> {
-        let x = self.expr(e, env, &Ctx { imp: is_handler(name), ..Ctx::default() })?;
+        let x = self.expr(e, env, &Ctx { imp: is_handler(name), is_ref: name == "ref", ..Ctx::default() })?;
         Ok((name.to_string(), AttrValue::Expr(x)))
     }
     fn child(&mut self, m: &Markup, env: Env) -> R<Option<Child>> {
@@ -2207,7 +2274,7 @@ impl<'p> Gen<'p> {
             // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another
             // value is formatted (a JS library hands a component its text as an array of strings)
             MarkupKind::Read(e) => {
-                let kids = matches!(&e.k, ExprKind::Member { o, p, .. } if p == "children" && matches!(&o.k, ExprKind::Id(n) if self.lookup(env, n).is_some_and(|b| b.props)));
+                let kids = self.given(e, env) == Some(Given::Children);
                 Child::Expr(rtc(if kids { "kids" } else { "show" }, vec![self.expr(e, env, &re)?]))
             }
             MarkupKind::El { tag, children, .. } if tag.is_empty() => {
@@ -2295,6 +2362,7 @@ impl<'p> Gen<'p> {
                 let narrow = narrowed.map(|(n, b)| {
                     let mut nb = bind(Kind::Acc, format!("n${n}"));
                     nb.w = b.w;
+                    nb.given = b.given;
                     (n, nb)
                 });
                 let tf = self.region_fn(t_decls, t, env, Some("__item".into()), narrow, None)?;

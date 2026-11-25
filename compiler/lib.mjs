@@ -195,13 +195,17 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
     if (m.dom.css) put(`${name}.css`, m.dom.css);
     if (js.has(path.join(root, `${name}.js`))) problems.push(`${name}.rx and ${name}.js would both be ${path.relative(dir, dist)}/${name}.js: rename one`);
   }
-  // 2. the JavaScript the modules import, with what declares it (and what that JavaScript imports beside it)
-  for (const f of js) {
-    for (const m of readFileSync(f, "utf8").matchAll(/(?:from\s*|import\s*\(\s*|import\s+)["'](\.{1,2}\/[^"']+)["']/g)) { const g = resolveJs(path.resolve(path.dirname(f), m[1])); if (g) js.add(g); }
-    const r = posix(path.relative(root, f)); if (r.startsWith("..")) { problems.push(`${path.relative(dir, f)} is outside the root: a package ships what is under it`); continue; }
+  // 2. the JavaScript the modules import, with what declares it, and what either of them imports beside it
+  const shipped = new Set();
+  const ship = f => {
+    if (shipped.has(f)) return; shipped.add(f);
+    const r = posix(path.relative(root, f)); if (r.startsWith("..")) { problems.push(`${path.relative(dir, f)} is outside the root: a package ships what is under it`); return; }
     const stem = f.replace(/\.(m?js|cjs)$/, "");
     for (const [from, to] of [[f, r], [`${stem}.d.ts`, r.replace(/\.(m?js|cjs)$/, ".d.ts")], [`${f}.d.rx`, `${r}.d.rx`], [`${stem}.d.rx`, r.replace(/\.(m?js|cjs)$/, ".d.rx")]]) if (existsSync(from)) { const t = path.join(dist, to); mkdirSync(path.dirname(t), { recursive: true }); copyFileSync(from, t); files.push(t); }
-  }
+    for (const x of [f, `${stem}.d.ts`]) if (existsSync(x)) shipImports(readFileSync(x, "utf8"), x, x !== f);
+  };
+  const shipImports = (text, at, types) => { for (const m of text.matchAll(/(?:from\s*|import\s*\(\s*|import\s+)["'](\.{1,2}\/[^"']+)["']/g)) { const g = resolveJs(path.resolve(path.dirname(at), m[1])) ?? (types ? resolveTypes(path.resolve(path.dirname(at), m[1])) : undefined); if (g) ship(g); } };
+  for (const f of js) ship(f);
   // 3. the projections' types (13 TY-4c): rx-tsc's declarations of the modules, which is the package's type-check too
   if (types) {
     const r = emitTypes(dir, root, [...modules.keys()]);
@@ -214,6 +218,7 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
         // the prelude the projection is written with is shipped beside the modules, as one file
         const text = readFileSync(from, "utf8").replace(/(from\s*|import\()(["'])([^"']*[\\/]\.reactivescript[\\/]prelude)(?:\.d\.ts|\.js)?\2/g, (_, a, q, at) => { prelude ??= at; return `${a}${q}${rel(path.join(dist, `${name}.rx.d.ts`), path.join(dist, "rx-prelude.js"))}${q}`; });
         put(`${name}.rx.d.ts`, text);
+        shipImports(text, p, true);   // a module imported for its types alone is in no compiled module
       }
       if (prelude) put("rx-prelude.d.ts", readFileSync(prelude + ".d.ts", "utf8"));
       rmSync(r.tmp, { recursive: true, force: true });
@@ -239,6 +244,9 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
 
 const commonDir = files => { let d = path.dirname(files[0]); while (!files.every(f => f.startsWith(d + path.sep))) d = path.dirname(d); return d; };
 const resolveJs = base => [base, `${base}.js`, `${base}.mjs`, path.join(base, "index.js")].find(f => /\.(m?js|cjs)$/.test(f) && existsSync(f));
+
+/** A module that is only its declarations: `./types.js` with a `types.d.ts` and no JavaScript. */
+const resolveTypes = base => { const f = /\.(m?js|cjs)$/.test(base) ? base : `${base}.js`; return !base.endsWith(".rx") && !base.endsWith(".rx.js") && existsSync(f.replace(/\.(m?js|cjs)$/, ".d.ts")) ? f : undefined; };
 
 /** rx-tsc's declarations of `files` (the modules' projections), into a folder of their own. */
 function emitTypes(dir, root, files) {

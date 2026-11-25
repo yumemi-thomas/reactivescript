@@ -631,7 +631,7 @@ fn part_of(t: &str) -> Part {
     }
 }
 /// A declared field's name: `readonly width?` is `width` (the modifier and the `?` are TypeScript's, not the name's).
-fn field_name(k: &str) -> String {
+pub fn field_name(k: &str) -> String {
     let k = js_trim(k);
     let k = k.strip_prefix("readonly ").map(js_trim).unwrap_or(k);
     k.strip_suffix('?').unwrap_or(k).to_string()
@@ -1612,7 +1612,7 @@ fn type_args_at(s: &str) -> Option<(String, usize)> {
 }
 /// MO-11t: `View`, `View | undefined`, `string | View` — a prop that takes a view where the library reads it. A function
 /// giving one is a render prop (MO-11k), and a union with a function in it is not read as either.
-fn is_view_type(t: &str) -> bool {
+pub fn is_view_type(t: &str) -> bool {
     let alts = split_top(t, "|");
     alts.iter().any(|a| js_trim(a) == "View") && !alts.iter().any(|a| a.contains("=>") || is_component_type(a))
 }
@@ -3277,6 +3277,19 @@ fn parse_path(c: &mut Cursor) -> R<Vec<PathSeg>> {
 fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
     c.ws(true);
     let start = c.i;
+    // a word of the language that a declaration took as a name (`source on := false`) is written as any name is: no
+    // statement has `:=` right after its word
+    if let Some(name) = c.ident() {
+        if is_kw(&name) && !matches!(name.as_str(), "true" | "false" | "undefined" | "null") {
+            c.ws(false);
+            if c.eat(":=") {
+                c.ws(true);
+                let e = parse_expr(c)?;
+                return Ok(st(start, StmtKind::Write { target: Target { name, path: vec![], ctx: Some(false) }, e }, c));
+            }
+        }
+        c.i = start;
+    }
     if c.keyword("guess") {
         c.ws(true);
         let name = c.ident_or("target")?;
@@ -3426,7 +3439,7 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
         ctx = true;
     }
     if let Some(n) = name {
-        if !is_kw(&n) || ctx {
+        if !is_kw(&n) || ctx || c.peek() == '.' {
             let path = parse_path(c)?;
             c.ws(false);
             if c.eat(":=") {

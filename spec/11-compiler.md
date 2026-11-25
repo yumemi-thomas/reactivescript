@@ -173,7 +173,7 @@ record argued each way; this is the decision.
   | `firstPaint(f)` | `await e -> v` (R-7) | the `loadingValue` option |
   | `clientQuestion(opts)` | an awaited call into `client` JS (SV-7b) | the `ssrSource: "client"` option |
   | `awaited(v)` | `await e` — the flight the memo returns or the action yields | identity on a promise |
-  | `hoisted(name, get)` | an equation's hoisted awaits, which `refresh` re-asks with it | — |
+  | `hoisted(name, get)`, `reg(name, entry)` after it | an equation's hoisted awaits, which `refresh` re-asks with it: claimed by its accessor | — |
   | `effect(n, inputs, apply)` | `effect (…) { … }` (EF, E-12) | `createEffect(compute, { effect, error })` |
   | `action(gen)` | `action f(…) { … }` (AC-1, AC-7); an inferred action, `(ps) => action(function* () { … })()` (AC-1b) | `action` over a generator |
   | `refresh(name, get)`, `affects(get)`, `until(p)` | AC-4, AC-5, AC-6 | `refresh`, `affects`, `until` (`until`: client build only) |
@@ -189,7 +189,7 @@ record argued each way; this is the decision.
   | `module(key, factory)` | an `.rx` dependency, once per app (MO-1); `key` is the file's name in a sibling-file build, the factory itself when modules are imported by source for a bundler (`rxc app`), so a module two programs share is one key | — |
   | `result(self, whole, parts)`, `parts(acc, name)` | what a fn answers, in a library build (09 MO-13i): JavaScript's call is handed `parts()`, `.rx`'s the accessor, with its parts kept beside it for a fn that hands them on | `getOwner`, `runWithOwner` |
   | `serverRef(name, fn)`, `serverCall(name, gen, args)` | a server fn as the client calls it, and its body (12 SF-2, SF-6, SF-7) | Solid's `"use server"` functions |
-  | `show(v)`, `kids(v)`, `scopedClass(v, hash)` | `{e}` (a value formatted, a view inserted); `{props.children}`, a component's children (a view, or the list of views and strings a JS library passes, inserted as it is — `show` printed a list of strings as the list it also is, until 2026-11-24); a dynamic class with the view's scope (CSS-2). On the server neither escapes: the compiled view wraps every hole in Solid's `escape` (the runtime escaped as well until 2026-11-24, and a served `a < b` read `a &lt; b`: S-server-5) | — |
+  | `show(v)`, `kids(v)`, `scopedClass(v, hash)` | `{e}` (a value formatted, a view inserted); `{props.children}`, a component's children (a view, or the list of views and strings a JS library passes, inserted as it is — `show` printed a list of strings as the list it also is, until 2026-11-24; `undefined`, `null` and booleans print nothing, as JSX has it, since 2026-11-25 — only a JavaScript host gives them; `kids` by whatever name the children are read, 03 RG-4b); a dynamic class with the view's scope (CSS-2). On the server neither escapes: the compiled view wraps every hole in Solid's `escape` (the runtime escaped as well until 2026-11-24, and a served `a < b` read `a &lt; b`: S-server-5) | — |
   | `TypedErrored`, `Portal` | `errored fallback(e: A)` (R-f-4), `portal` (RG-8) | `Errored`, `Portal` |
   | `B` | the language's built-in functions (`len`, `str`, `map`, `filter`, `sum`, `every`, `indexOf`) and `log`, where nothing binds the name (09 MO-1d) | — |
 
@@ -229,7 +229,9 @@ record argued each way; this is the decision.
   scenario prelude), and `flights`, `lastKey`, `log`, `asyncError`,
   `frame` (what the runners observe). Compiled code calls them only in a
   conformance build — the compiler's option for running `scenarios/`
-  (CP-5); `ref/compile/emit.ts` always emits one. An app's code
+  (CP-5); `ref/compile/emit.ts` emits one for the runners. An app has no
+  table of its names and keeps no log (2026-11-25: a table kept every
+  binding of every instance, `compiler/test/leaks.mjs`). An app's code
   calls `api` too, for an import of `./api` (MO-8c): given no `api`, the
   app has no one to answer the call, and a development build says so on
   the console at the first, once an import. The language's `log`, which

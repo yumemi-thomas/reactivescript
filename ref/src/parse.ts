@@ -413,7 +413,7 @@ function typeParams(c: Cursor): string | undefined {
 /** MO-11: `Component` or `Component<P>`, and nothing that only contains one (`Component[]`). */
 /** MO-11t: `View`, `View | undefined`, `string | View` — a prop that takes a view where the library reads it. A function
  *  giving one is a render prop (MO-11k), and a union with a function in it is not read as either. */
-function isViewType(t: string): boolean {
+export function isViewType(t: string): boolean {
   const alts = splitTop(t, "|"); return alts.some(a => a.trim() === "View") && !alts.some(a => a.includes("=>") || isComponentType(a));
 }
 /** MO-11c (2026-11-24): a type that holds a `Component` inside a record or an array, read from its text — a record's
@@ -593,7 +593,7 @@ function partOf(t: string): Part {
   return "value";
 }
 /** A declared field's name: `readonly width?` is `width` (the modifier and the `?` are TypeScript's, not the name's). */
-function fieldName(k: string): string { return k.trim().replace(/^readonly\s+/, "").replace(/\?$/, ""); }
+export function fieldName(k: string): string { return k.trim().replace(/^readonly\s+/, "").replace(/\?$/, ""); }
 function shapeOf(t: string): Shape {
   if (/^readonly\s+\[/.test(t)) return shapeOf(t.replace(/^readonly\s+/, ""));   // MO-10b: a read-only tuple is a tuple (`as const` results)
   if (t.startsWith("[") && t.endsWith("]")) return { items: splitTop(t.slice(1, -1), ",").map(partOf) };
@@ -829,6 +829,11 @@ function parseStmt(c: Cursor): Stmt {
 }
 function parseStmt0(c: Cursor): Stmt {
   c.ws();
+  {                                                                    // a word of the language that a declaration took as a name (`source on := false`) is written as any name is: no statement has `:=` right after its word
+    const at = c.i; const name = c.ident();
+    if (name && KEYWORDS.has(name) && !["true", "false", "undefined", "null"].includes(name)) { c.ws(false); if (c.eat(":=")) { c.ws(); return { k: "write", target: { name, path: [], ctx: false }, e: parseExpr(c) }; } }
+    c.i = at;
+  }
   if (c.keyword("guess")) {
     c.ws(); const name = c.ident() ?? c.fail("target"); const path: Target["path"] = [];
     for (;;) { if (c.eat(".")) path.push(c.ident() ?? c.fail("member")); else if (c.eat("[")) { c.ws(); path.push(parseExpr(c)); c.ws(); c.expect("]"); } else break; }
@@ -879,7 +884,7 @@ function parseStmt0(c: Cursor): Stmt {
   let name = c.ident();
   let ctx = false;
   if (name === "use") { c.ws(); name = c.ident() ?? c.fail("provision name"); ctx = true; }   // `use p := e`: a write through a provision (O-4, RG-7)
-  if (name && (!KEYWORDS.has(name) || ctx)) {
+  if (name && (!KEYWORDS.has(name) || ctx || c.peek() === ".")) {
     const path: Target["path"] = [];
     for (;;) {
       if (c.eat(".")) path.push(c.ident() ?? c.fail("member"));

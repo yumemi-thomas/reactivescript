@@ -1,7 +1,7 @@
 // 09-modules: a program is a set of `.rx` modules. The loader resolves each `.rx` import to a path, parses every module once,
 // and orders them dependencies first (MO-1). A cycle is refused (MO-5): signatures are computed in that order.
 import { PRELUDE_FILES } from "./names.ts";
-import { parseProgram, parseDeclarations, ParseError, type JsDecl } from "./parse.ts";
+import { parseProgram, parseDeclarations, ParseError, fieldName, isViewType, splitTop, type JsDecl } from "./parse.ts";
 import type { Decl, Expr, Program } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModSig } from "./check.ts";
@@ -317,4 +317,59 @@ export class ViewProps {
   }
   /** The component `attr={e}` of `<tag>` gives by name to a prop that takes a view, if it does. */
   given(tag: string, attr: string, e: Expr): string | undefined { return e.k === "id" && this.props.get(tag)?.has(attr) && this.comps.has(e.name) ? e.name : undefined; }
+}
+
+/** The names a module imports from JavaScript and writes only in its types: nothing to import when it runs, as TypeScript
+ *  leaves them out. A name a declaration gives a row is that row's to say (`typeNames`: its rows that are types). */
+export function typeOnly(p: { decls: Decl[]; view: unknown }, set?: ModuleSet): Set<string> {
+  const values = new Set<string>(), types: string[] = [];
+  const walk = (x: unknown, key = ""): void => {
+    if (typeof x === "string") { if (TYPE_KEYS.has(key)) types.push(x); else { values.add(x); values.add(x.split(".")[0]); } return; }
+    if (Array.isArray(x)) { for (const y of x) walk(y, key); return; }
+    if (!x || typeof x !== "object") return;
+    const o = x as Record<string, unknown>; if (o.k === "import" || o.k === "lit" || o.k === "text" || o.k === "style") return;
+    for (const [k, v] of Object.entries(o)) if (k !== "k") walk(v, o.k === "typedecl" && k === "text" ? "type" : k);
+  };
+  walk(p.decls); walk(p.view);
+  const out = new Set<string>();
+  for (const d of p.decls) if (d.k === "import" && !d.resolved) for (const n of d.names) {
+    if (d.declared && set?.declarations?.get(d.declared)?.some(y => "name" in y && y.name === n.name)) continue;
+    if (!values.has(n.alias) && types.some(t => new RegExp(`(?<![\\w$.])${n.alias.replace(/\$/g, "\\$")}(?![\\w$])`).test(t))) out.add(n.alias);
+  }
+  return out;
+}
+const TYPE_KEYS = new Set(["type", "ptypes", "ret", "targs", "propsType"]);
+
+/** RG-4b, RG-4c: what a name is of a component's props. `props`: the props themselves, without `less` (an object rest);
+ *  `views`: those typed `View`. `held`: a view the component was given, its children (`children`) or another. Such an
+ *  equation is a projection and no computation: the view is made where it is read, under what provides and catches there,
+ *  as `props.children` is. */
+export type Given = { props?: { less: string[]; views: Set<string> }; held?: "children" | "view" };
+export function given(e: Expr, look: (n: string) => Given | undefined): Given | undefined {
+  if (e.k === "id") return look(e.name);
+  if (e.k === "omit") { const p = given(e.e, look)?.props; return p && { props: { less: [...p.less, ...e.keys], views: p.views } }; }
+  if (e.k === "member") { const p = given(e.o, look)?.props; return !p || p.less.includes(e.p) ? undefined : e.p === "children" ? { held: "children" } : p.views.has(e.p) ? { held: "view" } : undefined; }
+  if (e.k === "if") { const d = defaulted(e, look); if (d) return d; }
+  const either = e.k === "if" ? [e.t, e.f] : e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&") ? [e.l, e.r] : [];
+  return either.some(x => given(x, look)?.held) ? { held: "view" } : undefined;
+}
+/** A view with a default, `{ children = "none" } = props`: read once. Of text, it is still the children. */
+export function defaulted(e: Expr, look: (n: string) => Given | undefined): Given | undefined {
+  if (e.k !== "if" || e.c.k !== "bin" || e.c.op !== "==" || e.c.r.k !== "lit" || e.c.r.v !== undefined || JSON.stringify(e.c.l) !== JSON.stringify(e.f)) return undefined;
+  const g = given(e.f, look); return !g?.held ? undefined : e.t.k === "lit" && typeof e.t.v === "string" ? g : { held: "view" };
+}
+/** Names the equations of a block that are projections of its component's props, in whatever order they are written. */
+export function bindGiven(decls: Decl[], look: (n: string) => Given | undefined, set: (n: string, g: Given) => void) {
+  for (let more = true; more;) { more = false; for (const d of decls) if (d.k === "eq" && !d.deferred && !d.key && !look(d.name)?.held && !look(d.name)?.props) { const g = given(d.e, look); if (g?.held || g?.props) { set(d.name, g); more = true; } } }
+}
+/** The fields typed `View` of a component's props type: written out, or a type of the module (`type P = …`, `interface P`). */
+export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set<string> {
+  const out = new Set<string>(); if (t === undefined || depth > 8) return out;
+  for (const part of splitTop(t, "&").map(x => x.trim())) {
+    if (part.startsWith("{") && part.endsWith("}")) { for (const f of splitTop(part.slice(1, -1), ",;\n")) { const i = f.indexOf(":"); if (i > 0 && isViewType(f.slice(i + 1))) out.add(fieldName(f.slice(0, i))); } continue; }
+    const d = decls.find(x => x.k === "typedecl" && x.name === /^\w+/.exec(part)?.[0]);
+    const body = d?.k === "typedecl" ? /^(?:type\s[^=]*=|interface\s[^{]*(?={))([^]*)$/.exec((d.text ?? "").replace(/^export\s+/, ""))?.[1] : undefined;
+    for (const f of viewFields(body?.trim().replace(/;$/, ""), decls, depth + 1)) out.add(f);
+  }
+  return out;
 }

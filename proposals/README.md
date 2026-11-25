@@ -38,17 +38,20 @@ build, no Chromium for bug 15) is reported as `SETUP`, apart, and is no verdict.
 
 ## Bugs of `main`, in the order to take them
 
-Each was run on e650b85. 26, and a question.
+Each was run on e650b85. 31, and a question.
 
 1. [03](bugs/03-effect-loses-cleanup.md) an effect's cleanup tears a live listener down, in silence
 2. [05](bugs/05-action-in-a-value.md) an action in a value
 3. [18](bugs/18-keyed-list-replaced-by-position.md) a keyed list
 4. [15](bugs/15-server-text-escaped-twice.md) server text escaped twice
 5. [01](bugs/01-builtin-named-imports.md) an import named as a builtin
+6. [28](bugs/28-runtime-keeps-every-instance.md) an app keeps every instance it ever made
+7. [30](bugs/30-provision-leaks.md) what a region provides is seen beside it, in production
+8. [29](bugs/29-destructured-children.md) destructured children
 
 Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bugs/08-pre-of-a-list.md), [17](bugs/17-write-a-function-to-a-path.md), [07](bugs/07-fn-provides-to-its-caller.md), [25](bugs/25-source-that-holds-a-function.md), [26](bugs/26-updater-of-a-replaced-record.md),
 [02](bugs/02-unimported-fetch-fail.md), [13](bugs/13-relative-api.md). Correct and refused: [06](bugs/06-fn-reads-a-context.md), [12](bugs/12-unguarded-snapshot-crate.md) (crate),
-[16](bugs/16-component-without-props.md), [11](bugs/11-record-and-function-types.md), [27](bugs/27-brackets-in-a-types-comments.md). Accepted and not compiled: [09](bugs/09-pre-of-a-ref-parameter.md), [10](bugs/10-await-as-a-result.md). Tests and tools:
+[16](bugs/16-component-without-props.md), [11](bugs/11-record-and-function-types.md), [27](bugs/27-brackets-in-a-types-comments.md), [32](bugs/32-a-word-as-a-name.md). Accepted and not compiled, or not loaded: [09](bugs/09-pre-of-a-ref-parameter.md), [10](bugs/10-await-as-a-result.md), [31](bugs/31-type-imported-as-a-value.md). Tests and tools:
 [14](bugs/14-scenario-sections-unread.md), [19](bugs/19-missing-file-is-ok.md), [20](bugs/20-custom-element-with-a-dot.md), [21](bugs/21-messages.md), [23](bugs/23-panic-beside-a-wide-character.md), and an editor that never answers, [24](bugs/24-open-block-in-an-editor.md). A question: [22](bugs/22-equations-make-a-fn-instantiate.md).
 
 ## Proposals, in the order they depend on each other
@@ -142,7 +145,7 @@ And correct programs it refuses: an unbound call of a fn that uses a context wit
 ## Compatibility with upstream's programs
 
 Over the 305 `.rx` modules of upstream's repository (both binaries, `rxc check` and `rxc app`): **none that upstream accepts is refused**. 63 differ, compared by line: they get more `UNBOUND` (an unimported `fetch` or `fail`) or more `CATCH_NOT_ON_AWAIT`,
-and each was refused already. Of the accepted ones, 123 have other code: the fixes of bugs 01 to 18 (25 and 26 change the runtime alone) and Solid's compiler at the pin, read by kind of line. Upstream's scenarios, run by this branch's runners, hold, but for five files that the stricter reader of scenarios refuses (bug 14).
+and each was refused already. Of the accepted ones, 123 have other code: the fixes of bugs 01 to 18 (25 and 26 change the runtime alone; counted before 28 to 32, and 28 changes the code of every program) and Solid's compiler at the pin, read by kind of line. Upstream's scenarios, run by this branch's runners, hold, but for five files that the stricter reader of scenarios refuses (bug 14).
 
 ## Cost, all of it together
 

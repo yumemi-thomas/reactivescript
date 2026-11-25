@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**What an app keeps, and where a view is made** (S-context-3, S-surface-12, `compiler/test/leaks.mjs`, `compiler/test/js-host.mjs`; proposals/bugs/28 to 32)
+
+- **Fixed: an app kept every binding of every instance**, and a server fn's every answer. A package is to be compiled again for smaller code; one compiled
+  earlier does not leak with this runtime.
+- **Fixed: destructured `children`** (an alias, a rest, a default, a prop typed `View`) were made at once, above the component's `provide` and boundaries.
+- **Fixed: what a component or a branch provides** was seen beside it, in Solid's production build.
+- **Fixed: a type imported from JavaScript** with no row was imported when the module runs; `rx-lib` ships what is imported for types alone.
+- **Fixed: under a JavaScript host**, children that are `undefined`, `null` or a boolean print nothing; a prop a `ref` closure reads is a snapshot.
+- **`on := …`**: a word of the language a declaration took as a name is written as any name is.
+
 **A source that holds a function, and text that is not ASCII** (S-function-source, `ref/crate.ts --text`; proposals/bugs/23 to 26)
 
 - **Fixed: a source that begins as a function** held what the function answers, compiled (Solid's `createSignal(f)` is a derived signal).

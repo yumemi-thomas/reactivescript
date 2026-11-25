@@ -140,6 +140,13 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
   const jsClassIds = new Map<unknown, string>();   // SV-5a: a declared JS error class the program imports, by its declaration (`jsClass`)
   const jsClassFields = new Map<unknown, string[]>();   // SV-5a: the fields its declaration says are sent (`export error C(status)`)
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
+  // SF-2b: one request per arguments while it stands: the last computation that asked it takes the answer with it
+  const askers = new WeakMap<Flight, number>();
+  const asked = (key: string, f: Flight) => {
+    askers.set(f, (askers.get(f) ?? 0) + 1);
+    onCleanup(() => queueMicrotask(() => { const n = askers.get(f)! - 1; askers.set(f, n); if (n === 0 && flights.get(key) === f) flights.delete(key); }));
+    return f;
+  };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
   const ro = (get: Acc): [Acc, Writer] => [get, { set: onServer("a write"), path: onServer("a write"), guess: onServer("a write") }];
 
@@ -167,7 +174,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
       indexOf: (xs: unknown[], f: (x: unknown) => unknown) => xs.findIndex(f),
       fail: (msg: string) => { throw Object.assign(new Error(msg), { panic: true }); },
       fetch: (key: string) => opts.api?.fetch ? opts.api.fetch(key) : flight(String(key)),
-      log: (...a: unknown[]) => { const said = a.map(fmt); log.push(`log(${said.join(", ")})`); if (DEV && !opts.conformance) console.log(...said); },   // CP-4c: a development build prints it; a runner reads `app.log`
+      log: (...a: unknown[]) => { const said = a.map(fmt); if (opts.conformance) log.push(`log(${said.join(", ")})`); else if (DEV) console.log(...said); },   // CP-4c: a development build prints it; a runner reads `app.log`
     } as Record<string, any>,
     /** MO-8: a class a `.d.rx` declares — a failure the server sends as it is (SV-5). */
     jsError(name: string) { if (jsErrors.has(name)) return jsErrors.get(name); const C = (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`); declared.push(C); jsErrors.set(name, C); return C; },
@@ -180,7 +187,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     /** MO-10: the scenario prelude's `./prims` — Solid primitives, as a library writes them (`ref/compile/prims-solid.ts`). */
     prim: (name: string) => primsSolid({ createSignal: createSignal as any, createMemo: createMemo as any })[name] ?? (() => { throw new Error(`./prims has no ${name}`); }),
 
-    reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
+    reg(name: string, e: Entry) { if (!opts.conformance) return; let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
     /** SV-5a: a JS module's error class, declared in its `.d.rx` (`export error C`, or `export error C(status, code?)` to
      *  send those fields too; `code?` may be absent from an instance): `id` is that declaration. */
     jsClass<T>(C: T, id: string, fields?: string[]): T {
@@ -295,12 +302,12 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
       return (...args: unknown[]) => {
         const key = `${name}:${args.map(fmt).join(",")}`;
         const question = !!getObserver();
-        if (question && flights.has(key)) return flights.get(key)!;
+        if (question && flights.has(key)) return asked(key, flights.get(key)!);
         const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
         (globalThis as { __rx_app?: unknown }).__rx_app = app;   // the app a body run in place belongs to (it reads it once, at its start)
         let p: Promise<unknown>; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); }
         p.then(v => fl.resolve(v), e => fl.reject(e));
-        return fl;
+        return question ? asked(key, fl) : fl;
       };
     },
     /** SF-6: a server fn's body (a generator, as an action's), driven by promises — not by an action: it is no change of
@@ -376,7 +383,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     // `escape` (strings, and the strings of a list): escaping here as well showed `a < b` as `a &lt; b` (2026-11-24)
     show: (v: unknown) => isView(v) ? v : fmt(v),
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
-    kids: (v: unknown) => Array.isArray(v) || isView(v) ? v : fmt(v),
+    kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. The
      *  client's unwrapping memo has no counterpart here: its id is reserved. */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {

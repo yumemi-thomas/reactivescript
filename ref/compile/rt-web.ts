@@ -8,7 +8,7 @@ import { getObserver, DEV } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
   Show, For, Loading, Errored, createComponent,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, getOwner, isDisposed, runWithOwner, createOwner, sharedConfig, omit, reconcile, createRoot,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, NotReadyError, getOwner, isDisposed, runWithOwner, createOwner, sharedConfig, omit, reconcile, createRoot,
 } from "solid-js";
 import { getContext, setContext, $TARGET } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
@@ -257,6 +257,13 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
   // the server's answer (SV-3b). A flight asked there is that trace, not a question: it is not registered.
   const tracing = () => { let ran = false; new Promise(() => { ran = true; }); return !ran; };
   const flight = (key: string) => { if (tracing()) return new Flight(key); let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
+  // SF-2b: one request per arguments while it stands: the last computation that asked it takes the answer with it
+  const askers = new WeakMap<Flight, number>();
+  const asked = (key: string, f: Flight) => {
+    askers.set(f, (askers.get(f) ?? 0) + 1);
+    onCleanup(() => queueMicrotask(() => { const n = askers.get(f)! - 1; askers.set(f, n); if (n === 0 && flights.get(key) === f) flights.delete(key); }));
+    return f;
+  };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
 
   const app = {
@@ -276,7 +283,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
       indexOf: (xs: unknown[], f: (x: unknown) => unknown) => xs.findIndex(f),
       fail: (msg: string) => { throw Object.assign(new Error(msg), { panic: true }); },   // R-f-3: a JS throw — a panic, not in the failure row
       fetch: (key: string) => opts.api?.fetch ? opts.api.fetch(key) : flight(String(key)),
-      log: (...a: unknown[]) => { const said = a.map(fmt); log.push(`log(${said.join(", ")})`); if (DEV && !opts.conformance) console.log(...said); },   // CP-4c: a development build prints it; a runner reads `app.log`
+      log: (...a: unknown[]) => { const said = a.map(fmt); if (opts.conformance) log.push(`log(${said.join(", ")})`); else if (DEV) console.log(...said); },   // CP-4c: a development build prints it; a runner reads `app.log`
     } as Record<string, any>,
     /** `import pure { f } from "./api"`: every function is a flight keyed by its name and formatted arguments. */
     /** MO-8: a class `api.d.rx` declares as an error: the real module's, or (in the harness) a stand-in `C(message)`. */
@@ -286,7 +293,11 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     prim: (name: string) => primsSolid({ createSignal: createSignal as any, createMemo: createMemo as any })[name] ?? (() => { throw new Error(`./prims has no ${name}`); }),
 
     // ---- the scenario harness's view of names (handler rows reach any live binding by name) ----
-    reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); const h = hoistedBy.get(name); if (h && e.get) { hoistedOf.set(e.get, h); hoistedBy.delete(name); } },
+    // (only a conformance app has that view: the table keeps every binding of every instance, so an app has none)
+    reg(name: string, e: Entry) {
+      if (opts.conformance) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); }
+      const h = hoistedBy.get(name); if (h) { if (e.get) hoistedOf.set(e.get, h); hoistedBy.delete(name); }
+    },
     /** SV-5a: a JS module's error class, declared in its `.d.rx`: `id` is that declaration (as rt-server.ts). */
     // the fields an error class's declaration names are the server's to choose (SV-5a): nothing to do with them here
     jsClass<T>(C: T, id: string, _fields?: string[]): T { if (!jsClassIds.has(C as object)) { jsClassIds.set(C as object, id); if (!jsClassById.has(id)) jsClassById.set(id, C as object); } return C; },
@@ -416,12 +427,12 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
       return (...args: unknown[]) => {
         const key = `${name}:${args.map(fmt).join(",")}`;
         const question = !!getObserver();
-        if (question && flights.has(key)) return flights.get(key)!;
+        if (question && flights.has(key)) return asked(key, flights.get(key)!);
         const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
         (globalThis as { __rx_app?: unknown }).__rx_app = app;   // the app a body run in place belongs to (it reads it once, at its start)
         let p: Promise<unknown>; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); }
         p.then(v => fl.resolve(v), e => fl.reject(e));
-        return fl;
+        return question ? asked(key, fl) : fl;
       };
     },
     /** SF-6: a server fn's body (a generator, as an action's), driven by promises — not by an action: it is no change of
@@ -506,7 +517,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     // ---- views: compiled JSX (compile/jsx.ts, generate "dom") does the rest ----
     show: (v: unknown) => isView(v) ? v : fmt(v),
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
-    kids: (v: unknown) => Array.isArray(v) || isView(v) ? v : fmt(v),
+    kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
      *  and a memo throws it there (a rethrow from the fallback itself did not recover until solidjs/solid#4277: ref/oracle/repros/dv7-rethrow.mjs). */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {

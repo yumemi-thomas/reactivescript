@@ -2,9 +2,9 @@
 //! parses every module once, and orders them dependencies first (MO-1). A cycle is refused (MO-5).
 
 use crate::parse::JsTrim;
-use crate::ast::{Decl, Expr, ExprKind, Program};
+use crate::ast::{decls_json, markups_json, Decl, Expr, ExprKind, Lit, Program};
 use crate::check::Diagnostic;
-use crate::parse::{parse_declarations, parse_program, JsDecl, ParseError};
+use crate::parse::{field_name, is_view_type, parse_declarations, parse_program, split_top, JsDecl, ParseError};
 use crate::signature::{parse_signature, ModSig};
 use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
@@ -637,6 +637,120 @@ pub fn hosts_as_keys(set: &ModuleSet, hosts: &[String]) -> Vec<String> {
         }
     }
     out
+}
+
+/// The names a module imports from JavaScript and writes only in its types: nothing to import when it runs, as TypeScript
+/// leaves them out. A name a declaration gives a row is that row's to say. `ref/src/modules.ts` `typeOnly`.
+pub fn type_only(p: &Program, set: &ModuleSet) -> HashSet<String> {
+    use serde_json::Value;
+    fn walk(x: &Value, key: &str, values: &mut HashSet<String>, types: &mut Vec<String>) {
+        match x {
+            Value::String(s) if matches!(key, "type" | "ptypes" | "ret" | "targs" | "propsType") => types.push(s.clone()),
+            Value::String(s) => {
+                values.insert(s.clone());
+                values.insert(s.split('.').next().unwrap_or("").to_string());
+            }
+            Value::Array(xs) => xs.iter().for_each(|y| walk(y, key, values, types)),
+            Value::Object(o) => {
+                let k = o.get("k").and_then(|k| k.as_str()).unwrap_or("");
+                if matches!(k, "import" | "lit" | "text" | "style") {
+                    return;
+                }
+                for (f, v) in o.iter().filter(|(f, _)| *f != "k") {
+                    walk(v, if k == "typedecl" && f == "text" { "type" } else { f }, values, types);
+                }
+            }
+            _ => {}
+        }
+    }
+    let names: Vec<(&str, &str)> = p.decls.iter().filter_map(|d| match d {
+        Decl::Import { resolved: None, names, declared, .. } => Some(names.iter().filter(|n| !declared.as_ref().and_then(|dp| set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| y.name() == n.name))).map(|n| (n.name.as_str(), n.alias.as_str()))),
+        _ => None,
+    }).flatten().collect();
+    if names.is_empty() {
+        return HashSet::new();
+    }
+    let (mut values, mut types) = (HashSet::new(), vec![]);
+    walk(&decls_json(&p.decls), "", &mut values, &mut types);
+    walk(&markups_json(&p.view), "", &mut values, &mut types);
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    let named = |t: &str, n: &str| t.match_indices(n).any(|(i, _)| !t[..i].ends_with(|c| word(c) || c == '.') && !t[i + n.len()..].starts_with(word));
+    names.into_iter().filter(|(_, a)| !values.contains(*a) && types.iter().any(|t| named(t, a))).map(|(_, a)| a.to_string()).collect()
+}
+
+/// RG-4b, RG-4c: what a name is of a component's props. `props`: the props themselves, without `less` (an object rest);
+/// `views`: those typed `View`. `held`: a view the component was given, its children or another. Such an equation is a
+/// projection and no computation: the view is made where it is read, under what provides and catches there, as
+/// `props.children` is. `ref/src/modules.ts` `given`.
+#[derive(Clone, PartialEq)]
+pub enum Given {
+    Props { less: Vec<String>, views: std::rc::Rc<HashSet<String>> },
+    Children,
+    View,
+}
+impl Given {
+    pub fn held(&self) -> bool {
+        !matches!(self, Given::Props { .. })
+    }
+}
+pub fn given(e: &Expr, look: &dyn Fn(&str) -> Option<Given>) -> Option<Given> {
+    let held = |x: &Expr| given(x, look).is_some_and(|g| g.held());
+    match &e.k {
+        ExprKind::Id(n) => look(n),
+        ExprKind::Omit { e, keys } => match given(e, look)? {
+            Given::Props { mut less, views } => {
+                less.extend(keys.iter().cloned());
+                Some(Given::Props { less, views })
+            }
+            _ => None,
+        },
+        ExprKind::Member { o, p, .. } => match given(o, look)? {
+            Given::Props { less, views } if !less.contains(p) => match p.as_str() {
+                "children" => Some(Given::Children),
+                _ => views.contains(p).then_some(Given::View),
+            },
+            _ => None,
+        },
+        ExprKind::If { t, f, .. } => defaulted(e, look).or_else(|| (held(t) || held(f)).then_some(Given::View)),
+        ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => (held(l) || held(r)).then_some(Given::View),
+        _ => None,
+    }
+}
+/// A view with a default, `{ children = "none" } = props`: read once. Of text, it is still the children.
+pub fn defaulted(e: &Expr, look: &dyn Fn(&str) -> Option<Given>) -> Option<Given> {
+    let ExprKind::If { c, t, f } = &e.k else { return None };
+    let ExprKind::Bin { op, l, r } = &c.k else { return None };
+    if op != "==" || !matches!(r.k, ExprKind::Lit(Lit::Undefined)) || l.to_json() != f.to_json() {
+        return None;
+    }
+    let g = given(f, look).filter(|g| g.held())?;
+    Some(if matches!(t.k, ExprKind::Lit(Lit::Str(_))) { g } else { Given::View })
+}
+/// The fields typed `View` of a component's props type: written out, or a type of the module (`type P = …`, `interface P`).
+pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<String>) {
+    if depth > 8 {
+        return;
+    }
+    for part in split_top(t, "&") {
+        let part = part.trim();
+        if let Some(body) = part.strip_prefix('{').and_then(|p| p.strip_suffix('}')) {
+            for f in split_top(body, ",;\n") {
+                if let Some((k, ty)) = f.split_once(':') {
+                    if is_view_type(ty) {
+                        out.insert(field_name(k));
+                    }
+                }
+            }
+            continue;
+        }
+        let n: String = part.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let Some(text) = decls.iter().find_map(|d| match d { Decl::TypeDecl { name, text, .. } if *name == n => Some(text), _ => None }) else { continue };
+        let text = text.trim_start_matches("export").trim_start();
+        let body = if text.starts_with("interface") { text.find('{').map(|i| &text[i..]) } else { text.find('=').map(|i| &text[i + 1..]) };
+        if let Some(b) = body {
+            view_fields(b.trim().trim_end_matches(';'), decls, depth + 1, out);
+        }
+    }
 }
 
 #[cfg(test)]

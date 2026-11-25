@@ -10,7 +10,7 @@ import { Show, For, Loading, Errored, DEV } from "solid-js";
 import {
   reconcile,
   createSignal, createMemo, createEffect, createRenderEffect, createRoot, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, createContext, getContext, setContext, getOwner, isDisposed, runWithOwner, createOwner, $TARGET, createErrorBoundary, omit,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, NotReadyError, createContext, getContext, setContext, getOwner, isDisposed, runWithOwner, createOwner, $TARGET, createErrorBoundary, omit,
 } from "@solidjs/signals";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
@@ -229,6 +229,13 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
   type Ctx = { name: string; ctx: ReturnType<typeof createContext<Entry | undefined>>; dflt: (() => unknown) | null; owner: ReturnType<typeof getOwner>; dv: Entry | null };
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
+  // SF-2b: one request per arguments while it stands: the last computation that asked it takes the answer with it
+  const askers = new WeakMap<Flight, number>();
+  const asked = (key: string, f: Flight) => {
+    askers.set(f, (askers.get(f) ?? 0) + 1);
+    onCleanup(() => queueMicrotask(() => { const n = askers.get(f)! - 1; askers.set(f, n); if (n === 0 && flights.get(key) === f) flights.delete(key); }));
+    return f;
+  };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
 
   let portalOf: ReturnType<typeof makePortal> | undefined;
@@ -382,12 +389,12 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       return (...args: unknown[]) => {
         const key = `${name}:${args.map(fmt).join(",")}`;
         const question = !!getObserver();
-        if (question && flights.has(key)) return flights.get(key)!;
+        if (question && flights.has(key)) return asked(key, flights.get(key)!);
         const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
         (globalThis as { __rx_app?: unknown }).__rx_app = app;   // the app a body run in place belongs to (it reads it once, at its start)
         let p: Promise<unknown>; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); }
         p.then(v => fl.resolve(v), e => fl.reject(e));
-        return fl;
+        return question ? asked(key, fl) : fl;
       };
     },
     /** SF-6: a server fn's body (a generator, as an action's), driven by promises — not by an action: it is no change of
@@ -454,7 +461,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** `{e}`: a view is inserted as it is; any other value is formatted (the frame's text). */
     show: (v: unknown) => isView(v) ? v : fmt(v),
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
-    kids: (v: unknown) => Array.isArray(v) || isView(v) ? v : fmt(v),
+    kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
      *  and a memo throws it there (a rethrow from the fallback itself did not recover until solidjs/solid#4277: ref/oracle/repros/dv7-rethrow.mjs). */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {

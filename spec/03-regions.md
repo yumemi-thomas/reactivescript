@@ -131,7 +131,9 @@ A component is a function from a props value to a region whose tail is a view.
   whose fields are equations: `props.x` and `{ x } = props` are projections and
   keep updating. A prop is never a snapshot unless the body takes one (E-4,
   `peek`). Spread, rest, `merge`, and `omit` are operations on this value
-  (06-stores treats its path semantics). Named parameters are not a separate
+  (06-stores treats its path semantics). A projection that holds a view (the
+  children, or a prop typed `View`) is no computation of its own: the view is
+  made where it is read, as `props.children` is (RG-4c, S-context-3). Named parameters are not a separate
   form; destructuring covers the signature use. `component C()` declares no
   props: `props` is not a name in its body, and reading it is `UNBOUND`
   (S-check-1; before 2026-11-14 it read `undefined` silently).

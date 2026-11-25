@@ -17,7 +17,7 @@ import {
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failure.ts";
-import { singleModule, type ModuleSet } from "../src/modules.ts";
+import { singleModule, given, defaulted, bindGiven, viewFields, type Given, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { unwrapServer } from "../src/check.ts";
 import { primsSolid, isPrims } from "../src/prims.ts";
@@ -177,7 +177,8 @@ type Binding =
   | { k: "ctx"; ctx: ReturnType<typeof createContext<Binding | undefined>>; dflt: Expr | null; home: Scope; dv: Binding | null };   // RG-7: a declared context; its createContext is its identity
 class Scope {
   static all: Scope[] = [];
-  vars = new Map<string, Binding>();
+  vars = new Map<string, Binding>(); givens = new Map<string, Given>();
+  given = (n: string): Given | undefined => this.vars.has(n) || this.givens.has(n) ? this.givens.get(n) : this.parent?.given(n);
   parent: Scope | null; owner: ReturnType<typeof getOwner>;
   constructor(parent: Scope | null) { this.parent = parent; this.owner = getOwner(); Scope.all.push(this); }   // the owner at declaration: provisions are read against it (RG-7)
   lookup(n: string): Binding | undefined { return this.vars.get(n) ?? this.parent?.lookup(n); }
@@ -228,12 +229,13 @@ export class Oracle {
   scanHandlers: Stmt[][] | undefined;
 
   /** 09 MO-1: each imported module's scope, declared once, dependencies first. */
-  moduleScopes = new Map<string, Scope>();
+  moduleScopes = new Map<string, Scope>(); private typeDecls: Decl[] = [];
   declarations?: ModuleSet["declarations"];
   private instances = new WeakMap<Binding, { r: any; shape: Shape }>();   // MO-10: a primitive's raw result, under the binding of its instance
   constructor(input: Program | ModuleSet, handlers?: Stmt[][]) {
     const set = "programs" in input ? input : singleModule(input);
     this.declarations = set.declarations;
+    this.typeDecls = [...set.programs.values()].flatMap(p => p.decls.filter(d => d.k === "typedecl"));
     const program = set.programs.get(set.entry)!;
     this.program = program; this.scanHandlers = handlers;
     // usage over every module, deep (the compiler's usage(), ref/compile/emit.ts): guessed targets, path-written or path-probed sources
@@ -290,6 +292,11 @@ export class Oracle {
   }
   /** A region: its declarations, the awaits its own view reads (07 §3), then its view. */
   region(decls: Decl[], view: Markup[], scope: Scope): unknown[] {
+    // RG-7a: what a region provides is for what is in it, so it has an owner of its own (a branch has its condition's)
+    if (scope.parent && scope.owner === getOwner() && decls.some(d => d.k === "provide")) return runWithOwner(createOwner(), () => { scope.owner = getOwner(); return untrack(() => this.inside(decls, view, scope)); })!;
+    return this.inside(decls, view, scope);
+  }
+  private inside(decls: Decl[], view: Markup[], scope: Scope): unknown[] {
     this.declare(decls, scope);
     for (const e of viewReaders(view)) this.hoistAwaits(null, e, scope, false);
     return this.fragment(view, scope);
@@ -305,8 +312,12 @@ export class Oracle {
   private logFn = (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); };
   private langFn(name: string): unknown { const l = language(name, false); return l === "fn" ? BUILTINS[name] : l === "log" ? this.logFn : undefined; }
   private lang(name: string, scope: Scope, env?: Map<string, unknown>) { return language(name, env?.has(name) || scope.lookup(name)); }
+  /** RG-4c: a view the component was given, made where it is read (as the compiled module's). */
+  private held(e: Expr, scope: Scope) { return () => { if (e.k !== "if" || !defaulted(e, scope.given)) return this.ev(e, scope); const v = this.ev(e.f, scope); return v === undefined ? this.ev(e.t, scope) : v; }; }
   // ---- declarations ----
   declare(decls: Decl[], scope: Scope) {
+    for (const d of decls) if (d.k === "eq" || d.k === "source") scope.givens.set(d.name, {});
+    bindGiven(decls.filter(d => d.k === "eq" && !this.optimisticTargets.has(d.name) && !unwrapServer(d.e)), scope.given, (n, g) => { scope.givens.set(n, g); });
     for (const d of decls) {
       if (d.k === "import" && d.resolved) { const ms = this.moduleScopes.get(d.resolved); if (!ms) throw new Error(`MO-9: ${d.from} is known by its signature only: there is no body to run`); for (const { name, alias } of d.names) { const b = ms.vars.get(name); if (b) scope.vars.set(alias, b); } continue; }   // MO-1: the module's own bindings
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) this.serverNames.set(sf, d.name); }   // SF-1d
@@ -325,7 +336,7 @@ export class Oracle {
           const ctx = this.ctxNamed(d.name, scope).ctx;
           const b = d.e.k === "id" ? scope.lookup(d.e.name) : undefined;
           if (b && (b.k === "sig" || b.k === "store")) setContext(ctx, b);
-          else { this.hoistAwaits(null, d.e, scope, false); const get = createMemo(() => this.ev(d.e, scope)); setContext(ctx, { k: "memo", get } as Binding); }
+          else { this.hoistAwaits(null, d.e, scope, false); const get = given(d.e, scope.given)?.held ? this.held(d.e, scope) : createMemo(() => this.ev(d.e, scope)); setContext(ctx, { k: "memo", get } as Binding); }
           break;
         }
         case "source": {
@@ -372,6 +383,7 @@ export class Oracle {
         }
         case "eq": {
           for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x);
+          if (scope.givens.get(d.name)?.held) { scope.vars.set(d.name, { k: "memo", get: this.held(d.e, scope) }); break; }
           if (this.foreign(d, scope)) break;
           if (d.e.k !== "draft") this.hoistAwaits(d.name, d.e, scope);
           if (d.e.k === "draft") {                                      // ST-3: createProjection((draft) => …, seed)
@@ -732,7 +744,7 @@ export class Oracle {
           }
           const kids = {}; Object.defineProperty(kids, "children", { enumerable: true, get: () => this.fragment(m.children, scope) }); parts.push(kids);
           const props = parts.length === 1 ? kids : (merge as (...xs: unknown[]) => Record<string, unknown>)(...parts);
-          return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); return this.region(comp.decls, comp.view, s2); }, props);
+          return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); s2.givens.set(comp.props, { props: { less: [], views: viewFields(comp.propsType, this.typeDecls) } }); return this.region(comp.decls, comp.view, s2); }, props);
         }
         const el = R.createElement(m.tag);
         for (const a of m.attrs) { if (a.name === "...") { R.effect(() => this.ev(a.e, scope), (v: any) => { for (const k of v && typeof v === "object" ? Object.keys(v) : []) R.setProp(el, k, v[k]); }); continue; } if (/^on[A-Z:]/.test(a.name)) { const h = untrack(() => { this.imperative++; try { return this.ev(a.e, scope); } finally { this.imperative--; } }); R.setProp(el, a.name, h); } else R.effect(() => this.ev(a.e, scope), v => { R.setProp(el, a.name, v); }); }   // 07 §5: a handler is an imperative closure
