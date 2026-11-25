@@ -56,10 +56,10 @@ if (args.includes("--host")) {
 if (args.includes("--audit")) {
   const files = args.filter(a => !a.startsWith("--"));
   if (!files.length) { process.stderr.write("usage: rx-declare --audit <file.d.rx>… [--json]\n"); process.exit(2); }
-  const A = require("../src/declare-audit.js"); const ts = require("typescript");
+  const A = require("../src/declare-audit.js");
   const all = []; let bad = 0;
   for (const f of files) {
-    const r = A.auditFile(ts, f);
+    const r = A.auditFile(f);
     if (!r) { all.push({ file: f, skipped: true, rows: [] }); if (!args.includes("--json")) process.stdout.write(`${f}: declares no JS module that is found here (a host declaration, a package written in .rx): not read\n`); continue; }
     all.push({ file: f, spec: r.spec, rows: r.rows, unread: r.unread });
     const n = { proven: 0, contradicted: 0, unproven: 0 };

@@ -188,7 +188,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
   // is held, below, to what the reading claims; one the code contradicts is a mismatch as it stands; the rest are a
   // person's, and are run as any row is
   let read = null;
-  if (process.env.RX_VERIFY_READ !== "0" && !mutation) { try { read = given(file) ?? require("../src/declare-audit.js").auditFile(require("typescript"), file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
+  if (process.env.RX_VERIFY_READ !== "0" && !mutation) { try { read = given(file) ?? require("../src/declare-audit.js").auditFile(file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
   const proven = new Map();   // export → claim → why the code proves it
   const audit = { proven: 0, contradicted: 0, unproven: 0 };
   for (const row of read?.rows ?? []) for (const w of row.words) {

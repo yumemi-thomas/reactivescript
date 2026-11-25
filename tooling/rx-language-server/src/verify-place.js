@@ -243,11 +243,11 @@ async function verifyCallbacks({ fns: rows, at, probeMod, solid: s, mount, readi
     const unmarked = f.cbs.filter(c => !c.handler);
     if (!probe?.args && unmarked.length) { out.push({ line: f.line, ob: unmarked.map(c => `callbacks:${c.name}`), status: "na", quiet: true, what: `${f.name}: ${unmarked.map(c => c.name).join(", ")} unmarked, which claims nothing of how the library calls it` }); f.cbs = f.cbs.filter(c => c.handler); if (!f.cbs.length) continue; }
     if (!probe?.args) { out.push({ line: f.line, ob: f.cbs.map(c => `callbacks:${c.name}`), status: "unverified", what: `${f.name}: callback${f.cbs.length > 1 ? "s" : ""} ${f.cbs.map(c => c.name).join(", ")} not run: give its arguments in a probe` }); continue; }
-    const seen = new Map(f.cbs.map(c => [c.name, { calls: 0, tracked: 0, during: 0 }]));
+    const seen = new Map(f.cbs.map(c => [c.name, { calls: 0, tracked: 0, during: 0, owned: 0 }]));
     // MO-8v: `during` — called while the fn's own call is still running: what a `handler` read from the code is never
     let inCall = 0;
     const called = (...a) => { inCall++; try { return fn(...a); } finally { inCall--; } };
-    const spy = (c, g) => typeof g !== "function" ? g : (...a) => { const st = seen.get(c.name); st.calls++; if (s.getObserver?.()) st.tracked++; if (inCall) st.during++; return g(...a); };
+    const spy = (c, g) => typeof g !== "function" ? g : (...a) => { const st = seen.get(c.name); st.calls++; if (s.getObserver?.()) st.tracked++; else if (!inCall && s.getOwner?.()) st.owned++; if (inCall) st.during++; return g(...a); };
     const wrapRec = (cs, v) => { if (!v || typeof v !== "object") return v; const o = { ...v }; for (const c of cs) if (c.field in o) o[c.field] = spy(c, o[c.field]); return o; };
     const args = probe.args().slice();
     const byIndex = new Map(); for (const c of f.cbs) byIndex.set(c.index, [...byIndex.get(c.index) ?? [], c]);
@@ -269,8 +269,9 @@ async function verifyCallbacks({ fns: rows, at, probeMod, solid: s, mount, readi
       const never = { line: f.line, status: "unverified", what: `${f.name}: callback ${c.name} never called by the probe${err ? ` (it threw: ${String(err.message ?? err).slice(0, 40)})` : ""}: give an act that makes the library call it` };
       const field = c.field ?? c.name.split(".").pop();
       if (c.handler && st.during && !st.tracked) { push({ line: f.line, status: "mismatch", what: `${f.name}: ${c.name} ${reading?.get(f.name)?.has(ob) ? "was read from the code as a handler" : "is declared handler"}, but the library calls it while the call itself runs, where its writes are refused: ${reading?.get(f.name)?.has(ob) ? "the reading is wrong — remove the word, and report it (MO-8v)" : "drop `handler` (MO-10g)"}` }); continue; }
+      if (c.handler && st.owned && !st.tracked) { push({ line: f.line, status: "mismatch", what: `${f.name}: ${c.name} is declared handler, but the library calls it with an owner set (a root, \`runWithOwner\`, a scope of its own), where a write and an action are refused: drop \`handler\` (MO-10g)` }); continue; }
       if (c.handler) { push(st.tracked ? { line: f.line, status: "mismatch", what: `${f.name}: ${c.name} is declared handler, but the library calls it inside a computation (tracked): a closure there would have its reads tracked by the library and its writes refused by Solid: drop \`handler\` — a function type without it is pure, which is right for a callback called inside a computation (MO-10g)` }
-        : st.calls ? { line: f.line, status: "held", what: `${f.name}: callback ${c.name} holds: the library calls it outside tracking, as a handler` } : never); continue; }
+        : st.calls ? { line: f.line, status: "held", what: `${f.name}: callback ${c.name} holds: the library calls it later, with no owner and outside tracking, as a handler` } : never); continue; }
       // MO-10g (revised): an unmarked function type is a pure function, safe however the library calls it: the row claims
       // nothing of the library there, and nothing is held
       push({ line: f.line, status: "na", what: `${f.name}: ${c.name} is unmarked, which claims nothing of how the library calls it${st.calls && !st.tracked && !st.during ? " (called outside tracking: `handler` would let a closure there write, MO-10g)" : ""}` });
@@ -290,11 +291,11 @@ async function verifyComponentCallbacks({ comps: rows, at, probeMod, solid: s, r
     const c = { name: row.name, line: row.line, cbs: row.facts.props.filter(p => p.function).map(p => ({ name: p.name, handler: p.handler })) };
     const C = at(c.name); if (typeof C !== "function") continue;
     const probe = probeMod?.probes?.[c.name];
-    const seen = new Map(c.cbs.map(cb => [cb.name, { calls: 0, tracked: 0, during: 0 }]));
+    const seen = new Map(c.cbs.map(cb => [cb.name, { calls: 0, tracked: 0, during: 0, owned: 0 }]));
     const given = probe?.props?.() ?? {};
     // (a getter of the probe's is kept a getter: a list of children is made where the component reads it, as an app's is)
     const props = Object.defineProperties({}, Object.getOwnPropertyDescriptors(given)); let rendering = true;
-    for (const cb of c.cbs) { const g = typeof given[cb.name] === "function" ? given[cb.name] : () => undefined; props[cb.name] = (...a) => { const st = seen.get(cb.name); st.calls++; if (s.getObserver?.()) st.tracked++; if (rendering) st.during++; return g(...a); }; }
+    for (const cb of c.cbs) { const g = typeof given[cb.name] === "function" ? given[cb.name] : () => undefined; props[cb.name] = (...a) => { const st = seen.get(cb.name); st.calls++; if (s.getObserver?.()) st.tracked++; else if (!rendering && s.getOwner?.()) st.owned++; if (rendering) st.during++; return g(...a); }; }
     const quiet = hushed();
     let error = null, dispose = () => {};
     try {
@@ -311,7 +312,8 @@ async function verifyComponentCallbacks({ comps: rows, at, probeMod, solid: s, r
       const st = seen.get(cb.name), ob = `callbacks:${cb.name}`;
       const never = { line: c.line, ob, status: "unverified", what: `${c.name}: prop ${cb.name} never called${error ? ` (it threw: ${String(error.message ?? error).slice(0, 40)})` : ""}: give the probe's props and an act that makes the component call it` };
       if (cb.handler) out.push(st.during && !st.tracked ? { line: c.line, ob, status: "mismatch", what: `${c.name}: prop ${cb.name} is declared handler, but the component calls it while it renders, where its writes are refused: drop \`handler\` (MO-10g)` } : st.tracked ? { line: c.line, ob, status: "mismatch", what: `${c.name}: prop ${cb.name} is declared handler, but the component calls it inside a computation (tracked): a closure there would have its reads tracked and its writes refused by Solid: drop \`handler\` (MO-10g)` }
-        : st.calls ? { line: c.line, ob, status: "held", what: `${c.name}: prop ${cb.name} holds: the component calls it outside tracking, as a handler` } : never);
+        : st.owned ? { line: c.line, ob, status: "mismatch", what: `${c.name}: prop ${cb.name} is declared handler, but the component calls it with an owner set (a root, \`runWithOwner\`, a scope of its own), where a write and an action are refused: drop \`handler\` (MO-10g)` }
+        : st.calls ? { line: c.line, ob, status: "held", what: `${c.name}: prop ${cb.name} holds: the component calls it later, with no owner and outside tracking, as a handler` } : never);
       else out.push({ line: c.line, ob, status: "na", what: `${c.name}: prop ${cb.name} is unmarked, which claims nothing of how the component calls it` });
     }
   }

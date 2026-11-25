@@ -602,6 +602,8 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                                 for (k, v) in fs { if !k.starts_with('#') { self.put_field(o, &k, &v); } }
                                 self.put_items(o, &it);
                             }
+                            // (a built-in's function has nothing of its own to spread)
+                            Atom::Native(_) => {}
                             Atom::Const(c) => { let c = &self.consts[c as usize]; if c.shape.holds_object || c.shape.kind != CKind::Plain { return self.stop(s.span, "it spreads an object of the module's"); } for (k, v) in c.values.clone() { self.put_field(o, &k, &v); } }
                             _ => return self.stop(s.span, "it spreads a value that is not known"),
                         }
@@ -880,13 +882,15 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         self.converted(k, at)?;
         let number = *k == num();
         let mut out = vec![];
+        // under a name that is computed there may be a member of the built-in prototype: one of the language's functions
+        let member = self.native("?");
         for a in v.clone() {
             match a {
-                a if flat(a) => { add(&mut out, if number { Atom::Prim } else { Atom::Opaque }); }
+                a if flat(a) => { add(&mut out, if number { Atom::Prim } else { member }); }
                 Atom::Param(t, d) => match self.ty(t) {
-                    Ty::Arr(e) => { let w = self.of_type(*e, (d + 1).max(2)); join(&mut out, &w); add(&mut out, if number { Atom::Undef } else { Atom::Opaque }); }
-                    Ty::Rest(e) => { let w = self.of_type(*e, 1); join(&mut out, &w); add(&mut out, if number { Atom::Undef } else { Atom::Opaque }); }
-                    Ty::Tuple(es) => { for (i, e) in es.iter().enumerate() { if lit.is_none_or(|l| l == i) { let w = self.of_type(*e, (d + 1).max(2)); join(&mut out, &w); } } add(&mut out, if number { Atom::Undef } else { Atom::Opaque }); }
+                    Ty::Arr(e) => { let w = self.of_type(*e, (d + 1).max(2)); join(&mut out, &w); add(&mut out, if number { Atom::Undef } else { member }); }
+                    Ty::Rest(e) => { let w = self.of_type(*e, 1); join(&mut out, &w); add(&mut out, if number { Atom::Undef } else { member }); }
+                    Ty::Tuple(es) => { for (i, e) in es.iter().enumerate() { if lit.is_none_or(|l| l == i) { let w = self.of_type(*e, (d + 1).max(2)); join(&mut out, &w); } } add(&mut out, if number { Atom::Undef } else { member }); }
                     Ty::Any | Ty::Param | Ty::Rec(_) => { add(&mut out, Atom::Param(ANY, 3)); }
                     _ => return self.stop(at, "it reads a part of an argument that is no data"),
                 },
@@ -897,13 +901,13 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                     match x.kind {
                         Kind::Array => {
                             match lit.and_then(|l| x.fields.get(&format!("#{l}"))) { Some(w) => { let w = w.clone(); join(&mut out, &w); } None => { let w = x.items.clone(); join(&mut out, &w); add(&mut out, Atom::Undef); } }
-                            if !number { add(&mut out, Atom::Opaque); }
+                            if !number { add(&mut out, member); }
                         }
-                        Kind::Plain => { let mut w = x.items.clone(); for f in x.fields.values() { join(&mut w, f); } join(&mut out, &w); add(&mut out, if number { Atom::Undef } else { Atom::Opaque }); }
+                        Kind::Plain => { let mut w = x.items.clone(); for f in x.fields.values() { join(&mut w, f); } join(&mut out, &w); add(&mut out, if number { Atom::Undef } else { member }); }
                         _ => return self.stop(at, "it reads a part of a value that is not followed there"),
                     }
                 }
-                Atom::Const(c) => { let c = &self.consts[c as usize]; if !matches!(c.shape.kind, CKind::Plain | CKind::Array) { return self.stop(at, "it reads a part of an object of the module's"); } let w = c.all.clone(); join(&mut out, &w); add(&mut out, if number { Atom::Undef } else { Atom::Opaque }); }
+                Atom::Const(c) => { let c = &self.consts[c as usize]; if !matches!(c.shape.kind, CKind::Plain | CKind::Array) { return self.stop(at, "it reads a part of an object of the module's"); } let w = c.all.clone(); join(&mut out, &w); add(&mut out, if number { Atom::Undef } else { member }); }
                 _ => return self.stop(at, "it reads a part of a value that is not known"),
             }
         }
@@ -936,6 +940,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                         _ => return self.stop(at, "it changes a value that is not followed there"),
                     }
                 }
+                Atom::Param(t, _) if matches!(self.ty(t), Ty::Other) => return self.stop(at, "it changes an object it was given: a class's, or the platform's"),
                 Atom::Param(..) => return self.stop(at, "it changes what it was given"),
                 _ => return self.stop(at, "it changes a value that is not of the call"),
             }

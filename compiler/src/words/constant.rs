@@ -120,7 +120,8 @@ fn read_only(m: &Module, id: NodeId, s: &Shape) -> bool {
             if is_callee(pid) {
                 return match s.kind {
                     Kind::Plain => !s.nested.contains_key(n) && !matches!(n, "toString" | "valueOf" | "hasOwnProperty" | "toLocaleString" | "isPrototypeOf" | "propertyIsEnumerable"),
-                    Kind::Array => !s.holds_object && (ARRAY_READS.contains(&n) || (ARRAY_CALLS.contains(&n) && small_callback(m, pid))),
+                    Kind::Array if s.holds_object => items_read(m, pid, n, s),
+                    Kind::Array => ARRAY_READS.contains(&n) || (ARRAY_CALLS.contains(&n) && small_callback(m, pid)),
                     Kind::Map | Kind::Set => n == "has" || (!s.holds_object && (n == "get" || (n == "forEach" && small_callback(m, pid)) || matches!(n, "keys" | "values" | "entries"))),
                     Kind::RegExp { stateful, .. } => !stateful && matches!(n, "test" | "exec"),
                 };
@@ -134,10 +135,23 @@ fn read_only(m: &Module, id: NodeId, s: &Shape) -> bool {
         }
         AstKind::ComputedMemberExpression(p) if p.object.span() == span => matches!(s.kind, Kind::Plain | Kind::Array) && !m.is_written(pid) && !is_callee(pid) && s.nested.values().all(|x| read_only(m, pid, x)),
         AstKind::SpreadElement(_) => !s.holds_object && !matches!(s.kind, Kind::RegExp { .. }),
-        AstKind::ForOfStatement(f) if f.right.span() == span => !s.holds_object && matches!(s.kind, Kind::Array | Kind::Set | Kind::Map),
+        AstKind::ForOfStatement(f) if f.right.span() == span => match s.kind {
+            Kind::Array if s.holds_object => match &f.left {
+                ForStatementLeft::VariableDeclaration(d) => matches!(&d.declarations[..], [x] if matches!(&x.id, BindingPattern::BindingIdentifier(b) if named_read(m, b, s.nested.values()))),
+                _ => false,
+            },
+            Kind::Array | Kind::Set | Kind::Map => !s.holds_object,
+            _ => false,
+        },
+        AstKind::IfStatement(i) => i.test.span() == span,
+        AstKind::ConditionalExpression(c) => c.test.span() == span,
+        // (an object is true: what `&&` answers is its right side)
+        AstKind::LogicalExpression(l) => l.operator == LogicalOperator::And && l.left.span() == span,
         AstKind::ForInStatement(f) if f.right.span() == span => true,
         AstKind::BinaryExpression(b) => match b.operator { BinaryOperator::StrictEquality | BinaryOperator::StrictInequality => true, BinaryOperator::In => b.right.span() == span, _ => false },
         AstKind::UnaryExpression(u) => matches!(u.operator, UnaryOperator::Typeof | UnaryOperator::LogicalNot),
+        // another name for it, never written, is it
+        AstKind::VariableDeclarator(d) if d.init.as_ref().is_some_and(|i| i.span() == span) && matches!(d.id, BindingPattern::BindingIdentifier(_)) => matches!(&d.id, BindingPattern::BindingIdentifier(b) if named_read(m, b, [s].into_iter())),
         AstKind::VariableDeclarator(d) => !s.holds_object && d.init.as_ref().is_some_and(|i| i.span() == span) && matches!((&d.id, s.kind), (BindingPattern::ObjectPattern(_), Kind::Plain) | (BindingPattern::ArrayPattern(_), Kind::Array)),
         AstKind::CallExpression(c) if c.callee.span() != span => {
             let Some(i) = c.arguments.iter().position(|a| a.span() == span) else { return false };
@@ -152,6 +166,22 @@ fn read_only(m: &Module, id: NodeId, s: &Shape) -> bool {
         AstKind::NewExpression(c) if c.callee.span() != span => !s.holds_object && c.arguments.len() == 1 && matches!(&c.callee, Expression::Identifier(i) if m.is_global(i, "Set") || m.is_global(i, "Map")),
         _ => false,
     }
+}
+/// Whether every use of a name is a read that does not let the objects go.
+fn named_read<'s>(m: &Module, b: &BindingIdentifier, shapes: impl Iterator<Item = &'s Shape> + Clone) -> bool {
+    b.symbol_id.get().is_some_and(|x| m.known_symbol(x) && !m.handed_out.contains(&x) && m.references(x).into_iter().all(|r| shapes.clone().all(|s| read_only(m, r, s))))
+}
+/// A method of a list of objects: its callback's item, and what it answers, are only read.
+fn items_read(m: &Module, member: NodeId, name: &str, s: &Shape) -> bool {
+    let o = m.outer(member);
+    let call = m.nodes.parent_id(o);
+    let AstKind::CallExpression(c) = m.nodes.kind(call) else { return false };
+    let answers = |id: NodeId| { let at = if matches!(m.nodes.parent_kind(m.outer(id)), AstKind::ChainExpression(_)) { m.nodes.parent_id(m.outer(id)) } else { id }; s.nested.values().all(|x| read_only(m, at, x)) };
+    if name == "at" { return answers(call); }
+    if !matches!(name, "find" | "findLast" | "some" | "every" | "findIndex" | "map" | "forEach") || !small_callback(m, member) { return false; }
+    let Some(Expression::ArrowFunctionExpression(f)) = c.arguments[0].as_expression().map(unwrap) else { return false };
+    let item = match f.params.items.first() { None => true, Some(p) => p.initializer.is_none() && matches!(&p.pattern, BindingPattern::BindingIdentifier(b) if named_read(m, b, s.nested.values())) };
+    item && (!matches!(name, "find" | "findLast") || answers(call))
 }
 /// A callback written in place that takes no more than an item and its index: the list itself is a third argument.
 fn small_callback(m: &Module, member: NodeId) -> bool {
