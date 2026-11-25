@@ -1169,5 +1169,309 @@
   ],
   "byHand": 1,
   "tsxOverRewrite": []
+ },
+ "ui-accordion": {
+  "caught": {
+   "rx": 12,
+   "orig": 8,
+   "tsx": 1
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3",
+    "A3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1",
+    "A3"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 3,
+  "tsxOverRewrite": []
+ },
+ "ui-checkbox": {
+  "caught": {
+   "rx": 11,
+   "orig": 7,
+   "tsx": 0
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [
+    "TS2322"
+   ],
+   "tsx": [
+    "TS2322"
+   ]
+  },
+  "missed": {
+   "rx": [
+    "A3"
+   ],
+   "orig": [
+    "P1",
+    "P2",
+    "P3",
+    "A2",
+    "A3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1",
+    "A2",
+    "A3"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "TS2322",
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 2,
+  "tsxOverRewrite": []
+ },
+ "ui-listbox": {
+  "caught": {
+   "rx": 12,
+   "orig": 7,
+   "tsx": 0
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [
+    "TS2322"
+   ],
+   "tsx": [
+    "TS2322"
+   ]
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3",
+    "A2",
+    "A3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1",
+    "A2",
+    "A3"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "TS2322",
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 2,
+  "tsxOverRewrite": []
+ },
+ "ui-switch": {
+  "caught": {
+   "rx": 11,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [
+    "A3"
+   ],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 1,
+  "tsxOverRewrite": []
+ },
+ "ui-tooltip": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "asDrafted": [
+   "REACTIVE_WRITE_IN_OWNED_SCOPE"
+  ],
+  "byHand": 3,
+  "tsxOverRewrite": []
  }
 }

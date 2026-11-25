@@ -1,0 +1,115 @@
+// Checkbox, Switch, Accordion, Tooltip, Listbox over @ui-sdk/core 0.1.0-beta.17. Derived from checkbox.jsx, switch.jsx, accordion.jsx, tooltip.jsx and listbox.jsx of @ui-sdk/solid (Apache-2.0, see ../NOTICE).
+import { setOptions, create, uniqueId } from "./bridge.js"
+import { Scope } from "./bridge.js"
+import { checkbox as checkboxCore, switchPrimitive, accordion as accordionCore, tooltip as tooltipCore, listbox as listboxCore } from "./core.js"
+import { ButtonPart, DivPart, SpanPart, H3Part, InputPart } from "./parts.rx"
+import { Portal } from "./portal.js"
+
+type Kids = { children?: View | ((s: any) => View) }
+export type CheckboxProps = Kids & { checked?: boolean | "indeterminate"; defaultChecked?: boolean | "indeterminate"; onCheckedChange?: (v: any) => void; disabled?: boolean; readOnly?: boolean; required?: boolean; name?: string; value?: string; [attr: string]: any }
+context box: Scope
+export component Checkbox(props: CheckboxProps) {
+  { checked, defaultChecked, onCheckedChange, disabled, readOnly, required, name, value, children: none, ...rest } = props
+  options = { checked: checked, defaultChecked: defaultChecked, onCheckedChange: onCheckedChange, disabled: disabled, readOnly: readOnly, required: required, name: name, value: value }
+  it = create(checkboxCore, options)
+  effect (it, options) { setOptions($0, $1) }
+  provide box = { it: it, options: options }
+  <ButtonPart of={{ it: it, slot: "root", named: {}, options: options, user: rest }}>{view (s) { <props.children {...s} /> }}</ButtonPart><InputPart of={{ it: it, slot: "input", named: {}, options: options, user: {} }} />
+}
+export component CheckboxIndicator(props: Kids & { [attr: string]: any }) {
+  { children: none, ...rest } = props
+  b = use box
+  <SpanPart of={{ it: b.it, slot: "indicator", named: {}, options: b.options, user: rest }}>{view (s) { <props.children {...s} /> }}</SpanPart>
+}
+export type SwitchProps = Kids & { checked?: boolean; defaultChecked?: boolean; onCheckedChange?: (v: boolean) => void; disabled?: boolean; readOnly?: boolean; required?: boolean; name?: string; value?: string; [attr: string]: any }
+context sw: Scope
+export component Switch(props: SwitchProps) {
+  { checked, defaultChecked, onCheckedChange, disabled, readOnly, required, name, value, children: none, ...rest } = props
+  options = { checked: checked, defaultChecked: defaultChecked, onCheckedChange: onCheckedChange, disabled: disabled, readOnly: readOnly, required: required, name: name, value: value }
+  it = create(switchPrimitive, options)
+  effect (it, options) { setOptions($0, $1) }
+  provide sw = { it: it, options: options }
+  <ButtonPart of={{ it: it, slot: "root", named: {}, options: options, user: rest }}>{view (s) { <props.children {...s} /> }}</ButtonPart><InputPart of={{ it: it, slot: "input", named: {}, options: options, user: {} }} />
+}
+export component SwitchThumb(props: Kids & { [attr: string]: any }) {
+  { children: none, ...rest } = props
+  b = use sw
+  <SpanPart of={{ it: b.it, slot: "thumb", named: {}, options: b.options, user: rest }}>{view (s) { <props.children {...s} /> }}</SpanPart>
+}
+export type AccordionProps = Kids & { value?: string[]; defaultValue?: string[]; onValueChange?: (v: string[]) => void; multiple?: boolean; disabled?: boolean; orientation?: "vertical" | "horizontal"; [attr: string]: any }
+context acc: Scope
+context item: { value: string; disabled?: boolean }
+export component Accordion(props: AccordionProps) {
+  { value, defaultValue, onValueChange, multiple, disabled, orientation, children: none, ...rest } = props
+  options = { value: value, defaultValue: defaultValue, onValueChange: onValueChange, multiple: multiple, disabled: disabled, orientation: orientation }
+  it = create(accordionCore, options)
+  effect (it, options) { setOptions($0, $1) }
+  provide acc = { it: it, options: options }
+  <DivPart of={{ it: it, slot: "root", named: {}, options: options, user: rest, keep: true }}>{view (s) { <props.children {...s} /> }}</DivPart>
+}
+export component AccordionItem(props: Kids & { value: string; disabled?: boolean; [attr: string]: any }) {
+  { value, disabled, children: none, ...rest } = props
+  a = use acc
+  provide item = { value: value, disabled: disabled }
+  <DivPart of={{ it: a.it, slot: "item", named: { value: value, disabled: disabled }, options: a.options, user: rest, keep: true }}>{view (s) { <props.children {...s} /> }}</DivPart>
+}
+export component AccordionHeader(props: Kids & { [attr: string]: any }) {
+  { children: none, ...rest } = props
+  a = use acc
+  i = use item
+  <H3Part of={{ it: a.it, slot: "header", named: { value: i.value }, options: a.options, user: rest }}>{view (s) { <props.children {...s} /> }}</H3Part>
+}
+export component AccordionTrigger(props: Kids & { [attr: string]: any }) {
+  { children: none, ...rest } = props
+  a = use acc
+  i = use item
+  <ButtonPart of={{ it: a.it, slot: "trigger", named: { value: i.value }, options: a.options, user: rest }}>{view (s) { <props.children {...s} /> }}</ButtonPart>
+}
+export component AccordionPanel(props: Kids & { [attr: string]: any }) {
+  { children: none, ...rest } = props
+  a = use acc
+  i = use item
+  <DivPart of={{ it: a.it, slot: "panel", named: { value: i.value }, options: a.options, user: rest }}>{view (s) { <props.children {...s} /> }}</DivPart>
+}
+export type TooltipProps = { open?: boolean; defaultOpen?: boolean; onOpenChange?: (v: boolean) => void; delay?: number; closeDelay?: number; disabled?: boolean; children?: View }
+context tip: Scope
+export component Tooltip(props: TooltipProps) {
+  options = { open: props.open, defaultOpen: props.defaultOpen, onOpenChange: props.onOpenChange, delay: props.delay, closeDelay: props.closeDelay, disabled: props.disabled }
+  it = create(tooltipCore, options)
+  effect (it, options) { setOptions($0, $1) }
+  provide tip = { it: it, options: options }
+  {props.children}
+}
+export component TooltipTrigger(props: Kids & { [attr: string]: any }) {
+  { children: none, ...rest } = props
+  t = use tip
+  id = uniqueId()
+  <ButtonPart of={{ it: t.it, slot: "trigger", named: { id: id }, options: t.options, user: rest }}>{view (s) { <props.children {...s} /> }}</ButtonPart>
+}
+export component TooltipContent(props: Kids & { side?: string; align?: string; sideOffset?: number; [attr: string]: any }) {
+  { side, align, sideOffset, children: none, ...rest } = props
+  t = use tip
+  <Portal><DivPart of={{ it: t.it, slot: "content", named: { side: side, align: align, sideOffset: sideOffset }, options: t.options, user: rest }}>{view (s) { <props.children {...s} /> }}</DivPart></Portal>
+}
+export type ListboxProps = Kids & { value?: string[]; defaultValue?: string[]; onValueChange?: (v: string[]) => void; multiple?: boolean; disabled?: boolean; orientation?: "vertical" | "horizontal"; loop?: boolean; [attr: string]: any }
+context list: Scope
+export component Listbox(props: ListboxProps) {
+  { value, defaultValue, onValueChange, multiple, disabled, orientation, loop, children: none, ...rest } = props
+  options = { value: value, defaultValue: defaultValue, onValueChange: onValueChange, multiple: multiple, disabled: disabled, orientation: orientation, loop: loop }
+  it = create(listboxCore, options)
+  effect (it, options) { setOptions($0, $1) }
+  provide list = { it: it, options: options }
+  <DivPart of={{ it: it, slot: "root", named: {}, options: options, user: rest, keep: true }}>{view (s) { <props.children {...s} /> }}</DivPart>
+}
+export component ListboxItem(props: Kids & { value: string; disabled?: boolean; label?: string; [attr: string]: any }) {
+  { value, disabled, label, children: none, ...rest } = props
+  l = use list
+  provide item = { value: value, disabled: disabled }
+  <DivPart of={{ it: l.it, slot: "item", named: { value: value, disabled: disabled, label: label }, options: l.options, user: rest, keep: true }}>{view (s) { <props.children {...s} /> }}</DivPart>
+}
+export component ListboxItemIndicator(props: Kids & { [attr: string]: any }) {
+  { children: none, ...rest } = props
+  l = use list
+  i = use item
+  <SpanPart of={{ it: l.it, slot: "item-indicator", named: { value: i.value }, options: l.options, user: rest }}>{view (s) { <props.children {...s} /> }}</SpanPart>
+}

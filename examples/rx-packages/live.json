@@ -529,5 +529,126 @@
     100
    ]
   }
+ },
+ "ui-accordion": {
+  "steps": 5,
+  "same": 4,
+  "sameSsr": 4,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    350
+   ],
+   "rx": [
+    0,
+    350
+   ]
+  }
+ },
+ "ui-checkbox": {
+  "steps": 5,
+  "same": 5,
+  "sameSsr": 5,
+  "errors": {
+   "orig": [
+    "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    200
+   ],
+   "rx": [
+    0,
+    200
+   ]
+  }
+ },
+ "ui-listbox": {
+  "steps": 5,
+  "same": 0,
+  "sameSsr": 0,
+  "errors": {
+   "orig": [
+    "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    350
+   ],
+   "rx": [
+    0,
+    300
+   ]
+  }
+ },
+ "ui-switch": {
+  "steps": 3,
+  "same": 3,
+  "sameSsr": 3,
+  "errors": {
+   "orig": [
+    "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
+   ],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    200
+   ],
+   "rx": [
+    0,
+    200
+   ]
+  }
+ },
+ "ui-tooltip": {
+  "steps": 6,
+  "same": 0,
+  "sameSsr": 0,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    100
+   ],
+   "rx": [
+    0,
+    50
+   ]
+  }
  }
 }

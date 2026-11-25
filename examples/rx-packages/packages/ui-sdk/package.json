@@ -1,0 +1,54 @@
+{
+  "name": "@rx-packages/ui-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "files": [
+    "dist",
+    "src",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "rx-lib"
+  },
+  "reactivescript": {
+    "entries": [
+      "src/controls.rx",
+      "src/part.rx",
+      "src/parts.rx"
+    ]
+  },
+  "exports": {
+    "./controls": {
+      "types": "./dist/controls.d.ts",
+      "worker": "./dist/controls.server.js",
+      "browser": "./dist/controls.js",
+      "deno": "./dist/controls.server.js",
+      "node": "./dist/controls.server.js",
+      "default": "./dist/controls.js"
+    },
+    "./part": {
+      "types": "./dist/part.d.ts",
+      "worker": "./dist/part.server.js",
+      "browser": "./dist/part.js",
+      "deno": "./dist/part.server.js",
+      "node": "./dist/part.server.js",
+      "default": "./dist/part.js"
+    },
+    "./parts": {
+      "types": "./dist/parts.d.ts",
+      "worker": "./dist/parts.server.js",
+      "browser": "./dist/parts.js",
+      "deno": "./dist/parts.server.js",
+      "node": "./dist/parts.server.js",
+      "default": "./dist/parts.js"
+    }
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.0",
+    "@solidjs/web": "^2.0.0",
+    "@reactivescript/runtime": "*"
+  }
+}
