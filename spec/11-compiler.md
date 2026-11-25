@@ -185,7 +185,7 @@ record argued each way; this is the decision.
   | `settle(p, match, alt)` | `await … catch …` in reactive scope: a matching rejection lands `alt` as the answer where it is awaited (R-f-4), so it never becomes an errored node | `Promise.prototype.then` |
   | `catchMemo(f, match, alt)`, `catchRead(f, match, alt)` | no source form since 2026-11-19 (`CATCH_NOT_ON_AWAIT`, R-f-4); kept in the runtime until the lowering that emits them is removed | `createErrorBoundary` |
   | `tryCatch(f, match, alt)` | `await … catch …` in imperative scope | `try` |
-  | `context(name, dflt)`, `provide(c, entry)`, `use(c, owner)`, `useGet(c, owner)`, `owner()` | contexts (RG-7) | `createContext`, `setContext`, `getContext`, `getOwner` |
+  | `context(name, dflt)`, `provide(c, entry)`, `use(c, owner)`, `useGet(c, owner)`, `owner()`, `place(o)` | contexts (RG-7); `place`: the owner that reads a component's children, which a `use` in them reads under (the caller's, `o`, where nothing owns the read, or a snapshot or a context's value makes it) | `createContext`, `setContext`, `getContext`, `getOwner` |
   | `module(key, factory)` | an `.rx` dependency, once per app (MO-1); `key` is the file's name in a sibling-file build, the factory itself when modules are imported by source for a bundler (`rxc app`), so a module two programs share is one key | — |
   | `result(self, whole, parts)`, `parts(acc, name)` | what a fn answers, in a library build (09 MO-13i): JavaScript's call is handed `parts()`, `.rx`'s the accessor, with its parts kept beside it for a fn that hands them on | `getOwner`, `runWithOwner` |
   | `serverRef(name, fn)`, `serverCall(name, gen, args)` | a server fn as the client calls it, and its body (12 SF-2, SF-6, SF-7) | Solid's `"use server"` functions |

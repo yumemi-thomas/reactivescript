@@ -8,7 +8,7 @@ import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { instantiates, keptParts } from "../src/ast.ts";
 import { singleModule, isRx, madeComponent, ViewProps, typeOnly, given, defaulted, bindGiven, viewFields, shownIn, shownTag, showsView, type Given, type ModuleSet } from "../src/modules.ts";
 export { madeComponent };
-import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
+import { innerCatches, nonTailAwaits, placed, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
 import { jsxTag } from "./jsx.ts";
@@ -749,6 +749,10 @@ class Gen {
           const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
           const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
           const props = attrs + named.map(v => ` ${v.prop}={${this.regionFn(v.decls, v.body, env, ind + 1, v.params.map(mg).join(", "), e => { for (const p of v.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}`).join("");
+          if (b.shape !== "comp" && placed(kids, t => { const c = env.lookup(t); return c?.kind === "comp" && c.shape !== "comp"; })) {   // RG-7b, 08: owned where they are shown, so a `use` in them reads there. One reader is read in its reader's computation, as without a `use`
+            const one = kids.length === 1 && kids[0].k === "read" && this.child(kids[0], env, ind + 1).slice(1, -1);
+            return `<${b.js}${props}>{((__o) => ${one || `(${this.markup(kids, env, ind + 1)})`})(__rt.place(__o))}</${b.js}>`;
+          }
           return kids.length ? `<${b.js}${props}>${kids.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : b.shape === "comp" ? `<${b.js}${props} />` : `<${b.js}${props} children={[]} />`;   // MO-11: a JS component gets JSX's own <X />
         }
         let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");

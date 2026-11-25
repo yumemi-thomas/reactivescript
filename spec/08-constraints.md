@@ -309,8 +309,8 @@ How each enforcer is realised:
 - **Provisions (RG-7b)** are checked over the static application tree:
   the names available in a region are its own provisions plus, for a
   component, the intersection over every place it is applied; children
-  passed to a component are owned where it reads them, so they see its
-  provisions. What a fn uses and does not provide itself is used at each
+  passed to a component are owned where it reads them (a view, where it shows
+  it, RG-4c), so they see its provisions. What a fn uses and does not provide itself is used at each
   call of it. A component never applied, or applied only recursively, is
   undecidable and not checked (the runtime's `ContextNotFound` remains).
 
@@ -321,7 +321,7 @@ How each enforcer is realised:
   applied on the way out of the expression). Resolution builds, per
   region, the chains of catches up to its component's root — through
   children, which continue at the chains of the component's own
-  `props.children` reads and then the application site's. A prop's chains
+  `props.children` reads (or where it shows them, RG-4c) and then the application site's. A prop's chains
   are its reads' chains; a component's escaping classes are its readers'
   classes that some chain lets through, and they continue at each
   application site; the program root's are errors. An action's prop

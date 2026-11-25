@@ -2346,7 +2346,8 @@ export pure fn twice(n: number): number
 
 The component's declaration types `children` as a function giving a `View` (a render prop): it calls its children for
 each thing it renders, so they are written as a view lambda, its only child (MO-11k). A render prop declared optional
-(`children?: …`) may be left out: `<Select.Listbox />` renders its items by itself.
+(`children?: …`) may be left out: `<Select.Listbox />` renders its items by itself. An `.rx` component that shows its
+children with what it knows, `<props.children on={lit} />` (RG-4c), takes the same.
 
 ```rx before
 -- module: ./list.d.rx
@@ -2374,6 +2375,10 @@ export default component App() {
 
 A `view (…) { … }` is a render prop: the only child of a JS component whose declaration types `children` as a function
 giving a `View`. Anywhere else, write the markup itself, or a `for` over the list (MO-11k).
+
+An `.rx` component takes one where its `children` are typed so and it shows them, `<props.children on={lit} />` (RG-4c). It
+then names `props.children` nowhere else: it is not read, called, stored, passed or spread. Optional ones are shown under
+`if props.children { … }`.
 
 ```rx before
 export default component App() {

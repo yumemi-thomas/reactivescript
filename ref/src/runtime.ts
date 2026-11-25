@@ -962,6 +962,8 @@ export class Runtime {
         else f = this.ev(e.f, region, env);
         const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
         if (bad && this.demandMode) return bad;                        // absence propagates in reactive scope; in imperative scope an error is a value (E-12)
+        // RG-4c, a function prop: `props.children(…)` where the children are one closure, as JSX passes it
+        if (f instanceof ViewValue && f.items.length === 1 && f.items[0].k === "read") { const v = this.readNode(f.items[0].node); if (isAbsent(v)) return v; if (typeof v === "function") f = v; }
         if (typeof f !== "function") throw new RuleError("TYPE", "call of non-function");
         if ((f as { io?: boolean }).io && this.demandMode) throw new RuleError("IO-2", "io function called in reactive scope");
         if (f === BUILTINS.fetch) return this.flight(String(args[0]));
@@ -1254,10 +1256,11 @@ export class Runtime {
               getOwnPropertyDescriptor: (t, k) => typeof k === "string" && k !== "children" ? (find(k) ? { enumerable: true, configurable: true, value: read(k) } : undefined) : Reflect.getOwnPropertyDescriptor(t, k),
             });
           }
-          const view = m.children.find(c => c.k === "mview");
-          if (view || (!m.children.length && showsView(comp))) Object.defineProperty(props, "children", { enumerable: true, value: view?.k === "mview" ? new ViewFn(view, region) : undefined });
+          const view = m.children.find(c => c.k === "mview" && !c.prop);
+          const shows = !!view || (!m.children.length && showsView(comp));
+          if (shows) Object.defineProperty(props, "children", { enumerable: true, value: view?.k === "mview" ? new ViewFn(view, region) : undefined });
           let children: ViewValue | null = null;                   // RG-4c: instantiated where first read — owned by the reader's region, named by the caller's
-          if (!Object.hasOwn(props, "children")) Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, m.children.map(c => this.inst1(c, cr))); } return children; } });
+          if (!shows) Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, m.children.map(c => this.inst1(c, cr))); } return children; } });
           r.scope.set(comp.props, { constant: props });
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };

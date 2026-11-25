@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A view an `.rx` component shows with what it knows** (proposals/25): `children: (s: { on: boolean }) => View`, shown as `<props.children on={lit} />`,
+  given as `<Toggle>{view (s) { … }}</Toggle>` (RG-4c; S-view-1, S-view-2). The crate gives a view that provides an owner of its own, as ref/ did (proposals/bugs/38).
+- **Fixed: a context read in a component's children** (`<P>{use c}</P>`) read at the caller, compiled; it reads where the component shows them, where the children
+  hold no `await` (RG-7b, 08; S-context-4; proposals/bugs/33). A package compiled so needs the runtime of this version or newer.
+  The interpreter and the oracle call a closure given as children, as compiled code did (proposals/bugs/34).
 **What an app keeps, and where a view is made** (S-context-3, S-surface-12, `compiler/test/leaks.mjs`, `compiler/test/js-host.mjs`; proposals/bugs/28 to 32)
 
 - **Fixed: an app kept every binding of every instance**, and a server fn's every answer. A package is to be compiled again for smaller code; one compiled

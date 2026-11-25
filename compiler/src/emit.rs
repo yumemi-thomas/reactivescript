@@ -5,7 +5,7 @@
 //! module is a tree (`js.rs`), never text (CP-3).
 
 use crate::ast::{instantiates, kept_parts, Decl, Expr, ExprKind, Field, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind, TplPart};
-use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
+use crate::awaits::{inner_catches, is_handler, non_tail_awaits, placed, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
 use crate::modules::{defaulted, given, shown_in, shows_view, type_only, view_fields, Given, ModuleSet};
@@ -2352,6 +2352,17 @@ impl<'p> Gen<'p> {
                         xs.push(("children".into(), AttrValue::Expr(E::Arr(vec![]))));
                     }
                     el(name, xs, vec![], true)
+                } else if shape != Some(FShape::Comp) && placed(&rest, &|t| self.lookup(env, t).is_some_and(|b| b.kind == Kind::Comp && b.shape != Some(FShape::Comp))) {
+                    // RG-7b, 08: owned where they are shown, so a `use` in them reads there. One reader is read in its reader's
+                    // computation, as without a `use`
+                    let x = match &rest[..] {
+                        [m @ Markup { kind: MarkupKind::Read(_), .. }] => match self.child(m, env)? {
+                            Some(Child::Expr(x)) => x,
+                            _ => unreachable!(),
+                        },
+                        _ => self.markup(&rest, env)?,
+                    };
+                    el(name, xs, vec![Child::Expr(call(arrow(&["__o"], x), vec![rtc("place", vec![id("__o")])]))], false)
                 } else {
                     el(name, xs, self.kids(&rest, env)?, false)
                 }

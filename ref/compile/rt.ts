@@ -239,6 +239,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
 
   let portalOf: ReturnType<typeof makePortal> | undefined;
+  let carried = false;   // RG-7b: a context's value, or a snapshot, is being read (`place`)
   const app = {
     root: { kind: "el", tag: "root", children: [], props: {} } as any,
     body: { kind: "el", tag: "body", children: [], props: {} } as any,   // RG-8: where portals render
@@ -424,7 +425,10 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     // ---- modules (09 MO-1): a dependency's factory runs once per app; its exports are shared by every importer ----
     module(key: unknown, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
     // ---- context (RG-7) ----
-    owner: () => getOwner(),
+    owner: () => { carried = false; return getOwner(); },
+    /** RG-7b, 08: children with a `use` are owned where a component shows them, so it reads there: the owner that reads them.
+     *  What nothing owns (an effect, a handler), a snapshot and what a context carries are read at the caller, `o`. */
+    place(o: ReturnType<typeof getOwner>) { const at = carried; carried = false; return at ? o : getOwner() ?? o; },
     /** `context x: T = d` (RG-7): the declaration is the identity; `d`, if any, is evaluated once, owned where it is declared. */
     /** `context x: T = d` (RG-7): the declaration is the identity (a sentinel default: absence is ours to decide); `d` is
      *  evaluated once, owned where it is declared — created now, so it takes its id there on both sides (SV-3). */
@@ -435,7 +439,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
     },
-    useGet(c: Ctx, owner: ReturnType<typeof getOwner>) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
+    useGet(c: Ctx, owner: ReturnType<typeof getOwner>) { const e = app.use(c, owner); if (!e.get) return e.value; const was = carried; carried = true; try { return e.get(); } finally { carried = was; } },
     runWithOwner,
     /** MO-10a, RG-6a (2026-11-23): a declared JS primitive is called in an owner of its own, under the place it is
      *  written. To that place it is one child, on the server and in the browser, whatever it makes inside — so a
@@ -454,7 +458,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     errorClass, isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
-    untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
+    untrack: <T>(f: () => T): T => { const was = carried; carried = true; try { return untrack(f); } finally { carried = was; } },   // E-4: a snapshot is the caller's too (`place`)
+    omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 
     // ---- views: compiled JSX (compile/jsx.ts) calls the renderer; these are the two helpers it calls on __rt ----

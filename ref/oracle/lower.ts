@@ -18,7 +18,7 @@ import {
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failure.ts";
 import { singleModule, given, defaulted, bindGiven, viewFields, shownIn, showsView, type Given, type ModuleSet } from "../src/modules.ts";
-import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
+import { nonTailAwaits, placed, viewReaders } from "../src/awaits.ts";
 import { unwrapServer } from "../src/check.ts";
 import { primsSolid, isPrims } from "../src/prims.ts";
 import type { Shape } from "../src/parse.ts";
@@ -364,7 +364,7 @@ export class Oracle {
             else if (this.isStructuredAwait(d.init, d.name)) { const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}); /* ST-5 structured: the derive writes its draft (Solid's createStore(fn, seed) idiom) */ scope.vars.set(d.name, { k: "store", get: () => store, set: () => { throw new Unsupported("root write to a derived store"); }, setPath: setStore, question: true }); }
             else { const [get, set] = createSignal(compute as any, this.loadingValue(d.init, scope) as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: false }); }
           } else {
-            const init = untrack(() => this.ev(d.init, scope));
+            const init = this.snapshot(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
               const [store, setStore] = createStore(init as any); rooted(store as object); if (d.key === undefined) byPosition.add(store as object); const [get, set] = createSignal<unknown>(store);
               const w = { set: rootSet(store, set as never, v => setStore(() => v as any), f => setStore(f as any)), setPath: setStore };   // ST-2a: a root write is reconciled per path; W-6: a function is the updater
@@ -558,7 +558,7 @@ export class Oracle {
         if (v === undefined && e.init) return this.ev(e.init, scope, env);
         return v;
       }
-      case "peek": return untrack(() => this.ev(e.e, scope, env));
+      case "peek": return this.snapshot(() => this.ev(e.e, scope, env));
       case "await": {
         for (let s: Scope | null = scope; s; s = s.parent) { const h = hoistedOf.get(s)?.get(e); if (h) return h(); }   // a hoisted `await`: its own node, read here
         const v = this.ev(e.e, scope, env); return !e.stream && v instanceof Flight ? v.first : v;   // in tail position the memo returns the flight (R-1): a stream for `await*`, else its one answer
@@ -596,11 +596,12 @@ export class Oracle {
         if (e.f.k === "member") { self = this.ev(e.f.o, scope, env); f = self == null ? undefined : self[e.f.p]; } else f = this.ev(e.f, scope, env);
         const args = e.args.map(a => this.ev(a, scope, env));
         if (f === BUILTINS.fetch) { const fl = this.flight(String(args[0])); return process.env.ORACLE_PROMISES ? fl.first : fl; }
+        if (Array.isArray(f) && f.length === 1 && isView(f) && typeof f[0] === "function") { const v = f[0](); if (typeof v === "function") f = v; }   // RG-4c, a function prop: the children are one closure, as JSX passes it
         if (typeof f !== "function") throw new Error("call of non-function");
         return f.apply(self, args);
       }
       case "draft": throw new Unsupported("draft outside an equation");
-      case "use": { const b = this.provision(e.name, scope); return b.k === "const" ? b.value : (b as { get: () => unknown }).get(); }
+      case "use": { const b = this.provision(e.name, scope); if (b.k === "const") return b.value; const was = this.carried; this.carried = true; try { return (b as { get: () => unknown }).get(); } finally { this.carried = was; } }
       case "spread": throw new Error("spread outside an array literal");
       case "omit": return omit(this.ev(e.e, scope, env) as Record<string, unknown>, ...e.keys);
     }
@@ -725,6 +726,14 @@ export class Oracle {
   /** A view's items, as Solid's compiled JSX shapes them: in a fragment a reader is a memo; an element's children are its
    *  holes, each inserted at its own marker (`inEl`), so each reader is its own render effect. */
   fragment(m: Markup[], scope: Scope, inEl = false): unknown[] { const items = m.map(x => this.node(x, scope, inEl)); return inEl ? items : items.map(x => (x as { $read?: boolean })?.$read ? R.memo(x as () => unknown) : x); }
+  /** RG-7b, 08: children with a `use` are owned where they are read, so it reads there (what a context carries, and a snapshot, are read at the caller). */
+  private carried = false;
+  private snapshot<T>(f: () => T): T { const was = this.carried; this.carried = true; try { return untrack(f); } finally { this.carried = was; } }
+  private place(kids: Markup[], scope: Scope): Scope {
+    if (!placed(kids, t => scope.lookup(t)?.k === "comp")) return scope;
+    const owner = getOwner(), at = this.carried; this.carried = false;
+    return at || !owner ? scope : Object.create(scope, { owner: { value: owner } }) as Scope;
+  }
   private node(m: Markup, scope: Scope, inEl = false): unknown {
     const self = this;
     switch (m.k) {
@@ -747,8 +756,8 @@ export class Oracle {
             if (!run) { run = {}; parts.push(run); }
             Object.defineProperty(run, a.name, { enumerable: true, get: () => this.ev(a.e, scope) });
           }
-          const view = m.children.find(c => c.k === "mview");
-          const kids = {}; Object.defineProperty(kids, "children", view?.k === "mview" || (!m.children.length && showsView(comp)) ? { enumerable: true, value: view?.k === "mview" ? (p: unknown) => { const s2 = new Scope(scope); for (const n of view.params) s2.vars.set(n, { k: "const", value: p }); return this.region(view.decls, view.body, s2); } : undefined } : { enumerable: true, get: () => this.fragment(m.children, scope) }); parts.push(kids);
+          const view = m.children.find(c => c.k === "mview" && !c.prop);
+          const kids = {}; Object.defineProperty(kids, "children", view?.k === "mview" || (!m.children.length && showsView(comp)) ? { enumerable: true, value: view?.k === "mview" ? (p: unknown) => { const s2 = new Scope(scope); for (const n of view.params) s2.vars.set(n, { k: "const", value: p }); return this.region(view.decls, view.body, s2); } : undefined } : { enumerable: true, get: () => this.fragment(m.children, this.place(m.children, scope)) }); parts.push(kids);
           const props = parts.length === 1 ? kids : (merge as (...xs: unknown[]) => Record<string, unknown>)(...parts);
           return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); s2.givens.set(comp.props, { props: { less: [], views: viewFields(comp.propsType, this.typeDecls) } }); return this.region(comp.decls, comp.view, s2); }, props);
         }

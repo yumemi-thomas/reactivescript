@@ -102,6 +102,49 @@ pub fn view_readers(ms: &[Markup]) -> Vec<&Expr> {
     out
 }
 
+/// What a view reads in its own place: not in a block (an `if` branch, a row, a boundary's content), which has an owner of its
+/// own, nor in the children of a component that is `apart`.
+fn in_place<'m>(ms: &'m [Markup], apart: &dyn Fn(&str) -> bool, out: &mut Vec<&'m Expr>) {
+    for m in ms {
+        match &m.kind {
+            MarkupKind::Read(e) => out.push(e),
+            MarkupKind::El { tag, attrs, children } => {
+                out.extend(attrs.iter().map(|a| &a.e));
+                if !apart(tag) {
+                    in_place(children, apart, out);
+                }
+            }
+            MarkupKind::Mif { c, .. } => out.push(c),
+            MarkupKind::Mfor { xs, .. } => out.push(xs),
+            MarkupKind::Loading { on, fallback, .. } => {
+                out.extend(on.iter());
+                in_place(fallback, apart, out);
+            }
+            MarkupKind::Errored { fallback, .. } => in_place(fallback, apart, out),
+            MarkupKind::Portal { to, .. } => out.extend(to.iter()),
+            _ => {}
+        }
+    }
+}
+/// RG-7b, 08: whether what is written between `<P>` and `</P>` reads a context in its own place (`rx`: an .rx component's
+/// children are its own). With an `await` there it does not: that is hoisted to where it is written, and what is asked and
+/// what is shown are of one place (proposals/bugs/36).
+pub fn placed(kids: &[Markup], rx: &dyn Fn(&str) -> bool) -> bool {
+    let (mut own, mut all) = (vec![], vec![]);
+    in_place(kids, rx, &mut own);
+    if !own.into_iter().any(|e| crate::ast::reads_context(Node::E(e))) {
+        return false;
+    }
+    in_place(kids, &|_| false, &mut all);
+    !all.into_iter().any(awaits_in)
+}
+fn awaits_in(e: &Expr) -> bool {
+    fn go(n: Node) -> bool {
+        matches!(n, Node::E(Expr { k: ExprKind::Await { .. }, .. })) || children(n, true).into_iter().any(go)
+    }
+    go(Node::E(e))
+}
+
 /// `/^on[A-Z:]/`, or `ref` (called once with the element, 07 §4)
 pub fn is_handler(name: &str) -> bool {
     let b = name.as_bytes();

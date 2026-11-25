@@ -141,7 +141,21 @@ A component is a function from a props value to a region whose tail is a view.
   region: its readers are the caller's, its lifetime is the caller's, and the
   child only decides where it is placed. A child that needs to create its
   content more than once, or conditionally own it, asks for a function prop
-  instead, which is ordinary.
+  instead, which is ordinary. A `use` in children reads where they are placed
+  (RG-7b, 08; S-context-4).
+  - **A view (proposed 2026-11-25).** The function prop that makes markup. A
+    component whose `children` are declared a function giving a `View`, of one
+    parameter or none, may show them as `<props.children a={e} … />`, in its own
+    view, at any number of places; they are then named nowhere else in it, but
+    for `if props.children { … }`, under which optional ones are shown, and a
+    projection that takes them out of a rest. What is given is one `{view (s) {
+    … }}`: a block of the caller's names, owned where it is shown, an instance at
+    each place. `s` is its props (RG-4b): `s.a` is the argument, read where it is
+    read, never written. For what it waits on and fails with, an argument is
+    checked as read where the view is shown. What the view stores where it
+    outlives it (O-3) is none of what the component's closures hold. A component
+    so typed that never shows them this way is as it was: it reads and calls
+    them. (`VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED`; S-view-1, S-view-2.)
 - **RG-4d (No return channel).** A component body evaluates to its view and
   nothing else. To expose a value upward, the caller passes a handler (or an
   action) the child calls: a source passed as a prop is read-only in the child

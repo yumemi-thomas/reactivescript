@@ -918,7 +918,7 @@ impl Program {
 }
 
 /// A context read anywhere in it (`use c`, RG-7b).
-fn reads_context(n: crate::check::Node) -> bool {
+pub(crate) fn reads_context(n: crate::check::Node) -> bool {
     use crate::check::Node;
     matches!(n, Node::E(Expr { k: ExprKind::Use(_), .. }))
         || matches!(n, Node::S(Stmt { k: StmtKind::Write { target, .. } | StmtKind::Optimistic { target, .. }, .. }) if target.is_ctx())

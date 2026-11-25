@@ -130,6 +130,19 @@ component Card(props: { title: string; children: View }) {
 }
 ```
 
+A component that shows its children with what it knows takes a view (RG-4c): the caller writes it as `{view (s) { … }}`,
+with its own names, and it is owned where it is shown, at each place it is shown. `s.pressed` stays live, as a prop does.
+
+```rx
+component Toggle(props: { children: (s: { pressed: boolean }) => View }) {
+  source lit := false
+  <button onClick={() => { lit := !lit }}><props.children pressed={lit} /></button>
+}
+export default component App() {
+  <Toggle>{view (s) { {if s.pressed { <b>On</b> } else { <i>Off</i> }} }}</Toggle>
+}
+```
+
 `props.x` stays live: don't copy it into a source unless you mean a one-time seed (`source draft := peek(props.x)`).
 Destructured props stay live too: `component Card({ title, open = false })` or `{ title } = props` (RG-4b). Pass
 the rest on with a spread, `<button {...rest}>` or `<Inner {...rest} />`: later attributes override it, as in JSX.
