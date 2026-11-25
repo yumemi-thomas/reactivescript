@@ -8,7 +8,7 @@ const { rowTypes } = require("./row-types.js");
  *  @returns {{ unread?: string, exports: object, contexts: object }} each export's facts, as compiler/words/src/lib.rs says them */
 function words(spec, from, rows, contexts = [], text) {
   const dir = require("node:fs").realpathSync(from), own = rowTypes(spec, dir, rows), types = own.size || text === undefined ? own : rowTypes(spec, dir, rows, text());
-  const r = ask("words", { spec, from: dir, contexts, exports: rows.map(x => ({ name: x.name, kind: x.kind, handlers: x.handlers ?? [], refs: x.refs ?? [], ...(types.get(x.name) ?? { params: [], prims: [], plain: [] }) })) });
+  const r = ask("words", { spec, from: dir, contexts, exports: rows.map(x => ({ name: x.name, kind: x.kind, handlers: x.handlers ?? [], refs: x.refs ?? [], ...(types.get(x.name) ?? { params: [], ret: { k: "any" }, plain: [] }) })) });
   return r.unread !== undefined || r.error ? { unread: r.unread ?? r.error, exports: {}, contexts: {} } : r;
 }
 /** Every name the module's code exports under some host; undefined where a part of it is not read. */

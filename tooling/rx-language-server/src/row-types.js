@@ -10,7 +10,8 @@ const DEPTH = 5;
 const LIB = /(?:^|[\\/])lib\.[\w.]+\.d\.ts$/;
 
 /** @param {string} [text] the module's types, where it has none of its own (a declaration's `.d.ts`, TY-4b)
- *  @param {{ name: string, kind: "fn" | "component" }[]} rows  @returns {Map<string, { params: object[], prims: number[], plain: string[] }>} */
+ *  @param {{ name: string, kind: "fn" | "component" }[]} rows  @returns {Map<string, { params: object[], ret: object, plain: string[] }>} `ret`: what it answers, where a
+ *  function says its parameters too (`p`) */
 function rowTypes(spec, from, rows, text) {
   const out = new Map();
   let opened; try { opened = open(spec, from, text); } catch (e) { if (process.env.RX_DEBUG) console.error(e); return out; }
@@ -37,9 +38,10 @@ function rowTypes(spec, from, rows, text) {
     const trees = want.map(() => []);
     // a rest parameter: the last, where the signature takes more than its parameters
     pts.forEach((y, k) => { const rest = y.x.s.hasRestParameter && y.n === ps[flat.indexOf(y.x)].length - 1; const node = {}; (trees[y.x.i][y.n] ??= []).push({ node, rest }); level.push({ type: ptypes[k], node, d: 0 }); });
+    const rnodes = run(flat.map(x => x.s.getReturnType.gen())).map((r, k) => { const node = {}; level.push({ type: r, node, d: 0, r: true }); return { i: flat[k].i, node }; });
     // ---- a level at a time
     while (level.length) {
-      const next = [], push = (type, d) => { const node = {}; next.push({ type, node, d }); return node; };
+      const next = [], push = (type, d, r) => { const node = {}; next.push({ type, node, d, r }); return node; };
       const open = [];
       for (const x of level) {
         const f = x.type.flags;
@@ -51,9 +53,9 @@ function rowTypes(spec, from, rows, text) {
       // unions, type parameters
       const unions = open.filter(x => x.type.flags & TF.Union), params = open.filter(x => x.type.flags & TF.TypeParameter), rest = open.filter(x => !(x.type.flags & (TF.Union | TF.TypeParameter)));
       const members = run(unions.map(x => x.type.getTypes.gen()));
-      unions.forEach((x, i) => { x.node.k = "union"; x.node.m = members[i].map(y => push(y, x.d)); });
+      unions.forEach((x, i) => { x.node.k = "union"; x.node.m = members[i].map(y => push(y, x.d, x.r)); });
       const cons = run(params.map(x => ch.getBaseConstraintOfType.gen(x.type)));
-      params.forEach((x, i) => { const c = cons[i]; if (!c || c.flags & (TF.Unknown | TF.TypeParameter)) x.node.k = "param"; else if (c.flags & TF.Any) x.node.k = "any"; else { x.node.k = "union"; x.node.m = [push(c, x.d)]; x.node.of = "param"; } });
+      params.forEach((x, i) => { const c = cons[i]; if (!c || c.flags & (TF.Unknown | TF.TypeParameter)) x.node.k = "param"; else if (c.flags & TF.Any) x.node.k = "any"; else { x.node.k = "union"; x.node.m = [push(c, x.d, x.r)]; x.node.of = "param"; } });
       const objects = rest.filter(x => x.type.flags & (TF.Object | TF.Intersection));
       for (const x of rest) if (!objects.includes(x)) x.node.k = "any";
       const calls = run(objects.map(x => ch.getSignaturesOfType.gen(x.type, t.SignatureKind.Call))), news = run(objects.map(x => ch.getSignaturesOfType.gen(x.type, t.SignatureKind.Construct)));
@@ -73,17 +75,21 @@ function rowTypes(spec, from, rows, text) {
         if (calls[i].length) { n.k = "fn"; fns.push({ x, sigs: calls[i] }); }
         else if (target.has(i)) { n.k = "other"; n.t = true; }
         else if (news[i].length) n.k = "other";
-        else if (arr[i]) { n.k = "arr"; n.e = push(a[0], x.d + 1); }
-        else if (tup[i]) { n.k = "tuple"; n.e = a.map(y => push(y, x.d + 1)); if (open2.has(i)) { n.k = "any"; delete n.e; } }
-        else if (a && /Map$/.test(sym[i].name)) { n.k = "map"; n.key = push(a[0], x.d + 1); n.e = push(a[1], x.d + 1); }
-        else if (a && /Set$/.test(sym[i].name)) { n.k = "set"; n.e = push(a[0], x.d + 1); }
-        else if (a) { n.k = "promise"; n.e = push(a[0], x.d + 1); }
+        else if (arr[i]) { n.k = "arr"; n.e = push(a[0], x.d + 1, x.r); }
+        else if (tup[i]) { n.k = "tuple"; n.e = a.map(y => push(y, x.d + 1, x.r)); if (open2.has(i)) { n.k = "any"; delete n.e; } }
+        else if (a && /Map$/.test(sym[i].name)) { n.k = "map"; n.key = push(a[0], x.d + 1, x.r); n.e = push(a[1], x.d + 1, x.r); }
+        else if (a && /Set$/.test(sym[i].name)) { n.k = "set"; n.e = push(a[0], x.d + 1, x.r); }
+        else if (a) { n.k = "promise"; n.e = push(a[0], x.d + 1, x.r); }
         else if (isLib(sym[i]) && sym[i].flags & (SF.Class | SF.Interface | SF.Variable)) n.k = "other";   // (a `Record` is lib's alias, not its object)
         else recs.push(x);
       });
       // what a function answers
       const fsigs = fns.flatMap(f => f.sigs.map(s => ({ f, s }))), rets = run(fsigs.map(y => y.s.getReturnType.gen()));
-      for (const f of fns) { const rs = fsigs.map((y, i) => y.f === f ? rets[i] : undefined).filter(Boolean); f.x.node.answers = "ask"; f.x.node.rets = rs.map(r => push(r, Math.max(f.x.d + 1, DEPTH - 1))); f.raw = rs; }
+      for (const f of fns) { const rs = fsigs.map((y, i) => y.f === f ? rets[i] : undefined).filter(Boolean); f.x.node.answers = "ask"; f.x.node.rets = rs.map(r => push(r, Math.max(f.x.d + 1, f.x.r ? 0 : DEPTH - 1), f.x.r)); f.raw = rs; }
+      // the parameters of one a call answers
+      const given = fns.filter(f => f.x.r && f.sigs.length === 1), gp = run(given.map(f => f.sigs[0].getParameters.gen())), gflat = given.flatMap((f, i) => gp[i].map((p, n) => ({ f, p, last: n === gp[i].length - 1 }))), gt = run(gflat.map(y => ch.getTypeOfSymbol.gen(y.p)));
+      for (const f of given) f.x.node.p = [];
+      gflat.forEach((y, i) => { const node = push(gt[i], y.f.x.d + 1), rest = y.last && y.f.sigs[0].hasRestParameter; y.f.x.node.p.push(rest ? { k: "rest", e: { k: "any" } } : node); });
       const kinds = answers(run, ch, TF, fns.flatMap(f => f.raw)); let k = 0;
       for (const f of fns) { f.x.node.answers = f.raw.map(() => kinds[k++]).every(Boolean); f.x.node.r = f.x.node.rets.length === 1 ? f.x.node.rets[0] : { k: "union", m: f.x.node.rets }; delete f.x.node.rets; }
       // records
@@ -92,7 +98,7 @@ function rowTypes(spec, from, rows, text) {
       const lib = fields.filter(f => isLib(f.p) || f.p.flags & SF.Method);
       for (const f of lib) f.x.node.f[f.p.name] = { k: "other" };
       const own = fields.filter(f => !lib.includes(f)), ft = run(own.map(f => ch.getTypeOfSymbol.gen(f.p)));
-      own.forEach((f, i) => { const node = push(ft[i], f.x.d + 1); f.x.node.f[f.p.name] = f.p.flags & SF.Optional ? { k: "union", m: [node, { k: "prim" }] } : node; });
+      own.forEach((f, i) => { const node = push(ft[i], f.x.d + 1, f.x.r); f.x.node.f[f.p.name] = f.p.flags & SF.Optional ? { k: "union", m: [node, { k: "prim" }] } : node; });
       level = next;
     }
     const isPrim = n => n.k === "num" || n.k === "prim" || (n.k === "union" && n.m.every(isPrim));
@@ -108,7 +114,8 @@ function rowTypes(spec, from, rows, text) {
       // past a rest parameter of one signature, the parameters of another
       const at = params.findIndex(p => p.k === "rest"); if (at >= 0 && at < params.length - 1) params.splice(at, Infinity, { k: "any" });
       const props = params[0]?.k === "rec" ? params[0].f : {};
-      out.set(r.name, { params, prims: params.flatMap((p, n) => isPrim(p) ? [n] : []), plain: Object.entries(props).filter(([, n]) => noView(n)).map(([n]) => n) });
+      const rets = rnodes.filter(x => x.i === i).map(x => x.node);
+      out.set(r.name, { params, ret: rets.length === 1 ? rets[0] : { k: "any" }, plain: Object.entries(props).filter(([, n]) => noView(n)).map(([n]) => n) });
     });
     return out;
   } finally { dispose(); }

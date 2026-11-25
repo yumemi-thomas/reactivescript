@@ -49,14 +49,12 @@ function audit(spec, from, rowsIn, text) {
     const f = r.unread ? { unread: r.unread } : r.exports[row.name] ?? { unread: "no code of that name" };
     if (f.unread) { for (const n of w.all) say(n, "unproven", `not read: ${f.unread}`); continue; }
     const why = f.pure?.why;
-    if (w.pure) say("pure", f.pure?.ok ? "proven" : "unproven", `${why?.why ?? "not read"}${at(why)}`);
+    // (a row that is an instantiation says which functions it answers do something, MO-10b: rx-declare reads that off the row it writes)
+    const left = f.pure?.ok ? f.pure.parts?.[0] : undefined;
+    if (w.pure) say("pure", f.pure?.ok && !left ? "proven" : "unproven", left ? `a function it answers (${left.path.join(".") || "itself"}) is not shown to only compute: ${left.why}${at(left)}` : `${why?.why ?? "not read"}${at(why)}`);
     for (const h of w.handlers) { const v = f.handlers?.[h.field === undefined ? String(h.index) : `${h.index}.${h.field}`]; say(`handler(${h.label})`, v?.ok ? "proven" : "unproven", `${v?.why ?? f.unplaced ?? "not read"}${at(v)}`); }
-    for (const d of w.drafts) { const v = f.draft?.[d.index]; say(`draft(${d.name})`, v ? "proven" : "unproven", v ? `${v.why}${at(v)}` : "a write that not every path makes, a part of it read, or a use that may keep it"); }
-    if (w.rejects) {
-      const names = w.rejects, got = f.rejects, word = `rejects(${names.join(" | ")})`;
-      if (!got?.length) say(word, "unproven", got ? "the code reaches no throw of a class" : "what it throws is not shown to be of a class of the module's");
-      else { const extra = got.filter(n => !names.includes(n)), missing = names.filter(n => !got.includes(n) && n !== "Error"); say(word, !extra.length && !missing.length ? "proven" : "unproven", extra.length ? `it may throw ${extra.join(", ")}, which the row does not name` : missing.length ? `every throw the code reaches is read, and none is of ${missing.join(", ")}` : `every throw the code reaches is of ${got.join(", ")}`); }
-    }
+    for (const d of w.drafts) say(`draft(${d.name})`, "unproven", "whether the code changes what it is given in place, and keeps nothing of it, is not read");
+    if (w.rejects) say(`rejects(${w.rejects.join(" | ")})`, "unproven", "what it throws is not read");
     if (w.instantiates) say("instantiates", f.instantiates?.ok ? "proven" : "unproven", `${f.instantiates?.why ?? f.unplaced ?? "not read"}${at(f.instantiates)}`);
     if (w.uses.length || w.provides.length) pending.push({ w, f, row, say });
     if (w.nests) say(`nests(${w.nests})`, "unproven", "how a component the fn makes nests what it is given is not read");

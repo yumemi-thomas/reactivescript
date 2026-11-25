@@ -30,6 +30,17 @@ function wordsPath() {
   return f;
 }
 
+/** Every file of a package's folder and those in it, but the packages in it: undefined past 20,000. */
+function listing(dir) {
+  const out = [], todo = [""];
+  while (todo.length) {
+    const d = todo.pop(); let es; try { es = require("node:fs").readdirSync(path.join(dir, d), { withFileTypes: true }); } catch { continue; }
+    for (const e of es) { if (e.name === "node_modules") continue; const f = d ? `${d}/${e.name}` : e.name; if (e.isDirectory()) todo.push(f); else out.push(f); }
+    if (out.length > 20000) return undefined;
+  }
+  return out;
+}
+
 /** A crate in process, over `src/wasm.rs`'s ABI (compiler/words's is the same). */
 function loadWasm(file) {
   let x;
@@ -44,6 +55,7 @@ function loadWasm(file) {
   const env = {
     rx_read(ptr, len) {
       const f = dec.decode(new Uint8Array(x.memory.buffer, ptr, len));
+      if (f[0] === "\x01") { const l = listing(f.slice(1)); return l === undefined ? 0 : put(enc.encode(l.join("\n"))); }   // a package's files
       if (f[0] === "\0") { try { return put(enc.encode(realpathSync(f.slice(1)))); } catch { return 0; } }   // a path's real one (compiler/words/src/resolve.rs)
       try { if (!statSync(f).isFile()) return 0; return put(readFileSync(f)); } catch { return 0; }
     },

@@ -24,8 +24,11 @@ pub enum Step { Key(String), At(usize) }
 /// and an `EventTarget` send theirs while a call of the code's own runs.)
 pub const MADE: &[&str] = &["EventSource", "WebSocket", "Worker", "SharedWorker", "BroadcastChannel", "Notification", "Audio", "Image", "MediaRecorder", "RTCPeerConnection", "OffscreenCanvas"];
 const ELEMENTS: &[&str] = &["EventTarget", "Node", "Element", "Document", "Window", "SVGElement", "MathMLElement"];
+const HTML: &[&str] = &["HTMLElement", "HTMLInputElement", "HTMLButtonElement", "HTMLTextAreaElement", "HTMLSelectElement", "HTMLFormElement", "HTMLAnchorElement", "HTMLMediaElement", "HTMLAudioElement", "HTMLVideoElement", "HTMLImageElement", "HTMLDialogElement", "HTMLDetailsElement", "HTMLDivElement", "HTMLLabelElement", "HTMLIFrameElement", "HTMLCanvasElement", "HTMLTableElement"];
 /// What is read off a target and is one: the platform's own accessors.
 const PARTS: &[&str] = &["document", "body", "head", "documentElement", "ownerDocument", "defaultView", "parentElement", "parentNode", "firstElementChild", "lastElementChild", "nextElementSibling", "previousElementSibling", "shadowRoot", "contentDocument", "contentWindow", "visualViewport", "form"];
+/// Of the window itself: any other name may be an element's (`window.form`).
+const OF_WINDOW: &[&str] = &["document", "visualViewport"];
 const FINDS: &[&str] = &["matchMedia", "getElementById", "querySelector", "closest", "getRootNode"];
 const LISTS: &[&str] = &["filter", "slice", "flat", "concat", "reverse", "at", "find", "toReversed"];
 
@@ -90,6 +93,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
                 if let Expression::Identifier(o) = unwrap(&p.object) {
                     let n = p.property.name.as_str();
                     if m.is_global(o, "screen") { return (n == "orientation").then_some(V::Target); }
+                    if ["window", "self", "globalThis"].iter().any(|g| m.is_global(o, g)) { return OF_WINDOW.contains(&n).then_some(V::Target); }
                     if m.is_global(o, "navigator") { return matches!(n, "connection" | "serviceWorker" | "mediaDevices").then_some(V::Target); }
                 }
                 let v = go(&p.object)?;
@@ -182,9 +186,10 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         }
     }
     /// `x instanceof HTMLElement`, in whose arm the name stands.
-    fn seen_as_element(&self, mi: usize, i: &IdentifierReference<'a>, s: SymbolId) -> bool {
+    fn seen_as_element(&self, mi: usize, i: &IdentifierReference<'a>, s: SymbolId) -> bool { self.seen_as(mi, i, s, ELEMENTS) || self.seen_as(mi, i, s, HTML) }
+    pub fn seen_as(&self, mi: usize, i: &IdentifierReference<'a>, s: SymbolId, names: &[&str]) -> bool {
         let m = self.m(mi);
-        let test = |e: &Expression<'a>| matches!(unwrap(e), Expression::BinaryExpression(x) if x.operator == BinaryOperator::Instanceof && matches!(unwrap(&x.left), Expression::Identifier(l) if m.symbol(l) == Some(s)) && matches!(unwrap(&x.right), Expression::Identifier(g) if m.symbol(g).is_none() && (ELEMENTS.contains(&g.name.as_str()) || (g.name.starts_with("HTML") && g.name.ends_with("Element")))));
+        let test = |e: &Expression<'a>| matches!(unwrap(e), Expression::BinaryExpression(x) if x.operator == BinaryOperator::Instanceof && matches!(unwrap(&x.left), Expression::Identifier(l) if m.symbol(l) == Some(s)) && matches!(unwrap(&x.right), Expression::Identifier(g) if m.symbol(g).is_none() && names.contains(&g.name.as_str())));
         for a in m.nodes.ancestor_ids(i.node_id.get()) {
             match m.nodes.kind(a) {
                 AstKind::IfStatement(x) if x.consequent.span().contains_inclusive(i.span) && test(&x.test) => return true,
@@ -361,7 +366,8 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
                 let Some(s) = x.symbol_id.get() else { return };
                 let v = path_to(&p.pattern, s).and_then(|(path, mut defaults)| {
                     if let Some(i) = &p.initializer { defaults.push(i); }
-                    let v = self.typed(*types.get(i)?);
+                    // (a package that may make an object of its own with such a method could type it as the platform's)
+                    let v = self.typed(*types.get(i)?).filter(|_| !self.scan().claims);
                     self.with_defaults(f.module, self.walk(v, &path), &defaults, &Bind::new(), 0)
                 });
                 out.insert((f.module, s), v);

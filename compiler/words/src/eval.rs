@@ -179,7 +179,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         Eval { mods, h, hi, types, funs: vec![], fun_ids: HashMap::new(), classes: vec![], class_ids: HashMap::new(), objs: vec![], obj_ids: HashMap::new(), consts: vec![], natives: vec![], solids: vec![], acts: vec![], act_ids: HashMap::new(), cells: HashMap::new(), module_acts: HashMap::new(), module_values: HashMap::new(), narrow: vec![], stack: vec![], ctor_class: vec![], cur: 0, changed: false, fuel: 400_000, post: None, reads: BTreeSet::new(), written: BTreeMap::new(), waited: BTreeMap::new(), again: 0, kept: vec![], facts: Facts::default() }
     }
     fn m(&self) -> &'m Module<'a> { self.mods.get(self.acts[self.cur as usize].module) }
-    fn mi(&self) -> usize { self.acts[self.cur as usize].module }
+    fn mi(&self) -> usize { self.acts.get(self.cur as usize).map_or(0, |a| a.module) }
     fn stop<T>(&self, at: Span, why: impl Into<String>) -> R<T> { Err(Stop { why: why.into(), module: self.mi(), at: at.start }) }
     fn native(&mut self, n: &str) -> Atom { let i = self.natives.iter().position(|x| x == n).unwrap_or_else(|| { self.natives.push(n.into()); self.natives.len() - 1 }); Atom::Native(i as u32) }
     fn solid(&mut self, n: &str) -> Atom { let i = self.solids.iter().position(|x| x == n).unwrap_or_else(|| { self.solids.push(n.into()); self.solids.len() - 1 }); Atom::Solid(i as u32) }

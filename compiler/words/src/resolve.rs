@@ -10,6 +10,7 @@ pub type Read<'r> = dyn Fn(&str) -> Option<String> + 'r;
 pub struct Host {
     pub name: &'static str,
     pub node: bool,
+    /// Whether Solid's build there is the browser's.
     pub browser: bool,
     conds: &'static [&'static str],
 }
@@ -26,11 +27,43 @@ pub const HOSTS: [Host; 9] = [
     host!("ssr, solid", false, false, "solid" "module" "node" "production" "import"),
 ];
 
+/// Every condition those hosts ask with.
+pub const READ: [&str; 8] = ["node", "module-sync", "node-addons", "module", "browser", "development", "production", "solid"];
+impl Host {
+    /// A host that asks with these conditions, and `import`.
+    pub fn with(conds: &[String]) -> Host {
+        thread_local! { static SETS: std::cell::RefCell<HashMap<String, &'static [&'static str]>> = Default::default(); }
+        let key = conds.join(" ");
+        let conds: &'static [&'static str] = SETS.with(|s| *s.borrow_mut().entry(key).or_insert_with(|| Box::leak(conds.iter().map(|c| &*Box::leak(c.clone().into_boxed_str())).chain(["import"]).collect::<Vec<&'static str>>().into_boxed_slice())));
+        Host { name: "another", node: false, browser: conds.contains(&"browser"), conds }
+    }
+}
+impl Host {
+    fn asks_browser(&self) -> bool { self.conds.contains(&"browser") }
+    pub fn said(&self) -> String { self.conds.join(" ") }
+}
+/// Every path a target may be.
+pub fn leaves(v: &Value, out: &mut Vec<String>) { match v { Value::String(s) => out.push(s.clone()), Value::Array(a) => for x in a { leaves(x, out); }, Value::Object(o) => for x in o.values() { leaves(x, out); }, _ => {} } }
+/// The conditions a package's maps ask about.
+pub fn conditions(pj: &Value, out: &mut std::collections::BTreeSet<String>) {
+    fn walk(v: &Value, out: &mut std::collections::BTreeSet<String>) {
+        match v {
+            Value::Object(o) => for (k, x) in o { if !k.starts_with('.') && !k.starts_with('#') { out.insert(k.clone()); } walk(x, out); },
+            Value::Array(a) => for x in a { walk(x, out); },
+            _ => {}
+        }
+    }
+    walk(&pj["exports"], out);
+    walk(&pj["imports"], out);
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Found {
     File(String),
     /// No such file, or a case not written here: what is imported from it is not known.
     Unknown(String),
+    /// No such file.
+    Missing(String),
     /// This host cannot load the import at all, so no program runs there.
     Never,
 }
@@ -63,6 +96,8 @@ impl<'r> Resolver<'r> {
         self.text.insert(f.to_string(), t.clone());
         t
     }
+    /// Every file of a folder and those in it (of packages in it, none): the host answers it for a name that begins with \u{1}.
+    pub fn list(&mut self, dir: &str) -> Option<Vec<String>> { (self.read)(&format!("\u{1}{dir}")).map(|s| s.lines().map(String::from).collect()) }
     fn exists(&mut self, f: &str) -> bool { self.text(f).is_some() }
     fn json(&mut self, f: &str) -> Option<std::rc::Rc<Value>> {
         if let Some(t) = self.json.get(f) { return t.clone(); }
@@ -126,7 +161,7 @@ impl<'r> Resolver<'r> {
         let dir = self.real(&format!("{dir}/package.json"));
         let dir = dirname(&dir).to_string();
         let browser = &pj["browser"];
-        if h.browser && browser.as_object().is_some_and(|o| !o.is_empty()) { return Found::Unknown(format!("{spec}: its package.json has a `browser` map")); }
+        if h.asks_browser() && browser.as_object().is_some_and(|o| !o.is_empty()) { return Found::Unknown(format!("{spec}: its package.json has a `browser` map")); }
         if !pj["exports"].is_null() {
             let map = &pj["exports"];
             let dots = map.as_object().is_some_and(|o| o.keys().any(|k| k.starts_with('.')));
@@ -145,14 +180,14 @@ impl<'r> Resolver<'r> {
             let at = join(&dir, main);
             return if self.exists(&at) { self.exact(h, &at) } else { Found::Unknown(format!("{spec}: its `main` is not a file")) };
         }
-        let fields: &[&str] = if h.browser { &["browser", "module", "jsnext:main", "jsnext"] } else { &["module", "jsnext:main", "jsnext"] };
+        let fields: &[&str] = if h.asks_browser() { &["browser", "module", "jsnext:main", "jsnext"] } else { &["module", "jsnext:main", "jsnext"] };
         let entry = fields.iter().find_map(|f| pj[*f].as_str()).or(pj["main"].as_str()).unwrap_or("index.js").to_string();
         let at = join(&dir, &entry);
         if self.exists(&at) { self.exact(h, &at) } else { Found::Unknown(format!("{spec}: its entry is not a file")) }
     }
 
     fn exact(&mut self, h: Host, f: &str) -> Found {
-        if !self.exists(f) { return Found::Unknown(format!("{f} is not found")); }
+        if !self.exists(f) { return Found::Missing(format!("{f} is not found")); }
         if f.ends_with(".cjs") || f.ends_with(".json") || f.ends_with(".d.ts") || f.ends_with(".d.mts") { return Found::Unknown(format!("{f} is no ES module")); }
         if h.node && (f.ends_with(".jsx") || f.ends_with(".tsx")) { return Found::Never; }
         self.file(f)
@@ -160,7 +195,7 @@ impl<'r> Resolver<'r> {
 
     /// A path written as one: Node takes the file it names; Vite also an extension left off, and a folder's index.
     fn path(&mut self, h: Host, at: &str, from_dir: &str, spec: &str) -> Found {
-        if h.browser {
+        if h.asks_browser() {
             if let Some((_, pj)) = self.package_of(from_dir) { if pj["browser"].as_object().is_some_and(|o| !o.is_empty()) { return Found::Unknown(format!("{spec}: its package has a `browser` map")); } }
         }
         if !spec.ends_with('/') && self.exists(at) { return self.exact(h, at); }

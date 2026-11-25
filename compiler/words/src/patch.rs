@@ -14,8 +14,8 @@ pub struct Patch {
     /// It changes one; where.
     pub done: Option<&'static str>,
     pub at: u32,
-    /// Where a built-in, or the global object (`true`), stands where more than its use is there.
-    pub stands: Vec<(NodeId, bool)>,
+    /// Where a built-in (`BUILTIN`), the global object (`GLOBAL`), or a `.constructor` (`MAKER`: it may be `Function`) stands where more than its use is there.
+    pub stands: Vec<(NodeId, u8)>,
     /// What is written of the global object under a name that is another module's.
     pub keyed: Vec<NodeId>,
     /// A prototype or a constructor is taken off something by a pattern.
@@ -25,6 +25,9 @@ pub struct Patch {
     pub may_write_global: Option<u32>,
 }
 
+const BUILTIN: u8 = 0;
+const GLOBAL: u8 = 1;
+const MAKER: u8 = 2;
 pub const BUILTINS: &[&str] = &["Array", "Object", "Function", "String", "Number", "Boolean", "BigInt", "Symbol", "Math", "JSON", "Reflect", "Proxy", "Promise", "Map", "Set", "WeakMap", "WeakSet", "WeakRef", "Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "AggregateError", "RegExp", "Date", "Iterator", "Intl", "ArrayBuffer", "DataView", "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array", "FinalizationRegistry", "Atomics", "SharedArrayBuffer", "EventTarget", "Node", "Element", "HTMLElement", "Window", "Document", "Event"];
 pub const HOLDERS: &[&str] = &["globalThis", "window", "self", "global", "frames", "top", "parent"];
 /// Functions of the global object a word is read with.
@@ -149,12 +152,14 @@ pub fn read(m: &Module) -> Patch {
         match n.kind() {
             AstKind::WithStatement(_) => p.done = Some("it has a `with`"),
             AstKind::IdentifierReference(i) if is_global(m, i) => {
+                // (the name of a type)
+                if i.reference_id.get().is_some_and(|r| !m.scoping.get_reference(r).is_value()) { continue; }
                 let written = i.reference_id.get().is_some_and(|r| m.scoping.get_reference(r).is_write());
                 if i.name == "eval" { p.done = Some("it has an `eval`"); }
                 if i.name == "Function" && !matches!(m.nodes.parent_kind(m.outer(id)), AstKind::BinaryExpression(_) | AstKind::StaticMemberExpression(_)) { p.done = Some("it makes code of text (`Function`)"); }
                 if written && (BUILTINS.contains(&i.name.as_str()) || HOLDERS.contains(&i.name.as_str()) || GLOBAL_FNS.contains(&i.name.as_str())) { p.done = Some("it replaces a built-in"); }
-                if builtin(m, i) && lets_go(m, id) { p.stands.push((id, false)); }
-                if holder(m, i) && lets_go(m, id) { p.stands.push((id, true)); }
+                if builtin(m, i) && lets_go(m, id) { p.stands.push((id, BUILTIN)); }
+                if holder(m, i) && lets_go(m, id) { p.stands.push((id, GLOBAL)); }
             }
             AstKind::StaticMemberExpression(x) => {
                 let name = x.property.name.as_str();
@@ -165,11 +170,11 @@ pub fn read(m: &Module) -> Patch {
                     else if (GLOBAL_FNS.contains(&name) || BUILTINS.contains(&name)) && !own(m, &x.object, 0) && !in_class(m, &x.object, id) { p.done = Some("it may replace a built-in"); }
                     if matches!(name, "__proto__") { p.may_write.get_or_insert(x.span.start); }
                 } else {
-                    if matches!(name, "prototype") && !own_class(m, &x.object) && !matches!(m.nodes.parent_kind(m.outer(id)), AstKind::StaticMemberExpression(_) | AstKind::BinaryExpression(_)) { p.stands.push((id, false)); }
-                    if matches!(name, "__proto__" | "constructor") && !compared(m, id) && !(name == "constructor" && in_class(m, &x.object, id)) { p.stands.push((id, false)); }
+                    if matches!(name, "prototype") && !own_class(m, &x.object) && !matches!(unwrap(&x.object), Expression::Identifier(i) if is_global(m, i) && !BUILTINS.contains(&i.name.as_str())) && !matches!(m.nodes.parent_kind(m.outer(id)), AstKind::StaticMemberExpression(_) | AstKind::BinaryExpression(_)) { p.stands.push((id, BUILTIN)); }
+                    if matches!(name, "__proto__" | "constructor") && !compared(m, id) && !(name == "constructor" && in_class(m, &x.object, id)) { p.stands.push((id, if name == "constructor" { MAKER } else { BUILTIN })); }
                     if name == "constructor" && makes_code(m, id) && !in_class(m, &x.object, id) { p.done = Some("it may make code of text (`constructor`)"); }
                     if matches!(name, "eval" | "Function") && matches!(unwrap(&x.object), Expression::Identifier(i) if holder(m, i)) { p.done = Some("it may make code of text"); }
-                    if BUILTINS.contains(&name) && matches!(unwrap(&x.object), Expression::Identifier(i) if holder(m, i)) && lets_go(m, id) { p.stands.push((id, false)); }
+                    if BUILTINS.contains(&name) && matches!(unwrap(&x.object), Expression::Identifier(i) if holder(m, i)) && lets_go(m, id) { p.stands.push((id, BUILTIN)); }
                 }
             }
             AstKind::ComputedMemberExpression(x) => {
@@ -182,7 +187,7 @@ pub fn read(m: &Module) -> Patch {
                     else if key.is_some_and(|k| BUILTINS.contains(&k) || GLOBAL_FNS.contains(&k)) && !own(m, &x.object, 0) { p.done = Some("it may replace a built-in"); }
                     else if known != Some(false) && !own(m, &x.object, 0) { p.may_write.get_or_insert(x.span.start); p.may_write_global.get_or_insert(x.span.start); }
                 } else if matches!(key, Some("constructor")) { p.done = Some("it may make code of text (`constructor`)"); }
-                else if matches!(key, Some("__proto__" | "prototype")) { p.stands.push((id, false)); }
+                else if matches!(key, Some("__proto__" | "prototype")) { p.stands.push((id, BUILTIN)); }
             }
             AstKind::CallExpression(c) => {
                 let arg = |i: usize| c.arguments.get(i).and_then(|a| a.as_expression());
@@ -195,7 +200,7 @@ pub fn read(m: &Module) -> Patch {
                         } else { p.done = Some("it may replace a part of a built-in"); }
                     }
                     if matches!(name, "__defineGetter__" | "__defineSetter__") { p.done = Some("it may replace a part of a built-in"); }
-                    if name == "getPrototypeOf" && !compared(m, id) { p.stands.push((id, false)); }
+                    if name == "getPrototypeOf" && !compared(m, id) { p.stands.push((id, BUILTIN)); }
                 }
                 if let Expression::Identifier(i) = unwrap(&c.callee) { if is_global(m, i) && matches!(i.name.as_str(), "setTimeout" | "setInterval") && matches!(arg(0).map(unwrap), Some(Expression::StringLiteral(_) | Expression::TemplateLiteral(_) | Expression::BinaryExpression(_))) { p.done = Some("it makes code of text (a timer's)"); } }
             }
@@ -212,6 +217,7 @@ fn written_builtin(m: &Module, object: &Expression, name: &str) -> bool {
 }
 /// `this` in a class of the code's.
 fn in_class(m: &Module, e: &Expression, id: NodeId) -> bool { matches!(unwrap(e), Expression::ThisExpression(_)) && m.nodes.ancestor_ids(id).any(|a| matches!(m.nodes.kind(a), AstKind::Class(_))) }
+fn conversion(m: &Module, id: NodeId) -> bool { let n = match m.nodes.kind(id) { AstKind::IdentifierReference(i) => i.name.as_str(), AstKind::StaticMemberExpression(p) => p.property.name.as_str(), _ => return false }; matches!(n, "Boolean" | "String" | "Number") }
 fn symbol_key(m: &Module, e: &Expression) -> bool {
     match unwrap(e) {
         Expression::StaticMemberExpression(p) => matches!(unwrap(&p.object), Expression::Identifier(i) if is_global(m, i) && i.name == "Symbol") && !matches!(p.property.name.as_str(), "iterator" | "asyncIterator" | "toPrimitive" | "hasInstance" | "species" | "isConcatSpreadable" | "match" | "matchAll" | "replace" | "search" | "split" | "toStringTag" | "unscopables"),
@@ -255,13 +261,14 @@ fn compared(m: &Module, id: NodeId) -> bool {
 }
 /// Compared there, and nothing else.
 fn simple(m: &Module, id: NodeId) -> bool { matches!(m.nodes.parent_kind(m.outer(id)), AstKind::BinaryExpression(_) | AstKind::UnaryExpression(_) | AstKind::IfStatement(_) | AstKind::ExpressionStatement(_)) }
+fn may_be_text(m: &Module, a: &Argument) -> bool { a.as_expression().is_none_or(|e| matches!(unwrap(e), Expression::StringLiteral(_) | Expression::TemplateLiteral(_) | Expression::CallExpression(_)) || (matches!(unwrap(e), Expression::BinaryExpression(_)) && !numeric(m, e, 0)) || key_text(m, e, 0).is_some()) }
 fn makes_code(m: &Module, id: NodeId) -> bool {
     let mut o = m.outer(id);
     while let AstKind::ChainExpression(_) = m.nodes.parent_kind(o) { o = m.outer(m.nodes.parent_id(o)); }
     let span = m.nodes.kind(o).span();
     // (of a list, a buffer, a number: a constructor that is given no text makes no code; a function's is `Function`)
     let of_fn = matches!(m.nodes.kind(id), AstKind::StaticMemberExpression(p) if match unwrap(&p.object) { Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) | Expression::ClassExpression(_) | Expression::StaticMemberExpression(_) | Expression::CallExpression(_) => true, Expression::Identifier(i) => match m.symbol(i) { None => true, Some(s) => matches!(m.nodes.kind(m.scoping.symbol_declaration(s)), AstKind::Function(_) | AstKind::Class(_)) || matches!(m.nodes.kind(m.scoping.symbol_declaration(s)), AstKind::VariableDeclarator(v) if matches!(v.init.as_ref().map(unwrap), Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) | Expression::ClassExpression(_)))) }, _ => false });
-    let text = |a: &Argument| a.as_expression().is_none_or(|e| matches!(unwrap(e), Expression::StringLiteral(_) | Expression::TemplateLiteral(_) | Expression::CallExpression(_)) || (matches!(unwrap(e), Expression::BinaryExpression(_)) && !numeric(m, e, 0)) || key_text(m, e, 0).is_some());
+    let text = |a: &Argument| may_be_text(m, a);
     let run = |p: NodeId| { let o = m.outer(p); matches!(m.nodes.parent_kind(o), AstKind::CallExpression(c) if c.callee.span() == m.nodes.kind(o).span()) };
     match m.nodes.parent_kind(o) {
         AstKind::CallExpression(c) if c.callee.span() == span => !c.arguments.is_empty() && (of_fn || c.arguments.iter().any(text) || run(m.nodes.parent_id(o))),
@@ -293,17 +300,21 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
                 match self.goes(*i, *id, *global, files, &mut seen) {
                     Goes::Stays => {}
                     Goes::Changed(m, a) => return Some((m, a, "it replaces a part of a built-in")),
-                    Goes::Away if *global => if let Some(a) = m.patch.may_write_global { return Some((*i, a, "it may replace a built-in: the global object goes where it is not followed, and something is written under a name that is computed")); },
-                    Goes::Away => if let Some((w, a)) = writes { let _ = (w, a); return Some((*i, m.nodes.kind(*id).span().start, "it may replace a part of a built-in: one goes where it is not followed, and something is written under a name that may be one's")); },
+                    // (a conversion, as a function: nothing of it is read by name)
+                    Goes::Away | Goes::AwayTo(_) if conversion(m, *id) => {}
+                    Goes::AwayTo(j) if *global == GLOBAL => if let Some(a) = self.m(j).patch.may_write_global { return Some((j, a, "it may replace a built-in: the global object goes where it is not followed, and something is written under a name that is computed")); },
+                    Goes::Away if *global == GLOBAL => if let Some(a) = m.patch.may_write_global { return Some((*i, a, "it may replace a built-in: the global object goes where it is not followed, and something is written under a name that is computed")); },
+                    Goes::Away | Goes::AwayTo(_) => if let Some((w, a)) = writes { let _ = (w, a); return Some((*i, m.nodes.kind(*id).span().start, "it may replace a part of a built-in: one goes where it is not followed, and something is written under a name that may be one's")); },
                 }
             }
         }
         None
     }
     /// Where a built-in that stands at a node goes.
-    fn goes(&self, mi: usize, id: NodeId, global: bool, files: &BTreeSet<usize>, seen: &mut BTreeSet<(usize, usize)>) -> Goes {
+    fn goes(&self, mi: usize, id: NodeId, kind: u8, files: &BTreeSet<usize>, seen: &mut BTreeSet<(usize, usize)>) -> Goes {
         if seen.len() > 400 || !seen.insert((mi, id.index())) { return if seen.len() > 400 { Goes::Away } else { Goes::Stays }; }
         let m = self.m(mi);
+        let global = kind == GLOBAL;
         let mut o = m.outer(id);
         loop {
             let span = m.nodes.kind(o).span();
@@ -325,7 +336,7 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
                 let n = p.property.name.as_str();
                 if n == "stackTraceLimit" { return Goes::Stays; }
                 if written(pid) { return if !global || BUILTINS.contains(&n) || GLOBAL_FNS.contains(&n) { Goes::Changed(mi, span.start) } else { Goes::Stays }; }
-                if global && BUILTINS.contains(&n) || matches!(n, "prototype" | "__proto__" | "constructor") || (global && HOLDERS.contains(&n)) { return self.goes(mi, pid, HOLDERS.contains(&n), files, seen); }
+                if global && BUILTINS.contains(&n) || matches!(n, "prototype" | "__proto__" | "constructor") || (global && HOLDERS.contains(&n)) { return self.goes(mi, pid, if HOLDERS.contains(&n) { GLOBAL } else if n == "constructor" { MAKER } else { BUILTIN }, files, seen); }
                 Goes::Stays
             }
             AstKind::ComputedMemberExpression(p) => {
@@ -335,16 +346,19 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
                 Goes::Stays
             }
             AstKind::BinaryExpression(_) | AstKind::UnaryExpression(_) | AstKind::IfStatement(_) | AstKind::ExpressionStatement(_) | AstKind::Class(_) => Goes::Stays,
-            AstKind::NewExpression(n) if n.callee.span() == span => Goes::Stays,
+            AstKind::NewExpression(n) if n.callee.span() == span => if kind == MAKER && n.arguments.iter().any(|a| may_be_text(m, a)) { Goes::Changed(mi, span.start) } else { Goes::Stays },
             AstKind::VariableDeclarator(d) => match &d.id {
-                BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(mi, s, global, files, seen)),
+                BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(mi, s, kind, files, seen)),
                 // (its members, read)
                 BindingPattern::ObjectPattern(x) if x.rest.is_none() && x.properties.iter().all(|q| static_key(&q.key, q.computed).is_some_and(|k| !matches!(k.as_str(), "prototype" | "__proto__" | "constructor") && !BUILTINS.contains(&k.as_str()) && !HOLDERS.contains(&k.as_str()))) => Goes::Stays,
                 _ => Goes::Away,
             },
-            AstKind::AssignmentExpression(a) if a.right.span() == span => match &a.left { AssignmentTarget::AssignmentTargetIdentifier(i) => m.symbol(i).map_or(Goes::Away, |s| self.goes_name(mi, s, global, files, seen)), _ => Goes::Away },
-            AstKind::AssignmentPattern(a) => match &a.left { BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(mi, s, global, files, seen)), _ => Goes::Away },
-            AstKind::FormalParameter(a) => match &a.pattern { BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(mi, s, global, files, seen)), _ => Goes::Away },
+            AstKind::AssignmentExpression(a) if a.right.span() == span => match &a.left { AssignmentTarget::AssignmentTargetIdentifier(i) => m.symbol(i).map_or(Goes::Away, |s| self.goes_name(mi, s, kind, files, seen)),
+                // (`P.prototype = Object.prototype`, as Solid's compiler writes the props it makes: nothing else names the prototype)
+                AssignmentTarget::StaticMemberExpression(p) if p.property.name == "prototype" && own_class(m, &p.object) => { let Expression::Identifier(i) = unwrap(&p.object) else { return Goes::Away }; let s = m.symbol(i); if s.is_some_and(|s| !m.handed_out.contains(&s) && m.references(s).iter().all(|r| *r == i.node_id.get() || matches!(m.nodes.parent_kind(m.outer(*r)), AstKind::NewExpression(n) if n.callee.span() == m.nodes.kind(m.outer(*r)).span()))) { Goes::Stays } else { Goes::Away } }
+                _ => Goes::Away },
+            AstKind::AssignmentPattern(a) => match &a.left { BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(mi, s, kind, files, seen)), _ => Goes::Away },
+            AstKind::FormalParameter(a) => match &a.pattern { BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(mi, s, kind, files, seen)), _ => Goes::Away },
             AstKind::NewExpression(c) => {
                 let Some(i) = c.arguments.iter().position(|a| a.span() == span) else { return Goes::Away };
                 let Expression::Identifier(x) = unwrap(&c.callee) else { return Goes::Away };
@@ -353,9 +367,9 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
                 let k = match mc.nodes.kind(mc.scoping.symbol_declaration(cs)) { AstKind::Class(k) => k, AstKind::VariableDeclarator(v) => match v.init.as_ref().map(unwrap) { Some(Expression::ClassExpression(k)) => &**k, _ => return Goes::Away }, _ => return Goes::Away };
                 if !mc.known_symbol(cs) || k.heritage.is_some() { return Goes::Away; }
                 let Some(ctor) = k.body.body.iter().find_map(|e| match e { ClassElement::MethodDefinition(d) if d.kind == MethodDefinitionKind::Constructor => Some(&d.value), _ => None }) else { return Goes::Stays };
-                match ctor.params.items.get(i).map(|p| &p.pattern) { Some(BindingPattern::BindingIdentifier(b)) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(cm, s, global, files, seen)), Some(_) => Goes::Away, None => Goes::Away }
+                match ctor.params.items.get(i).map(|p| &p.pattern) { Some(BindingPattern::BindingIdentifier(b)) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(cm, s, kind, files, seen)), Some(_) => Goes::Away, None => Goes::Away }
             }
-            AstKind::CallExpression(c) if c.callee.span() == span => Goes::Stays,
+            AstKind::CallExpression(c) if c.callee.span() == span => if kind == MAKER && c.arguments.iter().any(|a| may_be_text(m, a)) { Goes::Changed(mi, span.start) } else { Goes::Stays },
             AstKind::CallExpression(c) => {
                 let Some(i) = c.arguments.iter().position(|a| a.span() == span) else { return Goes::Away };
                 if let Expression::StaticMemberExpression(k) = unwrap(&c.callee) {
@@ -367,11 +381,15 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
                 if let Some(f) = self.called(mi, &c.callee) {
                     let Some((params, ..)) = self.parts(f) else { return Goes::Away };
                     if c.arguments.iter().take(i).any(|a| a.is_spread()) || super::place::uses_arguments(self.m(f.module), f.node) { return Goes::Away; }
-                    return match params.items.get(i) { Some(p) => match &p.pattern { BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(f.module, s, global, files, seen)), BindingPattern::AssignmentPattern(a) => match &a.left { BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(f.module, s, global, files, seen)), _ => Goes::Away }, _ => Goes::Away }, None => if params.rest.is_none() { Goes::Stays } else { Goes::Away } };
+                    return match params.items.get(i) { Some(p) => match &p.pattern { BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(f.module, s, kind, files, seen)), BindingPattern::AssignmentPattern(a) => match &a.left { BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(f.module, s, kind, files, seen)), _ => Goes::Away }, _ => Goes::Away }, None => if params.rest.is_none() { Goes::Stays } else { Goes::Away } };
                 }
-                // (a conversion, as a callback)
-                if matches!(m.nodes.kind(id), AstKind::IdentifierReference(i) if matches!(i.name.as_str(), "Boolean" | "String" | "Number")) { return Goes::Stays; }
-                Goes::Away
+                // a function that is made by a call, of a module that is read
+                let of = match unwrap(&c.callee) {
+                    Expression::Identifier(f) => self.name(mi, f),
+                    Expression::StaticMemberExpression(k) => match unwrap(&k.object) { Expression::Identifier(ns) => match self.name(mi, ns) { Some(Origin::Ns(n)) => Some(self.mods.exported(self.h, self.hi, n, &k.property.name, &mut vec![])), _ => None }, _ => None },
+                    _ => None,
+                };
+                match of { Some(Origin::Symbol(j, s)) if self.m(j).at_top(s) => Goes::AwayTo(j), _ => Goes::Away }
             }
             AstKind::ReturnStatement(_) | AstKind::ArrowFunctionExpression(_) => {
                 // what a function answers: where its calls stand, if all there is of it is calls by name
@@ -388,7 +406,7 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
                     let mj = self.m(j);
                     let ro = mj.outer(r);
                     match mj.nodes.parent_kind(ro) {
-                        AstKind::CallExpression(c) if c.callee.span() == mj.nodes.kind(ro).span() => match self.goes(j, mj.nodes.parent_id(ro), global, files, seen) { Goes::Stays => {} Goes::Away => out = Goes::Away, g => return g },
+                        AstKind::CallExpression(c) if c.callee.span() == mj.nodes.kind(ro).span() => match self.goes(j, mj.nodes.parent_id(ro), kind, files, seen) { Goes::Stays => {} Goes::Away => out = Goes::Away, Goes::AwayTo(k) => out = Goes::AwayTo(k), g => return g },
                         AstKind::ExportSpecifier(_) => {}
                         _ => return Goes::Away,
                     }
@@ -399,9 +417,9 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
             _ => Goes::Away,
         }
     }
-    fn goes_name(&self, mi: usize, s: oxc_syntax::symbol::SymbolId, global: bool, files: &BTreeSet<usize>, seen: &mut BTreeSet<(usize, usize)>) -> Goes {
+    fn goes_name(&self, mi: usize, s: oxc_syntax::symbol::SymbolId, kind: u8, files: &BTreeSet<usize>, seen: &mut BTreeSet<(usize, usize)>) -> Goes {
         let mut out = Goes::Stays;
-        for (j, r) in self.uses_of(mi, s, files) { if self.m(j).scoping_write(r) { continue; } match self.goes(j, r, global, files, seen) { Goes::Stays => {} Goes::Away => out = Goes::Away, g => return g } }
+        for (j, r) in self.uses_of(mi, s, files) { if self.m(j).scoping_write(r) { continue; } match self.goes(j, r, kind, files, seen) { Goes::Stays => {} Goes::Away => out = Goes::Away, Goes::AwayTo(k) => out = Goes::AwayTo(k), g => return g } }
         out
     }
     fn uses_of(&self, mi: usize, s: oxc_syntax::symbol::SymbolId, files: &BTreeSet<usize>) -> Vec<(usize, NodeId)> {
@@ -412,4 +430,5 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
         uses
     }
 }
-enum Goes { Stays, Away, Changed(usize, u32) }
+/// `AwayTo`: into a function of that module's, which is not followed.
+enum Goes { Stays, Away, AwayTo(usize), Changed(usize, u32) }

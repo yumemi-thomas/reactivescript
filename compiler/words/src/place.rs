@@ -5,7 +5,7 @@ use super::eval::{FnAt, Types};
 use super::graph::{Module, Modules, Origin};
 use super::resolve::Host;
 use super::target::Bind;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use oxc_ast::{ast::*, AstKind};
 use oxc_semantic::NodeId;
 use oxc_span::{GetSpan, Span};
@@ -25,16 +25,12 @@ pub struct Place<'m, 'a, 'r> {
     pub mods: &'m Modules<'a, 'r>, pub h: Host, pub hi: usize, pub entry: usize, pub types: &'m Types,
     pub steps: Cell<u32>,
     pub spent: Cell<u32>,
-    /// Where what the import loads sends events (dispatch.rs), once asked.
-    pub sent: RefCell<Option<Vec<super::dispatch::Place0>>>,
-    #[allow(clippy::type_complexity)]
-    pub patched: RefCell<Option<Option<(usize, Span, String)>>>,
 }
 
 type Body<'m, 'a> = Result<&'m [Statement<'a>], &'m Expression<'a>>;
 
 impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
-    pub fn new(mods: &'m Modules<'a, 'r>, h: Host, hi: usize, entry: usize, types: &'m Types) -> Self { Place { mods, h, hi, entry, types, steps: Cell::new(0), spent: Cell::new(0), sent: RefCell::new(None), patched: RefCell::new(None) } }
+    pub fn new(mods: &'m Modules<'a, 'r>, h: Host, hi: usize, entry: usize, types: &'m Types) -> Self { Place { mods, h, hi, entry, types, steps: Cell::new(0), spent: Cell::new(0) } }
     pub fn m(&self, mi: usize) -> &'m Module<'a> { self.mods.get(mi) }
     pub fn line(&self, m: usize, at: u32) -> (String, usize) { let x = self.m(m); (x.path.clone(), x.line(at)) }
 
@@ -101,8 +97,9 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
     // ---- what every path evaluates ----
     /// The calls of Solid's that no path that returns goes without, in the order they are made.
     pub fn must(&self, f: FnAt, depth: u32, out: &mut Vec<Hit>) {
-        let Some((_, body, gen, _)) = self.parts(f) else { return };
-        if gen || depth > 8 || self.m(f.module).banned.is_some() { return; }
+        let Some((_, body, gen, isasync)) = self.parts(f) else { return };
+        // (what an async function throws before such a call is its promise's: the call returns)
+        if gen || isasync || depth > 8 || self.m(f.module).banned.is_some() { return; }
         match body { Err(e) => { self.must_expr(f.module, e, depth, out); } Ok(b) => { self.must_statements(f.module, b, depth, out); } }
     }
     /// Whether what is after them is evaluated too.
@@ -187,9 +184,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
                     let arg = c.arguments.first().and_then(|a| a.as_expression()).and_then(|a| match unwrap(a) { Expression::Identifier(i) => match self.name(mi, i) { Some(Origin::Symbol(m, s)) => Some((m, s)), _ => None }, _ => None });
                     out.push(Hit { api: n, module: mi, at: c.span, arg, guarded: false });
                 } else if let Some(f) = self.called(mi, callee) {
-                    // (its own code up to its first `await` runs now)
                     self.must(f, depth + 1, out);
-                    let _ = m;
                 }
                 true
             }
@@ -260,59 +255,103 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
                 match &r.argument { Some(e) => e, None => return no(r.span, "it answers nothing") }
             }
         };
-        let mut v = View { provided: vec![], values: vec![], views: vec![] };
-        if !self.provider(mi, root, props, &mut v) { return no(root.span(), "what it answers is no provider whose children are read"); }
+        let mut v = View { over: vec![], shown: vec![], views: vec![] };
+        if !self.provider(mi, root, props, &mut v) { return no(root.span(), "what it answers is no provider of a value that is shown to be one, whose children are read"); }
         for r in m.references(props) {
             let o = m.outer(r);
             let (pid, span) = (m.nodes.parent_id(o), m.nodes.kind(o).span());
-            if v.values.iter().any(|s| s.contains_inclusive(span)) || v.views.contains(&span) { continue; }
+            if v.views.contains(&span) { continue; }
             match m.nodes.kind(pid) {
                 AstKind::StaticMemberExpression(k) if k.object.span() == span && plain.contains(k.property.name.as_str()) && !m.is_written(pid) => {}
                 _ => return no(span, "its props are used outside the provider"),
             }
         }
-        if v.views.is_empty() { return no(root.span(), "nothing it is given is rendered beneath the provider"); }
-        Ok(v.provided)
+        // (the contexts above every view it is given)
+        let Some((first, rest)) = v.shown.split_first() else { return no(root.span(), "nothing it is given is rendered beneath the provider") };
+        Ok(first.iter().filter(|c| rest.iter().all(|r| r.contains(c))).copied().collect())
     }
+    /// A value that is an object, a function, or a primitive that is written there and is no false one.
+    fn shown_value(&self, mi: usize, e: &'m Expression<'a>, d: u32) -> bool {
+        let m = self.m(mi);
+        if d > 8 { return false; }
+        match unwrap(e) {
+            Expression::ObjectExpression(_) | Expression::ArrayExpression(_) | Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => true,
+            Expression::StringLiteral(s) => !s.value.is_empty(),
+            Expression::NumericLiteral(n) => n.value != 0.0 && !n.value.is_nan(),
+            Expression::BooleanLiteral(b) => b.value,
+            Expression::ConditionalExpression(c) => self.shown_value(mi, &c.consequent, d + 1) && self.shown_value(mi, &c.alternate, d + 1),
+            Expression::NewExpression(n) => matches!(unwrap(&n.callee), Expression::Identifier(i) if ["Map", "Set", "WeakMap", "WeakSet"].iter().any(|g| m.is_global(i, g))),
+            Expression::Identifier(i) => {
+                if self.called(mi, e).is_some() { return true; }
+                let Some(Origin::Symbol(m2, s)) = self.name(mi, i) else { return false };
+                let mm = self.m(m2);
+                // (a name of the function's, or of a module: its one value; a `var`, or one read before it is made, may be none)
+                if !mm.known_symbol(s) || mm.banned.is_some() { return false; }
+                let AstKind::VariableDeclarator(v) = mm.nodes.kind(mm.scoping.symbol_declaration(s)) else { return false };
+                let up = mm.nodes.parent_id(mm.scoping.symbol_declaration(s));
+                if !matches!(mm.nodes.kind(up), AstKind::VariableDeclaration(x) if x.kind == VariableDeclarationKind::Const) { return false; }
+                match &v.id {
+                    BindingPattern::BindingIdentifier(_) => v.init.as_ref().is_some_and(|x| self.shown_value(m2, x, d + 1)),
+                    // `const [state] = createStore(…)`: an accessor, a store, a setter
+                    BindingPattern::ArrayPattern(_) => path_is_item(&v.id, s) && matches!(v.init.as_ref().map(unwrap), Some(Expression::CallExpression(c)) if !c.optional && matches!(self.solid(m2, &c.callee).as_deref(), Some("createSignal" | "createStore"))),
+                    _ => false,
+                }
+            }
+            Expression::CallExpression(c) if !c.optional => {
+                if let Some(n) = self.solid(mi, &c.callee) { return matches!(n.as_str(), "createSignal" | "createStore" | "createMemo"); }
+                let Some(f) = self.called(mi, &c.callee) else { return false };
+                let Some((_, body, gen, isasync)) = self.parts(f) else { return false };
+                if gen { return false; }
+                if isasync { return true; }
+                let mf = self.m(f.module);
+                match body {
+                    Err(x) => self.shown_value(f.module, x, d + 1),
+                    Ok(b) => matches!(b.last(), Some(Statement::ReturnStatement(_))) && mf.returns_of(f.node).iter().all(|r| matches!(mf.nodes.kind(*r), AstKind::ReturnStatement(r) if r.argument.as_ref().is_some_and(|x| self.shown_value(f.module, x, d + 1)))),
+                }
+            }
+            _ => false,
+        }
+    }
+    fn context_of(&self, mi: usize, e: &Expression<'a>) -> Option<(usize, SymbolId)> { match unwrap(e) { Expression::Identifier(i) => match self.name(mi, i) { Some(Origin::Symbol(m, s)) if self.context(m, s).is_some() => Some((m, s)), _ => None }, _ => None } }
+    /// A context's provider: its value, then the children beneath it.
     fn provider(&self, mi: usize, e: &'m Expression<'a>, props: SymbolId, v: &mut View) -> bool {
-        let ctx = |e: &Expression<'a>| match unwrap(e) { Expression::Identifier(i) => match self.name(mi, i) { Some(Origin::Symbol(m, s)) if self.context(m, s).is_some() => Some((m, s)), _ => None }, _ => None };
         match unwrap(e) {
             Expression::CallExpression(c) => {
                 if c.optional || c.arguments.len() != 2 || self.solid(mi, &c.callee).as_deref() != Some("createComponent") { return false; }
                 let (Some(tag), Some(Expression::ObjectExpression(o))) = (c.arguments[0].as_expression(), c.arguments[1].as_expression().map(unwrap)) else { return false };
-                let Some(x) = ctx(tag) else { return false };
-                v.provided.push(x);
-                let mut kids = false;
+                let Some(x) = self.context_of(mi, tag) else { return false };
+                let (mut value, mut kids) = (false, None);
                 for p in &o.properties {
                     let ObjectPropertyKind::ObjectProperty(p) = p else { return false };
+                    let got = match (p.kind, unwrap(&p.value)) { (PropertyKind::Init, x) => x, (PropertyKind::Get, Expression::FunctionExpression(f)) => match f.body.as_ref().map(|b| &b.statements[..]) { Some([Statement::ReturnStatement(r)]) => match &r.argument { Some(e) => e, None => return false }, _ => return false }, _ => return false };
                     match static_key(&p.key, p.computed).as_deref() {
-                        Some("value") => v.values.push(p.span),
-                        Some("children") if !kids => {
-                            kids = true;
-                            let ok = match (p.kind, unwrap(&p.value)) {
-                                (PropertyKind::Get, Expression::FunctionExpression(f)) => match f.body.as_ref().map(|b| &b.statements[..]) { Some([Statement::ReturnStatement(r)]) => r.argument.as_ref().is_some_and(|e| self.view(mi, e, props, v)), _ => false },
-                                _ => false,
-                            };
-                            if !ok { return false; }
-                        }
+                        Some("value") if !value && self.shown_value(mi, got, 0) => value = true,
+                        Some("children") if kids.is_none() && p.kind == PropertyKind::Get => kids = Some(got),
                         _ => return false,
                     }
                 }
-                kids
+                let Some(kids) = kids.filter(|_| value) else { return false };
+                v.over.push(x);
+                let ok = self.view(mi, kids, props, v);
+                v.over.pop();
+                ok
             }
-            Expression::JSXElement(x) => {
-                let JSXElementName::IdentifierReference(i) = &x.opening_element.name else { return false };
-                let Some(Origin::Symbol(m, s)) = self.name(mi, i) else { return false };
-                if self.context(m, s).is_none() { return false; }
-                v.provided.push((m, s));
-                for a in &x.opening_element.attributes {
-                    let JSXAttributeItem::Attribute(a) = a else { return false };
-                    match &a.name { JSXAttributeName::Identifier(n) if n.name == "value" => v.values.push(a.span), _ => return false }
-                }
-                x.children.iter().all(|c| self.child(mi, c, props, v))
-            }
+            Expression::JSXElement(x) => self.provider_element(mi, x, props, v),
             _ => false,
         }
+    }
+    fn provider_element(&self, mi: usize, x: &'m JSXElement<'a>, props: SymbolId, v: &mut View) -> bool {
+        let JSXElementName::IdentifierReference(i) = &x.opening_element.name else { return false };
+        let Some(Origin::Symbol(m, s)) = self.name(mi, i) else { return false };
+        if self.context(m, s).is_none() { return false; }
+        let [JSXAttributeItem::Attribute(a)] = &x.opening_element.attributes[..] else { return false };
+        if !matches!(&a.name, JSXAttributeName::Identifier(n) if n.name == "value") { return false; }
+        let ok = match &a.value { Some(JSXAttributeValue::StringLiteral(s)) => !s.value.is_empty(), Some(JSXAttributeValue::ExpressionContainer(c)) => c.expression.as_expression().is_some_and(|e| self.shown_value(mi, e, 0)), _ => false };
+        if !ok { return false; }
+        v.over.push((m, s));
+        let ok = x.children.iter().all(|c| self.child(mi, c, props, v));
+        v.over.pop();
+        ok
     }
     fn child(&self, mi: usize, c: &'m JSXChild<'a>, props: SymbolId, v: &mut View) -> bool {
         match c {
@@ -326,20 +365,13 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
     fn element(&self, mi: usize, x: &'m JSXElement<'a>, props: SymbolId, v: &mut View) -> bool {
         match &x.opening_element.name {
             JSXElementName::Identifier(_) => x.opening_element.attributes.iter().all(|a| matches!(a, JSXAttributeItem::Attribute(_))) && x.children.iter().all(|c| self.child(mi, c, props, v)),
-            _ => { let m = self.m(mi); let span = x.span; let uses = m.references(props).iter().any(|r| span.contains_inclusive(m.nodes.kind(*r).span())); if !uses { return true; }
-                // a provider, nested
-                let JSXElementName::IdentifierReference(i) = &x.opening_element.name else { return false };
-                let Some(Origin::Symbol(m, s)) = self.name(mi, i) else { return false };
-                if self.context(m, s).is_none() { return false; }
-                v.provided.push((m, s));
-                for a in &x.opening_element.attributes { let JSXAttributeItem::Attribute(a) = a else { return false }; match &a.name { JSXAttributeName::Identifier(n) if n.name == "value" => v.values.push(a.span), _ => return false } }
-                x.children.iter().all(|c| self.child(mi, c, props, v)) }
+            _ => { let m = self.m(mi); let span = x.span; let uses = m.references(props).iter().any(|r| span.contains_inclusive(m.nodes.kind(*r).span())); !uses || self.provider_element(mi, x, props, v) }
         }
     }
     /// A view beneath the provider: a prop as it is, an element, a provider.
     fn view(&self, mi: usize, e: &'m Expression<'a>, props: SymbolId, v: &mut View) -> bool {
         match unwrap(e) {
-            Expression::StaticMemberExpression(p) if !p.optional => match unwrap(&p.object) { Expression::Identifier(i) if self.m(mi).symbol(i) == Some(props) => { v.views.push(i.span); true } _ => false },
+            Expression::StaticMemberExpression(p) if !p.optional => match unwrap(&p.object) { Expression::Identifier(i) if self.m(mi).symbol(i) == Some(props) => { v.views.push(i.span); v.shown.push(v.over.clone()); true } _ => false },
             Expression::JSXElement(x) => self.element(mi, x, props, v),
             Expression::JSXFragment(x) => x.children.iter().all(|c| self.child(mi, c, props, v)),
             Expression::StringLiteral(_) | Expression::NullLiteral(_) => true,
@@ -361,7 +393,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         let Some(p) = fps.items.get(index) else { return no(at0, "it has no such parameter") };
         if uses_arguments(m, f.node) { return no(p.span, "`arguments` may call it"); }
         let mut c = Calls { bind: self.bind_row(f, params), ..Calls::anyone() };
-        c.root = f; c.any = false;
+        c.root = f;
         self.spent.set(0);
         match (&p.pattern, field) {
             (BindingPattern::BindingIdentifier(b), None) => self.name_later(mi, b.symbol_id.get(), b.span, &mut c)?,
@@ -369,8 +401,9 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
             _ => return no(p.span, "its parameter is taken apart"),
         }
         if c.later.is_empty() { return no(at0, "never called in the code that was read"); }
-        self.unpatched(f)?;
-        if c.listens { self.quiet(f, &c.events)?; }
+        self.unpatched()?;
+        // (events are the browser's: a server has none)
+        if c.listens && self.h.browser { self.quiet(&c.events)?; }
         Ok(c.later)
     }
     /// A record that holds the callback under `field`.
@@ -414,7 +447,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
                 let Some(i) = k.arguments.iter().position(|a| a.span() == span) else { return bad("a spread of the record") };
                 if let Some(which) = self.reads_record(mi, &k.callee) {
                     if i != 0 || which == "keys" { return if i == 0 { Ok(()) } else { bad("the record it is in goes where it is not followed") }; }
-                    return self.items_later(mi, pid, which == "entries", c);
+                    return self.items_later(mi, pid, which == "entries", field, c);
                 }
                 if let Some(g) = self.called(mi, &k.callee) {
                     let Some((params, _, gen, _)) = self.parts(g) else { return bad("it is handed to a function that is not followed") };
@@ -437,14 +470,18 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         ["keys", "values", "entries"].into_iter().find(|n| *n == name)
     }
     /// What `Object.entries(record)` or `Object.values(record)` answers: a loop over it, or a list's method.
-    fn items_later(&self, mi: usize, call: NodeId, entries: bool, c: &mut Calls) -> Result<(), Why> {
+    fn items_later(&self, mi: usize, call: NodeId, entries: bool, field: &str, c: &mut Calls) -> Result<(), Why> {
         let m = self.m(mi);
         let o = m.outer(call);
         let span = m.nodes.kind(o).span();
         let item = |p: &'m BindingPattern<'a>, c: &mut Calls| -> Result<(), Why> {
             let p = match (entries, p) {
                 (false, p) => p,
-                (true, BindingPattern::ArrayPattern(a)) if a.rest.is_none() => match a.elements.get(1) { Some(Some(x)) => x, _ => return Ok(()) },
+                (true, BindingPattern::ArrayPattern(a)) if a.rest.is_none() => {
+                    // (its name is the field's)
+                    if let Some(Some(BindingPattern::BindingIdentifier(k))) = a.elements.first() { if let Some(s) = k.symbol_id.get().filter(|s| m.known_symbol(*s)) { c.bind.insert((mi, s), Some(super::target::V::Str(field.to_string()))); } }
+                    match a.elements.get(1) { Some(Some(x)) => x, _ => return Ok(()) }
+                }
                 _ => return Err(why(mi, span, "an entry that is not taken apart")),
             };
             match bound(p) { Some(b) => self.name_later(mi, b.symbol_id.get(), b.span, c), None => Err(why(mi, span, "it is taken apart")) }
@@ -700,7 +737,10 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         }
     }
 }
-struct View { provided: Vec<(usize, SymbolId)>, values: Vec<Span>, views: Vec<Span> }
+/// The contexts provided over the place being read; those over each view it is given; where those stand.
+struct View { over: Vec<(usize, SymbolId)>, shown: Vec<Vec<(usize, SymbolId)>>, views: Vec<Span> }
+/// Whether a list's pattern takes a name as one of its items.
+fn path_is_item(p: &BindingPattern, s: SymbolId) -> bool { matches!(p, BindingPattern::ArrayPattern(a) if a.elements.iter().take(2).flatten().any(|e| matches!(e, BindingPattern::BindingIdentifier(b) if b.symbol_id.get() == Some(s)))) }
 /// What was found of a callback: where it is called, under which names of its parameters' values.
 pub struct Calls {
     pub later: Vec<Why>,

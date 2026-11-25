@@ -1,7 +1,7 @@
 // MO-8v, MO-8w: the words the code proves, written into a draft's rows. The proof is the crate's (compiler/words,
 // DESIGN.md there says what each word's is); this asks it once for the whole draft and writes the answers into the text of
 // the rows: `pure` before `fn`, `handler` before a callback's function type (a parameter's, a field's of a record parameter,
-// a prop's of a component), `draft` before a parameter, `rejects(A | B)`, `instantiates`, `uses(c)`, `provides(c)` after the
+// a prop's of a component), `instantiates`, `uses(c)`, `provides(c)` after the
 // signature, `ref` on a part only shaped as an accessor, and the `export context` rows they name (a `uses` only beside a
 // `provides` of the same draft). No row has a line above it: the draft's head says once how many words were read, `--why`
 // says the proof of each, and src/declare-audit.js asks again for whoever wonders.
@@ -85,6 +85,21 @@ function asks(line, row) {
 }
 const pkgRoot = f => { for (let d = path.dirname(f); ; d = path.dirname(d)) { if (require("node:fs").existsSync(path.join(d, "package.json"))) return d; if (path.dirname(d) === d) return d; } };
 
+const notMade = (result, name) => /^(?:Promise\b|\(\s*\)\s*=>\s*(?:void|undefined)\s*$|VoidFunction\s*$)/.test(result) ? "it hands back a promise, or what undoes the call: called in a handler or an effect as well" : /^[A-Z]/.test(name) ? "a component's name" : undefined;
+/** Whether the row's call is an instantiation (MO-10a): a `ref`, or the word itself, written or about to be. */
+const instantiating = (line, row, f) => /\bref\b/.test(line) || /\b(instantiates|uses\()/.test(line.slice(row.close + 1)) || (f.instantiates?.ok && !notMade(/^\s*:\s*(.*)$/s.exec(line.slice(row.close + 1))?.[1] ?? "", row.name));
+/** Whether the part of a result at `path` (the whole, a tuple's item, a record's field) is written a function that answers
+ *  nothing, or a promise: one a view may not call. */
+function acts(result, path) {
+  const fn = t => /^\(.*\)$/s.test(t) && !fnTypeAt(t, 0, t.length) ? fn(t.slice(1, -1).trim()) : fnTypeAt(t, 0, t.length) && /=>\s*(?:void|Promise<[^]*>)\s*$/.test(t) && !/\|/.test(t.replace(/^\([^]*\)\s*=>/, ""));
+  const t = result.trim().replace(/^readonly\s+/, "");
+  if (!path.length) return fn(t);
+  if (path.length > 1) return false;
+  if (t[0] === "[" && t.endsWith("]")) { const x = split(t, 1, t.length - 1, ",")[Number(path[0])]; return !!x && fn(x.text.replace(/^[\w$]+\??:\s*/, "")); }
+  if (t[0] === "{" && t.endsWith("}")) { const x = split(t, 1, t.length - 1, ";").find(y => new RegExp(`^(?:readonly\\s+)?${path[0].replace(/\$/g, "\\$")}\\??:`).test(y.text)); return !!x && fn(x.text.replace(/^(?:readonly\s+)?[\w$]+\??:\s*/, "")); }
+  return false;
+}
+
 /** @param {string[]} lines the draft's lines (rows, and the questions above them)
  *  @param {object[]} [why] filled with what was proven and what was refused, word by word (`rx-declare --why`)
  *  @param {{ unshaped?, contexts?, written? }} more `unshaped(line, name, reads)`: the row with each part only shaped as an
@@ -128,8 +143,7 @@ function apply(spec, from, lines, why, more = {}) {
   const at = w => w?.file ? `${rel(w.file)}:${w.line}` : "";
   const placed = w => w?.file ? ` [${at(w)}]` : "";
   const note = (name, word, ok, reason) => { if (why) why.push({ name, word, ok, why: reason }); };
-  const words = {}, out = [], count = { pure: 0, handler: 0, rejects: 0, draft: 0, instantiates: 0, uses: 0, provides: 0, ref: 0 };
-  const errors = new Set(lines.map(l => /^export error ([\w$]+)/.exec(l)?.[1]).filter(Boolean));
+  const words = {}, out = [], count = { pure: 0, handler: 0, instantiates: 0, uses: 0, provides: 0, ref: 0 };
   let unread;
   for (let line of lines) {
     let row = line.startsWith("export ") ? parseRow(line) : undefined;
@@ -146,29 +160,21 @@ function apply(spec, from, lines, why, more = {}) {
       note(row.name, `handler(${h.label})`, v.ok, `${v.why ?? ""}${placed(v)}`);
       if (v.ok) { ins.push([h.at, "handler "]); took.push(`handler(${h.label})`); count.handler++; }
     }
-    if (row.kind === "fn") row.params.forEach((part, index) => {
-      const p = named(line, part); if (!p || p.rest || /\b(ref|draft)\b/.test(p.words) || fnTypeAt(line, p.type, p.end)) return;
-      const d = f.draft?.[index]; if (!d) return;
-      ins.push([p.nameAt, "draft "]); took.push(`draft(${p.name})`); count.draft++; note(row.name, `draft(${p.name})`, true, `${d.why}${placed(d)}`);
-    });
     const tail = line.slice(row.close + 1), result = /^\s*:\s*(.*)$/s.exec(tail)?.[1] ?? "";
     if (row.kind === "fn" && !/\bpure\b/.test(row.words)) {
-      const pure = f.pure?.ok && !took.some(t => t.startsWith("draft("));
-      note(row.name, "pure", !!pure, `${f.pure?.why?.why ?? "a fn that changes what it is given"}${placed(f.pure?.why)}`);
+      // a function of what it answers that is not shown to only compute: the row says it is one that does something, where a
+      // call of it in a view is refused (MO-10b: bound by a name, or of a record's field that answers nothing), or the fn is not pure
+      const left = (f.pure?.parts ?? []).find(p => !(instantiating(line, row, f) && p.callable && acts(result, p.path)));
+      const pure = f.pure?.ok && !left;
+      note(row.name, "pure", !!pure, left ? `a function it answers (${left.path.join(".") || "itself"}) is not shown to only compute: ${left.why}${placed(left)}` : `${f.pure?.why?.why ?? "not read"}${placed(f.pure?.why)}`);
       if (pure) { took.push("pure"); count.pure++; }
-    }
-    if (row.kind === "fn" && /^Promise</.test(result) && !/\brejects\(/.test(tail)) {
-      const ok = f.rejects?.length && f.rejects.every(n => errors.has(n));
-      note(row.name, "rejects", !!ok, ok ? `every throw the code reaches is of ${f.rejects.join(", ")}` : f.rejects ? (f.rejects.length ? `it throws ${f.rejects.filter(n => !errors.has(n)).join(", ")}, which the draft has no \`export error\` row for` : "the code reaches no throw of a class: nothing to name, and the default (Error) stands") : "what it throws is not shown to be of a class of the module's");
-      if (ok) { took.push(`rejects(${f.rejects.join(" | ")})`); count.rejects++; }
     }
     for (const [pos, text] of ins.sort((a, b) => b[0] - a[0])) line = line.slice(0, pos) + text + line.slice(pos);
     if (took.includes("pure")) line = line.replace(/^export\s+((?:(?:server|client)\s+)*)fn\b/, (_, w) => `export ${w}pure fn`);
-    if (took.some(t => t.startsWith("rejects("))) line = `${line} rejects(${f.rejects.join(" | ")})`;
     // a call that hands back a promise, or what undoes it, is made in an action or an effect too; a capital is a component's (07 §4)
     const makes = row.kind === "fn" && !/\binstantiates\b/.test(line) && (more.written || !/\bref\b/.test(line));
     if (makes && f.instantiates) {
-      const not = /^(?:Promise\b|\(\s*\)\s*=>\s*(?:void|undefined)\s*$|VoidFunction\s*$)/.test(result) ? "it hands back a promise, or what undoes the call: called in a handler or an effect as well" : /^[A-Z]/.test(row.name) ? "a component's name" : undefined;
+      const not = notMade(result, row.name);
       const ok = f.instantiates.ok && !not;
       note(row.name, "instantiates", ok, not ?? `${f.instantiates.why}${placed(f.instantiates)}`);
       if (ok) { line = `${line} instantiates`; took.push("instantiates"); count.instantiates++; }

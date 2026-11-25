@@ -32,6 +32,8 @@ pub struct Module<'a> {
     pub stars: Vec<&'a str>,
     /// Every symbol an export names: what any importer may reach.
     pub handed_out: std::collections::HashSet<SymbolId>,
+    /// It imports and exports nothing.
+    pub script: bool,
     /// Why no name of the module can be told: a direct `eval`, a built-in it replaces.
     pub banned: Option<&'static str>,
     /// What it does with the built-ins as objects (patch.rs).
@@ -72,7 +74,7 @@ impl<'a> Module<'a> {
         let program: &'a Program<'a> = alloc.alloc(ret.program);
         let sem = SemanticBuilder::new().with_build_nodes(true).build(program).semantic;
         let (scoping, nodes) = sem.into_scoping_and_nodes();
-        let mut m = Module { path: path.to_string(), source, program, scoping, nodes, imports: HashMap::new(), exports: HashMap::new(), stars: vec![], handed_out: Default::default(), banned: None, patch: Default::default(), waits: vec![], with_this: HashSet::new(), with_arguments: HashSet::new(), returns: HashMap::new(), lines: source.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| i as u32).collect() };
+        let mut m = Module { path: path.to_string(), source, program, scoping, nodes, imports: HashMap::new(), exports: HashMap::new(), stars: vec![], handed_out: Default::default(), script: false, banned: None, patch: Default::default(), waits: vec![], with_this: HashSet::new(), with_arguments: HashSet::new(), returns: HashMap::new(), lines: source.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| i as u32).collect() };
         let mut esm = false;
         for s in &program.body {
             match s {
@@ -129,7 +131,9 @@ impl<'a> Module<'a> {
                 _ => {}
             }
         }
-        if !esm { return None; }
+        // (a file that is neither an ES module nor a CommonJS one by what it says is read as it is)
+        if !esm && m.nodes.iter().any(|n| matches!(n.kind(), AstKind::IdentifierReference(i) if matches!(i.name.as_str(), "module" | "exports" | "require" | "__dirname" | "__filename" | "define" | "this") && m.symbol(i).is_none())) { return None; }
+        m.script = !esm;
         // what an import hands on under another name is handed out too
         let out: Vec<SymbolId> = m.exports.values().filter_map(|e| if let Export::Local(s) = e { Some(*s) } else { None }).collect();
         m.handed_out.extend(out);
@@ -247,13 +251,18 @@ pub struct Modules<'a, 'r> {
     #[allow(clippy::vec_box)]
     all: RefCell<Vec<Box<Module<'a>>>>,
     places: RefCell<HashMap<(usize, usize, String), Found>>,
+    /// Hosts besides the nine, each with a number of its own.
+    others: RefCell<Vec<Host>>,
+    pub scans: RefCell<HashMap<(usize, usize), std::rc::Rc<super::dispatch::Scan>>>,
+    /// The module asked about is a file of the app's own: its package is the app.
+    pub relative: std::cell::Cell<bool>,
 }
 /// What a name that is imported is.
 #[derive(Clone)]
 pub enum Origin<'a> { Symbol(usize, SymbolId), Default(usize, &'a ExportDefaultDeclarationKind<'a>), Ns(usize), Solid(&'a str), SolidNs, Unknown(String), Never }
 
 impl<'a, 'r> Modules<'a, 'r> {
-    pub fn new(alloc: &'a Allocator, res: Resolver<'r>) -> Self { Modules { alloc, res: RefCell::new(res), by_path: Default::default(), all: Default::default(), places: Default::default() } }
+    pub fn new(alloc: &'a Allocator, res: Resolver<'r>) -> Self { Modules { alloc, res: RefCell::new(res), by_path: Default::default(), all: Default::default(), places: Default::default(), others: Default::default(), scans: Default::default(), relative: Default::default() } }
     pub fn get(&self, i: usize) -> &Module<'a> {
         let p: *const Module<'a> = &*self.all.borrow()[i];
         // SAFETY: a module is boxed when it is read and dropped with `self`; nothing takes one out or writes it.
@@ -267,6 +276,54 @@ impl<'a, 'r> Modules<'a, 'r> {
         let r = m.map(|m| { let mut all = self.all.borrow_mut(); all.push(Box::new(m)); all.len() - 1 });
         self.by_path.borrow_mut().insert(path.to_string(), r);
         r
+    }
+    /// The number of a host that is none of the nine.
+    pub fn number(&self, h: Host) -> usize { let mut o = self.others.borrow_mut(); super::resolve::HOSTS.len() + match o.iter().position(|x| *x == h) { Some(i) => i, None => { o.push(h); o.len() - 1 } } }
+    /// Every file of a graph, and what of it is loaded from where (`None`: it cannot be loaded; `Err`: a part is not read).
+    pub fn reach(&self, h: Host, hi: usize, entry: usize) -> (std::collections::BTreeSet<usize>, String, bool, Vec<(usize, String)>) {
+        let (mut sig, mut todo, mut done, mut never, mut unread) = (String::new(), vec![entry], std::collections::BTreeSet::new(), false, vec![]);
+        while let Some(i) = todo.pop() {
+            if !done.insert(i) { continue; }
+            for s in self.get(i).specs() {
+                if is_solid(s) { continue; }
+                let f = self.find(h, hi, s, i);
+                match self.open(h, &f) { Ok(j) => { todo.push(j); sig.push_str(&self.get(j).path); } Err(Origin::Never) => { never |= s.starts_with('.'); sig.push('-'); } Err(_) if matches!(f, Found::Missing(_)) && hi >= super::resolve::HOSTS.len() => never = true, Err(_) => { unread.push((i, s.to_string())); if let Found::File(p) = &f { sig.push_str(p); } sig.push('?'); } }
+                sig.push(' ');
+            }
+        }
+        sig.push_str(&self.get(entry).path);
+        (done, sig, never, unread)
+    }
+    /// Every entry of a module's package a host can load.
+    pub fn package(&self, h: Host, hi: usize, entry: usize) -> Result<Vec<usize>, String> {
+        if self.relative.get() { return Ok(vec![entry]); }
+        let path = self.get(entry).path.clone();
+        let Some((dir, pj)) = self.res.borrow_mut().package_of(dirname(&path)) else { return Ok(vec![entry]) };
+        let files = self.res.borrow_mut().list(&dir);
+        let mut out = vec![entry];
+        let name = pj["name"].as_str().unwrap_or("");
+        let code = |f: &str| [".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".tsx"].iter().any(|e| f.ends_with(e)) && !f.ends_with(".d.ts") && !f.ends_with(".d.mts") && !f.ends_with(".d.cts");
+        if pj["exports"].is_null() {
+            let files = files.ok_or("its package's files are not known")?;
+            for f in files.iter().filter(|f| code(f)) { match self.load(&format!("{dir}/{f}")) { Some(i) => out.push(i), None => return Err(format!("{f} of its package is not read")) } }
+        } else {
+            let Some(o) = pj["exports"].as_object().filter(|o| o.keys().any(|k| k.starts_with('.'))) else { return Ok(out) };
+            let mut subs: std::collections::BTreeSet<String> = o.keys().filter(|k| !k.contains('*')).cloned().collect();
+            for (k, v) in o.iter().filter(|(k, _)| k.contains('*')) {
+                let files = files.as_ref().ok_or("its package's files are not known")?;
+                let mut targets = vec![];
+                super::resolve::leaves(v, &mut targets);
+                for t in targets { let Some((pre, post)) = t.split_once('*') else { continue }; let pre = pre.trim_start_matches("./"); for f in files { if let Some(star) = f.strip_prefix(pre).and_then(|x| x.strip_suffix(post)) { subs.insert(k.replacen('*', star, 1)); } } }
+            }
+            let _ = hi;
+            for s in subs {
+                if s.ends_with(".json") || s.ends_with(".css") { continue; }
+                let f = self.res.borrow_mut().resolve(h, &format!("{name}{}", &s[1..]), &dir);
+                match &f { super::resolve::Found::File(p) if !code(p) => continue, super::resolve::Found::Missing(_) => continue, super::resolve::Found::Unknown(w) if w.ends_with("under these conditions") || w.ends_with("is no ES module") && !code(w.trim_end_matches(" is no ES module")) => continue, _ => {} }
+                match self.open(h, &f) { Ok(i) => out.push(i), Err(Origin::Never) => {} Err(_) => return Err(format!("{s} of its package is not read")) }
+            }
+        }
+        Ok(out)
     }
     pub fn find(&self, h: Host, hi: usize, spec: &str, from: usize) -> Found {
         let k = (hi, from, spec.to_string());
@@ -284,12 +341,13 @@ impl<'a, 'r> Modules<'a, 'r> {
                     let t = self.res.borrow_mut().package_of(dirname(p)).map(|(_, pj)| pj["type"].as_str().map(String::from));
                     if t.flatten().as_deref() == Some("commonjs") {
                     // (one that is written as an ES module fails to load there: no program runs it)
+                    if let Some(i) = self.load(p).filter(|i| self.get(*i).script) { return Ok(i); }
                     return Err(if self.load(p).is_some() { Origin::Never } else { Origin::Unknown(format!("{p} is a CommonJS module")) });
                     }
                 }
                 self.load(p).ok_or_else(|| Origin::Unknown(format!("{p} is no ES module that can be read")))
             }
-            Found::Unknown(w) => Err(Origin::Unknown(w.clone())),
+            Found::Unknown(w) | Found::Missing(w) => Err(Origin::Unknown(w.clone())),
             Found::Never => Err(Origin::Never),
         }
     }

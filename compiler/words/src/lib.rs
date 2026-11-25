@@ -20,32 +20,66 @@ use resolve::{Found, Host, Read, Resolver, HOSTS};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeSet, HashSet};
 
-struct Loaded { host: Host, hi: usize, entry: usize }
+struct Loaded { host: Host, hi: usize, entry: usize, files: BTreeSet<usize> }
 
 /// Each host that reads another set of files than the ones before it.
 fn hosts(mods: &Modules, spec: &str, from: &str) -> Result<Vec<Loaded>, String> {
-    let (mut out, mut seen): (Vec<Loaded>, HashSet<String>) = (vec![], HashSet::new());
+    let (mut out, mut seen): (Vec<Loaded>, HashSet<(String, bool)>) = (vec![], HashSet::new());
     for (hi, h) in HOSTS.iter().enumerate() {
         let f = mods.res.borrow_mut().resolve(*h, spec, from);
         let entry = match mods.open(*h, &f) { Ok(e) => e, Err(Origin::Never) => continue, Err(Origin::Unknown(w)) => return Err(format!("{w} ({})", h.name)), Err(_) => return Err("not a module".into()) };
-        let mut sig = format!("{} ", h.browser);
-        let (mut todo, mut done) = (vec![entry], BTreeSet::new());
-        let mut never = false;
-        while let Some(i) = todo.pop() {
-            if !done.insert(i) { continue; }
-            for s in mods.get(i).specs() {
-                if graph::is_solid(s) { continue; }
-                let f = mods.find(*h, hi, s, i);
-                match mods.open(*h, &f) { Ok(j) => todo.push(j), Err(Origin::Never) => never |= s.starts_with('.'), Err(_) => {} }
-                if let Found::File(p) = &f { sig.push_str(p); sig.push(' '); }
-            }
-        }
+        let (files, sig, never, unread) = mods.reach(*h, hi, entry);
+        // a file that is not read may do anything as it loads
+        if let Some((i, s)) = unread.first() { return Err(format!("it loads {s}, which is not read ({}, {})", mods.get(*i).path, h.name)); }
         // a relative import this host cannot load: it loads no program with the module at all
         if never { continue; }
-        sig.push_str(&mods.get(entry).path);
-        if seen.insert(sig) { out.push(Loaded { host: *h, hi, entry }); }
+        if seen.insert((sig, h.browser)) { out.push(Loaded { host: *h, hi, entry, files }); }
     }
     if out.is_empty() { return Err("no host can load it".into()); }
+    let more = others(mods, spec, from, &out, &mut seen)?;
+    out.extend(more);
+    // a built-in that a file changes: what the words are read with is not the language's
+    for l in &out {
+        let ty = Types::new();
+        let p = Place::new(mods, l.host, l.hi, l.entry, &ty);
+        if let Some((m, a, w)) = p.patches(&l.files) { let m = mods.get(m); return Err(format!("{w} ({}:{})", m.path, m.line(a))); }
+    }
+    Ok(out)
+}
+/// A host that asks with conditions the nine do not (`worker`, `deno`, `react-server`, a bundler's, a name of the package's
+/// own), or with others of them together: where it loads other files, they are read too, or there are no words.
+fn others(mods: &Modules, spec: &str, from: &str, loaded: &[Loaded], seen: &mut HashSet<(String, bool)>) -> Result<Vec<Loaded>, String> {
+    let mut out = vec![];
+    let mut all = BTreeSet::new();
+    let mut dirs = HashSet::new();
+    for l in loaded { for i in &l.files { let path = &mods.get(*i).path; if !dirs.insert(resolve::dirname(path).to_string()) { continue; } if let Some((_, pj)) = mods.res.borrow_mut().package_of(resolve::dirname(path)) { resolve::conditions(&pj, &mut all); } } }
+    all.retain(|c| c != "default" && c != "import" && c != "require" && !c.starts_with("types"));
+    let all: Vec<String> = all.into_iter().collect();
+    let sets: Vec<Vec<String>> = if all.len() <= 8 { (0..1usize << all.len()).map(|b| all.iter().enumerate().filter(|(i, _)| b >> i & 1 == 1).map(|(_, c)| c.clone()).collect()).collect() }
+        else {
+            let (std, own): (Vec<String>, Vec<String>) = all.iter().cloned().partition(|c| resolve::READ.contains(&c.as_str()));
+            let base: Vec<Vec<String>> = (0..1usize << std.len()).map(|b| std.iter().enumerate().filter(|(i, _)| b >> i & 1 == 1).map(|(_, c)| c.clone()).collect()).collect();
+            let mut v = base.clone();
+            for b in &base { for o in own.iter().map(|o| vec![o.clone()]).chain([own.clone()]) { v.push(b.iter().cloned().chain(o).collect()); } }
+            v
+        };
+    for set in sets {
+        // (no host is `development` and `production`)
+        if set.iter().any(|c| c == "development") && set.iter().any(|c| c == "production") { continue; }
+        let h = Host::with(&set);
+        let hi = mods.number(h);
+        let f = mods.res.borrow_mut().resolve(h, spec, from);
+        let said = || format!("under the conditions {} it loads other files, which are not read", set.join(", "));
+        let entry = match (&f, mods.open(h, &f)) { (_, Ok(e)) => e, (Found::File(_) | Found::Unknown(_), Err(_)) => { if matches!(&f, Found::Unknown(w) if w.ends_with("under these conditions")) { continue; } return Err(said()) } _ => continue };
+        let (files, sig, never, unread) = mods.reach(h, hi, entry);
+        if never { continue; }
+        if !unread.is_empty() { return Err(said()); }
+        let has = |c: &str| set.iter().any(|x| x == c);
+        // (which of Solid's builds it loads, by the order of Solid's own conditions)
+        let sides: &[bool] = if has("worker") { &[false] } else if has("browser") { &[true] } else if has("deno") || has("node") { &[false] } else { &[true] };
+        for b in sides { if seen.insert((sig.clone(), *b)) { let mut h = h; h.browser = *b; let hi = mods.number(h); out.push(Loaded { host: h, hi, entry, files: files.clone() }); } }
+        if out.len() > 24 { return Err("it loads other files under too many conditions".into()); }
+    }
     Ok(out)
 }
 
@@ -53,15 +87,13 @@ pub fn request(params: &Value, read: &Read) -> Value {
     let alloc = oxc_allocator::Allocator::default();
     let mods = Modules::new(&alloc, Resolver::new(read));
     let (spec, from) = (params["spec"].as_str().unwrap_or(""), params["from"].as_str().unwrap_or(""));
+    mods.relative.set(spec.starts_with('.') || spec.starts_with('/'));
     let loaded = match hosts(&mods, spec, from) { Ok(l) => l, Err(w) => return json!({ "unread": w }) };
     if params["stat"] == true {
         let l = &loaded[loaded.len().min(2) - 1];
         let ty = Types::new();
         let p = Place::new(&mods, l.host, l.hi, l.entry, &ty);
-        let mut done = BTreeSet::new();
-        let mut todo = vec![l.entry];
-        while let Some(i) = todo.pop() { if !done.insert(i) { continue; } for s in mods.get(i).specs() { if !graph::is_solid(s) { if let Ok(j) = mods.open(l.host, &mods.find(l.host, l.hi, s, i)) { todo.push(j); } } } }
-        return json!({ "files": done.len(), "patch": p.patches(&done).map(|(m, a, w)| format!("{w} {}:{}", mods.get(m).path, mods.get(m).line(a))) });
+        return json!({ "files": l.files.len(), "patch": p.patches(&l.files).map(|(m, a, w)| format!("{w} {}:{}", mods.get(m).path, mods.get(m).line(a))) });
     }
     if params["names"] == true {
         let mut all = BTreeSet::new();
