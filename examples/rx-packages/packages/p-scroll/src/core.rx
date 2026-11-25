@@ -1,0 +1,12 @@
+// createScrollPosition. Derived from @solid-primitives/scroll 3.0.0 (MIT, see ../NOTICE).
+import { positionOf, windowOf } from "./dom.js"
+import client { onScroll } from "./dom.js"
+
+/** The scroll position of an element or the window: { x: 0, y: 0 } on the server and until the page is hydrated. */
+export fn createScrollPosition(ref target: any) {
+  source pos: { x: number; y: number } := { x: 0, y: 0 }
+  effect (target) { let t = $0 ?? windowOf()
+    pos := positionOf(t)
+    return onScroll(t, () => { pos := positionOf(t) }) }
+  pos
+}

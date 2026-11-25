@@ -1,0 +1,1 @@
+export function openSource(url, o, state, data, error) { const es = new EventSource(url, { withCredentials: o.withCredentials }); state(0); es.onopen = () => state(1); es.onmessage = (e) => data(o.transform ? o.transform(e.data) : e.data); es.onerror = (e) => { error(e); state(es.readyState); }; return () => { es.close(); state(2); }; }

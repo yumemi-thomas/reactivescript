@@ -27,5 +27,105 @@
  },
  "ui-sdk": {
   "name": "@ui-sdk/solid"
+ },
+ "p-event-listener": {
+  "name": "@solid-primitives/event-listener",
+  "parts": false
+ },
+ "p-scroll": {
+  "name": "@solid-primitives/scroll",
+  "parts": false
+ },
+ "p-websocket": {
+  "name": "@solid-primitives/websocket",
+  "parts": false
+ },
+ "p-styles": {
+  "name": "@solid-primitives/styles",
+  "parts": false
+ },
+ "p-upload": {
+  "name": "@solid-primitives/upload",
+  "parts": false
+ },
+ "p-interaction": {
+  "name": "@solid-primitives/interaction",
+  "parts": false
+ },
+ "p-focus": {
+  "name": "@solid-primitives/focus",
+  "parts": false
+ },
+ "p-controlled-signal": {
+  "name": "@solid-primitives/controlled-signal",
+  "parts": false
+ },
+ "p-mouse": {
+  "name": "@solid-primitives/mouse",
+  "parts": false
+ },
+ "p-cursor": {
+  "name": "@solid-primitives/cursor",
+  "parts": false
+ },
+ "p-date": {
+  "name": "@solid-primitives/date",
+  "parts": false
+ },
+ "p-intersection-observer": {
+  "name": "@solid-primitives/intersection-observer",
+  "parts": false
+ },
+ "p-connectivity": {
+  "name": "@solid-primitives/connectivity",
+  "parts": false
+ },
+ "p-pointer": {
+  "name": "@solid-primitives/pointer",
+  "parts": false
+ },
+ "p-set": {
+  "name": "@solid-primitives/set",
+  "parts": false
+ },
+ "p-raf": {
+  "name": "@solid-primitives/raf",
+  "parts": false
+ },
+ "p-spring": {
+  "name": "@solid-primitives/spring",
+  "parts": false
+ },
+ "p-share": {
+  "name": "@solid-primitives/share",
+  "parts": false
+ },
+ "p-geolocation": {
+  "name": "@solid-primitives/geolocation",
+  "parts": false
+ },
+ "p-devices": {
+  "name": "@solid-primitives/devices",
+  "parts": false
+ },
+ "p-signal-builders": {
+  "name": "@solid-primitives/signal-builders",
+  "parts": false
+ },
+ "p-animation": {
+  "name": "@solid-primitives/animation",
+  "parts": false
+ },
+ "p-favicon": {
+  "name": "@solid-primitives/favicon",
+  "parts": false
+ },
+ "p-sse": {
+  "name": "@solid-primitives/sse",
+  "parts": false
+ },
+ "p-url": {
+  "name": "@solid-primitives/url",
+  "parts": false
  }
 }

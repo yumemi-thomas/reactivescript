@@ -1,0 +1,12 @@
+// createFocusSignal. Derived from @solid-primitives/focus 1.0.0 (MIT, see ../NOTICE).
+import client { on } from "@reactivescript/std/browser"
+import pure { isActive } from "./dom.js"
+export fn createFocusSignal(ref target: any) {
+  source active := false
+  effect (target) { let t = $0
+    active := isActive(t)
+    let a = on(t, "focus", () => { active := true }, true)
+    let b = on(t, "blur", () => { active := false }, true)
+    return () => { a(); b() } }
+  active
+}

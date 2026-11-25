@@ -1,0 +1,13 @@
+// createDevices and its three filters. Derived from @solid-primitives/devices 3.0.0 (MIT, see ../NOTICE).
+import client { watchDevices } from "./dom.js"
+export fn createDevices() {
+  source devices: any[] := []
+  effect () { return watchDevices((d) => { devices := () => d }) }
+  devices
+}
+export fn createMicrophones() { d = createDevices()
+  d.filter(x => x.kind == "audioinput") }
+export fn createSpeakers() { d = createDevices()
+  d.filter(x => x.kind == "audiooutput") }
+export fn createCameras() { d = createDevices()
+  d.filter(x => x.kind == "videoinput") }

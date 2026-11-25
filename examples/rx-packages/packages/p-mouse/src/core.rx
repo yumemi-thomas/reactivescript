@@ -1,0 +1,12 @@
+// createMousePosition. Derived from @solid-primitives/mouse 4.0.0 (MIT, see ../NOTICE); the listeners are the original's.
+import client { makeMousePositionListener, makeMouseInsideListener } from "@solid-primitives/mouse"
+import { win } from "./dom.js"
+export type Position = { x: number; y: number; sourceType: "mouse" | "touch" | null; isInside: boolean }
+export fn createMousePosition(ref target: any, options: any) {
+  source pos: Position := { x: 0, y: 0, sourceType: null, isInside: false, ...(options.initialValue ?? {}) }
+  effect (target) { let t = $0 ?? win()
+    let a = makeMousePositionListener(t, (p) => { pos := v => ({ ...v, ...p }) }, options)
+    let b = makeMouseInsideListener(t, (inside) => { pos := v => ({ ...v, isInside: inside }) }, options)
+    return () => { a(); b() } }
+  pos
+}

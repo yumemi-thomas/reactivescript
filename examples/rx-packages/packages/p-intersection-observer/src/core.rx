@@ -1,0 +1,7 @@
+// createVisibilityObserver. Derived from @solid-primitives/intersection-observer 3.0.0 (MIT, see ../NOTICE).
+import client { observe } from "./dom.js"
+export fn createVisibilityObserver(ref element: any, options: any) {
+  source visible: boolean := options.initialValue ?? false
+  effect (element) { return $0 ? observe($0, options, (v) => { visible := v }) : undefined }
+  visible
+}

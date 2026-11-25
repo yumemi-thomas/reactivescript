@@ -1,0 +1,2 @@
+export pure fn stateOf(e: any, active: boolean): any
+export client fn watchPointer(target: any, types: any, f: handler (kind: string, e: any) => void): () => void

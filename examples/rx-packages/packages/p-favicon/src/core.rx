@@ -1,0 +1,7 @@
+// createFavicon. Derived from @solid-primitives/favicon 1.0.0 (MIT, see ../NOTICE); the <link> is the original's makeFavicon.
+import client { makeFavicon } from "./dom.js"
+import pure { resolve } from "./dom.js"
+export fn createFavicon(ref href: string, options: any) {
+  effect (href) { return makeFavicon($0, options).dispose }
+  resolve(href)
+}

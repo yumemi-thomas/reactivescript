@@ -1,0 +1,1 @@
+export client fn observe(el: any, options: any, f: handler (visible: boolean) => void): () => void

@@ -1,0 +1,14 @@
+// createWSState and createWSMessage. Derived from @solid-primitives/websocket 2.0.0 (MIT, see ../NOTICE).
+import { watchState, watchMessage } from "./dom.js"
+import pure { stateOf } from "./dom.js"
+
+export fn createWSState(ws: any) {
+  source state: number := stateOf(ws)
+  effect () { return watchState(ws, (s) => { state := s }) }
+  state
+}
+export fn createWSMessage(ws: any) {
+  source message: any := undefined
+  effect () { return watchMessage(ws, (d) => { message := () => d }) }
+  message
+}

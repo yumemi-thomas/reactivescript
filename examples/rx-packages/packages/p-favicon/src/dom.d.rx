@@ -1,0 +1,2 @@
+export client fn makeFavicon(href: string, options: any): any
+export pure fn resolve(href: string): string

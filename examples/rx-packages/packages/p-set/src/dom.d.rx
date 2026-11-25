@@ -1,0 +1,2 @@
+export pure fn setOf<T>(xs: T[]): Set<T>
+export pure fn has<T>(s: Set<T>, x: T): boolean

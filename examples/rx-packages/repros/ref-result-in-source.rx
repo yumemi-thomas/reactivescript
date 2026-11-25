@@ -1,0 +1,4 @@
+fn f(ref x: number): ref number => x + 1
+export default component App() { source n := 1
+  y = f(n)
+  <p>{y}</p> }

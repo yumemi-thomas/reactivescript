@@ -1,18 +1,19 @@
 // The originals' own tests (test/<package>, as published in their repositories) against the rewrite, or — ORIGINAL=1 —
 // against the published original, in one setup. `--mode ssr`: the server's build.
-import { existsSync } from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync } from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
 // Nothing transformed is kept between the two runs (fsModuleCache): the same test file is read two ways, and a kept one is the other's.
 import { defineConfig } from "vitest/config";
 import solid from "@solidjs/vite-plugin";
 const here = path.dirname(fileURLToPath(import.meta.url)), orig = !!process.env.ORIGINAL;
-const OF = { kobalte: "@kobalte/core", terracotta: "terracotta", cmdk: "cmdk-solid" };
+const OF = Object.fromEntries(Object.entries(JSON.parse(readFileSync(path.join(here, "originals.json"), "utf8"))).map(([k, v]) => [k, v.name]));
+const OF0 = { kobalte: "@kobalte/core", terracotta: "terracotta", cmdk: "cmdk-solid" };
 const SKIP = new Set((process.env.SKIP ?? "").split(","));
 export default defineConfig(({ mode }) => {
   const ssr = mode === "ssr", conditions = ssr ? ["node", "development"] : ["development", "browser"];
   const point = { name: "point", api: { vitest: { experimental: { ignoreFsModuleCache: true } } }, enforce: "pre", transform(code, id) {
     const m = /\/test\/([\w-]+)\/([\w-]+?)(\.ssr)?\.test\.tsx?$/.exec(id); if (!m) return;
-    const [, pkg, part] = m, at = (p) => orig ? (OF[pkg] === "cmdk-solid" ? OF[pkg] : pkg === "primitives" ? `@solid-primitives/${p}` : `${OF[pkg]}/${p}`) : pkg === "primitives" ? `@rx-packages/${p}` : existsSync(path.join(here, "packages", pkg, "facade", p + ".ts")) ? path.join(here, "packages", pkg, "facade", p + ".ts") : existsSync(path.join(here, "packages", pkg, "dist", p + ".js")) ? `@rx-packages/${pkg}/${p}` : `${OF[pkg]}/${p}`;   // a part that is not rewritten is the original's
-    return code.replace(/from "\.(?:\/index(?:\.tsx?)?)?"/g, `from "${at(part)}"`).replace(/from "\.\.\/src(?:\/index(?:\.[jt]sx?)?)?"/g, `from "${at(part)}"`).replace(/from '\.\.\/src\/components\/([\w-]+)'/g, (_, c) => `from "${at(c)}"`).replaceAll('"@kobalte/tests"', `"${path.join(here, "test/utils/index.ts")}"`);
+    const [, pkg, part0] = m, part = pkg.startsWith("p-") ? "index" : part0, at = (p) => orig ? (pkg.startsWith("p-") || OF[pkg] === "cmdk-solid" ? OF[pkg] : `${OF[pkg]}/${p}`) : pkg === "primitives" ? `@rx-packages/${p}` : existsSync(path.join(here, "packages", pkg, "facade", p + ".ts")) ? path.join(here, "packages", pkg, "facade", p + ".ts") : existsSync(path.join(here, "packages", pkg, "dist", p + ".js")) ? `@rx-packages/${pkg}/${p}` : `${OF[pkg]}/${p}`;   // a part that is not rewritten is the original's
+    return code.replace(/from "\.(?:\/index(?:\.tsx?)?)?"/g, `from "${at(part)}"`).replace(/from ["']\.\.\/src(?:\/[\w.-]*)?["']/g, `from "${at(part)}"`).replace(/from '\.\.\/src\/components\/([\w-]+)'/g, (_, c) => `from "${at(c)}"`).replace(/\.\.\/\.\.\/\.\.\/scripts\/test-utils\//g, "../../test-utils/").replaceAll('"@kobalte/tests"', `"${path.join(here, "test/utils/index.ts")}"`);
   } };
   return {
     cacheDir: `node_modules/.vite-${orig ? "original" : "rx"}-${mode}`,

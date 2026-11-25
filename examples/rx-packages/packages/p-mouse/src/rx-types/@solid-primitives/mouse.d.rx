@@ -1,0 +1,2 @@
+export client fn makeMousePositionListener(target: any, f: handler (p: any) => void, options: any): () => void
+export client fn makeMouseInsideListener(target: any, f: handler (inside: boolean) => void, options: any): () => void

@@ -1,0 +1,9 @@
+// createSSE: an EventSource's data, state and error. Derived from @solid-primitives/sse 1.0.1 (MIT, see ../NOTICE).
+import client { openSource } from "./dom.js"
+export fn createSSE(ref url: string, options: any) {
+  source data: any := options.initialValue
+  source error: any := undefined
+  source state: number := 0
+  effect (url) { return openSource($0, options, (s) => { state := s }, (d) => { data := () => d }, (e) => { error := () => e }) }
+  { data: data, error: error, readyState: state }
+}

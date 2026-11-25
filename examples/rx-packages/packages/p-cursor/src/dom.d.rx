@@ -1,0 +1,2 @@
+export client fn body(): any
+export client fn setCursor(el: any, value: string): () => void

@@ -1,0 +1,10 @@
+// createElementCursor and createBodyCursor. Derived from @solid-primitives/cursor 1.0.0 (MIT, see ../NOTICE).
+import client { setCursor, body } from "./dom.js"
+export fn createElementCursor(ref target: any, ref cursor: string) {
+  effect (target, cursor) { return $0 ? setCursor($0, $1) : undefined }
+  null
+}
+export fn createBodyCursor(ref cursor: any) {
+  effect (cursor) { return $0 ? setCursor(body(), $0) : undefined }
+  null
+}

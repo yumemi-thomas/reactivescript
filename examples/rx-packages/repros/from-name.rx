@@ -1,0 +1,5 @@
+export default component App() {
+  source a := 1
+  from = a + 1
+  <p>{from}</p>
+}

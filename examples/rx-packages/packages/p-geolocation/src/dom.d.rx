@@ -1,0 +1,1 @@
+export client fn watchPosition(ok: handler (p: any) => void, fail: handler (e: any) => void, options: any): () => void

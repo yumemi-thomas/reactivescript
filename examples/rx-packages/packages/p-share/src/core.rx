@@ -1,0 +1,15 @@
+// createWebShare. Derived from @solid-primitives/share 4.0.0 (MIT, see ../NOTICE).
+import { webShare } from "./dom.js"
+export fn createWebShare() {
+  source status: boolean | undefined := undefined
+  source message: string | undefined := undefined
+  action share(data: any) {
+    affects status
+    status := undefined
+    message := undefined
+    try { await webShare(data)
+      status := true } catch (e) { status := false
+      message := str(e) }
+  }
+  { share: share, pending: pending? status, status: status, message: message }
+}

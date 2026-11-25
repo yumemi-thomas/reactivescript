@@ -1,0 +1,2 @@
+export pure fn parseFloat_(x: string): number
+export pure fn parseInt_(x: string, radix?: number): number

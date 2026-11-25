@@ -1,0 +1,39 @@
+// createFileUploader: files sent at once, each with its progress and status. Derived from @solid-primitives/upload 1.0.0 (MIT, see ../NOTICE).
+import { abortAll, makeControllers } from "./dom.js"
+
+export type Progress = { loaded: number; total: number; percentage: number }
+export type Status = "idle" | "uploading" | "success" | "error" | "aborted"
+export type Entry = { file: any; progress: Progress; status: Status; error: any; response: any }
+export fn createFileUploader(send: (file: any, progress: (p: Progress) => void, signal: any) => Promise<any>) {
+  source files: Entry[] := []
+  source generation := 0
+  source controllers: any := undefined
+  loaded = files.reduce((n: number, f: Entry) => n + f.progress.loaded, 0)
+  total = files.reduce((n: number, f: Entry) => n + f.progress.total, 0)
+  progress = { loaded: loaded, total: total, percentage: total > 0 ? loaded / total * 100 : 0 }
+  status: Status = files.length == 0 ? "idle" : files.some(f => f.status == "uploading") ? "uploading" : files.some(f => f.status == "error") ? "error" : files.every(f => f.status == "aborted") ? "aborted" : "success"
+  action one(i: number, g: number, file: any, c: any) {
+    try { let r = await send(file, (p) => { if (latest generation == g) { files[i].progress := p } }, c.signal)
+      if (latest generation == g) { files[i].status := "success"
+        files[i].response := () => r }
+    } catch (e) { if (latest generation == g) { files[i].status := c.signal.aborted ? "aborted" : "error"
+      files[i].error := () => e } }
+  }
+  action upload(list: any[]) {
+    abortAll(controllers)
+    let g = latest generation + 1
+    let cs = makeControllers(list.length)
+    generation := g
+    controllers := () => cs
+    files := list.map(f => ({ file: f, progress: { loaded: 0, total: 0, percentage: 0 }, status: "uploading", error: null, response: null }))
+    onFlush(() => { })
+    for (const i of list.map((f, i) => i)) { one(i, g, list[i], cs[i]) }
+  }
+  action abort() { abortAll(controllers) }
+  action removeFile(i: number) { generation := g => g + 1
+    files := fs => fs.filter((f, j) => j != i) }
+  action clearFiles() { abortAll(controllers)
+    generation := g => g + 1
+    files := [] }
+  { upload: upload, files: files, progress: progress, status: status, abort: abort, removeFile: removeFile, clearFiles: clearFiles }
+}
