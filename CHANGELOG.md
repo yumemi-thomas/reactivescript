@@ -7,7 +7,7 @@
 - **Fixed: a closure as a component's children** (`<T>{n => …}</T>`, `props.children(n)`) threw in the interpreter and the oracle (S-view-2; proposals/bugs/34).
 - **Fixed: `provide c = use c`** overflowed the stack of both checkers, and the crate's process aborted. It is `CYCLE` (C-1), and so are provisions of one
   region given from each other: read above, provide in a block below (S-context-4; proposals/bugs/40, with what is accepted as before).
-- **Fixed: `NESTED_NOT_RENDERED`, twice on a line**, in the same order in both checkers (S-module-41; proposals/bugs/39).
+- **Fixed: `NESTED_NOT_RENDERED`, twice on a line**, in the same order in both checkers, the written one (S-module-41; proposals/bugs/39).
 - **Fixed: an `await` in a component's children** was not compiled by the crate (S-view-1; proposals/bugs/37). It is still not, in a module where
   children read a context (proposals/bugs/36).
 

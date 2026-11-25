@@ -1713,6 +1713,8 @@ struct Occ {
 /// MO-11i: a component value and the values nested in it (applied among its children).
 struct VTree {
     tag: String,
+    /// Where its name is written.
+    at: usize,
     kids: Vec<VTree>,
 }
 const JS_GLOBALS: &str = "Math JSON Date Number String Boolean Array Object Promise Set Map WeakMap WeakSet Symbol RegExp BigInt Intl URL console document window globalThis navigator localStorage sessionStorage location history setTimeout setInterval clearTimeout clearInterval requestAnimationFrame queueMicrotask structuredClone parseInt parseFloat isNaN crypto performance alert";
@@ -2038,7 +2040,7 @@ pub struct Checker<'a> {
     /// view applies it (whose children it renders there, as `{props.children}` among its own would)
     through_reads: Vec<(RId, RId)>,
     /// MO-11i: the components a factory's records nest others in — by name and line: its region, and the record's field
-    nested: IndexMap<(String, i64), (RId, String)>,
+    nested: IndexMap<(String, i64), (RId, String, usize)>,
     nesting_word: Option<String>,
     /// MO-11t: a JS component's props that take a view (typed `View`, not `children`)
     view_props: HashMap<RId, HashSet<String>>,
@@ -7559,7 +7561,7 @@ impl<'a> Checker<'a> {
             let prop = sig.props.get(&a.name);
             if (prop.is_some_and(|p| p.component) || views.is_some_and(|v| v.contains(&a.name))) && is_comp(&a.e) {
                 if let ExprKind::Id(n) = &a.e.k {
-                    out.push((Some(i), VTree { tag: n.clone(), kids: vec![] }, &a.e as *const Expr));
+                    out.push((Some(i), VTree { tag: n.clone(), at: 0, kids: vec![] }, &a.e as *const Expr));
                 }
                 continue;
             }
@@ -7571,7 +7573,7 @@ impl<'a> Checker<'a> {
             // MO-11c (2026-11-25): … or the name of an equation bound to such a literal, read as the literal
             if let Some(t) = self.named_lit_at(&a.e, env) {
                 for (at, n) in &self.named_lits[&t].ids {
-                    out.push((None, VTree { tag: n.clone(), kids: vec![] }, *at));
+                    out.push((None, VTree { tag: n.clone(), at: 0, kids: vec![] }, *at));
                 }
                 continue;
             }
@@ -7580,7 +7582,7 @@ impl<'a> Checker<'a> {
             }
             fn walk(e: &Expr, is_comp: &dyn Fn(&Expr) -> bool, out: &mut Vec<(Option<usize>, VTree, *const Expr)>) {
                 match &e.k {
-                    ExprKind::Id(n) if is_comp(e) => out.push((None, VTree { tag: n.clone(), kids: vec![] }, e as *const Expr)),
+                    ExprKind::Id(n) if is_comp(e) => out.push((None, VTree { tag: n.clone(), at: 0, kids: vec![] }, e as *const Expr)),
                     ExprKind::Rec(fields) => {
                         for f in fields {
                             if let Field::Kv { v, .. } = f {
@@ -7624,7 +7626,7 @@ impl<'a> Checker<'a> {
             let r = self.region(None, "root", false, None);
             let at = self.env(Some(env), r);
             for n in out {
-                self.apply_tree(&VTree { tag: n, kids: vec![] }, Some(line), at);
+                self.apply_tree(&VTree { tag: n, at: 0, kids: vec![] }, Some(line), at);
             }
             return;
         };
@@ -7633,7 +7635,7 @@ impl<'a> Checker<'a> {
         let root = self.region(None, "root", true, Some(name.clone()));
         let at = self.env(Some(env), root);
         for n in out {
-            self.apply_tree(&VTree { tag: n, kids: vec![] }, Some(line), at);
+            self.apply_tree(&VTree { tag: n, at: 0, kids: vec![] }, Some(line), at);
         }
         let fname = self.syms[f.unwrap()].name.clone();
         self.hosted_calls.push((key, name, fname, root, line as i64, credit));
@@ -7757,7 +7759,8 @@ impl<'a> Checker<'a> {
         self.note_host_site(cr, kids); // MO-11u
         let kenv = self.env(Some(env), kids);
         if let Some(w) = self.nesting_word.clone() {
-            self.nested.entry((t.tag.clone(), self.line)).or_insert((cr, w));
+            let n = self.nested.entry((t.tag.clone(), self.line)).or_insert((cr, w, t.at));
+            n.2 = n.2.min(t.at);
         }
         for k in &t.kids {
             self.apply_tree(k, line, kenv);
@@ -7771,14 +7774,14 @@ impl<'a> Checker<'a> {
         let (args, fenv) = self.syms[s].factory.unwrap();
         let nests = self.syms[s].nests.clone();
         fn walk<'a>(c: &Checker<'a>, e: &'a Expr, fenv: EId, nests: &Option<(String, String)>) -> Vec<VTree> {
-            let value = |e: &Expr| -> Option<String> {
+            let value = |e: &Expr| -> Option<(String, usize)> {
                 match &e.k {
-                    ExprKind::Id(n) if c.value_ids.contains(&(e as *const Expr)) => Some(n.clone()),
+                    ExprKind::Id(n) if c.value_ids.contains(&(e as *const Expr)) => Some((n.clone(), e.span.start as usize)),
                     _ => None,
                 }
             };
-            if let Some(n) = value(e) {
-                return vec![VTree { tag: n, kids: vec![] }];
+            if let Some((tag, at)) = value(e) {
+                return vec![VTree { tag, at, kids: vec![] }];
             }
             match &e.k {
                 ExprKind::Arr(items) => items.iter().filter(|x| !matches!(x.k, ExprKind::Spread(_))).flat_map(|x| walk(c, x, fenv, nests)).collect(),
@@ -7793,14 +7796,14 @@ impl<'a> Checker<'a> {
                         None => (None, None),
                     };
                     let host_tag = host.and_then(|h| if let Field::Kv { v, .. } = &fields[h] { value(v) } else { None });
-                    let Some(tag) = host_tag else {
+                    let Some((tag, at)) = host_tag else {
                         return fields.iter().flat_map(|x| if let Field::Kv { v, .. } = x { walk(c, v, fenv, nests) } else { vec![] }).collect();
                     };
                     let nested = match kids {
                         Some(k) => if let Field::Kv { v, .. } = &fields[k] { walk(c, v, fenv, nests) } else { vec![] },
                         None => vec![],
                     };
-                    let mut out = vec![VTree { tag, kids: nested }];
+                    let mut out = vec![VTree { tag, at, kids: nested }];
                     for (i, x) in fields.iter().enumerate() {
                         if Some(i) == host || Some(i) == kids {
                             continue;
@@ -8985,10 +8988,10 @@ impl<'a> Checker<'a> {
         let top = self.esc(None);
         // MO-11i: a record's children are nested in its component — which renders them among its own children, or nowhere
         let hosted_view = self.opts.file.as_deref().is_some_and(|f| f.ends_with(".host.rx"));
-        // (by line, then name: a tree is met in whatever order it is asked for)
+        // (by line, then where it is written: a tree is met in whatever order it is asked for)
         let mut nested: Vec<_> = self.nested.clone().into_iter().collect();
-        nested.sort_by(|a, b| (a.0 .1, &a.0 .0).cmp(&(b.0 .1, &b.0 .0)));
-        for ((name, line), (c, word)) in nested {
+        nested.sort_by_key(|n| (n.0 .1, n.1 .2));
+        for ((name, line), (c, word, _)) in nested {
             if self.pf(c, "children").iter().any(|p| p.term.is_none()) {
                 continue;
             }
@@ -9434,6 +9437,20 @@ fn contract_of(ty: Option<&str>) -> (IndexSet<String>, IndexSet<String>) {
 mod tests {
     use super::*;
     use crate::modules::load_modules;
+
+    /// MO-11i (proposals/bugs/39): a line's, where each is written — not by name, nor as a tree is met (ref/units.ts).
+    #[test]
+    fn nested_components_of_a_line_are_reported_as_written() {
+        let src = "import { createRouter } from \"./r.js\"\ncomponent Z() { <b>z</b> }\ncomponent A() { <b>a</b> }\ncomponent M() { <b>m</b> }\ncomponent End() { <b>end</b> }\nQ = createRouter({ routes: [{ component: M, children: [{ component: End }] }] })\nR = createRouter({ routes: [{ component: Z, children: [{ component: M, children: [{ component: End }] }] }, { children: [{ component: End }], component: A }] })\nexport default component App() { <main><Q /><R /></main> }";
+        let read = |p: &str| match p {
+            "/main.rx" => Some(src.to_string()),
+            "/r.d.rx" => Some("export pure fn createRouter(config: { routes: any[] }): Component nests(children in component)".to_string()),
+            _ => None,
+        };
+        let set = load_modules("/main.rx", &read).unwrap();
+        let got: Vec<_> = check_modules(&set, false).diags.iter().map(|d| (d.line, d.code.clone(), d.msg.split(' ').next().unwrap().to_string())).collect();
+        assert_eq!(got, ["M", "Z", "A"].map(|n| (8, "NESTED_NOT_RENDERED".to_string(), n.to_string())));
+    }
 
     fn codes(src: &str, spa: bool) -> Vec<(i64, String)> {
         let read = |p: &str| if p == "/app.rx" { Some(src.to_string()) } else { None };

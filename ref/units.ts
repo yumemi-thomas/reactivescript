@@ -633,4 +633,8 @@ export const units: [string, () => void][] = [
     within("a printed signature's white space", () => parseSignature(`export pure fn f(): a${" ".repeat(1_000)}b`, "x.rx"));
     deepStrictEqual([...parseSignature("export pure fn f(a): pending fails(E)  rejects(A|B)  instantiates  uses(./k.rx#K)", "/x.rx").exports.values()][0], { kind: "fn", params: [{ name: "a", ref: false }], instantiating: true, rows: ["pending"], fails: ["E"], rejects: ["A", "B"], uses: ["/k.rx#K"] });
   }],
+  ["nested_components_of_a_line_are_reported_as_written", () => {                       // MO-11i (proposals/bugs/39): a line's, where each is written — not by name, nor as a tree is met
+    const set = loadModules("/main.rx", files({ "/main.rx": "import { createRouter } from \"./r.js\"\ncomponent Z() { <b>z</b> }\ncomponent A() { <b>a</b> }\ncomponent M() { <b>m</b> }\ncomponent End() { <b>end</b> }\nQ = createRouter({ routes: [{ component: M, children: [{ component: End }] }] })\nR = createRouter({ routes: [{ component: Z, children: [{ component: M, children: [{ component: End }] }] }, { children: [{ component: End }], component: A }] })\nexport default component App() { <main><Q /><R /></main> }", "/r.d.rx": "export pure fn createRouter(config: { routes: any[] }): Component nests(children in component)" }));
+    deepStrictEqual(checkModules(set).diags.map(d => [d.line, d.code, d.msg.split(" ")[0]]), [[8, "NESTED_NOT_RENDERED", "M"], [8, "NESTED_NOT_RENDERED", "Z"], [8, "NESTED_NOT_RENDERED", "A"]]);
+  }],
 ];

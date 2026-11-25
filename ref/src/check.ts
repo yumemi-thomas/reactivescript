@@ -750,7 +750,9 @@ class Checker {
   /** CP-6: a symbol bound in `env`, recorded for the model. */
   private bind(env: Env, name: string, sym: Sym) { env.vars.set(name, sym); this.model.sym(sym); }
 
+  private program?: Program;
   run(p: Program) {
+    this.program = p;
     { const f = scopeFacts(p); this.argCalls = f.argCalls; this.idCounts = f.mentions; } this.throughPre(p);
     const root = new Env(null, this.region(null, "program"), !!this.opts.conformance); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
@@ -2970,7 +2972,7 @@ class Checker {
   }
   /** MO-11f, MO-11i: what a factory was given, as the markup the checks walk: each component applied with no arguments; with
    *  `nests(kids in inside)`, a record's `kids` entries are applied among its `inside` component's children. */
-  private nested = new Map<string, { name: string; env: Env; line: number; kids: string }>();   // MO-11i: the components a factory's records nest others in
+  private nested = new Map<string, { name: string; env: Env; line: number; kids: string; at: Expr[] }>();   // MO-11i: the components a factory's records nest others in
   private factoryTree(s: Sym, line?: number): Markup[] {
     const f = s.factory!; this.factoryValues(s); const n = f.nests;
     const isValue = (e: Expr): e is Extract<Expr, { k: "id" }> => e.k === "id" && this.valueIds.has(e);
@@ -2984,7 +2986,7 @@ class Checker {
       if (!host || !isValue(host.v)) return e.fields.flatMap(x => "spread" in x ? [] : walk(x.v));
       const el = this.applied([host.v.name], line)[0] as Extract<Markup, { k: "el" }>;
       el.children = kids ? walk(kids.v) : [];
-      if (el.children.length) this.nested.set(`${host.v.name}@${line ?? 0}`, { name: host.v.name, env: f.env, line: line ?? this.line, kids: n!.kids });
+      if (el.children.length) { const key = `${host.v.name}@${line ?? 0}`; this.nested.set(key, { name: host.v.name, env: f.env, line: line ?? this.line, kids: n!.kids, at: [...(this.nested.get(key)?.at ?? []), host.v] }); }
       return [el, ...e.fields.flatMap(x => "spread" in x || x === host || x === kids ? [] : walk(x.v))];
     };
     return f.args.flatMap(walk);
@@ -3330,9 +3332,11 @@ class Checker {
       const res = { fails, reqs }; escBusy.delete(C); escMemo.set(C, res); return res;
     };
     const top = esc(null);
-    // MO-11i: a record's children are nested in its component — which renders them among its own children, or nowhere (by line, then name: a tree is met in whatever order it is asked for)
-    const points = (t: string) => [...t].map(x => x.codePointAt(0)!.toString(16).padStart(6, "0")).join("");
-    for (const n of [...this.nested.values()].sort((a, b) => a.line - b.line || (points(a.name) < points(b.name) ? -1 : 1))) { const c = n.env.lookup(n.name)?.compRegion; if (!c || PF(c, "children").some(p => p.term === null)) continue; this.line = n.line; this.err("NESTED_NOT_RENDERED", "MO-11i", `${n.name} is given the components under its record's \`${n.kids}\`, to render among its own children, and renders none: they would never show, and nothing above them is checked — render them where they go, \`{props.children}\` in ${n.name}'s view${(this.opts.file ?? "").endsWith(".host.rx") ? " (or, where the layout applies a component of the host's own that renders them — a router's outlet — import that component in the host's declaration, MO-14f)" : ""}`); }
+    // MO-11i: a record's children are nested in its component — which renders them among its own children, or nowhere (by line, then where it is written: a tree is met in whatever order it is asked for)
+    const written = new Map<unknown, number>();
+    if (this.nested.size) { const walk = (x: unknown): void => { if (!x || typeof x !== "object") return; if ((x as { k?: string }).k === "id" && !written.has(x)) written.set(x, written.size); for (const v of Object.values(x)) walk(v); }; walk([this.program?.decls, this.program?.view]); }
+    const place = (n: { at: Expr[] }) => Math.min(...n.at.map(e => written.get(e) ?? Infinity));
+    for (const n of [...this.nested.values()].sort((a, b) => a.line - b.line || place(a) - place(b) || 0)) { const c = n.env.lookup(n.name)?.compRegion; if (!c || PF(c, "children").some(p => p.term === null)) continue; this.line = n.line; this.err("NESTED_NOT_RENDERED", "MO-11i", `${n.name} is given the components under its record's \`${n.kids}\`, to render among its own children, and renders none: they would never show, and nothing above them is checked — render them where they go, \`{props.children}\` in ${n.name}'s view${(this.opts.file ?? "").endsWith(".host.rx") ? " (or, where the layout applies a component of the host's own that renders them — a router's outlet — import that component in the host's declaration, MO-14f)" : ""}`); }
     for (const it of top.fails) { this.line = it.line; this.err("UNHANDLED_FAILURE", "R-f-5", `a reader of ${it.what} can fail with ${it.cls} and no catch or errored boundary above it discharges ${it.cls} — show it where it is read: \`errored fallback(e${it.cls === "Error" ? "" : `: ${it.cls}`}) { … } { … }\` around the reader (or \`await … catch (e) => …\` at the await, to make the rejection an answer)`); }
     for (const it of top.reqs) { this.line = it.line; if (it.name === HOLD && this.opts.spa) { this.err("ASYNC_OUTSIDE_LOADING_BOUNDARY", "CN-3d", `${it.what} can have no value yet, and no \`loading\` region above it holds it on some path that renders it: in a client-only build the first load would show nothing until it answers — put it under \`loading fallback { … } { … }\`, or give the await a first paint (\`await f() -> v\`). Later answers are transitions and need no region`); continue; } if (it.name === HOLD) { this.err("CLIENT_QUESTION_UNHELD", "SV-7b", `${it.what} awaits \`client\` JS, and no \`loading\` region above it holds it on any path that renders it: the server never asks a client question, so it could never finish this page — put the reader under \`loading fallback { … } { … }\`, or give the await a first paint (\`await f() -> v\`)`); continue; } this.err("CONTEXT_NOT_FOUND", "RG-7b", `${it.what}: no provision of ${keyName(it.name)} (declared in ${it.name.split("#")[0].split("/").pop()}) above this region on any path that renders it`); }
     for (const a of actF) if (a.f.cls.size) { this.line = a.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${a.name} can fail with ${[...a.f.cls].join(", ")} and does not catch it: a handler cannot (it does not await the action) — \`try { … } catch (e) { … }\` in the body`); }

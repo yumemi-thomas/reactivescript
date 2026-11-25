@@ -188,7 +188,7 @@ the router is) and also applied by hand beside the provider, where it is
 not.
 
 Two components that render none of what the record nests in them, on the
-record's one line: both are reported, by line and then by name
+record's one line: both are reported, by line and then by where each is written
 (proposals/bugs/39).
 
 ```rx

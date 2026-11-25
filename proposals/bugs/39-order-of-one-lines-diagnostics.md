@@ -10,4 +10,4 @@ export default component nests(children in component) = [
 
 Both checkers refuse it, `NESTED_NOT_RENDERED` twice on that line: the crate says `App` first and the reference `Root`. They keep the records as they meet them, and meet a tree in their own order. It shows where the two are compared (`ref/crate.ts`), at some seeds of `--text`.
 
-**Fix in this branch.** By line, then by name, in both. **Test.** S-module-41.
+**Fix in this branch.** By line, then by where the record's component is written, in both. **Test.** S-module-41, `nested_components_of_a_line_are_reported_as_written`.
