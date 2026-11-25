@@ -97,7 +97,7 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
   const readAt = args.indexOf("--readings");
   const readings = readAt >= 0 ? { names: (args[readAt + 1] ?? "").split(","), out: [] } : undefined;
   let text;
-  try { text = declare(require("typescript"), spec, process.cwd(), {}, { refs: !args.includes("--any"), causes, anyRows, unheld, places, readings, infer: !args.includes("--no-infer") && process.env.RX_DECLARE_INFER !== "0", why: args.includes("--why") ? why : undefined, inferred, notes }); }
+  try { text = declare(spec, process.cwd(), {}, { refs: !args.includes("--any"), causes, anyRows, unheld, places, readings, infer: !args.includes("--no-infer") && process.env.RX_DECLARE_INFER !== "0", why: args.includes("--why") ? why : undefined, inferred, notes }); }
   catch (e) {
     // a draft the crate cannot read: nothing is written, and the line and the parser's reason are the message (it was a
     // silent fall back to `any` for every row)

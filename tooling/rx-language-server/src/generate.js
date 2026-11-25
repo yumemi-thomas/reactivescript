@@ -151,7 +151,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     let text;
     // MO-8v: with the words the package's code proves (`pure`, `handler`, `draft`, `rejects(E)`), each marked: they are
     // read, not guessed, so an import nothing reviewed still makes the checker accept nothing the code does not show
-    try { text = declare(typescriptFor(dir), spec, dir, {}, { infer: process.env.RX_DECLARE_INFER !== "0", written: true }); }
+    try { text = declare(spec, dir, {}, { infer: process.env.RX_DECLARE_INFER !== "0", written: true }); }
     catch (e) {
       // a draft written for another version or under other rules is not kept when it cannot be redone: its rows (an
       // earlier rule's guessed `pure`) would still be read, so the import falls back to undeclared, the cautious reading
