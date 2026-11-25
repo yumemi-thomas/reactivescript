@@ -1,0 +1,1 @@
+export component Portal(props: { mount?: Element | DocumentFragment; children: View })

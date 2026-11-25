@@ -1,0 +1,27 @@
+// Drafted by rx-declare from @ui-sdk/solid/toggle's TypeScript types. Check every TODO, then delete it; rx-tsc checks the rest (TY-6).
+//@ for @ui-sdk/solid ^0.1.0-beta.17
+// Read from the code that runs (MO-8v): 2 pure — read, not guessed. Which words, and how: `rx-declare --why`; `rx-verify` tells them from the words written by hand, and runs each.
+export pure fn createToggleController(): { isPressed: () => boolean; setPressed: (pressed: boolean, options?: ToggleChangeOptions) => boolean; toggle: (options?: ToggleChangeOptions) => boolean; focus: () => void }
+export pure fn createToggleGroupController<T extends string = string>(): { getValue: () => T[]; setValue: (value: T[], options?: ToggleGroupChangeOptions) => boolean; isPressed: (value: T) => boolean; toggle: (value: T, options?: ToggleGroupChangeOptions) => boolean; focus: (value?: T) => void }
+export type ToggleApi = import("@ui-sdk/solid/toggle").ToggleApi
+export type ToggleChangeOptions = import("@ui-sdk/solid/toggle").ToggleChangeOptions
+export type ToggleController = import("@ui-sdk/solid/toggle").ToggleController
+export type ToggleGroupApi = import("@ui-sdk/solid/toggle").ToggleGroupApi
+export type ToggleGroupChangeOptions = import("@ui-sdk/solid/toggle").ToggleGroupChangeOptions
+export type ToggleGroupController<T extends string = string> = import("@ui-sdk/solid/toggle").ToggleGroupController<T>
+export type ToggleGroupOptions<T extends string = string> = import("@ui-sdk/solid/toggle").ToggleGroupOptions<T>
+export type ToggleGroupOrientation = import("@ui-sdk/solid/toggle").ToggleGroupOrientation
+export type ToggleGroupPrimitive = import("@ui-sdk/solid/toggle").ToggleGroupPrimitive
+export type ToggleGroupState<T extends string = string> = import("@ui-sdk/solid/toggle").ToggleGroupState<T>
+export type ToggleGroupValueChangeReason = import("@ui-sdk/solid/toggle").ToggleGroupValueChangeReason
+export type ToggleIconProps = import("@ui-sdk/solid/toggle").ToggleIconProps
+export type ToggleIconState = import("@ui-sdk/solid/toggle").ToggleIconState
+export type ToggleOptions = import("@ui-sdk/solid/toggle").ToggleOptions
+export type TogglePressedChangeReason = import("@ui-sdk/solid/toggle").TogglePressedChangeReason
+export type TogglePrimitive = import("@ui-sdk/solid/toggle").TogglePrimitive
+export type ToggleState = import("@ui-sdk/solid/toggle").ToggleState
+// TODO Toggle: onPressedChange: a closure there may not write a source. `handler (…) => …` if it is called later, outside any computation. Not proven: put in a record that goes where it is not followed (@ui-sdk/solid/dist/solid/toggle.jsx:27)
+export component Toggle(props: ToggleOptions & Omit<import("@ui-sdk/solid").PartProps<"button", ToggleState>, "value" | "defaultValue" | "type" | "onChange" | "onSelect"> & { onPressedChange?: handler (pressed: boolean, details: import("@ui-sdk/core").ChangeDetails<TogglePressedChangeReason>) => void; render?: (props: Record<string, any>, state: { pressed: boolean; disabled: boolean; }) => View })
+// TODO ToggleGroup: onValueChange: a closure there may not write a source. `handler (…) => …` if it is called later, outside any computation. Not proven: put in a record that goes where it is not followed (@ui-sdk/solid/dist/solid/toggle.jsx:55)
+export component ToggleGroup<T extends string = string>(props: ToggleGroupOptions<T> & Omit<import("@ui-sdk/solid").PartProps<"div", ToggleGroupState<T>>, "defaultValue" | "onChange" | "onSelect"> & { onValueChange?: handler (value: T[], details: import("@ui-sdk/core").ChangeDetails<ToggleGroupValueChangeReason>) => void; render?: (props: Record<string, any>, state: ToggleGroupState<T>) => View })
+export component ToggleIcon(props: Parameters<typeof import("@ui-sdk/solid/toggle").ToggleIcon>[0] & { render?: (props: Record<string, any>, state: NoInfer<{ mirror: boolean }>) => View })

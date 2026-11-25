@@ -1,0 +1,67 @@
+// Toggle, ToggleGroup and ToggleIcon over @ui-sdk/core's `toggle`.
+// Derived from toggle.jsx of @ui-sdk/solid 0.1.0-beta.13 (Apache-2.0, see ../NOTICE).
+import { fire, give, setOptions } from "./bridge.js"
+import { create, uniqueId, own, binder, elementProps } from "./bridge.js"
+import { apiOf, classOf, styleOf, viewOf } from "./bridge.js"
+import { toggle, toggleGroup } from "./core.js"
+import { Scope } from "./bridge.js"
+import { usePart } from "./part.rx"
+import { ToggleProps, ToggleState, ToggleGroupProps, ToggleIconProps, ToggleInstance, ToggleGroupInstance } from "./bridge.js"
+
+context group: ToggleGroupInstance | null = null
+context root: Scope
+
+type Shown = { attrs: any; state: ToggleState }
+export component Toggle(props: Omit<ToggleProps, "children" | "render"> & { children?: View | ((s: ToggleState) => View); element?: (e: Shown) => View }) {
+  { pressed, defaultPressed, onPressedChange, value, disabled, focusableWhenDisabled, controller, debug, children: shown, element: shownAs, ref: user, ...rest } = props
+  inside = use group
+  options = { pressed: pressed, defaultPressed: defaultPressed, onPressedChange: onPressedChange, value: value, disabled: disabled, focusableWhenDisabled: focusableWhenDisabled, group: inside == null ? undefined : () => apiOf(inside), controller: controller, debug: debug }
+  it = create(toggle, options)
+  effect (it, options) { setOptions($0, $1) }
+  { part, attrs, now } = usePart(it, "root", {}, rest, options)
+  bind = binder(part)
+  on_ = own({
+    ref: (e: Element) => { bind(e); give(user, e) },
+    onClick: (e: Event) => { fire(part, "click", e, props.onClick) },
+    onKeyDown: (e: Event) => { fire(part, "keydown", e, props.onKeyDown) },
+    onKeyUp: (e: Event) => { fire(part, "keyup", e, props.onKeyUp) }
+  })
+  provide root = { it: it, options: options }
+  {if props.element {
+    <props.element attrs={{ ...rest, ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }} state={now} />
+  } else {
+    <button {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}><props.children {...now} /></button>
+  }}
+}
+
+export component ToggleIcon(props: ToggleIconProps) {
+  { mirror, render, ref: user, ...rest } = props
+  scope = use root
+  id = uniqueId()
+  { part, attrs, now } = usePart(scope.it, "icon", { mirror: mirror, id: props.id ?? id }, rest, scope.options)
+  bind = binder(part)
+  on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <span {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</span>
+  }}
+}
+
+export component ToggleGroup(props: ToggleGroupProps) {
+  { value, defaultValue, onValueChange, multiple, deselectable, disabled, orientation, loop, controller, debug, render, ref: user, ...rest } = props
+  options = { value: value == undefined ? undefined : [...value], defaultValue: defaultValue, onValueChange: onValueChange, multiple: multiple, deselectable: deselectable, disabled: disabled, orientation: orientation, loop: loop, controller: controller, debug: debug }
+  it = create(toggleGroup, options)
+  effect (it, options) { setOptions($0, $1) }
+  { part, attrs, now } = usePart(it, "group", {}, rest, options)
+  bind = binder(part)
+  on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+  provide group = it
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <div {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</div>
+  }}
+}

@@ -1,0 +1,32 @@
+// The same parts from an .rx app, checked against the package's printed signature.
+import { Toggle, ToggleGroup } from "@ui-sdk/solid/toggle"
+import { Tabs, TabsList, TabsTab, TabsPanel } from "@ui-sdk/solid/tabs"
+import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogClose } from "@ui-sdk/solid/dialog"
+
+export default component App() {
+  source bold := false
+  source align: string[] := ["left"]
+  source tab: string | null := "one"
+  source open := false
+  source extra := false
+  source clicks := 0
+  <p id="seen">{bold ? "bold" : "plain"} {align.join("+")} {tab} {open ? "open" : "shut"} {clicks}</p>
+  <Toggle id="bold" class="t" pressed={bold} onPressedChange={(p: boolean) => { bold := p }} onClick={() => { clicks := n => n + 1 }}>{bold ? "B!" : "B"}</Toggle>
+  <ToggleGroup id="align" value={align} onValueChange={(v: string[]) => { align := v }}>
+    {for side in ["left", "right"] { <Toggle id={side} value={side}>{side}</Toggle> }}
+  </ToggleGroup>
+  <button id="extra" onClick={() => { extra := !extra }}>extra</button>
+  <Tabs value={tab} onValueChange={(v: string | null) => { tab := v }}>
+    <TabsList aria-label="n">
+      <TabsTab value="one">One</TabsTab>
+      <TabsTab value="two">Two</TabsTab>
+      {if extra { <TabsTab value="three">Three</TabsTab> }}
+    </TabsList>
+    <TabsPanel value="one">first</TabsPanel>
+    <TabsPanel value="two">second</TabsPanel>
+  </Tabs>
+  <Dialog open={open} onOpenChange={(o: boolean) => { open := o }}>
+    <DialogTrigger id="trigger">Open</DialogTrigger>
+    <DialogContent id="content"><DialogTitle>Title</DialogTitle><DialogClose id="close">Close</DialogClose></DialogContent>
+  </Dialog>
+}

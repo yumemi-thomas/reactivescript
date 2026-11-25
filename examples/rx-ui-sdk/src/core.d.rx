@@ -1,0 +1,4 @@
+export const toggle: typeof import("@ui-sdk/core/toggle").toggle
+export const toggleGroup: typeof import("@ui-sdk/core/toggle").toggleGroup
+export const tabs: typeof import("@ui-sdk/core/tabs").tabs
+export const dialog: typeof import("@ui-sdk/core/dialog").dialog
