@@ -620,6 +620,7 @@ export function otherMention(d: { props: string; decls: Decl[]; view: Markup[] }
     const o = x as Record<string, unknown>; if (typeof o.line === "number") line = o.line;
     if (o.k === "provide" && ctx?.(o.name as string) && of(o.e) !== undefined) return;
     if (o.k === "member" && (o.o as Expr).k === "id" && (o.o as { name: string }).name === P) { if (fields.has(o.p as string)) found = { field: o.p as string, line }; return; }
+    if (o.k === "index" && (o.o as Expr).k === "id" && (o.o as { name: string }).name === P && (o.i as Expr).k === "lit" && typeof (o.i as { v: unknown }).v === "string") { const f = (o.i as { v: string }).v; if (fields.has(f)) found = { field: f, line }; return; }   // `props["aria-label"]` is one prop, as `props.label` is
     if (o.k === "omit" && (o.e as Expr).k === "id" && (o.e as { name: string }).name === P && [...fields.keys()].every(f => (o.keys as string[]).includes(f))) return;
     if ((o.k === "id" || o.k === "pre") && o.name === P) { found = { field: [...fields.keys()][0], line }; return; }
     for (const [k, v] of Object.entries(o)) { const f = o.k === "mif" && k === "c" ? of(v) : undefined; if (f === undefined || fields.get(f)!.mixed) walk(v, line); }
@@ -711,6 +712,7 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
       case "id": { const g = look(sc)(e.name); if (g?.held && g.view) hit(g.held, line, how); else if (g?.props) { const l = left(e, sc); if (l.length) hit("props", line, how, l.join(", ")); } return; }
       case "pre": plain({ k: "id", name: e.name }, sc, line, how); plain(e.init, sc, line, how); return;   // what it was an instant ago is a value
       case "member": if (view(e, sc)) { hit(e.p, line, how); return; } if (given(e.o, look(sc))?.props) return; plain(e.o, sc, line, how); return;
+      case "index": { const g = e.i.k === "lit" && typeof e.i.v === "string" ? given(e.o, look(sc))?.props : undefined; if (g) { const f = (e.i as { v: string }).v; if (g.views.has(f) && !g.less.includes(f)) hit(f, line, how); return; } plain(e.o, sc, line, how); plain(e.i, sc, line, how); return; }   // `props["aria-label"]` is one prop
       case "omit": if (given(e.e, look(sc))?.props) { const l = left(e, sc); if (l.length) hit("props", line, how, l.join(", ")); return; } plain(e.e, sc, line, how); return;
       // whether one was given is a value like another, wherever it is asked
       case "un": if (e.op === "!" && form(e.e, sc)) return; plain(e.e, sc, line, how); return;

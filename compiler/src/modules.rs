@@ -1298,6 +1298,12 @@ pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup], fields: &Inde
                 if k == Some("member") && of_props("o") {
                     return of(v, p, fields).map(|f| (f.to_string(), line));
                 }
+                // `props["aria-label"]` is one prop, as `props.label` is
+                if k == Some("index") && of_props("o") && v["i"]["k"] == "lit" {
+                    if let Some(f) = v["i"]["v"].as_str() {
+                        return fields.contains_key(f).then(|| (f.to_string(), line));
+                    }
+                }
                 if k == Some("omit") && of_props("e") && v["keys"].as_array().is_some_and(|ks| fields.keys().all(|f| ks.iter().any(|x| x == f))) {
                     return None;
                 }
@@ -1523,6 +1529,14 @@ pub fn view_uses(props: &str, props_type: Option<&str>, tparams: Option<&str>, d
                         self.hit(p, line, how, "");
                     } else if !self.is_props(o, sc) {
                         self.plain(o, sc, line, how);
+                    }
+                }
+                // `props["aria-label"]` is one prop
+                ExprKind::Index { o, i, .. } if matches!(i.k, ExprKind::Lit(Lit::Str(_))) && self.is_props(o, sc) => {
+                    if let (ExprKind::Lit(Lit::Str(f)), Some(Given::Props { less, views })) = (&i.k, self.given(o, sc)) {
+                        if views.contains(f) && !less.contains(f) {
+                            self.hit(f, line, how, "");
+                        }
                     }
                 }
                 ExprKind::Omit { e: inner, .. } => {
