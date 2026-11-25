@@ -592,3 +592,166 @@ Not run: the UI SDK's Playwright specs, unit tests and leak gates on this tree (
 branch); the twelve packages' originals as a baseline again; run-time performance; Windows and Linux; nothing on
 GitHub; the 3,802 and 635 programs of the first review rounds; the first rounds' sets on this tree (the 1,642, 1,147,
 979 and 505 were run on the children-rule branch's final code, which is merged here unchanged).
+
+## `rx-best`, the author's side: what a kit of parts needs (2026-11-26, local, nothing pushed)
+
+Asked: generic components; a tag chosen by a value; compound parts; a view context shared by two modules; the two holes
+that were known; a rule found by the generator's review (an action given by name). In that order, each with programs
+first. The sets, their generators and logs are beside the worktree (`../b/`: `mkg.py`, `mkd.py`, `mkn.py`, `mkk.py`,
+`mkt.py`, `mkm.py`; `ck.py` holds each program to what its name says; `fill.py` writes the frames the four runners agree
+on for the served run).
+
+| | decided | form | programs: as named / served and hydrated (both emitters) |
+| --- | --- | --- | --- |
+| 1 generic components and types | **in** (proposals/28, S-generic-2) | `component List<T>(props: { items: T[]; children: (r: { item: T }) => View })`, `type Item<T> = …`; inferred at the tag, none written there | 170 of 170 / 118 of 118 |
+| 2 a tag chosen by a value | **no new form** (proposals/29, S-view-8) | a closed set is an `if` over a prop typed by its literals; a tag or component the caller chooses is `render`, a view shown with the part's attributes | 153 of 153 / 144 of 144 |
+| 3 compound parts | **in** (proposals/30, S-module-47) | `import * as Select from "./select.rx"`, `<Select.Item>`, `Select.Opt`; no value, nothing made | 125 of 125 / 101 of 101 |
+| 4 a view context in two modules, `renderItem={use item}` | **left out**, with what each needs (proposals/27, last section; S-module-48 holds what is written today) | root and the part that shows the carried view in one module; other parts anywhere; `{view renderItem (q) { <use.item {...q} /> }}` | 33 of 33 / 22 of 22 |
+| 5a a spread after an attribute | **fixed** (S-surface-13) | the text's reading was the compiled one; the interpreter did not see a field go | 46 of 46 / 46 of 46 |
+| 5b text of a view in a `<tbody>` | **fixed, and wider than reported** (S-server-6) | a value shown directly in a table context is `CONTENT_MODEL`, wherever it is written | 246 of 246 (151 refused) / 95 of 95 |
+| 6 an action given by name | **in, narrowed** (S-check-4, bugs/44) | called there where the callee is known to call now: the language's calling methods, a module fn that calls that parameter | 120 of 120 (43 refused) / 77 of 77 |
+
+Both checkers say the same of every program of the seven sets, and the two emitters lower every accepted one alike.
+
+### 1. Generic components and generic types
+
+*Decided:* TypeScript's text after the name, as a fn's is (20). The compiled JavaScript has none; a tag infers. What
+the checkers read of them is two things.
+
+- **A generic alias applied is read.** `Slot<View>`, `Render<Row>`, `Select.RootProps<Opt>`: each parameter's name is
+  replaced by its argument (a default where none is written), so a prop that is a view there is one and RG-4c holds it.
+  Before, `type Item<T>` was a parse error. An alias that binds a name again (`infer T`, a mapped type's key, a generic
+  function type) is not read, which is the answer for any type that cannot be read.
+- **A type parameter is a value's type, never a view.** A view is not given on to a prop declared `T`; children are not
+  declared `T` (both `VIEW_NOT_SHOWN`); a named view block has no prop `T` to go to. Without this a generic component
+  would be the way to read a view as a value: `children: T`, `str(props.children)` — the interpreter showed `#error`,
+  compiled code threw. With `children: any` that program is still accepted: the hole of a type that is not read, as before.
+- **A view context is typed `any` inside the library.** A context is the module's and has no `T`. The root's props carry
+  `T`, so the caller's view is typed; between the root and the part that shows it the row is `any`. Kobalte's is the same.
+
+Found on the way and fixed: a function-typed alias inside a union was written out without parentheses (`View |
+Render<T>` was read as no view; so for a plain alias before); an exported alias that is a view's type was not in the
+printed signature, so a module checked against the signature (MO-9) refused what the source accepted; the printed
+component row with a default type parameter could not be read back (found by the interpreter's MO-9 check).
+
+*One thing weaker.* A source of a bare `T` written with a `T` (`source value: T | undefined`, `value := v`) was
+`TS2345`: the write's type refuses a function, and TypeScript cannot decide that for an unknown `T`. The write's type is
+read by a tuple's length now, as `eq` is since 20. Every verdict on a known type is the same (the whole suite). For a
+`T` that the caller makes a function, the write applies it, in every runner, as Solid's setter does.
+
+*For TSX:* `export declare function List<T extends { id: number }>(props: { items: T[]; children: Render<T>; empty?:
+View }): JSX.Element`. A TSX caller's `r.item.nmae` is `TS2339`, a constraint not met `TS2353` (a built package and
+`tsc`, by hand; no test holds it yet).
+
+*Shapes that type-check and run now:* a list, a table whose columns are keyed by `keyof T`, a Select and a Combobox
+that own their list and keep the chosen `T`, with the caller's option type in the item's view; a generic component
+that forwards to another; children that are a view with a parameter or plain content.
+
+### 2. A tag chosen by a value: not added
+
+*Decided:* no element whose tag is a value. The content model (SV-7d) needs the tag: with `<props.as>` each literal of
+the prop must be held, so the caller's block content in a part whose `as` may be `"p"` is refused though this caller
+wrote `"div"` — and to accept it a component's printed shape would have to be one per value of the prop. An open `as`
+(any tag, any component) has no content model at all, and a component given by name is a value (RG-4a). What exists
+gives the same reach with everything known: an `if` for a closed set (sets whose tags take the same content refuse
+nothing: headings, `ul`/`ol`, `div`/`section`), and `render` for what the caller chooses. Both were run hard, since
+they are now the answer: 153 programs, the part's attributes (state, an action, ARIA) spread on the caller's element or
+component, a `render` that is optional, under a root's context, shown twice, handed on.
+
+*Cost to an author:* n branches for n tags; a library whose API is `as` (Kobalte, terracotta's 195 uses) is `render`
+in `.rx`, one line more for its callers. *Would change it:* a kit whose parts cannot be `render`.
+
+Found: a view's parameter may hold a `View` under a name other than `children` (`<props.render icon={props.icon} />`),
+alike in every runner.
+
+### 3. Compound parts
+
+*Decided:* a namespace import, and nothing else. `import * as Select from "./select.rx"`; `<Select.Root>`,
+`<Select.Item>`; `Select.Opt` in a type's text. It is no value. Both parsers read the module with each member it names
+as a named import (`Select$Item`), so no runner knows of namespaces and every rule of a named import holds as it is: a
+part's contexts, its shape, a generic root's inference. The checkers' messages say `Select.Item`; the type pass's own
+say `Select$Item`. A JavaScript kit with a declaration file the same, MO-11q's members through it (`<Kit.Dialog.Root>`).
+For JavaScript and TSX there is nothing to build: an `.rx` module's exports are an ES module's.
+
+*Not chosen:* `export component Select.Item(…)` in `.rx` (Kobalte's `import { Select }` with a root that is itself
+applied): an object at run time and a row per member in the signature, for a shape the namespace gives as
+`<Select.Root>`. *Not built:* a re-export, which a kit in several modules needs to be one namespace (below).
+
+### 4. A view context in two modules: left out
+
+The check of a context that holds a view links every place that shows it to every provision of it, inside one module:
+which arguments each place gives, what stands between it and its component's root, where the parser would put it. With
+the place in another module none of that is known when the root is checked. What would carry it is written in
+proposals/27 (the context's row says the view's parameter; every part that shows it gives plain values only; the
+root's row is written as if the view were shown at the provision). It is sound by 27's own argument, and it is two
+signature rows and their checks in two checkers: not provable in the time. No kit read needs it: the part that shows
+the view is one component and sits beside the root. `renderItem={use item}` is one written line today. One namespace
+over several modules needs a re-export; today a namespace for each module, or one module.
+
+### 5. The two holes
+
+- **A spread after an attribute.** `<Q l="o" {...(s ? { l: undefined } : {})} />`: by the text, the last part that
+  *has* a field gives it, `undefined` too; when the spread no longer has it the attribute stands. Compiled code and the
+  oracle did that. The interpreter's change of a path did not see a field come or go (`{ l: undefined }` and `{}` were
+  one value), so it kept the spread's answer. One line of the interpreter. On upstream too.
+- **A value shown in a table.** Reported as the text of an explicit view in a `<tbody>`. The same held with no view at
+  all: `<table><tbody><tr>…</tr>{n}</tbody></table>` was accepted, and the served page had the text before the table
+  (8 of 11 first probes differed when served; on upstream too). Text written there was refused, a value shown there
+  was not. Now a read that shows a value is text for the content model, in place, as content, in a view with a
+  parameter, through a context, as a component's root (`roots #text` in its shape). What is no value stays: a view the
+  component was given under whatever name, a field of a view's parameter declared `View`, a view a context holds, a
+  loop, a choice of views. A prop whose type is not read is as it was. No program of the tree is newly refused.
+  *Refuses, and could be right:* a JavaScript function's view written directly in a `<tbody>` or a `<tr>`
+  (`<tbody>{rows()}</tbody>`); none in either tree.
+
+### 6. An action given by name
+
+The archived count (`rx-gen`, `spec/archive/mo8j-action-by-name-2026-11-26.md`) says the reviewer's rule as any call's
+argument refuses no program of either tree or of the benchmark, and would refuse correct ones that are not there
+(`preventDefault(save)`, `createCallback(save)`: a JavaScript import may keep what it is given). So it is not "right" as
+asked. *Decided:* the part of it that is: where the callee is known to call now — the language's methods and functions
+that call what they are given, and a fn of the module whose body calls that parameter (by name, or by giving it to one
+of those; outside a closure, or in a closure given to one of those). `[1, 2].map(inc)` in an equation is
+`ACTION_CALLED_IN_OWNED_SCOPE`, as its closure is; Solid's development build stopped on it and production ran the
+action in the equation. Still accepted and wrong: a fn of another module that calls its parameter, a parameter handed
+on to a second fn, an action reached through a record or a list.
+
+### What is weaker than before
+
+1. A source of a bare type parameter is written with a value of that type unchecked for being a function (1).
+2. Nothing else is accepted that was refused.
+
+What is refused that was accepted, each for a page that was wrong when served or a run that stopped: a value shown
+directly in a table context (5b); an action given by name to what calls it now (6); a view given on to a prop declared a
+type parameter, and children declared one (1: neither could be written before).
+
+### Lines
+
+| | b63f3767 | now |
+| --- | --- | --- |
+| crate `compiler/src` | 28,551 | 29,053 (+574 −72) |
+| `ref/` (src, compile, oracle, types) | 13,160 | 13,317 (+218 −61) |
+| scenarios | 218 files | 225 files |
+
+### Suites
+
+`scripts/quick` after each item: green (19 or 20 steps; the benchmark is time-boxed there).
+
+`scripts/ci`, every job of the workflows that runs on this Mac, once, on e411c683 (471 s, 1,320 s of CPU): **44 passed, 1
+failed, 2 not run here**. The one: `proposals` — 20's page still stated that a generic type alias is a parse error on
+this branch, which item 1 changed; the mark is corrected and that step run again alone: all as stated, on this tree and
+on upstream's export (e650b851). Passed among the 44: cargo test, both napi builds, wasm, the Windows check, the four
+scenario runners, served and hydrated, the type pass, crate parity in every mode, the benchmark's tasks and coverage
+`--check --strict` (every bad variant caught, as the scorecard), tree-sitter, the language server's suites, the VS Code
+package, vite, wardic, formisch, ssr-router, start, js-host. Not run here: `t-vite-hosts`, `t-vite-watch` (they need a
+built Solid Vite plugin, as on every branch).
+
+Not run: the UI SDK's Playwright specs, unit tests and leak gates; the twelve packages' own suites; `examples/rx-ui-sdk`
+and `examples/rx-std` rebuilt on this tree; the earlier review sets (1,642, 1,147, 979, 505 and the review's own) on
+the new code — the suite's scenarios hold their cases, the sets themselves were not run again; run-time performance;
+a TSX caller of a generic `.rx` package as a test (by hand only); Windows and Linux; nothing on GitHub.
+
+Tooling: the tree-sitter grammar reads a component's type parameters and a signature's generic rows (corpus tests);
+a namespace import needed no grammar change. The language server runs the crate's wasm: nothing of its own changed,
+and no test of it was added for these forms. Its untracked copy of the wasm was refreshed by hand before the suite.
+

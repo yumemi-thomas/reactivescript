@@ -64,9 +64,9 @@ In the twelve rewrites: of six results that were `any` for a TSX caller (`create
 
 **Questions.**
 
-1. A generic **type alias** is `PARSE` in `.rx`. Three of the six rewrites wanted one (`Comparator<T>`, `State<T>`, `Poll<T>`) and wrote the type out each time.
+1. A generic **type alias** was `PARSE` in `.rx`; on `rx-best` it is read ([28](28-generic-components.md)). Three of the six rewrites wanted one (`Comparator<T>`, `State<T>`, `Poll<T>`) and wrote the type out each time.
 
-<!-- check branch=PARSE upstream=PARSE -->
+<!-- check branch=ok upstream=PARSE -->
 ```rx
 type Pair<T> = { a: T; b: T }
 fn first(p: Pair<number>): number => p.a
