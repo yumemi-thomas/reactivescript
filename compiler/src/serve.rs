@@ -240,41 +240,18 @@ pub fn rows(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
 /// (a component's props where they are a type the library names), `prop:label`, `type` (a value's, an alias's). What a
 /// tool compares two rows of one export by: an `any` at one place says nothing of another (09 MO-8q).
 fn type_places(d: &crate::parse::JsDecl) -> Vec<(String, String)> {
-    use crate::parse::{split_top, JsDecl};
-    /// Where the bracket `t` starts with is closed.
-    fn closes_at(t: &str) -> Option<usize> {
-        let (mut depth, mut quote) = (0i64, None::<char>);
-        for (i, ch) in t.char_indices() {
-            match quote {
-                Some(q) => {
-                    if ch == q {
-                        quote = None;
-                    }
-                }
-                None if "\"'`".contains(ch) => quote = Some(ch),
-                None if "([{<".contains(ch) => depth += 1,
-                None if ")]}".contains(ch) || (ch == '>' && !t[..i].ends_with('=')) => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(i);
-                    }
-                }
-                None => {}
-            }
-        }
-        None
-    }
+    use crate::parse::{closes, split_top, JsDecl};
     fn walk(id: String, t: &str, out: &mut Vec<(String, String)>) {
         let t = t.trim();
         if t.is_empty() {
             return;
         }
-        let end = closes_at(t);
-        let whole = end == Some(t.len() - 1);
+        let end = closes(t, 0);
+        let whole = end == Some(t.len());
         // `(a: A) => R`: each parameter and the result are places of their own
         if t.starts_with('(') {
-            if let Some((e, r)) = end.and_then(|e| t[e + 1..].trim_start().strip_prefix("=>").map(|r| (e, r))) {
-                for (k, p) in split_top(&t[1..e], ",").iter().enumerate() {
+            if let Some((e, r)) = end.and_then(|e| t[e..].trim_start().strip_prefix("=>").map(|r| (e, r))) {
+                for (k, p) in split_top(&t[1..e - 1], ",").iter().enumerate() {
                     walk(format!("{id}.(){k}"), p.split_once(':').map_or(p.as_str(), |(_, ty)| ty), out);
                 }
                 return walk(format!("{id}.=>"), r, out);
@@ -294,7 +271,7 @@ fn type_places(d: &crate::parse::JsDecl) -> Vec<(String, String)> {
             return walk(format!("{id}.[]"), of, out);
         }
         let body = t.strip_prefix("readonly").map(str::trim_start).filter(|r| r.starts_with('[')).unwrap_or(t);
-        let shut = closes_at(body) == Some(body.len() - 1);
+        let shut = closes(body, 0) == Some(body.len());
         if body.starts_with('{') && shut {
             for (k, f) in split_top(&body[1..body.len() - 1], ",;").iter().enumerate() {
                 let name = f.find(':').map(|i| f[..i].trim().trim_start_matches("readonly ").trim().trim_end_matches('?').to_string()).filter(|n| !n.is_empty() && n.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$'));
@@ -307,7 +284,7 @@ fn type_places(d: &crate::parse::JsDecl) -> Vec<(String, String)> {
             for (k, x) in split_top(&body[1..body.len() - 1], ",").iter().enumerate() {
                 walk(format!("{id}.{k}"), x, out);
             }
-        } else if let Some(lt) = body.find('<').filter(|&i| i > 0 && body[..i].chars().all(|c| c.is_alphanumeric() || "_$.".contains(c)) && closes_at(&body[i..]).is_some_and(|e| i + e == body.len() - 1)) {
+        } else if let Some(lt) = body.find('<').filter(|&i| i > 0 && body[..i].chars().all(|c| c.is_alphanumeric() || "_$.".contains(c)) && closes(body, i) == Some(body.len())) {
             for (k, x) in split_top(&body[lt + 1..body.len() - 1], ",").iter().enumerate() {
                 walk(format!("{id}.<{k}>"), x, out);
             }

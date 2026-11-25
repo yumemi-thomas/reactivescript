@@ -1308,24 +1308,12 @@ fn tparams_read(tparams: Option<&str>) -> Vec<(String, String, Option<String>, O
             continue;
         }
         // the default: after the first `=` outside brackets that is not an arrow's
-        let cs: Vec<char> = rest.chars().collect();
-        let mut depth = 0i64;
-        let mut eq = None;
-        for i in 0..cs.len() {
-            let ch = cs[i];
-            if "([{<".contains(ch) {
-                depth += 1;
-            } else if ")]}>".contains(ch) && !(ch == '>' && i > 0 && cs[i - 1] == '=') {
-                depth -= 1;
-            } else if ch == '=' && depth == 0 && cs.get(i + 1) != Some(&'>') {
-                eq = Some(i);
-                break;
-            }
+        let (mut depth, mut i) = (0i64, 0);
+        while i < rest.len() && !(depth == 0 && rest[i..].starts_with('=') && !rest[i..].starts_with("=>")) {
+            depth += crate::parse::nests(rest, i);
+            i = crate::parse::token_end(rest, i);
         }
-        let (bound, default) = match eq {
-            Some(i) => (cs[..i].iter().collect::<String>(), Some(cs[i + 1..].iter().collect::<String>().trim().to_string())),
-            None => (rest.to_string(), None),
-        };
+        let (bound, default) = (&rest[..i], rest.get(i + 1..).map(|d| d.trim().to_string()));
         let bound = bound.trim().strip_prefix("extends").map(|b| b.trim().to_string()).filter(|b| !b.is_empty());
         out.push((mods, name, bound, default.filter(|d| !d.is_empty())));
     }
