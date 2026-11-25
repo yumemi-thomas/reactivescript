@@ -1,11 +1,10 @@
-// MO-8v: the words src/infer.js proves from the code, written into a draft's rows. A row takes `pure` before `fn`,
-// `handler` before a callback's function type (a parameter's, a field's of a record parameter, a prop's of a
-// component), `draft` before a parameter the fn changes in place, `rejects(A | B)` after the signature, and
-// `instantiates` where a proven `pure` fn makes Solid nodes (what is asked of the rest: questions.js). The row is
-// the notation's, with no new word and no new form (MO-8r), and both checkers read it as any row (08 CN-8).
-// MO-8w: `uses(c)` and `provides(c)` are written too, with the `export context` rows they name (a `uses` only beside
-// a `provides` of the same draft), and no row has a line above it: the draft's head says once how many words were
-// read, `--causes` says which by export, and src/declare-audit.js reads them from the code again for whoever asks.
+// MO-8v, MO-8w: the words the code proves, written into a draft's rows. The proof is the crate's (compiler/src/words,
+// DESIGN.md there says what each word's is); this asks it once for the whole draft and writes the answers into the text of
+// the rows: `pure` before `fn`, `handler` before a callback's function type (a parameter's, a field's of a record parameter,
+// a prop's of a component), `draft` before a parameter, `rejects(A | B)`, `instantiates`, `uses(c)`, `provides(c)` after the
+// signature, `ref` on a part only shaped as an accessor, and the `export context` rows they name (a `uses` only beside a
+// `provides` of the same draft). No row has a line above it: the draft's head says once how many words were read, `--why`
+// says the proof of each, and src/declare-audit.js asks again for whoever wonders.
 const path = require("node:path");
 
 /** The row's parts: `{ head, name, open, close, params: [{ from, to, text }] }` — offsets into the line. */
@@ -70,258 +69,118 @@ function records(line, from, to) {
   return out;
 }
 
-/** What the row's types say of each parameter of the export `name`, for the reading of its code: `plain` — the indexes
- *  whose type is a primitive (no promise can stand there); `opaque` — index → "self" where the type has function
- *  members of its own (a class's instance, a record of callbacks: a method call on it is no built-in's), "parts" where
- *  its elements or fields have. */
-function paramTypes(ts, checker, mod, imp, name) {
-  const [head, ...rest] = name.split(".");
-  const sym0 = checker.getExportsOfModule(mod).find(s => s.name === head); if (!sym0) return {};
-  const sym = sym0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym0) : sym0;
-  let t = checker.getTypeOfSymbolAtLocation(sym, imp);
-  for (const r of rest) { const q = t.getProperty(r); if (!q) return {}; t = checker.getTypeOfSymbolAtLocation(q, imp); }
-  const sigs = checker.getNonNullableType(t).getCallSignatures(); if (!sigs.length) return {};
-  const PRIM = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Void | ts.TypeFlags.EnumLike;
-  const isPrim = x => x.isUnion() ? x.types.every(isPrim) : !!(x.flags & PRIM);
-  const lib = d => { const f = d.getSourceFile(); return f.hasNoDefaultLib || /[\\/]typescript[\\/]lib[\\/]lib\.[\w.]+\.d\.ts$/.test(f.fileName); };
-  // `lists`: the parameters whose type is the language's own list — "pairs" where its items are lists too
-  const listOf = x => { if (x.isUnion()) return Math.min(...x.types.map(listOf)); if (x.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null)) return 2; if (checker.isArrayType(x) || checker.isTupleType(x)) return checker.getTypeArguments(x).every(y => checker.isArrayType(y) || checker.isTupleType(y)) ? 2 : 1; const n = x.symbol?.name; return !x.symbol?.declarations?.every(lib) ? 0 : /^(Readonly)?Map$/.test(n) ? 2 : /^(Readonly)?Set$/.test(n) ? 1 : 0; };
-  const own = (x, depth = 0) => {
-    if (depth > 3) return false;
-    if (x.isUnion() || x.isIntersection()) return x.types.some(y => own(y, depth));
-    if (x.flags & ts.TypeFlags.TypeParameter) { const c = checker.getBaseConstraintOfType(x); return !!c && c !== x && own(c, depth + 1); }
-    if (!(x.flags & ts.TypeFlags.Object)) return false;
-    if (x.getCallSignatures().length || checker.isArrayType(x) || checker.isTupleType(x)) return false;
-    return x.getProperties().some(p => (p.declarations ?? []).some(d => !lib(d)) && checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, imp)).getCallSignatures().length > 0);
-  };
-  const parts = x => {
-    if (x.isUnion() || x.isIntersection()) return x.types.some(parts);
-    if (!(x.flags & ts.TypeFlags.Object)) return false;
-    if (checker.isArrayType(x) || checker.isTupleType(x)) return checker.getTypeArguments(x).some(y => own(y) || parts(y));
-    if (x.getCallSignatures().length) return false;
-    const ps = x.getProperties(); if (ps.length > 60) return true;
-    return ps.some(p => (p.declarations ?? []).some(d => !lib(d)) && own(checker.getTypeOfSymbolAtLocation(p, imp), 1));
-  };
-  // `objects`: the parameters whose type has methods at all, the platform's among them (a socket, an element): an
-  // object, not data
-  const methods = (x, depth = 0) => { if (depth > 3) return false; if (x.isUnion() || x.isIntersection()) return x.types.some(y => methods(y, depth)); if (x.flags & ts.TypeFlags.TypeParameter) { const c = checker.getBaseConstraintOfType(x); return !!c && c !== x && methods(c, depth + 1); } if (!(x.flags & ts.TypeFlags.Object) || x.getCallSignatures().length || checker.isArrayType(x) || checker.isTupleType(x)) return false; return x.getProperties().some(p => checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, imp)).getCallSignatures().length > 0); };
-  const lists = new Map(), plain = new Set(), opaque = new Map(), objects = new Set();
-  const n = Math.max(...sigs.map(g => g.getParameters().length));
-  for (let i = 0; i < n; i++) {
-    const ts_ = sigs.map(g => { const p = g.getParameters()[i]; if (!p) return undefined; const d = p.valueDeclaration; if (d && ts.isParameter(d) && d.dotDotDotToken) return null; return checker.getTypeOfSymbolAtLocation(p, imp); });
-    if (ts_.every(x => x && isPrim(x))) plain.add(i);
-    else if (ts_.every(x => x && listOf(x))) lists.set(i, ts_.every(x => listOf(x) === 2) ? "pairs" : "list");
-    if (ts_.some(x => x && methods(x))) objects.add(i);
-    if (ts_.some(x => x && own(x))) opaque.set(i, "self"); else if (ts_.some(x => x === null || (x && parts(x)))) opaque.set(i, "parts");
-  }
-  /** What the type at a place of a parameter (`path`: the fields to it) says of functions: "void" — one that answers
-   *  nothing; "fn" — one; "data" — none, in it or in what it holds; "param" — a type parameter's; "any" — nothing. */
-  const shapeOf = (x, depth = 0, seen = new Set()) => {
-    if (x.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return "any";
-    if (isPrim(x) || x.flags & ts.TypeFlags.Never) return "data";
-    const worst = ks => ["void", "any", "fn", "param"].find(k => ks.includes(k)) ?? "data";
-    if (x.isUnionOrIntersection()) return worst(x.types.map(y => shapeOf(y, depth, seen)));
-    if (x.flags & ts.TypeFlags.TypeParameter) { const c = checker.getBaseConstraintOfType(x); const k = c && c !== x && !(c.flags & ts.TypeFlags.Unknown) ? shapeOf(c, depth + 1, seen) : "param"; return k === "data" && !(c && isPrim(c)) ? "param" : k; }
-    const calls = x.getCallSignatures();
-    if (calls.length) { const gone = t => t.isUnion() ? t.types.some(y => y.flags & ts.TypeFlags.Void) || t.types.every(gone) : !!(t.flags & (ts.TypeFlags.Void | ts.TypeFlags.Undefined | ts.TypeFlags.Never)) || (t.symbol?.name === "Promise" && checker.getTypeArguments(t).some(gone)); return calls.some(g => gone(checker.getReturnTypeOfSignature(g))) ? "void" : "fn"; }
-    if (x.getConstructSignatures().length) return "fn";
-    if (seen.has(x)) return "data"; seen.add(x);
-    if (depth > 4) return "any";
-    if (checker.isArrayType(x) || checker.isTupleType(x)) return worst(checker.getTypeArguments(x).map(y => shapeOf(y, depth + 1, seen)));
-    if (!(x.flags & ts.TypeFlags.Object)) return "any";
-    if ((x.symbol?.declarations ?? []).length && x.symbol.declarations.every(lib)) return worst(["data", ...(checker.getTypeArguments(x) ?? []).map(y => shapeOf(y, depth + 1, seen))]);
-    const ps = x.getProperties(); if (ps.length > 60) return "any";
-    const k = worst([...ps.map(p => shapeOf(checker.getTypeOfSymbolAtLocation(p, imp), depth + 1, seen)), ...checker.getIndexInfosOfType(x).map(j => shapeOf(j.type, depth + 1, seen))]);
-    return k === "void" ? "fn" : k;
-  };
-  const shape = (i, path) => {
-    const ks = sigs.map(g => { const ps = g.getParameters(); const last = ps[ps.length - 1]; const rest = last?.valueDeclaration && ts.isParameter(last.valueDeclaration) && last.valueDeclaration.dotDotDotToken; const p = ps[i] ?? (rest ? last : undefined); if (!p) return undefined; let t = checker.getTypeOfSymbolAtLocation(p, imp); for (const f of path) { t = checker.getNonNullableType(t); const q = checker.getPropertyOfType(t, f); if (!q) return "any"; t = checker.getTypeOfSymbolAtLocation(q, imp); } return shapeOf(t); }).filter(Boolean);
-    return ["void", "any", "fn", "param"].find(k => ks.includes(k)) ?? (ks.length ? "data" : "any");
-  };
-  return { plain, lists, opaque, objects, shape };
+/** What is asked of a row's code: its callbacks (by parameter, or by field of a record one) and the parts shaped as accessors. */
+function asks(line, row) {
+  const handlers = [];
+  row.params.forEach((part, index) => {
+    const p = named(line, part); if (!p || p.rest) return;
+    if (row.kind === "fn" && fnTypeAt(line, p.type, p.end)) { handlers.push({ index, field: null, label: p.name, at: p.type }); return; }
+    if (/^handler\b/.test(line.slice(p.type))) return;
+    for (const fields of records(line, p.type, p.end)) for (const fp of fields) {
+      const q = named(line, fp); if (!q || /^handler\b/.test(line.slice(q.type)) || !fnTypeAt(line, q.type, q.end)) continue;
+      handlers.push({ index, field: q.name, label: row.kind === "component" ? q.name : `${p.name}.${q.name}`, at: q.type });
+    }
+  });
+  return handlers;
 }
-
-/** The props of the component `name` that may hold a view — an element, a component, a function that gives one, a list
- *  or a record of them, a type that is not known: what `provides(c)` must show is rendered beneath the provider. */
-function viewProps(ts, checker, mod, imp, name) {
-  const D = require("./declare.js");
-  const [head, ...rest] = name.split(".");
-  const sym0 = checker.getExportsOfModule(mod).find(s => s.name === head); if (!sym0) return { has: () => true, outside: () => true, surely: () => false };
-  const sym = sym0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym0) : sym0;
-  let t = checker.getTypeOfSymbolAtLocation(sym, imp);
-  for (const r of rest) { const q = t.getProperty(r); if (!q) return { has: () => true, outside: () => true, surely: () => false }; t = checker.getTypeOfSymbolAtLocation(q, imp); }
-  const sigs = checker.getNonNullableType(t).getCallSignatures(); if (!sigs.length) return { has: () => true, outside: () => true, surely: () => false };
-  const out = new Set(); let all = false;
-  const viewy = (x, d = 0) => {
-    if (d > 3) return true;
-    if (x.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter)) return true;
-    if (x.isUnion() || x.isIntersection()) return x.types.some(y => viewy(y, d));
-    if (D.isElement(ts, checker, x)) return true;
-    if (!(x.flags & ts.TypeFlags.Object)) return false;
-    const cs = x.getCallSignatures();
-    if (cs.length) return cs.some(g => D.givesElement(ts, checker, g) || viewy(g.getReturnType(), d + 1));
-    if (checker.isArrayType(x) || checker.isTupleType(x)) return checker.getTypeArguments(x).some(y => viewy(y, d + 1));
-    const ps = x.getProperties(); if (ps.length > 40) return false;
-    return ps.some(q => viewy(checker.getTypeOfSymbolAtLocation(q, imp), d + 1));
-  };
-  for (const g of sigs) { const p = g.getParameters()[0]; if (!p) continue; const pt = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, imp)); if (pt.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) { all = true; continue; } for (const q of pt.getProperties()) if (viewy(checker.getTypeOfSymbolAtLocation(q, imp))) out.add(q.name); }
-  out.add("children");
-  /** `outside(o)`: whether a use of the props outside a provider may be of a view — a field that may hold one, or the
-   *  record whole, unless `omit` took every such field off it first. */
-  // `surely(o)`: a use of a prop that is a view for certain — an element (`children`, a prop typed as one), which is
-  // made where it is read; a function that gives a view is made where it is called, and is not one
-  const sure = new Set();
-  for (const g of sigs) { const p = g.getParameters()[0]; if (!p) continue; const pt = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, imp)); if (pt.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) continue; for (const q of pt.getProperties()) { const raw = checker.getTypeOfSymbolAtLocation(q, imp); const qt = checker.getNonNullableType(raw); if (D.isElement(ts, checker, raw) && !(qt.getCallSignatures().length && qt.getCallSignatures().every(c => c.getParameters().length > 0))) sure.add(q.name); } }
-  return { has: f => all || out.has(f), surely: o => o.field !== null && sure.has(o.field), outside: o => o.field !== null ? all || out.has(o.field) : all || !o.except || [...out].some(n => !o.except.includes(n)) };
-}
-
-/** The parameters a row says are accessors (`ref list: T[]`): calling one answers the caller's value itself. */
-const refsOf = (line, row) => new Set(row.params.map((part, i) => { const p = named(line, part); return p && /\bref\b/.test(p.words) ? i : -1; }).filter(i => i >= 0));
-
-/** Whether a fn takes a tree it could nest (MO-11i): a parameter that is a record — or a list of records — with a
- *  component among its fields and a list of records among them. No such parameter, and `nests(…)` has nothing to say. */
-function couldNest(ts, checker, mod, imp, name) {
-  const D = require("./declare.js");
-  const [head, ...rest] = name.split(".");
-  const sym0 = checker.getExportsOfModule(mod).find(s => s.name === head); if (!sym0) return true;
-  const sym = sym0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym0) : sym0;
-  let t = checker.getTypeOfSymbolAtLocation(sym, imp);
-  for (const r of rest) { const q = t.getProperty(r); if (!q) return true; t = checker.getTypeOfSymbolAtLocation(q, imp); }
-  const elem = x => { x = checker.getNonNullableType(x); return checker.isArrayType(x) || checker.isTupleType(x) ? checker.getTypeArguments(x) : [x]; };
-  const record = x => !!(x.flags & ts.TypeFlags.Object) && !x.getCallSignatures().length && !checker.isArrayType(x) && !checker.isTupleType(x);
-  const tree = (x, d = 0) => {
-    if (x.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter)) return true;
-    if (x.isUnion() || x.isIntersection()) return x.types.some(y => tree(y, d));
-    if (!record(x)) return false;
-    const ps = x.getProperties(); if (ps.length > 80) return true;
-    const types = ps.map(q => checker.getTypeOfSymbolAtLocation(q, imp));
-    const comp = types.some(y => { const z = checker.getNonNullableType(y); return z.flags & ts.TypeFlags.Any || (z.isUnion() ? z.types : [z]).some(w => D.isComponent(ts, checker, w)); });
-    const list = types.some(y => { const z = checker.getNonNullableType(y); return (checker.isArrayType(z) || checker.isTupleType(z)) && checker.getTypeArguments(z).some(w => record(checker.getNonNullableType(w)) || !!(w.flags & (ts.TypeFlags.Any | ts.TypeFlags.TypeParameter))); });
-    return comp && list;
-  };
-  return checker.getNonNullableType(t).getCallSignatures().some(g => g.getParameters().some(p => elem(checker.getTypeOfSymbolAtLocation(p, imp)).some(x => tree(x))));
-}
+const pkgRoot = f => { for (let d = path.dirname(f); ; d = path.dirname(d)) { if (require("node:fs").existsSync(path.join(d, "package.json"))) return d; if (path.dirname(d) === d) return d; } };
 
 /** @param {string[]} lines the draft's lines (rows, and the questions above them)
- *  @param {(name: string) => object} typesOf what the row's types say of a fn's parameters (`paramTypes`)
  *  @param {object[]} [why] filled with what was proven and what was refused, word by word (`rx-declare --why`)
- *  @returns {{ lines: string[], head: string[], count: { pure, handler, rejects, draft, instantiates } }} */
-function apply(ts, spec, from, lines, typesOf, why, more = {}) {
-  const inf = require("./infer.js").create(ts, { solid: process.env.RX_INFER_SOLID !== "0" });
-  // ---- contexts (MO-8w): a context a row names is declared by an `export context` row of the draft's own. One the
-  // module exports is named after its export (`RouterContext` → router), any other after the name the code binds it to,
-  // or after the provider or the hook that names it first. A module that has context rows already (a module
-  // of the app's own that carries a library's) keeps them: nothing is named beside them.
+ *  @param {{ unshaped?, contexts?, written? }} more `unshaped(line, name, reads)`: the row with each part only shaped as an
+ *  accessor the function it is, where `reads(path)` does not say it is a reader
+ *  @returns {{ lines: string[], head: string[], count: object, words: object, unread?: string, facts: (name) => object | undefined }} */
+function apply(spec, from, lines, why, more = {}) {
   const hasContexts = lines.some(l => /^export context\b/.test(l));
-  const ctxNames = new Map(), ctxRows = [];
-  const taken = new Set(lines.flatMap(l => l.split("\n")).map(l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1]).filter(Boolean));
-  const exportedCtx = new Map();   // a context's key → the name the module exports it by
-  for (const n of more.contexts ?? []) { try { const k = inf.contextKey(spec, from, n); if (k && !exportedCtx.has(k)) exportedCtx.set(k, n); } catch { /* not read */ } }
-  const ownFiles = (() => { try { return inf.targets(spec, from); } catch { return []; } })();
-  const pkgRoot = f => { for (let d = path.dirname(f); ; d = path.dirname(d)) { if (require("node:fs").existsSync(path.join(d, "package.json"))) return d; if (path.dirname(d) === d) return d; } };
-  const roots = new Set(ownFiles.map(pkgRoot));
+  const rows = lines.map(l => l.startsWith("export ") ? parseRow(l) : undefined);
+  const ask = [];
+  lines.forEach((l, i) => {
+    const row = rows[i]; if (!row || /\bserver\b/.test(row.words) || ask.some(a => a.name === row.name)) return;
+    const refs = []; if (row.kind === "fn" && more.unshaped) more.unshaped(l, row.name, at => { refs.push(at); return true; });
+    ask.push({ name: row.name, kind: row.kind, handlers: asks(l, row).map(h => [h.index, h.field]), refs });
+  });
+  let r; try { r = require("./words.js").words(spec, from, ask, more.contexts ?? []); } catch (e) { r = { unread: `the code could not be read (${String(e?.message ?? e).slice(0, 160)})`, exports: {}, contexts: {} }; }
+  const facts = name => r.unread ? { unread: r.unread } : r.exports[name] ?? { unread: "no code of that name" };
+
+  // ---- contexts (MO-8w): a context a row names is declared by an `export context` row of the draft's own. One the module
+  // exports is named after its export, any other after the name the code binds it to. A module that has context rows already
+  // keeps them: nothing is named beside them.
+  const ctxNames = new Map(), ctxRows = [], taken = new Set(lines.flatMap(l => l.split("\n")).map(l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1]).filter(Boolean));
+  const exportedCtx = new Map(Object.entries(r.contexts ?? {}).map(([n, k]) => [k, n]));
+  const files = r.files ?? [], roots = new Set(files.map(pkgRoot));
   /** Whether a context is the module's own to declare: made in the package's own files (a relative module: in the file itself). */
-  const ownCtx = c => !hasContexts && (spec.startsWith(".") ? ownFiles.includes(c.m.file) : roots.has(pkgRoot(c.m.file)));
+  const ownCtx = c => !hasContexts && (spec.startsWith(".") ? files.includes(c.of) : roots.has(pkgRoot(c.of)));
   const nameCtx = (c, rowName) => {
     if (ctxNames.has(c.key)) return ctxNames.get(c.key);
-    const leaf = rowName.split(".").pop(); const strip = x => x.replace(/(Context|Ctx)$/, "");
+    const leaf = rowName.split(".").pop(), strip = x => x.replace(/(Context|Ctx)$/, "");
     let base = exportedCtx.get(c.key) ?? c.name;
     if (!base || !strip(base) || /^(ctx|context|c)$/i.test(base)) base = /^(.+)Provider$/.exec(leaf)?.[1] ?? /^use(.+?)(?:Context)?$/.exec(leaf)?.[1] ?? leaf;
-    // (`MDXContext` → mdx, `URLState` → urlState: a leading run of capitals is one word)
     let n = strip(base).replace(/^[^A-Za-z_$]+/, "").replace(/^[A-Z]+(?![a-z])|^[A-Z]+(?=[A-Z][a-z])|^[A-Z]/, w => w.toLowerCase()) || "context";
-    // two contexts of one name (a kit's `ItemContext` in two of its files): the second by its file, `ratingItem`
-    if (taken.has(n)) { const file = path.basename(c.m.file).replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9]+(.)?/g, (_, ch) => (ch ?? "").toUpperCase()).replace(/^[^A-Za-z_$]+/, "").replace(/^./, ch => ch.toLowerCase()); const q = file && !n.toLowerCase().startsWith(file.toLowerCase()) ? `${file}${n[0].toUpperCase()}${n.slice(1)}` : n; n = q; for (let k = 2; taken.has(n); k++) n = `${q}${k}`; }
+    if (taken.has(n)) { const file = path.basename(c.of).replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9]+(.)?/g, (_, ch) => (ch ?? "").toUpperCase()).replace(/^[^A-Za-z_$]+/, "").replace(/^./, ch => ch.toLowerCase()); const q = file && !n.toLowerCase().startsWith(file.toLowerCase()) ? `${file}${n[0].toUpperCase()}${n.slice(1)}` : n; n = q; for (let k = 2; taken.has(n); k++) n = `${q}${k}`; }
     taken.add(n); ctxNames.set(c.key, n); ctxRows.push(`export context ${n}`);
     return n;
   };
-  const words = {};             // export → the words read from the code (the benchmark's and rx-verify's count)
-  const exportedAs = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/.exec(l)?.[1];
-  const out = []; const count = { pure: 0, handler: 0, rejects: 0, draft: 0, instantiates: 0, uses: 0, provides: 0, ref: 0 };
-  const errors = new Set(lines.map(l => /^export error ([\w$]+)/.exec(l)?.[1]).filter(Boolean));
-  // (a package's file by the package: the same wherever it is installed)
-  const rel = f => /[\\/]node_modules[\\/]/.test(f) ? f.split(/[\\/]node_modules[\\/]/).pop().split(path.sep).join("/") : path.relative(from, f).split(path.sep).join("/");
-  const at = w => `${rel(w.file)}:${w.line}`;
+  const provided = new Set(rows.flatMap(row => { if (row?.kind !== "component") return []; const f = facts(row.name); return f.provides?.ok ? f.provides.list.filter(ownCtx).map(c => c.key) : []; }));
+
+  const rel = f => /[\\/]node_modules[\\/]/.test(f) ? f.split(/[\\/]node_modules[\\/]/).pop().split(path.sep).join("/") : path.relative(require("node:fs").realpathSync(from), f).split(path.sep).join("/");
+  const at = w => w?.file ? `${rel(w.file)}:${w.line}` : "";
+  const placed = w => w?.file ? ` [${at(w)}]` : "";
   const note = (name, word, ok, reason) => { if (why) why.push({ name, word, ok, why: reason }); };
+  const words = {}, out = [], count = { pure: 0, handler: 0, rejects: 0, draft: 0, instantiates: 0, uses: 0, provides: 0, ref: 0 };
+  const errors = new Set(lines.map(l => /^export error ([\w$]+)/.exec(l)?.[1]).filter(Boolean));
   let unread;
-  const factsOf = new Map();
-  const facts = (line, row) => { if (factsOf.has(row.name)) return factsOf.get(row.name); let f; try { f = inf.exportFacts(spec, from, row.name, row.kind === "fn" ? { ...typesOf(row.name), refs: refsOf(line, row) } : {}); } catch (e) { f = { unread: `the code could not be read (${String(e?.message ?? e).slice(0, 120)})` }; } factsOf.set(row.name, f); return f; };
-  const viewsOf = new Map(); const views = name => { if (!viewsOf.has(name)) viewsOf.set(name, more.views ? more.views(name) : { has: () => true, outside: () => true, surely: () => false }); return viewsOf.get(name); };
-  /** The contexts a component is shown to provide: a provider of it written in the code, and every prop that may hold
-   *  a view rendered among that provider's children. */
-  const providedBy = (row, f) => f.provides(0).list.filter(x => ownCtx(x.ctx) && x.inside.length && !x.outside.some(o => views(row.name).outside(o)));
-  // a `uses(c)` is written only beside a `provides(c)` of the same draft: a context no row is shown to provide would
-  // refuse every program that calls the hook, the correct ones with them (its provider is then a component the
-  // reading did not get through, or another module's), and the question stays
-  const provided = new Set();
-  for (const l of lines) { const row = l.startsWith("export ") ? parseRow(l) : undefined; if (!row || row.kind !== "component" || /\b(uses|provides)\(/.test(l.slice(row.close + 1))) continue; const f = facts(l, row); if (!f || f.unread) continue; try { for (const x of providedBy(row, f)) provided.add(x.ctx.key); } catch { /* not read */ } }
-  for (let li = 0; li < lines.length; li++) {
-    let line = lines[li];
+  for (let line of lines) {
     let row = line.startsWith("export ") ? parseRow(line) : undefined;
-    if (row?.kind === "fn" && more.unshaped) { const g = facts(line, row); line = more.unshaped(line, row.name, at => { let ok = false; try { ok = !!g && !g.unread && g.reads(at); } catch { /* not read */ } if (ok) count.ref++; note(row.name, `ref${at ? `(${at})` : ""}`, ok, ok ? "a reader: it only computes, from what Solid's nodes hold" : "only shaped as an accessor: the code does not show that calling it only reads"); return ok; }); row = parseRow(line); }
-    if (!row || /\bserver\b/.test(row.words)) { out.push(line); continue; }
-    const f = facts(line, row);
-    if (!f || f.unread) { unread ??= f?.unread; note(row.name, "*", false, f?.unread ?? "no code"); out.push(line); continue; }
-    const took = [];
-    // insertions into the row, applied from its end so that the offsets before them stand
-    const ins = [];
-    // ---- handler: a callback parameter, a callback field of a record parameter, a callback prop
-    const ask = (index, field, label, typeAt) => {
-      const h = f.handler(index, field);
-      if (h.ok) { ins.push([typeAt, "handler "]); took.push(`handler(${label})`); count.handler++; note(row.name, `handler(${label})`, true, [...new Set(h.uses.map(u => `${u.why} [${at(u)}]`))].slice(0, 3).join("; ")); return; }
-      const bad = h.uses.find(u => u.how !== "later");
-      note(row.name, `handler(${label})`, false, h.never ? "never called in the code that was read" : `${bad.how === "sync" ? "called while the call runs or in a computation" : bad.how === "reentry" ? "kept, and called whenever what holds it is called" : "it goes where it is not followed"}: ${bad.why} [${at(bad)}]`);
-    };
-    row.params.forEach((part, index) => {
-      const p = named(line, part); if (!p || p.rest) return;
-      if (/^handler\b/.test(line.slice(p.type))) return;
-      if (row.kind === "fn" && fnTypeAt(line, p.type, p.end)) return ask(index, undefined, p.name, p.type);
-      for (const fields of records(line, p.type, p.end)) for (const fp of fields) {
-        const q = named(line, fp); if (!q || /^handler\b/.test(line.slice(q.type)) || !fnTypeAt(line, q.type, q.end)) continue;
-        ask(index, q.name, row.kind === "component" ? q.name : `${p.name}.${q.name}`, q.type);
-      }
-      // ---- draft: a parameter the fn changes in place
-      if (row.kind === "fn" && !/\b(ref|draft)\b/.test(p.words) && !fnTypeAt(line, p.type, p.end)) {
-        const d = f.draft(index);
-        if (d === "changes") { ins.push([p.nameAt, "draft "]); took.push(`draft(${p.name})`); count.draft++; const w = f.draftWhy(index); note(row.name, `draft(${p.name})`, true, `${w.why} [${at(w)}]`); }
-        else if (d === "never") note(row.name, `draft(${p.name})`, false, "never changed: every use of it only reads");
-      }
-    });
-    // ---- pure
-    if (row.kind === "fn" && !/\bpure\b/.test(row.words)) {
-      if (f.pure) { took.push("pure"); count.pure++; note(row.name, "pure", true, f.makes ? "its own code only computes, and makes Solid nodes of its own" : "its own code only computes"); }
-      else { const w = f.why[0]; note(row.name, "pure", false, `${w.why} [${at(w)}]${w.via ? ` (called at ${at(w.via)})` : ""}`); }
+    const f = row && !/\bserver\b/.test(row.words) ? facts(row.name) : undefined;
+    if (row?.kind === "fn" && more.unshaped) {
+      line = more.unshaped(line, row.name, p => { const ok = !!f && !f.unread && !!f.refs?.includes(p); if (ok) count.ref++; note(row.name, `ref${p ? `(${p})` : ""}`, ok, ok ? "every return hands out there what Solid made: a memo, or a signal's getter" : "only shaped as an accessor: the code does not show that calling it only reads"); return ok; });
+      row = parseRow(line);
     }
-    // ---- rejects
-    const tail = line.slice(row.close + 1);
-    const promise = /^\s*:\s*Promise</.test(tail);
-    if (row.kind === "fn" && promise && !/\brejects\(/.test(tail)) {
-      if (f.rejects && f.rejects.every(n => errors.has(n))) {
-        if (f.rejects.length) { took.push(`rejects(${f.rejects.join(" | ")})`); count.rejects++; note(row.name, "rejects", true, `every throw the code reaches is of ${f.rejects.join(", ")}`); }
-        else note(row.name, "rejects", false, "the code reaches no throw of a class: nothing to name, and the default (Error) stands");
-      } else note(row.name, "rejects", false, f.rejects ? `it throws ${f.rejects.filter(n => !errors.has(n)).join(", ")}, which the draft has no \`export error\` row for` : f.rejectsWhy);
+    if (!f) { out.push(line); continue; }
+    if (f.unread) { if (r.unread) unread ??= f.unread; note(row.name, "*", false, f.unread); out.push(line); continue; }
+    const took = [], ins = [];
+    for (const h of asks(line, row)) {
+      const v = f.handlers?.[h.field === null ? String(h.index) : `${h.index}.${h.field}`]; if (!v) continue;
+      note(row.name, `handler(${h.label})`, v.ok, `${v.why ?? ""}${placed(v)}`);
+      if (v.ok) { ins.push([h.at, "handler "]); took.push(`handler(${h.label})`); count.handler++; }
+    }
+    if (row.kind === "fn") row.params.forEach((part, index) => {
+      const p = named(line, part); if (!p || p.rest || /\b(ref|draft)\b/.test(p.words) || fnTypeAt(line, p.type, p.end)) return;
+      const d = f.draft?.[index]; if (!d) return;
+      ins.push([p.nameAt, "draft "]); took.push(`draft(${p.name})`); count.draft++; note(row.name, `draft(${p.name})`, true, `${d.why}${placed(d)}`);
+    });
+    const tail = line.slice(row.close + 1), result = /^\s*:\s*(.*)$/s.exec(tail)?.[1] ?? "";
+    if (row.kind === "fn" && !/\bpure\b/.test(row.words)) {
+      const pure = f.pure?.ok && !took.some(t => t.startsWith("draft("));
+      note(row.name, "pure", !!pure, `${f.pure?.why?.why ?? "a fn that changes what it is given"}${placed(f.pure?.why)}`);
+      if (pure) { took.push("pure"); count.pure++; }
+    }
+    if (row.kind === "fn" && /^Promise</.test(result) && !/\brejects\(/.test(tail)) {
+      const ok = f.rejects?.length && f.rejects.every(n => errors.has(n));
+      note(row.name, "rejects", !!ok, ok ? `every throw the code reaches is of ${f.rejects.join(", ")}` : f.rejects ? (f.rejects.length ? `it throws ${f.rejects.filter(n => !errors.has(n)).join(", ")}, which the draft has no \`export error\` row for` : "the code reaches no throw of a class: nothing to name, and the default (Error) stands") : "what it throws is not shown to be of a class of the module's");
+      if (ok) { took.push(`rejects(${f.rejects.join(" | ")})`); count.rejects++; }
     }
     for (const [pos, text] of ins.sort((a, b) => b[0] - a[0])) line = line.slice(0, pos) + text + line.slice(pos);
     if (took.includes("pure")) line = line.replace(/^export\s+((?:(?:server|client)\s+)*)fn\b/, (_, w) => `export ${w}pure fn`);
     if (took.some(t => t.startsWith("rejects("))) line = `${line} rejects(${f.rejects.join(" | ")})`;
-    // a proven `pure` fn that makes nodes is made once where it is bound (MO-10a): the word the draft writes by a name
-    // (one that is not `pure`: where it makes what its owner keeps on every path, whatever else it does — MO-10a's word says
-    // where the call is made, not what it changes. One that hands back an undo, or a promise, is called elsewhere
-    // too; a capital is a component's, by 07 §4). A `ref` implies the word; a generated declaration writes it where it
-    // is proven, since a type alone refuses no call in a handler there (MO-8l)
-    const makes = row.kind === "fn" && !/\binstantiates\b/.test(line) && (more.written || !/\bref\b/.test(line)) && (f.pure || !/^[A-Z]/.test(row.name));
-    const not = !makes || f.pure ? undefined : /^\s*:\s*(?:Promise\b|\(\s*\)\s*=>\s*(?:void|undefined)\s*$|VoidFunction\s*$)/.test(tail) ? { why: "it hands back a promise, or what undoes the call: called in a handler or an effect as well" } : f.unbound();
-    if (makes && !f.pure) note(row.name, "instantiates", !not, not ? `${not.why}${not.file ? ` [${at(not)}]` : ""}` : "it makes what its owner keeps, on every path that returns");
-    if (makes && (f.pure ? took.includes("pure") && f.makes : !not)) { line = `${line} instantiates`; took.push("instantiates"); count.instantiates++; }
-    // ---- uses(c): a context every call reads, and throws without; provides(c): a provider around all it is given
+    // a call that hands back a promise, or what undoes it, is made in an action or an effect too; a capital is a component's (07 §4)
+    const makes = row.kind === "fn" && !/\binstantiates\b/.test(line) && (more.written || !/\bref\b/.test(line));
+    if (makes && f.instantiates) {
+      const not = /^(?:Promise\b|\(\s*\)\s*=>\s*(?:void|undefined)\s*$|VoidFunction\s*$)/.test(result) ? "it hands back a promise, or what undoes the call: called in a handler or an effect as well" : /^[A-Z]/.test(row.name) ? "a component's name" : undefined;
+      const ok = f.instantiates.ok && !not;
+      note(row.name, "instantiates", ok, not ?? `${f.instantiates.why}${placed(f.instantiates)}`);
+      if (ok) { line = `${line} instantiates`; took.push("instantiates"); count.instantiates++; }
+    }
+    // an effect with no `instantiates` beside it belongs to no one: the row says neither
+    if (took.includes("pure") && f.pure.owned && !/\b(instantiates|ref)\b/.test(line)) { line = line.replace(/^export\s+((?:(?:server|client)\s+)*)pure fn\b/, (_, w) => `export ${w}fn`); took.splice(took.indexOf("pure"), 1); count.pure--; note(row.name, "pure", false, "it makes an effect or a cleanup, and the row does not say it is made once"); }
     if (!/\b(uses|provides)\(/.test(line.slice(row.close + 1))) {
-      const u = f.uses; const must = u.must.filter(c => ownCtx(c) && provided.has(c.key));
-      const doubt = [...u.may.map(c => ({ why: `it reads ${c.name ?? "a context"} on some path only, or when what it hands back is called`, ...c.at })), ...u.must.filter(c => !ownCtx(c)).map(c => ({ why: `it reads ${c.name ?? "a context"}, which another module makes`, ...c.at })), ...u.must.filter(c => ownCtx(c) && !provided.has(c.key)).map(c => ({ why: `it reads ${c.name ?? "a context"} on every path, and no component of this module is shown to provide it (its provider is another module's, or one the reading does not get through)`, ...c.at })), ...u.opaque];
-      if (must.length) { const ns = must.map(c => nameCtx(c, row.name)); line = `${line.replace(/ instantiates$/, "")} uses(${ns.join(", ")})`; for (const n of ns) { took.push(`uses(${n})`); count.uses++; } note(row.name, `uses(${ns.join(", ")})`, true, must.map(c => `useContext(${c.name ?? "…"}) on every path, with no default to answer [${at(c.at)}]`).join("; ")); }
-      if (doubt.length) note(row.name, "uses", false, `${doubt[0].why} [${at(doubt[0])}]`); else if (!must.length) note(row.name, "uses", false, "it reads no context: every call it makes is read, and none asks for one");
-      if (row.kind === "component") {
-        const pv = f.provides(0); const yes = providedBy(row, f).filter(x => pv.list.some(y => y.ctx.key === x.ctx.key));
-        for (const x of pv.list) if (!yes.some(y => y.ctx.key === x.ctx.key)) { const o = x.outside.find(q => views(row.name).outside(q)); note(row.name, `provides(${x.ctx.name ?? "…"})`, false, !ownCtx(x.ctx) ? "the context is another module's" : o ? `${o.field === null ? "its props go" : `${o.field} is read`} outside the provider: ${o.why} [${at(o)}]` : "nothing it is given is rendered beneath the provider"); }
-        if (yes.length) { const ns = yes.map(x => nameCtx(x.ctx, row.name)); line = `${line} provides(${ns.join(", ")})`; for (const n of ns) { took.push(`provides(${n})`); count.provides++; } note(row.name, `provides(${ns.join(", ")})`, true, yes.map(x => `everything it is given is rendered among <${x.ctx.name ?? "the context"} value>'s children [${at(x.inside[0])}]`).join("; ")); }
+      const must = (f.uses ?? []).filter(c => ownCtx(c) && provided.has(c.key));
+      if (must.length) { const ns = must.map(c => nameCtx(c, row.name)); line = `${line.replace(/ instantiates$/, "")} uses(${ns.join(", ")})`; if (took.includes("instantiates")) { took.splice(took.indexOf("instantiates"), 1); count.instantiates--; } for (const n of ns) { took.push(`uses(${n})`); count.uses++; } note(row.name, `uses(${ns.join(", ")})`, true, must.map(c => `useContext(${c.name}) on every path, with no default to answer${placed(c)}`).join("; ")); }
+      else if (f.uses?.length) note(row.name, "uses", false, `it reads ${f.uses[0].name} on every path, and no component of this module is shown to provide it${placed(f.uses[0])}`);
+      if (row.kind === "component" && f.provides) {
+        const own = f.provides.ok ? f.provides.list.filter(ownCtx) : [];
+        if (own.length) { const ns = own.map(c => nameCtx(c, row.name)); line = `${line} provides(${ns.join(", ")})`; for (const n of ns) { took.push(`provides(${n})`); count.provides++; } note(row.name, `provides(${ns.join(", ")})`, true, "everything it is given that may be a view is rendered among the provider's children"); }
+        else note(row.name, "provides", false, f.provides.ok ? "the context is another module's" : `${f.provides.why?.why ?? ""}${placed(f.provides.why)}`);
       }
     }
     if (took.length) words[row.name] = took;
@@ -329,10 +188,8 @@ function apply(ts, spec, from, lines, typesOf, why, more = {}) {
   }
   if (ctxRows.length) { const at0 = out.findIndex(l => !l.startsWith("//") || /^\/\/ TODO /.test(l)); out.splice(at0 < 0 ? 0 : at0, 0, ...ctxRows); }
   const total = Object.values(count).reduce((a, b) => a + b, 0);
-  // one line for the whole draft (MO-8w): which words were read is not written row by row — it is what the code shows,
-  // and `rx-verify` and `rx-declare --why` say it again from the code whenever they are asked
   const head = total ? [`// Read from the code that runs (MO-8v): ${Object.entries(count).filter(([, n]) => n).map(([w, n]) => `${n} ${w}`).join(", ")} — read, not guessed. Which words, and how: \`rx-declare --why\`; \`rx-verify\` tells them from the words written by hand, and runs each.`] : [];
-  return { lines: out, head, count, words, unread: total ? undefined : unread, facts: name => factsOf.get(name), provided, outside: (name, o) => views(name).outside(o), at };
+  return { lines: out, head, count, words, unread: total ? undefined : unread, facts, provided, at };
 }
 
-module.exports = { apply, paramTypes, viewProps, couldNest, refsOf, parseRow, named, fnTypeAt, records };
+module.exports = { apply, parseRow, named, fnTypeAt, records };

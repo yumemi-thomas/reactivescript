@@ -12,6 +12,8 @@ pub fn request(method: &str, params: &Value, disk: &dyn Fn(&str) -> Option<Strin
         "declaration" => declaration(params, disk),
         // MO-8k: where a package import's declaration is found from `file` (null: none of the four places has one)
         "rows" => rows(params, disk),
+        // MO-8v: the words a JS module's code proves (src/words)
+        "words" => crate::words::request(params, disk),
         "lookup" => json!(crate::modules::declaration_for(params["file"].as_str().unwrap_or(""), params["spec"].as_str().unwrap_or(""), disk)),
         _ => json!({ "error": "unknown method" }),
     }

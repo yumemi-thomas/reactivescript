@@ -2,7 +2,7 @@
 // synchronously, so the requests are synchronous calls: into the crate's WebAssembly build, loaded in process (one build
 // for every platform), or, when $RXC names a binary, a short `rxc serve` run per request.
 const { spawnSync } = require("node:child_process");
-const { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } = require("node:fs");
+const { existsSync, mkdirSync, writeFileSync, readFileSync, realpathSync, statSync } = require("node:fs");
 const path = require("node:path");
 
 const repo = path.resolve(__dirname, "../../..");
@@ -34,6 +34,7 @@ function loadWasm(file) {
   const env = {
     rx_read(ptr, len) {
       const f = dec.decode(new Uint8Array(x.memory.buffer, ptr, len));
+      if (f[0] === "\0") { try { return put(enc.encode(realpathSync(f.slice(1)))); } catch { return 0; } }   // a path's real one (src/words/resolve.rs)
       try { if (!statSync(f).isFile()) return 0; return put(readFileSync(f)); } catch { return 0; }
     },
   };

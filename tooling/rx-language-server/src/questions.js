@@ -23,9 +23,10 @@ function reading(x) {
 const changes = (x, word) => reading({ ...x, ...word }) !== reading(x);
 const asHandler = (x, label) => ({ callbacks: x.callbacks.map(c => c.name === label ? { ...c, handler: true } : c) });
 
-/** Whether the code shows a fn not to be `pure`: an effect, or a change of data it was given (an object with methods of
- *  its own — an element, a socket — is a person's to judge). Undefined, or the reason. */
-const refuted = (f, objects) => f.why.find(w => w.effect || (w.param && (w.params ?? []).some(i => !objects?.has(i))));
+/** Whether the code shows a fn not to be `pure`: what stopped the reading is something the fn does. */
+const refuted = f => /^it (?:writes (?!a list)|changes what it was given|changes in place (?:a list that is not|what it was)|reads [\w$]+: the environment|asks for a random|calls a function that answers nothing)/.test(f.pure?.why?.why ?? "");
+/** Whether the code shows a callback to be called while its fn runs, or never. */
+const settled = h => !h || /^(?:called while the call runs|never called|called as the module loads)/.test(h.why ?? "");
 
 /** Whether a callback answers nothing — called for what it does, as a handler is: its type, or a record's field's. */
 function acts(type, field) {
@@ -40,10 +41,9 @@ const kindOf = q => /`pure fn`|`instantiates`/.test(q) ? "pure" : /`handler /.te
 
 /** The draft's lines with its questions. A row may have lines of candidates above it (`// TODO <export>: {…}`, what
  *  declare.js saw in its types); those asked about become questions, the rest go.
- *  @param {(name: string) => object | undefined} factsOf the reading of an export's code (src/infer.js)
- *  @param {(name: string) => object} typesOf its parameters' types (declare-infer.js `paramTypes`)
- *  @param {{ at?, couldNest?, providedBy?, ctxName? }} more */
-function ask(lines, factsOf, typesOf, more = {}) {
+ *  @param {(name: string) => object | undefined} factsOf the reading of an export's code (src/words.js)
+ *  @param {{ at?, provided? }} more */
+function ask(lines, factsOf, more = {}) {
   const rows = facts(lines), out = [];
   const errors = rows.some(r => r.kind === "error"), comps = rows.some(r => r.kind === "component");
   const byName = new Map(rows.map(r => [r.name, r]));
@@ -71,36 +71,40 @@ function ask(lines, factsOf, typesOf, more = {}) {
       handlers(open.map(p => ({ label: p.name, index: 0, field: p.name })));
     } else {
       // ---- pure, instantiates: the call itself
-      const makes = !!f?.makes, objects = typesOf(row.name).objects;
+      const makes = !!f?.pure?.makes;
       const result = x.result?.trim(), disposer = /^\(\s*\)\s*=>\s*(void|undefined)$/.test(result ?? "");
-      const pure = result !== "void" && !x.params.some(p => p.draft) && changes(x, { pure: true }) && !(f && refuted(f, objects));
+      const pure = result !== "void" && !x.params.some(p => p.draft) && changes(x, { pure: true }) && !(f && refuted(f));
       const owned = makes && !disposer && !/^Promise\b/.test(result ?? "") && changes(x, { instantiates: true });
       const words = [pure && "`pure fn` if it only computes", owned && "`instantiates` if every call makes what its owner keeps"].filter(Boolean);
-      if (words.length) q.push(`io as drafted, refused in a view or an equation. ${words.join(", ")}${because(f && (pure ? f.why[0] : f.unbound()))}`);
+      if (words.length) q.push(`io as drafted, refused in a view or an equation. ${words.join(", ")}${because(f && (pure ? f.pure?.why : f.instantiates))}`);
       // ---- handler: where the row, as it is or with the word asked above, reads its callbacks
       const as = pure ? { ...x, pure: true } : owned ? { ...x, instantiates: true } : x;
       handlers(x.callbacks.filter(c => !c.handler && acts(x.params[c.index]?.type, c.field) && changes(as, asHandler(as, c.name))).map(c => ({ label: c.name, index: c.index, field: c.field ?? undefined })));
       // ---- draft
-      const given = (said("draft")?.params ?? []).map(n => [n, x.params.findIndex(p => p.name === n || p.name === `${n}_`)]).filter(([, i]) => i >= 0 && !x.params[i].draft && !objects?.has(i) && (!f || (f.wrote(i) && f.draft(i) === undefined)));
+      const given = (said("draft")?.params ?? []).map(n => [n, x.params.findIndex(p => p.name === n || p.name === `${n}_`)]).filter(([, i]) => i >= 0 && !x.params[i].draft && (!f || (/^it changes (?:what it was given|in place)/.test(f.pure?.why?.why ?? "") && !f.draft?.[i])));
       if (given.length) q.push(`${list(given.map(g => g[0]))}: a store's draft is refused there. \`draft ${given[0][0]}\` if the fn changes it in place${because(f && { why: "a write that may reach it" })}`);
       // ---- renders, nests: where a component it is given is placed
-      const r = comps && x.shape !== "comp" && !x.renders && (said("renders")?.params ?? []).map(n => [n, x.params.findIndex(p => p.name === n || p.name === `${n}_`)]).filter(([, i]) => i < 0 || !f || (u => u.never || !u.uses.every(y => y.how === "sync"))(f.handler(i, undefined)));
-      if (r && r.length) q.push(`${list(r.map(g => g[0]))}: a component given there is checked under a root of its own. \`renders(<Component>)\` names the component of this module it is rendered beneath${because(f && (r[0][1] < 0 ? undefined : f.handler(r[0][1], undefined).uses.find(u => u.how !== "sync")) || (f && { why: "where it goes is not followed" }))}`);
-      if (x.shape === "comp" && !x.nests && (more.couldNest?.(row.name) ?? false)) q.push("the components it is given are checked each alone. `nests(<kids> in <component>)` if the component it makes nests them");
+      const r = comps && x.shape !== "comp" && !x.renders && (said("renders")?.params ?? []).map(n => [n, x.params.findIndex(p => p.name === n || p.name === `${n}_`)]).filter(([, i]) => i < 0 || !f || !/^called while the call runs/.test(f.handlers?.[i]?.why ?? ""));
+      if (r && r.length) q.push(`${list(r.map(g => g[0]))}: a component given there is checked under a root of its own. \`renders(<Component>)\` names the component of this module it is rendered beneath${because(f && (f.handlers?.[r[0][1]]?.why ? f.handlers[r[0][1]] : { why: "where it goes is not followed" }))}`);
+      if (x.shape === "comp" && !x.nests && couldNest(x)) q.push("the components it is given are checked each alone. `nests(<kids> in <component>)` if the component it makes nests them");
     }
     // ---- contexts (one question a context, at the first row that reads it)
     for (const c of contexts.get(row.name) ?? []) q.push(c);
     // ---- rejects
-    if (row.kind === "fn" && errors && changes(x, { rejects: ["?"] }) && !x.rejects?.length && !(f && f.rejects && f.rejects.length === 0)) q.push(`its promise rejects with Error as far as a \`catch\` knows. \`rejects(<classes>)\` names them${f ? `. Not proven: ${f.rejectsWhy ?? "it throws a class with no row"}` : unread()}`);
+    if (row.kind === "fn" && errors && changes(x, { rejects: ["?"] }) && !x.rejects?.length && !(f && f.rejects && f.rejects.length === 0)) q.push(`its promise rejects with Error as far as a \`catch\` knows. \`rejects(<classes>)\` names them${f ? `. Not proven: ${f.rejects ? "it throws a class with no row" : "what it throws is not shown to be of a class of the module's"}` : unread()}`);
     if (said("overloads")) q.push(`one of ${said("overloads").n} signatures, and they differ in what the checker reads (a callback, a \`ref\`, what it answers): write the row of the one the app calls`);
     return q;
 
     function handlers(cbs) {
-      const open = cbs.map(c => { if (!f) return c; const h = f.handler(c.index, c.field); return h.ok || h.never || h.uses.some(u => u.how === "sync") ? undefined : { ...c, w: h.uses.find(u => u.how !== "later") }; }).filter(Boolean);
+      const open = cbs.map(c => { if (!f) return c; const h = f.handlers?.[c.field === undefined ? String(c.index) : `${c.index}.${c.field}`]; return !h || h.ok || settled(h) ? undefined : { ...c, w: h }; }).filter(Boolean);
       if (open.length) q.push(`${open.map(c => c.label).join(", ")}: a closure there may not write a source. \`handler (…) => …\` if it is called later, outside any computation${because(f && open[0].w)}`);
     }
   }
 }
+
+/** Whether a fn takes a tree it could nest (MO-11i): a record written out with a function or a component among its fields
+ *  and a list among them, or a type that is not written out. */
+const couldNest = x => x.params.some(p => !p.type || !/^[\s({]/.test(p.type) ? !/^(?:string|number|boolean|bigint|symbol|undefined|null|unknown)\b/.test(p.type ?? "") : records(p.type, 0, p.type.length).some(fs => fs.some(f => /=>|\bComponent\b/.test(f.text)) && fs.some(f => /\[\]|Array</.test(f.text))));
 
 /** The contexts every call of some row reads and no row is shown to provide: row → its questions. */
 function openContexts(rows, factsOf, more) {
@@ -108,18 +112,12 @@ function openContexts(rows, factsOf, more) {
   for (const row of rows) {
     if (row.kind !== "fn" && row.kind !== "component") continue;
     const f = factsOf(row.name); if (!f || f.unread) continue;
-    for (const c of f.uses.must) if (!more.provided?.has(c.key)) { const o = by.get(c.key) ?? { c, readers: [], givers: [] }; o.readers.push(row.name); by.set(c.key, o); }
-  }
-  for (const row of rows) {
-    const f = by.size && (row.kind === "component" || row.facts.shape === "comp") ? factsOf(row.name) : undefined; if (!f || f.unread) continue;
-    let list = []; try { list = row.kind === "component" ? f.provides(0).list : f.madeProvides(); } catch { /* not read */ }
-    for (const x of list) by.get(x.ctx.key)?.givers.push({ name: row.name, outside: x.outside.find(o => more.outside?.(row.name, o) ?? true) });
+    for (const c of f.uses ?? []) if (!more.provided?.has(c.key)) { const o = by.get(c.key) ?? { c, readers: [] }; o.readers.push(row.name); by.set(c.key, o); }
   }
   const out = new Map();
-  for (const { c, readers, givers } of by.values()) {
-    const who = readers.length > 3 ? `${readers.slice(0, 3).join(", ")} and ${readers.length - 3} more` : readers.join(", ");
-    const g = givers[0], at = w => w?.file && more.at ? ` (${more.at(w)})` : "";
-    const text = `${who} read${readers.length > 1 ? "" : "s"} ${c.name ?? "a context"}, and a call with no provider above it is accepted. \`uses(<context>)\` there, \`provides(<context>)\` on what provides it, \`export context <context>\`. Not proven: ${g ? `${g.name} provides it, but not shown around all it is given${at(g.outside)}` : `no component here is shown to provide it${at(c.at)}`}`;
+  for (const { c, readers } of by.values()) {
+    const who = readers.length > 3 ? `${readers.slice(0, 3).join(", ")} and ${readers.length - 3} more` : readers.join(", "), at = more.at?.(c);
+    const text = `${who} read${readers.length > 1 ? "" : "s"} ${c.name ?? "a context"}, and a call with no provider above it is accepted. \`uses(<context>)\` there, \`provides(<context>)\` on what provides it, \`export context <context>\`. Not proven: no component here is shown to provide it${at ? ` (${at})` : ""}`;
     out.set(readers[0], [...(out.get(readers[0]) ?? []), text]);
   }
   return out;
@@ -133,4 +131,4 @@ function facts(lines) {
   return code.flatMap(l => { for (const before of [[], base]) try { return rowsOf("draft.d.rx", [...before.filter(b => b !== l), l].join("\n") + "\n").slice(-1); } catch { /* refused */ } return []; });
 }
 
-module.exports = { ask, reading, changes, refuted, kindOf };
+module.exports = { ask, reading, changes, kindOf };

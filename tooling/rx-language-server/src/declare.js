@@ -919,7 +919,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const opts = { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options };
   const real = JSON.stringify(spec);
   // a value the types declare and no build of the code exports (a `unique symbol` that types are written with): an import of it is undefined
-  let inCode; if (how.infer !== false) try { inCode = require("./infer.js").create(ts, { solid: process.env.RX_INFER_SOLID !== "0" }).exportedNames(spec, from); } catch { inCode = undefined; }
+  let inCode; if (how.infer !== false) try { const ns = require("./words.js").names(spec, from); inCode = ns && new Set(ns); } catch { inCode = undefined; }
   /** The rows, with the library's types named where it declares them (`refs`, MO-8m) or left `any` (as every draft was). */
   const rows = (mode, roots) => {   // `roots`: of these exports alone
   const refs = !!mode;
@@ -1185,15 +1185,14 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const unshaped = (line, name, reads) => [...shapedBy.get(name) ?? []].reduce((l, at) => reads(at) ? l : withWaits(l, { [at]: "" }), line);
   if (how.infer === false) lines = lines.map(l => { const n = exportedIn(l); return n && l.startsWith("export ") ? unshaped(l, n, () => false) : l; });
   // MO-8v: the words the code that runs proves — `pure`, `handler`, `draft`, `rejects(E)` — written into the rows
-  // (declare-infer.js, infer.js), and what is left to a person asked (questions.js): of a draft a person keeps
-  const di = require("./declare-infer.js"), types = name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } };
+  // (declare-infer.js, compiler/src/words), and what is left to a person asked (questions.js): of a draft a person keeps
   let r = { facts: () => undefined };
   if (how.infer !== false) {
-    r = di.apply(ts, spec, from, lines, types, how.why, { unshaped, contexts, written: how.written, views: name => { try { return di.viewProps(ts, checker, mod, imp, name); } catch { return { has: () => true, outside: () => true, surely: () => false }; } } });
+    r = require("./declare-infer.js").apply(spec, from, lines, how.why, { unshaped, contexts, written: how.written });
     lines = r.lines; out.push(...r.head);
     if (how.inferred) Object.assign(how.inferred, r.count, { unread: r.unread, words: r.words });
   }
-  lines = how.written ? lines.filter(l => !/^\/\/ TODO /.test(l)) : require("./questions.js").ask(lines, r.facts, types, { ...r, couldNest: name => { try { return di.couldNest(ts, checker, mod, imp, name); } catch { return true; } } });
+  lines = how.written ? lines.filter(l => !/^\/\/ TODO /.test(l)) : require("./questions.js").ask(lines, r.facts, r);
   // why each `any` left is one (--explain): what the type holds that the row cannot say; in a row of an overloaded fn,
   // where a type with no name would else be said by its place, that the fn has no one signature to take it from
   if (how.causes) for (const l of lines) { const n = exportedIn(l); for (const m of l.matchAll(/any\u00ab([^\u00bb]*)\u00bb/g)) how.causes.push({ name: n, cause: how.refs !== false && overloaded.has(n) && /^(internal-type|generic|generic-computed|callback|function-result)$/.test(m[1]) ? "overload" : m[1] }); }
