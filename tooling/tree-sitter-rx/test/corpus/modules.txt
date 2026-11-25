@@ -1963,3 +1963,64 @@ export component List<T extends { id: number }>(props: { items; children: view {
           (part_path)))
       (signature_shape
         (shape_words)))))
+
+================================================================================
+A namespace import, and a member applied (MO-6d)
+================================================================================
+
+import * as Select from "./select.rx"
+export default component App() {
+  o: Select.Opt = { value: "a" }
+  <Select.Root><Select.Item value={o.value}>A</Select.Item></Select.Root>
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (import_statement
+    (import_clause
+      (namespace_import
+        (identifier)))
+    (string
+      (string_fragment)))
+  (export_statement
+    (component_declaration
+      (identifier)
+      (formal_parameters)
+      (view_block
+        (equation
+          (identifier)
+          (type_annotation
+            (nested_type_identifier
+              (identifier)
+              (type_identifier)))
+          (object
+            (pair
+              (property_identifier)
+              (string
+                (string_fragment)))))
+        (jsx_element
+          (jsx_opening_element
+            (member_expression
+              (identifier)
+              (property_identifier)))
+          (jsx_element
+            (jsx_opening_element
+              (member_expression
+                (identifier)
+                (property_identifier))
+              (jsx_attribute
+                (property_identifier)
+                (jsx_expression
+                  (member_expression
+                    (identifier)
+                    (property_identifier)))))
+            (jsx_text)
+            (jsx_closing_element
+              (member_expression
+                (identifier)
+                (property_identifier))))
+          (jsx_closing_element
+            (member_expression
+              (identifier)
+              (property_identifier))))))))

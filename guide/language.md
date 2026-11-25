@@ -11,6 +11,7 @@ code. When the compiler reports an error, `diagnostics.md` has its code: why, an
 import pure { fetchUser } from "./api"     // a loader: callable anywhere, re-asked when its inputs change
 import { saveUser } from "./api"           // io: callable only in imperative code (handlers, actions, effects)
 import { Avatar } from "./Avatar.rx"       // another .rx module
+import * as Select from "./select.rx"      // its parts by one name: <Select.Root>, <Select.Item>; no value
 export default component App() { … }       // the entry module's default component is mounted
 ```
 

@@ -27,6 +27,7 @@ declarations. A declaration at the top level lives for the module's lifetime
 import { fetchUser } from "./api"          // an io value: callable only in imperative scope (IO-2)
 import pure { formatName } from "./format" // a lifted value function: callable anywhere (E-9)
 import { Avatar } from "./Avatar.rx"       // a component; its rows come from Avatar.rx's signature (09 MO-3)
+import * as Select from "./select.rx"      // a namespace: <Select.Root>, <Select.Item>, the type Select.Opt (09 MO-6d)
 
 export component Profile(props: { id: number }) { … }
 ```

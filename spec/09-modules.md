@@ -148,6 +148,22 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   type T` is importable and binds no value: types are text to the checker
   (07 §2).
 
+- **MO-6d (A namespace; proposed 2026-11-26, proposals/30).** `import * as
+  Select from "./select.rx"` names the module. The name is the first part
+  of a tag, `<Select.Item>`, and of a type in a type's text, `Select.Opt`,
+  `Select.RootProps<Row>`: each is the module's export of that name,
+  imported as a named import would be (an export that is missing is
+  `NOT_EXPORTED`, one that is no component is `UNKNOWN_COMPONENT` as a
+  tag). It is no value: `Select` alone, `Select.Item` in an expression and
+  `<Select>` are refused (`UNBOUND`, `UNKNOWN_COMPONENT`). It begins with
+  a capital, as what it applies does. A module is read so by every
+  runner: the members it names are its imports, and nothing is made for
+  the namespace. The same of a JavaScript module with a declaration file
+  (`import * as Kit from "./kit.js"`, `<Kit.Dialog.Root>` for MO-11q's
+  members). This is how a kit's parts are written: a module of exported
+  components, applied as `<Select.Root>`, `<Select.Item>`; JavaScript
+  imports the same module the same way. S-module-47.
+
 ## MO-7 — Contexts across modules
 
 - **MO-7.** A context is a declaration (RG-7a), so it crosses modules like any
