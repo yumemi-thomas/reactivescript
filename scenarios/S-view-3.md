@@ -5,7 +5,9 @@ Rules: RG-4c, RG-4b, RG-7b, R-f-5, O-3, W-1, SV-3, SV-7d.
 A component whose `children` are declared a function giving a `View` may show them as `<props.children a={e} … />`: a view
 the caller writes as `{view (s) { … }}`, with the caller's names, owned where it is shown, at each place it is shown. `s` is
 the view's props (RG-4b): `s.a` is the argument, read where it is read. It is shown, never read: a change of an argument
-makes nothing again (`keeps-state`).
+makes nothing again (`keeps-state`). A view of another name is a named one, `{view cell (s) { … }}`, as a JavaScript
+component's is (MO-11k). Children declared `View | ((s: T) => View)` take plain content as well, shown as it is
+(`mixed`); they are not asked for (`if props.children`), as they show nothing where they are nothing.
 
 ## Program
 
@@ -1036,6 +1038,356 @@ export default component App() {
 | --- | --- | --- | --- |
 | 0 | mount | 1 |  |
 
+## Variant: given-spread2
+
+```rx
+component T(props: { a: string, cell: (s: { n: string }) => View, children?: View }) { <p><props.cell n={props.a} />{props.children}</p> }
+export default component App() {
+  r = { a: "z" }
+  <T {...r}>{view cell (s) { <b>{s.n}</b> }}k</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | zk |  |
+
+## Variant: mixed-await
+
+```rx
+import pure { fetch } from "./prelude"
+component T(props: { title?: string, children?: View | ((s: { on: boolean }) => View) }) {
+  source lit := false
+  {errored fallback(e) { <i>bad</i> } { {loading fallback { <i>w</i> } { <props.children on={lit} /> }} }}
+}
+export default component App() {
+  <T>{await fetch("q")}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | w |  |
+| 1 | resolve "q" "1" | 1 |  |
+
+## Variant: mixed-cond
+
+```rx
+component T(props: { children?: View | ((s: { on: boolean }) => View) }) {
+  source on := true
+  <div>{if on { <props.children on={on} /> }}</div>
+}
+export default component App() {
+  <T>{view (s) { effect () { log("v")
+ return () => { log("x") } }
+ <b>v</b> }}</T><T>plain</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | vplain | log(v) |
+
+## Variant: mixed-ctx
+
+```rx
+context c: string = "out"
+component T(props: { title?: string, children?: View | ((s: { on: boolean }) => View) }) {
+  provide c = "in"
+  source lit := false
+  <div><props.children on={lit} /></div>
+}
+export default component App() {
+  <T>{use c}</T><T><b>{use c}</b>!</T><T>{view () { <i>{use c}</i> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | inin!in |  |
+
+## Variant: mixed-forward
+
+```rx
+component T(props: { title?: string, children?: View | ((s: { on: boolean }) => View) }) {
+  source lit := false
+  <div><props.children on={lit} /></div>
+}
+component O(props: { children: View | ((s: { on: boolean }) => View) }) {
+  <T>{view (s) { <props.children on={s.on} /> }}</T>
+}
+export default component App() {
+  <O>{view (s) { <b>{s.on ? "on" : "off"}</b> }}</O><O>plain</O>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | offplain |  |
+
+## Variant: mixed-list
+
+```rx
+component T(props: { title?: string, children?: View | ((s: { on: boolean }) => View) }) {
+  source lit := false
+  <div><props.children on={lit} /></div>
+}
+export default component App() {
+  source xs := ["a", "b"]
+  <T>{for x in xs { <i>{x}</i> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | ab |  |
+| 1 | handler `xs := ["b"]` | b |  |
+
+## Variant: mixed-none
+
+```rx
+component T(props: { children?: View | ((s: { k: string }) => View) }) {
+  <div>a<props.children k="1" />b</div>
+}
+export default component App() {
+  <T>{view () { <b>x</b> }}</T><T />
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | axbab |  |
+
+## Variant: mixed-plain-state
+
+```rx
+component T(props: { title?: string, children?: View | ((s: { on: boolean }) => View) }) {
+  source lit := false
+  <div><props.children on={lit} /></div>
+}
+export default component App() {
+  <T>{if true { source own := 0
+ effect () { log("made")
+ return () => { log("gone") } }
+ <b>{own}</b> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | 0 | log(made) |
+| 1 | handler `own := 3` | 3 |  |
+| 2 | handler `lit := true` | 3 |  |
+
+## Variant: mixed-state
+
+```rx
+component T(props: { title?: string, children?: View | ((s: { on: boolean }) => View) }) {
+  source kk := 0
+  source lit := false
+  <div><props.children on={lit} /></div>
+}
+export default component App() {
+  <T>{view (s) { source own := 0
+ effect () { log("made")
+ return () => { log("gone") } }
+ <b>{s.on ? "on" : "off"}{own}</b> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | off0 | log(made) |
+| 1 | handler `own := 3` | off3 |  |
+| 2 | handler `lit := true` | on3 |  |
+
+## Variant: mixed-twice
+
+```rx
+component T(props: { children: View | ((s: { k: string }) => View) }) {
+  <div><props.children k="1" /><props.children k="2" /></div>
+}
+export default component App() {
+  <T>{view (s) { <b>{s.k}</b> }}</T><T>p</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | 12pp |  |
+
+## Variant: mixed-value
+
+```rx
+component T(props: { title?: string, children?: View | ((s: { on: boolean }) => View) }) {
+  source lit := false
+  <div><props.children on={lit} /></div>
+}
+export default component App() {
+  source on := true
+  <T>{on ? "a" : "b"}</T><T>{if on { <b>x</b> } else { <i>y</i> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | ax |  |
+| 1 | handler `on := false` | by |  |
+
+## Variant: mixed
+
+```rx
+component T(props: { title?: string, children?: View | ((s: { on: boolean }) => View) }) {
+  source lit := false
+  <div><props.children on={lit} /></div>
+}
+export default component App() {
+  source m := "."
+  <T>{view (s) { <b>{s.on ? "on" : "off"}{m}</b> }}</T><T>plain{m}</T><T><i>{m}</i></T><T>{m}</T><T /><T></T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | off.plain... |  |
+| 1 | handler `m := "!"` | off!plain!!! |  |
+
+## Variant: named-ctx
+
+```rx
+context c: string = "out"
+component T(props: { cell: () => View, children?: View }) {
+  provide c = "in"
+  <div><props.cell /></div>
+}
+export default component App() {
+  <T>{view cell () { <i>{use c}</i> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | in |  |
+
+## Variant: named-errored
+
+```rx
+import pure { fetch } from "./prelude"
+component T(props: { cell: () => View, children?: View }) {
+  <div>{props.children}</div>{errored fallback(e) { <i>bad</i> } { {loading fallback { <i>w</i> } { <props.cell /> }} }}
+}
+export default component App() {
+  <T>{view cell () { <b>{await fetch("q")}</b> }}kids</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | kidsw |  |
+| 1 | reject "q" "no" | kidsbad |  |
+
+## Variant: named-req
+
+```rx
+component T(props: { cell: (s: { v: string }) => View, children: (s: { n: number }) => View }) {
+  source n := 1
+  <div><props.cell v="a" /><props.cell v="b" /><props.children n={n} /></div>
+}
+export default component App() {
+  <T>{view cell (s) { <i>{s.v}</i> }}{view (s) { <b>{s.n}</b> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | ab1 |  |
+| 1 | handler `n := 2` | ab2 |  |
+
+## Variant: named-table
+
+```rx
+component T(props: { rows: string[], cell: (s: { r: string }) => View, children?: View }) {
+  <table><tbody>{for r in props.rows { <tr><props.cell r={r} /></tr> }}</tbody></table>{props.children}
+}
+export default component App() {
+  <T rows={["a", "b"]}>{view cell (s) { <td>{s.r}</td> }}<p>c</p></T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | abc |  |
+
+## Variant: named
+
+```rx
+component T(props: { header?: (s: { n: number }) => View, children?: View }) {
+  source n := 1
+  <div>{if props.header { <h1><props.header n={n} /></h1> } else { <p>none</p> }}{props.children}</div>
+}
+export default component App() {
+  source m := "."
+  <T>{view header (s) { <b>h{s.n}{m}</b> }}body{m}</T><T>x</T><T>{view header () { <i>only</i> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | h1.body.nonexonly |  |
+| 1 | handler `m := "!"` | h1!body!nonexonly |  |
+
+## Variant: render
+
+```rx
+component T(props: { title: string, onGo?: () => void, render?: (s: { attrs: any, on: boolean }) => View, children?: View | ((s: { on: boolean }) => View) }) {
+  { render: none, children: none2, title, ...rest } = props
+  source on := false
+  attrs = { title: title, "data-on": on ? "y" : "n" }
+  {if props.render { <props.render attrs={attrs} on={on} /> } else { <button {...attrs} onClick={() => { on := !on }}><props.children on={on} /></button> }}
+}
+export default component App() {
+  <T title="t">plain</T><T title="t">{view (s) { <b>{s.on ? "on" : "off"}</b> }}</T><T title="t">{view render (s) { <a {...s.attrs}>r{s.on ? "on" : "off"}</a> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | plainoffroff |  |
+
+## Variant: spread
+
+```rx
+component T(props: { children: (s: { on: boolean, n: number }) => View }) {
+  source st := { on: false, n: 1 }
+  <div><props.children {...st} /></div>
+}
+export default component App() {
+  <T>{view (s) { <b>{s.on ? "on" : "off"}{s.n}</b> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | off1 |  |
+| 1 | handler `st.n := 5` | off5 |  |
+| 2 | handler `st := { on: true, n: 2 }` | on2 |  |
+
+## Variant: spread2
+
+```rx
+component T(props: { children: (s: { on: boolean, n: number, k: string }) => View }) {
+  source st := { on: false, n: 1 }
+  <div><props.children k="a" {...st} n={9} /></div>
+}
+export default component App() {
+  <T>{view (s) { <b>{s.k}{s.on ? "on" : "off"}{s.n}</b> }}</T>
+}
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | aoff9 |  |
+
 ## Accepted variants
 
 ```rx
@@ -1118,12 +1470,59 @@ export default component App() {
 
 ```rx
 -- accept
+component T(props: { children: (s: { n: number }) => View, header: (s: { n: number }) => View }) {
+  source n := 1
+  <props.header n={1} /><props.children n={n} />
+}
+export default component App() {
+  <T>{view header (s) { <i>{s.n}</i> }}{view (s) { <b>{s.n}</b> }}</T>
+}
+```
+
+```rx
+-- accept
+context c: string
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div>{if true { provide c = "x"
+ <p><props.cell n={n} go={() => n} /></p> }}{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T>{view cell (s) { <b>{use c}</b> }}</T>
+}
+```
+
+```rx
+-- accept
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div><p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T>{view cell (s) { <b>1</b> }}<div>kids</div>{view foot () { <div>f</div> }}</T>
+}
+```
+
+```rx
+-- accept
 component T(props: { children: (s: { n: number }) => string }) {
   source n := 1
   <b>{str(props.children({ n: 1 }))}</b>
 }
 export default component App() {
   <T>{s => str(s.n)}</T>
+}
+```
+
+```rx
+-- accept
+component T(props: { children: (s: { n: number }) => View }) {
+  source st := { n: 1 }
+  <props.children {...st} />
+}
+export default component App() {
+  source saved := 0
+  <T>{view (s) { <b onClick={() => { saved := s.n }}>x</b> }}</T>
 }
 ```
 
@@ -1136,10 +1535,81 @@ export default component App() {
 }
 ```
 
+```rx
+-- accept
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  <props.children n={n} go={() => n} />
+}
+export default component App() {
+  source saved := 0
+  <T>{view (s) { <b onClick={() => { saved := s.n }}>x</b> }}</T><T /><T>x</T><T><b>x</b>y</T>
+}
+```
+
+```rx
+-- accept
+component T(props: { children?: ((s: { n: number, go: () => void }) => View) | View }) {
+  source n := 1
+  <props.children n={n} go={() => n} />
+}
+export default component App() {
+  <T>x</T>
+}
+```
+
 ## Rejected variants
 
 A component that shows a view names it nowhere else; it is given one view and nothing else; what the view reads is
 checked where it is shown.
+
+```rx
+-- types: TS2339
+component T(props: { children: (s: { on: boolean }) => View }) { <div><props.children on={true} /></div> }
+export default component App() {
+  <T>{view (s) { <b>{s.onn}</b> }}</T>
+}
+```
+
+```rx
+-- types: TS2339
+component T(props: { children?: View | ((s: { on: boolean }) => View) }) { <div><props.children on={true} /></div> }
+export default component App() {
+  <T>{view (s) { <b>{s.onn}</b> }}</T>
+}
+```
+
+```rx
+-- types: TS2339
+component T(props: { cell: (s: { on: boolean }) => View }) { <div><props.cell on={true} /></div> }
+export default component App() {
+  <T>{view cell (s) { <b>{s.onn}</b> }}</T>
+}
+```
+
+```rx
+-- types: TS2322
+component T(props: { children?: View | ((s: { on: boolean }) => View) }) { <div><props.children on={1} /></div> }
+export default component App() {
+  <T>x</T>
+}
+```
+
+```rx
+-- types: TS2322
+component T(props: { children: (s: { on: boolean }) => View }) { <div><props.children on={1} /></div> }
+export default component App() {
+  <T>{view (s) { <b>x</b> }}</T>
+}
+```
+
+```rx
+-- types: TS2322
+component T(props: { cell: (s: { on: boolean }) => View }) { <div><props.cell onn={true} /></div> }
+export default component App() {
+  <T>{view cell (s) { <b>x</b> }}</T>
+}
+```
 
 ```rx
 -- reject: VIEW_FN_MISPLACED
@@ -1737,22 +2207,6 @@ fn useX(ref f: any) { source q := 1
  d }
 component T(props: { children: (s: { n: number }) => View }) {
   source n := 1
-  r = { n: 1 }
-  <props.children {...r} />
-}
-export default component App() {
-  <T>{view (s) { <b>{s.n}</b> }}</T>
-}
-```
-
-```rx
--- reject: VIEW_FN_MISPLACED
-component Inner(props: { v?: any, children?: View }) { <p>{props.children}</p> }
-fn useX(ref f: any) { source q := 1
- d = f
- d }
-component T(props: { children: (s: { n: number }) => View }) {
-  source n := 1
   a = [props.children]
   <b>{len(a)}</b><props.children n={n} />
 }
@@ -2129,8 +2583,19 @@ export default component App() {
 ```
 
 ```rx
--- reject: UNKNOWN_COMPONENT
+-- reject: VIEW_FN_EXPECTED
 component T(props: { children: (s: { n: number }) => View, header: (s: { n: number }) => View }) {
+  source n := 1
+  <props.header n={1} /><props.children n={n} />
+}
+export default component App() {
+  <T>{view (s) { <b>{s.n}</b> }}</T>
+}
+```
+
+```rx
+-- reject: UNKNOWN_COMPONENT
+component T(props: { children: (s: { n: number }) => View, header: View | ((s: { n: number }) => View) }) {
   source n := 1
   <props.header n={1} /><props.children n={n} />
 }
@@ -2428,6 +2893,156 @@ export default component App() {
 ```
 
 ```rx
+-- reject: VIEW_FN_EXPECTED
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div><p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T cell={1}>x</T>
+}
+```
+
+```rx
+-- reject: CONTEXT_NOT_FOUND
+context c: string
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  {if true { provide c = "x"
+ <div>{props.children}</div> }}<p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T>{view cell (s) { <b>{use c}</b> }}{use c}</T>
+}
+```
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import pure { fetch } from "./prelude"
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div><p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T>{view cell (s) { <b>{await fetch("q")}</b> }}</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_EXPECTED
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div><p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T>x</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div><p><props.cell n={n} go={() => n} /></p><props.foot />
+}
+export default component App() {
+  <T>{view cell (s) { <b>1</b> }}</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, bar?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div><p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.bar /> }}
+}
+export default component App() {
+  <T>{view cell (s) { <b>1</b> }}</T>
+}
+```
+
+```rx
+-- reject: CONTENT_MODEL
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div><p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T>{view cell (s) { <div>1</div> }}</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{str(props.cell)}</div><p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T>{view cell (s) { <b>1</b> }}</T>
+}
+```
+
+```rx
+-- reject: REGION_ESCAPE
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div><p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  source saved := null
+  <T>{view cell (s) { <b onClick={() => { saved := s.go }}>x</b> }}</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_EXPECTED
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div><p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T>{view cell (s) { <b>1</b> }}{view cell (s) { <b>2</b> }}</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div><p><props.cell n={n} go={() => n} /></p>{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T>{view cell (s) { <b>1</b> }}{view nope (s) { <b>2</b> }}</T>
+}
+```
+
+```rx
+-- reject: REGION_ESCAPE
+component T(props: { children: (s: { n: number, go: () => void }) => View }) {
+  source n := 1
+  r = { n: n, go: () => n }
+  <props.children {...r} />
+}
+export default component App() {
+  source saved := null
+  <T>{view (s) { <b onClick={() => { saved := s.n }}>x</b> }}</T>
+}
+```
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import pure { fetch } from "./prelude"
+component T(props: { children: (s: { n: number }) => View }) {
+  st = await fetch("q")
+  <props.children {...st} />
+}
+export default component App() {
+  <T>{view (s) { <b>{s.n}</b> }}</T>
+}
+```
+
+```rx
 -- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
 component T(props: { children: (s: { n: number }) => View }) {
   source n := 1
@@ -2562,5 +3177,153 @@ component T(props: { children: (s: { n: number }) => View }) {
 }
 export default component App() {
   <T>{view (s) { <s.children /> }}</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_EXPECTED
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  <props.children n={n} go={() => n} />
+}
+export default component App() {
+  <T children={1}>x</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  {str(props.children)}<props.children n={n} go={() => n} />
+}
+export default component App() {
+  <T>x</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  r = { c: props.children }
+  <b>{str(r)}</b><props.children n={n} go={() => n} />
+}
+export default component App() {
+  <T>x</T>
+}
+```
+
+```rx
+-- reject: CONTEXT_NOT_FOUND
+context c: string
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  <props.children n={n} go={() => n} />
+}
+export default component App() {
+  <T>{use c}</T>
+}
+```
+
+```rx
+-- reject: UNHANDLED_FAILURE
+import pure { fetch } from "./prelude"
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  <props.children n={n} go={() => n} />
+}
+export default component App() {
+  <T>{await fetch("q")}</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  {if props.children { <props.children n={n} go={() => n} /> }}
+}
+export default component App() {
+  <T>x</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_EXPECTED
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  <props.children n={n} go={() => n} />
+}
+export default component App() {
+  <T>{view (a, b) { <b>1</b> }}</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  {props.children}<props.children n={n} go={() => n} />
+}
+export default component App() {
+  <T>x</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  { ...rest } = props
+  <p {...rest}><props.children n={n} go={() => n} /></p>
+}
+export default component App() {
+  <T>x</T>
+}
+```
+
+```rx
+-- reject: REGION_ESCAPE
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  <props.children n={n} go={() => n} />
+}
+export default component App() {
+  source saved := null
+  <T>{view (s) { <b onClick={() => { saved := s.go }}>x</b> }}</T>
+}
+```
+
+```rx
+-- reject: CONTENT_MODEL
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  <p><props.children n={n} go={() => n} /></p>
+}
+export default component App() {
+  <T><div>x</div></T>
+}
+```
+
+```rx
+-- reject: CONTENT_MODEL
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  <p><props.children n={n} go={() => n} /></p>
+}
+export default component App() {
+  <T>{view (s) { <div>x</div> }}</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_MISPLACED
+component T(props: { children?: View | ((s: { n: number, go: () => void }) => View) }) {
+  source n := 1
+  <props.children n={n} go={() => n} />
+}
+export default component App() {
+  <T>{view (s) { <b>1</b> }}x</T>
 }
 ```

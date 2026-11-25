@@ -753,35 +753,74 @@ pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<Stri
     }
 }
 
-/// RG-4c: the view a `.rx` component shows, when it takes one: its `children` are declared a function giving a `View`, of one
-/// parameter or none, and its view shows them as `<props.children … />`. Whether they are optional, and the parameter's type.
-pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &[Decl]) -> Option<(bool, Option<String>)> {
-    let (t, optional) = children_type(props_type?, types, 0)?;
-    let param = view_type(&t)?;
-    shows_view(props, decls, view).then_some((optional, param))
+/// RG-4c: a view a component takes and shows: a field of its props declared a function giving a `View`, of one parameter or
+/// none, which its view shows as `<props.f … />`. `mixed`: `children` declared `View | ((s: T) => View)` take plain content as
+/// well. `param`: the parameter's type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shown {
+    pub optional: bool,
+    pub mixed: bool,
+    pub param: Option<String>,
 }
-/// Whether a component shows its children as a view, whatever their type says.
-pub fn shows_view(props: &str, decls: &[Decl], view: &[Markup]) -> bool {
-    applies(decls, view, &format!("{props}.children"))
+pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &[Decl]) -> IndexMap<String, Shown> {
+    let mut out = IndexMap::new();
+    let Some(t) = props_type else { return out };
+    for f in shown_fields(props, decls, view) {
+        let Some((ty, optional)) = field_type(t, &f, types, 0) else { continue };
+        if let Some((mixed, param)) = view_type(&ty).filter(|v| !v.0 || f == "children") {
+            out.insert(f, Shown { optional, mixed, param });
+        }
+    }
+    out
 }
-/// `<props.children … />`: the name of the props.
-pub fn shown_in(tag: &str) -> Option<&str> {
-    let name = tag.strip_suffix(".children")?;
-    let first = name.bytes().next()?;
-    ((first.is_ascii_lowercase() || first == b'_' || first == b'$') && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')).then_some(name)
+/// `<props.f … />`: the name of the props, and the field.
+pub fn shown_in(tag: &str) -> Option<(&str, &str)> {
+    let (n, f) = tag.split_once('.')?;
+    let word = |s: &str| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
+    let first = n.bytes().next()?;
+    let field = f.bytes().next().is_some_and(|b| !b.is_ascii_digit());
+    ((first.is_ascii_lowercase() || first == b'_' || first == b'$') && field && word(n) && word(f)).then_some((n, f))
 }
-fn applies(decls: &[Decl], view: &[Markup], tag: &str) -> bool {
-    let ms = |ms: &[Markup]| applies(&[], ms, tag);
-    decls.iter().any(|d| matches!(d, Decl::Component { decls, view, .. } if applies(decls, view, tag)))
-        || view.iter().any(|m| match &m.kind {
-            MarkupKind::El { tag: t, children, .. } => t == tag || ms(children),
-            MarkupKind::Mif { t, t_decls, f, f_decls, .. } => applies(t_decls, t, tag) || applies(f_decls, f, tag),
-            MarkupKind::Mfor { decls, body, .. } | MarkupKind::Mview { decls, body, .. } | MarkupKind::Portal { decls, body, .. } => applies(decls, body, tag),
-            MarkupKind::Loading { fallback, decls, body, .. } | MarkupKind::Errored { fallback, decls, body, .. } => ms(fallback) || applies(decls, body, tag),
-            _ => false,
-        })
+/// The fields of its props a component shows so, whatever their types say.
+pub fn shown_fields(props: &str, decls: &[Decl], view: &[Markup]) -> indexmap::IndexSet<String> {
+    fn go(props: &str, decls: &[Decl], view: &[Markup], out: &mut indexmap::IndexSet<String>) {
+        for d in decls {
+            if let Decl::Component { decls, view, .. } = d {
+                go(props, decls, view, out);
+            }
+        }
+        for m in view {
+            match &m.kind {
+                MarkupKind::El { tag, children, .. } => {
+                    if let Some((_, f)) = shown_in(tag).filter(|(n, _)| *n == props) {
+                        out.insert(f.to_string());
+                    }
+                    go(props, &[], children, out);
+                }
+                MarkupKind::Mif { t, t_decls, f, f_decls, .. } => {
+                    go(props, &[], t, out);
+                    go(props, t_decls, &[], out);
+                    go(props, &[], f, out);
+                    go(props, f_decls, &[], out);
+                }
+                MarkupKind::Mfor { decls, body, .. } | MarkupKind::Mview { decls, body, .. } | MarkupKind::Portal { decls, body, .. } => go(props, decls, body, out),
+                MarkupKind::Loading { fallback, decls, body, .. } => {
+                    go(props, &[], fallback, out);
+                    go(props, decls, body, out);
+                }
+                MarkupKind::Errored { fallback, decls, body, .. } => {
+                    go(props, &[], fallback, out);
+                    go(props, decls, body, out);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut out = indexmap::IndexSet::new();
+    go(props, decls, view, &mut out);
+    out
 }
-fn children_type(t: &str, decls: &[Decl], depth: usize) -> Option<(String, bool)> {
+fn field_type(t: &str, field: &str, decls: &[Decl], depth: usize) -> Option<(String, bool)> {
     if depth > 8 {
         return None;
     }
@@ -790,7 +829,7 @@ fn children_type(t: &str, decls: &[Decl], depth: usize) -> Option<(String, bool)
         if let Some(body) = part.strip_prefix('{').and_then(|p| p.strip_suffix('}')) {
             for f in split_top(body, ",;\n") {
                 if let Some((k, ty)) = f.split_once(':') {
-                    if !k.is_empty() && field_name(k) == "children" {
+                    if !k.is_empty() && field_name(k) == field {
                         return Some((ty.js_trim().to_string(), k.js_trim().ends_with('?')));
                     }
                 }
@@ -801,14 +840,22 @@ fn children_type(t: &str, decls: &[Decl], depth: usize) -> Option<(String, bool)
         let Some(text) = decls.iter().find_map(|d| match d { Decl::TypeDecl { name, text, .. } if *name == n => Some(text), _ => None }) else { continue };
         let text = text.trim_start_matches("export").trim_start();
         let body = if text.starts_with("interface") { text.find('{').map(|i| &text[i..]) } else { text.find('=').map(|i| &text[i + 1..]) };
-        if let Some(r) = body.and_then(|b| children_type(b.js_trim().trim_end_matches(';'), decls, depth + 1)) {
+        if let Some(r) = body.and_then(|b| field_type(b.js_trim().trim_end_matches(';'), field, decls, depth + 1)) {
             return Some(r);
         }
     }
     None
 }
-/// `(s: T) => View`, `() => View`.
-fn view_type(t: &str) -> Option<Option<String>> {
+/// `(s: T) => View`, `() => View`; `View | ((s: T) => View)`, either way round. Whether plain content is taken; the parameter.
+fn view_type(t: &str) -> Option<(bool, Option<String>)> {
+    let alts: Vec<String> = split_top(t, "|").into_iter().map(|x| x.js_trim().to_string()).collect();
+    if let [a, b] = &alts[..] {
+        let f = if a == "View" { b } else if b == "View" { a } else { return None };
+        if !f.starts_with('(') || crate::parse::closes(f, 0) != Some(f.len()) {
+            return None;
+        }
+        return view_type(&f[1..f.len() - 1]).filter(|v| !v.0).map(|v| (true, v.1));
+    }
     let t = t.js_trim();
     let end = t.starts_with('(').then(|| crate::parse::closes(t, 0)).flatten()?;
     if t[end..].js_trim().strip_prefix("=>").map(|r| r.js_trim()) != Some("View") {
@@ -816,21 +863,22 @@ fn view_type(t: &str) -> Option<Option<String>> {
     }
     let ps: Vec<String> = split_top(&t[1..end - 1], ",").into_iter().map(|p| p.js_trim().to_string()).filter(|p| !p.is_empty()).collect();
     match &ps[..] {
-        [] => Some(None),
+        [] => Some((false, None)),
         [p] => p.split_once(':').and_then(|(n, ty)| {
             let (n, ty) = (n.js_trim(), ty.js_trim());
             let name = n.bytes().next().is_some_and(|b| !b.is_ascii_digit()) && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
-            (name && !ty.is_empty()).then(|| Some(ty.to_string()))
+            (name && !ty.is_empty()).then(|| (false, Some(ty.to_string())))
         }),
         _ => None,
     }
 }
-/// What names the view a component shows anywhere but where it is shown or asked for (`if props.children`): its line. A
-/// projection that takes it out of a rest (`{ children: rest0, ...rest } = props`) and is not named again is none.
-pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup]) -> Option<usize> {
+/// What names a view a component shows (`fields`) anywhere but where it is shown or asked for (`if props.f`, which plain
+/// content as well is not): the field, and its line. A projection that takes it out of a rest
+/// (`{ children: none, ...rest } = props`) and is not named again is none.
+pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup], fields: &IndexMap<String, Shown>) -> Option<(String, usize)> {
     use serde_json::Value;
-    fn is_children(v: &Value, p: &str) -> bool {
-        v["k"] == "member" && v["p"] == "children" && v["o"]["k"] == "id" && v["o"]["name"] == p
+    fn of<'v>(v: &'v Value, p: &str, fields: &IndexMap<String, Shown>) -> Option<&'v str> {
+        (v["k"] == "member" && v["o"]["k"] == "id" && v["o"]["name"] == p).then(|| v["p"].as_str()).flatten().filter(|f| fields.contains_key(*f))
     }
     fn mentions(v: &Value, n: &str) -> bool {
         match v {
@@ -842,30 +890,30 @@ pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup]) -> Option<usi
             _ => false,
         }
     }
-    fn walk(v: &Value, p: &str, line: usize) -> Option<usize> {
+    fn walk(v: &Value, p: &str, fields: &IndexMap<String, Shown>, line: usize) -> Option<(String, usize)> {
         match v {
-            Value::Array(xs) => xs.iter().find_map(|x| walk(x, p, line)),
+            Value::Array(xs) => xs.iter().find_map(|x| walk(x, p, fields, line)),
             Value::Object(o) => {
                 let line = o.get("line").and_then(Value::as_u64).map(|l| l as usize).unwrap_or(line);
                 let k = o.get("k").and_then(Value::as_str);
                 let of_props = |f: &str| v[f]["k"] == "id" && v[f]["name"] == p;
                 if k == Some("member") && of_props("o") {
-                    return (v["p"] == "children").then_some(line);
+                    return of(v, p, fields).map(|f| (f.to_string(), line));
                 }
-                if k == Some("omit") && of_props("e") && v["keys"].as_array().is_some_and(|ks| ks.iter().any(|x| x == "children")) {
+                if k == Some("omit") && of_props("e") && v["keys"].as_array().is_some_and(|ks| fields.keys().all(|f| ks.iter().any(|x| x == f))) {
                     return None;
                 }
                 if matches!(k, Some("id" | "pre")) && v["name"] == p {
-                    return Some(line);
+                    return fields.keys().next().map(|f| (f.clone(), line));
                 }
-                o.iter().find_map(|(f, x)| if k == Some("mif") && f == "c" && is_children(x, p) { None } else { walk(x, p, line) })
+                o.iter().find_map(|(f, x)| if k == Some("mif") && f == "c" && of(x, p, fields).is_some_and(|g| !fields[g].mixed) { None } else { walk(x, p, fields, line) })
             }
             _ => None,
         }
     }
     let all: Vec<Value> = decls.iter().map(|d| d.to_json()).chain(view.iter().map(|m| m.to_json())).collect();
-    let out = |d: &Value| d["k"] == "eq" && is_children(&d["e"], props) && !all.iter().any(|x| mentions(x, d["name"].as_str().unwrap_or_default()));
-    all.iter().find_map(|d| if out(d) { None } else { walk(d, props, 0) })
+    let out = |d: &Value| d["k"] == "eq" && of(&d["e"], props, fields).is_some() && !all.iter().any(|x| mentions(x, d["name"].as_str().unwrap_or_default()));
+    all.iter().find_map(|d| if out(d) { None } else { walk(d, props, fields, 0) })
 }
 
 #[cfg(test)]

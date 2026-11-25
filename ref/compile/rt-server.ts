@@ -387,6 +387,8 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     // a value is formatted, a view is inserted. The text is escaped by the compiled view, which wraps every hole in Solid's
     // `escape` (strings, and the strings of a list): escaping here as well showed `a < b` as `a &lt; b` (2026-11-24)
     show: (v: unknown) => isView(v) ? v : fmt(v),
+    /** RG-4c: a view a component was given, shown with what it knows (a function of one parameter; one of none is a thunk, as JSX has it); plain content, as it is. */
+    view(c: unknown, f: (view: unknown) => unknown) { return typeof c === "function" && c.length ? f(c) : app.kids(c); },
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
     kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. The

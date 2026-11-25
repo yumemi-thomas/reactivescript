@@ -13,6 +13,8 @@ pub struct Shape {
     pub a: bool,
     pub form: bool,
     pub children_at: Vec<Vec<String>>,
+    /// RG-4c: a view of another name, where it shows it
+    pub views_at: std::collections::BTreeMap<String, Vec<Vec<String>>>,
 }
 
 fn words(s: &'static str) -> HashSet<&'static str> {

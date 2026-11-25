@@ -1852,7 +1852,7 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             }
             let t = c.src[t0..c.i].to_string();
             c.expect(")")?;
-            match crate::signature::content_shape_of(Some(&t)) {
+            match crate::signature::content_shape_of(Some(&t), false) {
                 Ok(sh) => content = Some(sh),
                 Err(e) => return c.fail(&e),
             }

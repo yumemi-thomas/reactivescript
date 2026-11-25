@@ -54,3 +54,4 @@ export declare function sum(xs: readonly number[]): number;
 export declare function fail(msg: string): never;
 export declare function fetch(key: string): Promise<any>;
 export declare function log(...a: unknown[]): void;
+export declare function view<T>(v: T): Extract<T, (s: any) => any>;   // RG-4c: `<props.children … />` where it is optional, or plain content is taken as well

@@ -144,18 +144,21 @@ A component is a function from a props value to a region whose tail is a view.
   instead, which is ordinary. A `use` in children reads where they are placed
   (RG-7b, 08; S-context-4).
   - **A view (proposed 2026-11-25).** The function prop that makes markup. A
-    component whose `children` are declared a function giving a `View`, of one
-    parameter or none, may show them as `<props.children a={e} … />`, in its own
-    view, at any number of places; they are then named nowhere else in it, but
-    for `if props.children { … }`, under which optional ones are shown, and a
-    projection that takes them out of a rest. What is given is one `{view (s) {
-    … }}`: a block of the caller's names, owned where it is shown, an instance at
-    each place. `s` is its props (RG-4b): `s.a` is the argument, read where it is
-    read, never written. For what it waits on and fails with, an argument is
-    checked as read where the view is shown. What the view stores where it
-    outlives it (O-3) is none of what the component's closures hold. A component
-    so typed that never shows them this way is as it was: it reads and calls
-    them. (`VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED`; S-view-3, S-view-4.)
+    prop declared a function giving a `View`, of one parameter or none
+    (`children: (s: { on: boolean }) => View`, `cell: () => View`), may be shown
+    as `<props.f a={e} … />`, in the component's own view, at any number of
+    places. It is then named nowhere else in it, but for `if props.f { … }`, under
+    which an optional one is shown, and a projection that takes it out of a rest.
+    What is given is one `{view (s) { … }}`, or for a prop of another name one
+    `{view f (s) { … }}`: a block of the caller's names, owned where it is shown,
+    an instance at each place. `s` is its props (RG-4b): `s.a` is the argument,
+    read where it is read, never written. For what it waits on and fails with, an
+    argument is checked as read where the view is shown. What the view stores
+    where it outlives it (O-3) is nothing the component's closures hold.
+    Children declared `View | ((s: T) => View)` are given plain content as well,
+    shown as it is, and are not asked for. A component so typed that never shows
+    them this way is as it was: it reads and calls them. (`VIEW_FN_EXPECTED`,
+    `VIEW_FN_MISPLACED`; S-view-3, S-view-4, S-view-5.)
 - **RG-4d (No return channel).** A component body evaluates to its view and
   nothing else. To expose a value upward, the caller passes a handler (or an
   action) the child calls: a source passed as a prop is read-only in the child

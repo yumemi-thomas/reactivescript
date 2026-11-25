@@ -6,7 +6,7 @@ import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
-import { otherMention, shown, shownIn, shownTag, type ModuleSet, type Shown } from "./modules.ts";
+import { otherMention, shown, shownIn, type ModuleSet, type Shown } from "./modules.ts";
 import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
@@ -41,7 +41,7 @@ type Region = {
   appSites: Region[];                  // component roots: the regions it is applied in
   provides: Set<string>;
   catches?: Catch;                     // an `errored` body: what its boundary discharges (R-f-4)
-  kids?: { comp: Region; site: Region };   // children passed to a component: read where it reads props.children (R-f-5)
+  kids?: { comp: Region; site: Region; view?: string };   // children passed to a component: read where it reads props.children (R-f-5)
   js?: boolean;                        // a declared JS component's root (MO-11a)
   sig?: CompSig;                       // an imported component's root: its signature stands in for its body (MO-3)
   key?: string;                        // E-5a: a component root's identity across modules (`file#name`), for what its props are given
@@ -62,7 +62,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; view?: { optional: boolean; values: string[]; type?: string }; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; through?: boolean };   // through: MO-14f (2026-11-25), in a host's view — the component's view applies a component the host renders through, so it renders its applier's children there (not printed: a host's view is checked from source)   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; view?: { optional: boolean; mixed: boolean; values: string[]; type?: string }; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; through?: boolean };   // through: MO-14f (2026-11-25), in a host's view — the component's view applies a component the host renders through, so it renders its applier's children there (not printed: a host's view is checked from source)   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 /** MO-11u: one application of a component a declared fn `renders(…)` beneath, as the components that fn is given see it:
  *  what is discharged and provided between that application's children and the root of the component it is written in
  *  (in a module's own list: the program's). */
@@ -171,7 +171,7 @@ type Sym = {
   factory?: { args: Expr[]; env: Env; values?: string[]; nests?: { kids: string; inside: string }; exported?: Sym };   // MO-11f; exported: MO-11j, the component an importer sees: a component a JS factory made — the call's arguments, and the components in them
   exportKey?: string;                  // E-5a: an .rx import's `file#name`, whose changing the whole-program pass knows
   through?: boolean;                   // MO-14f: a JS component the host renders through — applied in a component's view, it renders that component's children there
-  viewOf?: { comp: Sym };              // RG-4c: the parameter of a view given to `comp`, an .rx component: its props
+  viewOf?: { comp: Sym; view: string };   // RG-4c: the parameter of a view (the field it is given for) of `comp`, an .rx component: its props
   noProps?: string;                    // RG-4b: the props of `component C()`, which declares none — C's name: reading them is UNBOUND
   fnDecl?: Extract<Decl, { k: "fn" }>; declEnv?: Env;   // a fn's declaration and the scope it names from (SF-3: what it reaches)   // a context (RG-7): its identity, whether it carries a source, and its declared rows (null: inferred from its provisions)
 };
@@ -1151,34 +1151,34 @@ class Checker {
   private callbackFns = new WeakSet<Expr>();
   /** MO-11k: view lambdas in a render-prop position (the only child of a JS component whose `children` gives a View). */
   private viewFns = new WeakSet<Markup>();
-  /** RG-4c: the view an `.rx` component takes as its children and shows as `<props.children … />`, and what it shows it with. */
-  private shownMemo = new Map<Sym, Shown | null>();
-  private shownBy(s: Sym): Shown | undefined {
-    if (s.compRegion?.sig) { const v = s.compRegion.sig.props.children?.view; return v && { optional: v.optional, ...(v.type !== undefined ? { param: v.type } : {}) }; }
+  /** RG-4c: the views an `.rx` component takes and shows as `<props.f … />`, by field, and what it shows them with. */
+  private shownMemo = new Map<Sym, Map<string, Shown>>();
+  private shownBy(s: Sym): Map<string, Shown> | undefined {
+    if (s.compRegion?.sig) { const ps = Object.entries(s.compRegion.sig.props).flatMap(([f, p]) => p.view ? [[f, { optional: p.view.optional, mixed: p.view.mixed, ...(p.view.type !== undefined ? { param: p.view.type } : {}) }] as [string, Shown]] : []); return ps.length ? new Map(ps) : undefined; }
     if (!s.comp) return undefined;
-    let r = this.shownMemo.get(s); if (r === undefined) this.shownMemo.set(s, r = shown(s.comp, this.typeDecls) ?? null);
-    return r ?? undefined;
+    let r = this.shownMemo.get(s); if (!r) this.shownMemo.set(s, r = shown(s.comp, this.typeDecls));
+    return r.size ? r : undefined;
   }
   private typeDecls: Decl[] = [];
-  private viewFor = new WeakMap<Markup, Sym>();                                             // the component a view lambda is given to
-  private placed = new Map<Region, { e: Expr; field: string; env: Env }[][]>();            // each place a component shows its view: what with
-  private shownAt: { region: Region; comp: Region }[] = [];                                // … and where: what is read there goes up from there
-  private viewStores: { comp: Sym; field: string; line: number }[] = [];                    // O-3: what a view stores where it outlives it
-  private asked = new WeakSet<Region>();                                                    // the branch of `if props.children` where they are
-  /** The component a tag shows the view of, `<props.children … />` in its own view. */
-  private shows(tag: string, env: Env): Sym | undefined {
-    const name = shownIn(tag); const p = name === undefined ? undefined : env.lookup(name); const c = p?.kind === "props" && !p.viewOf ? this.compSyms.get(p.region) : undefined;
-    return c && this.shownBy(c) ? c : undefined;
+  private viewFor = new WeakMap<Markup, { comp: Sym; view: string }>();                     // what a view lambda is given to
+  private placed = new Map<string, { e: Expr; field: string; env: Env }[][]>();            // by component and view, each place it shows it: what with
+  private shownAt: { region: Region; comp: Region; view: string }[] = [];                   // … and where: what is read there goes up from there
+  private viewStores: { comp: Sym; view: string; field: string; line: number }[] = [];      // O-3: what a view stores where it outlives it
+  private asked = new Map<Region, string>();                                                // the branch of `if props.f` where it is
+  /** The component a tag shows a view of, `<props.f … />` in its own view, and which. */
+  private shows(tag: string, env: Env): { comp: Sym; view: string } | undefined {
+    const n = shownIn(tag); const p = n && env.lookup(n[0]); const c = p?.kind === "props" && !p.viewOf ? this.compSyms.get(p.region) : undefined;
+    return c && this.shownBy(c)?.has(n![1]) ? { comp: c, view: n![1] } : undefined;
   }
   /** O-3: whether a field a component shows its view with holds no closure of the component's, in every place it does. */
-  private viewValue(c: Sym, field: string, seen = new Set<string>()): boolean {
-    if (c.compRegion!.sig) return !!c.compRegion!.sig.props.children?.view?.values.includes(field);
-    const key = `${c.compRegion!.id}:${field}`; if (seen.has(key)) return true; seen.add(key);
-    const given = (this.placed.get(c.compRegion!) ?? []).flatMap(xs => xs.filter(x => x.field === field));
+  private viewValue(c: Sym, view: string, field: string, seen = new Set<string>()): boolean {
+    if (c.compRegion!.sig) { const vs = c.compRegion!.sig.props[view]?.view?.values ?? []; return vs.includes(field) || vs.includes("*"); }
+    const key = `${c.compRegion!.id}:${view}:${field}`; if (seen.has(key)) return true; seen.add(key);
+    const given = (this.placed.get(`${c.compRegion!.id}:${view}`) ?? []).flatMap(xs => xs.filter(x => x.field === field || x.field === "*"));
     return given.length > 0 && given.every(x => this.stored(x.e, x.env).every(k => {
       if (!k.propOf) return k.region.depth === 0;
       if (k.propOf.field === "*") return false;
-      if (k.viewOf) return this.viewValue(k.viewOf.comp, k.propOf.field, seen);
+      if (k.viewOf) return this.viewValue(k.viewOf.comp, k.viewOf.view, k.propOf.field, seen);
       const t = this.propsTy.get(k.propOf.comp); const ft = t === undefined ? undefined : tyStep(t, { field: k.propOf.field });
       return ft !== undefined && tyScalar(ft);
     }));
@@ -1431,7 +1431,7 @@ class Checker {
         if (d.propsType !== undefined) this.propsTy.set(r, fieldRows(d.propsType).text);
         this.bind(inner, d.props, { kind: "props", name: d.props, region: r, line: d.line, ...(d.noProps ? { noProps: d.name } : {}), ...(ph ? { held: ph, ...(d.propsType !== undefined ? { retTy: fieldRows(d.propsType).text } : {}) } : {}) });
         sym.compEnv = inner;
-        { const o = this.shownBy(sym) && otherMention(d); if (o) { const at = this.line; this.line = o.line || d.line; this.err("VIEW_FN_MISPLACED", "RG-4c", `${d.name} shows ${d.props}.children as a view, \`<${shownTag(d.props)} … />\`: it is named nowhere else (not read, called, stored, passed or spread; \`if ${shownTag(d.props)}\` asks for an optional one, and \`{ children: none, ...rest } = ${d.props}\` leaves it out of a rest)`); this.line = at; } }
+        { const fs = this.shownBy(sym); const o = fs && otherMention(d, fs); if (o) { const at = this.line; this.line = o.line || d.line; const p = `${d.props}.${o.field}`; this.err("VIEW_FN_MISPLACED", "RG-4c", `${d.name} shows ${p} as a view, \`<${p} … />\`: it is named nowhere else (not read, called, stored, passed or spread; \`if ${p}\` asks for an optional one that takes no plain content, and \`{ ${o.field}: none, ...rest } = ${d.props}\` leaves it out of a rest)`); this.line = at; } }
         this.block(d.decls, d.view, inner, { scope: "reactive" });
         this.later.push(() => this.contentCheck(d.view, inner, []));
         return;
@@ -2689,7 +2689,7 @@ class Checker {
     }
     const leak = captured.find(c => !c.propOf && c.region.depth > tDepth);
     if (leak) this.err("REGION_ESCAPE", "O-3", `a closure capturing ${leak.name} (declared in a region that ends sooner) is stored into ${s.target.ctx ? "use " : ""}${s.target.name}, which outlives it`);
-    for (const c of captured) if (c.propOf && tDepth < c.propOf.comp.depth) if (c.viewOf) this.viewStores.push({ comp: c.viewOf.comp, field: c.propOf.field, line: this.line }); else this.retain(c.propOf.comp, c.propOf.field, prov !== null ? `p:${prov}` : `d:${tDepth}`);   // checked where the component is applied
+    for (const c of captured) if (c.propOf && tDepth < c.propOf.comp.depth) if (c.viewOf) this.viewStores.push({ ...c.viewOf, field: c.propOf.field, line: this.line }); else this.retain(c.propOf.comp, c.propOf.field, prov !== null ? `p:${prov}` : `d:${tDepth}`);   // checked where the component is applied
   }
   private retain(comp: Region, field: string, t: string): boolean {
     let m = this.retains.get(comp); if (!m) this.retains.set(comp, m = new Map());
@@ -2712,14 +2712,14 @@ class Checker {
           const limit = t.startsWith("d:") ? +t.slice(2) : this.provAnchor(a.site, t.slice(2));
           const leak = cap.find(c => !c.propOf && c.region.depth > limit);
           if (leak) { this.line = a.line; this.err("REGION_ESCAPE", "O-3", `<${a.tag} ${x.field === "*" ? "{...…}" : `${x.field}={…}`}>: the closure passed captures ${leak.name} (declared in a region that ends sooner), and ${a.tag} stores ${x.field === "*" ? "a field of it" : x.field} (itself, or through a component it passes it to) where it outlives it`); }
-          for (const c of cap) if (c.propOf && limit < c.propOf.comp.depth) { if (c.viewOf) { const at = { comp: c.viewOf.comp, field: c.propOf.field, line: a.line }; if (!this.viewStores.some(v => v.comp === at.comp && v.field === at.field && v.line === at.line)) this.viewStores.push(at); } else if (this.retain(c.propOf.comp, c.propOf.field, t)) changed = true; }
+          for (const c of cap) if (c.propOf && limit < c.propOf.comp.depth) { if (c.viewOf) { const at = { ...c.viewOf, field: c.propOf.field, line: a.line }; if (!this.viewStores.some(v => v.comp === at.comp && v.view === at.view && v.field === at.field && v.line === at.line)) this.viewStores.push(at); } else if (this.retain(c.propOf.comp, c.propOf.field, t)) changed = true; }
         }
       }
     }
   }
   /** O-3: what a view stores of what it is shown with. A closure there is the component's, which ends before where it is stored. */
   private viewsStored() {
-    for (const v of this.viewStores) if (v.field === "*" || !this.viewValue(v.comp, v.field)) { this.line = v.line; this.err("REGION_ESCAPE", "O-3", `what ${v.comp.name} shows its view with${v.field === "*" ? "" : ` (${v.field})`} may hold a closure of ${v.comp.name}'s, and is stored where it outlives it: store a value made of it, or let ${v.comp.name} store it`); }
+    for (const v of this.viewStores) if (v.field === "*" || !this.viewValue(v.comp, v.view, v.field)) { this.line = v.line; this.err("REGION_ESCAPE", "O-3", `what ${v.comp.name} shows its view with${v.field === "*" ? "" : ` (${v.field})`} may hold a closure of ${v.comp.name}'s, and is stored where it outlives it: store a value made of it, or let ${v.comp.name} store it`); }
   }
   /** The depth, in the site's lexical tree, of the region a provision written from beneath `site` lives as long as. */
   private provAnchor(site: Region, key: string): number {
@@ -2734,24 +2734,24 @@ class Checker {
   }
 
   // ---- views ----
-  /** RG-4c: `<props.children a={e} />`, the component's view shown there. The arguments are read there, as far as what they
-   *  wait on and fail with goes (nothing of it is in a signature); the view's own readers go up from there, as `{props.children}`'s. */
-  private showView(m: Extract<Markup, { k: "el" }>, c: Sym, env: Env) {
-    const R = c.compRegion!; const bad = (msg: string) => this.err("VIEW_FN_MISPLACED", "RG-4c", msg);
+  /** RG-4c: `<props.f a={e} />`, the component's view shown there. The arguments are read there, as far as what they wait on
+   *  and fail with goes (nothing of it is in a signature); the view's own readers go up from there, as `{props.children}`'s. */
+  private showView(m: Extract<Markup, { k: "el" }>, c: Sym, view: string, env: Env) {
+    const R = c.compRegion!, how = this.shownBy(c)!.get(view)!; const bad = (msg: string) => this.err("VIEW_FN_MISPLACED", "RG-4c", msg);
     if (env.region.component !== R) bad(`<${m.tag}> is shown in ${c.name}'s own view, not in a component declared inside it: give that one a view of its own, \`{view (s) { <${m.tag} … /> }}\``);
     if (m.children.some(x => x.k !== "text" || x.s.trim())) bad(`<${m.tag}> is given nothing between its tags: what the view shows is what it was written with`);
-    if (this.shownBy(c)!.optional) { let r: Region | null = env.region; while (r && !this.asked.has(r)) r = r === R ? null : r.parent; if (!r) bad(`${c.name}'s children are optional: show them where they are there, \`{if ${m.tag} { <${m.tag} … /> }}\``); }
+    if (how.optional && !how.mixed) { let r: Region | null = env.region; while (r && this.asked.get(r) !== view) r = r === R ? null : r.parent; if (!r) bad(`${c.name}'s ${view} is optional: show it where it is there, \`{if ${m.tag} { <${m.tag} … /> }}\``); }
     const handles = (n: string) => n !== "ref" && isHandler(n);
     this.componentValues(m, env);
     for (const a of m.attrs) {
-      if (a.name === "..." || a.name === "children") { bad(a.name === "..." ? `<${m.tag} {...…}>: what a view is shown with is written out, a field at a time` : `<${m.tag} children={…}>: a view is shown with fields of another name`); continue; }
+      if (a.name === "children") { bad(`<${m.tag} children={…}>: a view is shown with fields of another name`); continue; }
       if (handles(a.name)) this.handlerCalled(a.e, env, a.name);
       this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" }));
       if (!handles(a.name)) { this.keep(a.e, env); this.readers.push({ region: env.region, e: a.e, env, line: this.line }); }
     }
-    this.shownAt.push({ region: env.region, comp: R });
-    let at = this.placed.get(R); if (!at) this.placed.set(R, at = []);
-    at.push(m.attrs.flatMap(a => a.name === "..." ? [] : [{ field: a.name, e: a.e, env }]));
+    this.shownAt.push({ region: env.region, comp: R, view });
+    const key = `${R.id}:${view}`; let at = this.placed.get(key); if (!at) this.placed.set(key, at = []);
+    at.push(m.attrs.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })));
   }
   private markup(ms: Markup[], env: Env, viewRoot = false) {
     let styles = 0;
@@ -2789,7 +2789,7 @@ class Checker {
               if (s.compRegion!.hostKey) this.hostSites.push({ key: s.compRegion!.hostKey, comp: s.compRegion!, region: kids });   // MO-11u
               const sigProps = s.compRegion!.sig?.props;
               for (const x of m.children) if (x.k === "mview" && x.prop) {                     // MO-11k: a named render prop
-                if (!sigProps?.[x.prop]?.render) this.err("VIEW_FN_MISPLACED", "MO-11k", `<${m.tag}> declares no render prop ${x.prop} (a prop typed as a function giving a View)`);
+                if (!sigProps?.[x.prop]?.render && !this.shownBy(s)?.has(x.prop)) this.err("VIEW_FN_MISPLACED", "MO-11k", `<${m.tag}> declares no render prop ${x.prop} (a prop typed as a function giving a View)`);
                 this.viewFns.add(x);                                                           // reported once; its body is still checked
               }
               if (sigProps?.children?.render) {                                               // MO-11k: children are one view lambda
@@ -2798,18 +2798,32 @@ class Checker {
                 if (!leftOut && (real.length !== 1 || real[0].k !== "mview")) this.err("VIEW_FN_EXPECTED", "MO-11k", `<${m.tag}>'s children are a function of what it renders: write them as \`{view (item) { … }}\``);
                 for (const x of real) if (x.k === "mview") this.viewFns.add(x);
               }
-              if (this.shownBy(s) && s.compRegion) {                                          // RG-4c: an .rx component that shows its children as a view it applies
+              const takes = this.shownBy(s); const apart = new Set<Markup>();                  // RG-4c: an .rx component that shows views it is given
+              if (takes) {
                 const real = m.children.filter(x => !(x.k === "text" && !x.s.trim()) && !(x.k === "mview" && x.prop));
-                const one = real.length === 1 && real[0].k === "mview" ? real[0] : undefined;
-                if (m.attrs.some(a => a.name === "children") || (!one && (real.length || !this.shownBy(s)!.optional)) || (one && one.params.length > 1)) this.err("VIEW_FN_EXPECTED", "RG-4c", `<${m.tag}> shows its children with what it knows, as one view with one parameter: write them as \`{view (s) { … }}\`, \`s.x\` for what it passes as \`x\``);
-                for (const x of real) if (x.k === "mview") { this.viewFns.add(x); this.viewFor.set(x, s); }
+                const many = (v: Extract<Markup, { k: "mview" }>) => { if (v.params.length > 1) this.expectsView(m.tag, v.prop); };
+                const ch = takes.get("children");
+                if (ch) {
+                  const one = real.length === 1 && real[0].k === "mview" ? real[0] : undefined;
+                  if (m.attrs.some(a => a.name === "children") || (!ch.mixed && !one && (real.length || !ch.optional))) this.expectsView(m.tag);
+                  if (one) { this.viewFns.add(one); this.viewFor.set(one, { comp: s, view: "children" }); many(one); }
+                }
+                for (const x of m.children) if (x.k === "mview" && x.prop && takes.has(x.prop)) {
+                  many(x); this.viewFor.set(x, { comp: s, view: x.prop }); apart.add(x);
+                  const at = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag }); at.kids = { comp: s.compRegion!, site: env.region, view: x.prop };
+                  this.markup([x], new Env(env, at));
+                }
+                for (const [f, v] of takes) if (f !== "children" && !v.mixed) {
+                  const a = m.attrs.find(a => a.name === f), n = m.children.filter(x => x.k === "mview" && x.prop === f).length;
+                  if (a || n > 1 || (!n && !v.optional)) this.expectsView(m.tag, f);
+                }
               }
-              this.markup([...m.children, ...this.throughChildren(m, s, env), ...values.values()], new Env(env, kids));
+              this.markup([...m.children.filter(x => !apart.has(x)), ...this.throughChildren(m, s, env), ...values.values()], new Env(env, kids));
               if (s.factory && !this.expanding.markup.has(s)) { this.expanding.markup.add(s); this.markup(this.factoryTree(s, m.line), new Env(s.factory.env, kids)); this.expanding.markup.delete(s); }   // MO-11f: named where the factory was called
             } else this.markup(m.children, env);
             break;
           }
-          { const c = this.shows(m.tag, env); if (c) { this.showView(m, c, env); break; } }
+          { const c = this.shows(m.tag, env); if (c) { this.showView(m, c.comp, c.view, env); break; } }
           { const dot = m.tag.indexOf("."); if (dot > 0) { const head = m.tag.slice(0, dot); const bound = !!env.lookup(head); if (bound) this.err("UNKNOWN_COMPONENT", "MO-11q", memberTagLowercase(m.tag)); } }
           for (const a of m.attrs) { if (isHandler(a.name) && a.name !== "ref") this.handlerCalled(a.e, env, a.name); this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.keep(a.e, env); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
           this.markup(m.children, env);
@@ -2818,15 +2832,15 @@ class Checker {
         case "mif": {
           this.wholeOk.add(m.c);                                                             // MO-10f: a condition reads no field
           this.comp("reader", env, { at: "if" }, () => this.expr(m.c, env, { scope: "reactive" })); this.keep(m.c, env); this.readers.push({ region: env.region, e: m.c, env, line: this.line });
-          { const then = this.region(env.region, "then"); if (m.c.k === "member" && m.c.o.k === "id" && this.shows(`${m.c.o.name}.${m.c.p}`, env)) this.asked.add(then); this.block(m.tDecls, m.t, new Env(env, then), { scope: "reactive" }); }
+          { const then = this.region(env.region, "then"); if (m.c.k === "member" && m.c.o.k === "id" && this.shows(`${m.c.o.name}.${m.c.p}`, env)) this.asked.set(then, m.c.p); this.block(m.tDecls, m.t, new Env(env, then), { scope: "reactive" }); }
           this.block(m.fDecls, m.f, new Env(env, this.region(env.region, "else")), { scope: "reactive" });
           break;
         }
         case "mview": {                                                                     // MO-11k: a render prop's body, owned where the component calls it
-          if (!this.viewFns.has(m)) { this.err("VIEW_FN_MISPLACED", "MO-11k", "a `view (…) { … }` is the only child of a component that takes one: a JS component whose declaration types `children` as a function giving a View, or an .rx component that shows its `children`, typed so, as `<props.children … />`"); break; }
+          if (!this.viewFns.has(m)) { this.err("VIEW_FN_MISPLACED", "MO-11k", "a `view (…) { … }` is the only child of a component that takes one: a JS component whose declaration types `children` as a function giving a View, or an .rx component that shows its `children`, typed so, as `<props.children … />` (a named one, `view cell (s) { … }`, its `cell`)"); break; }
           const r = this.region(env.region, "for"); const inner = new Env(env, r);
-          const host = this.viewFor.get(m); const type = host && this.shownBy(host)?.param; if (type !== undefined) this.propsTy.set(r, fieldRows(type).text);
-          for (const p of m.params) inner.vars.set(p, host ? { kind: "props", name: p, region: r, line: this.line, viewOf: { comp: host } } : { kind: "value", name: p, region: r, line: this.line, handed: true });   // what the component passes: a value per call
+          const host = this.viewFor.get(m); const type = host && this.shownBy(host.comp)?.get(host.view)?.param; if (type !== undefined) this.propsTy.set(r, fieldRows(type).text);
+          for (const p of m.params) inner.vars.set(p, host ? { kind: "props", name: p, region: r, line: this.line, viewOf: host } : { kind: "value", name: p, region: r, line: this.line, handed: true });   // what the component passes: a value per call
           this.block(m.decls, m.body, inner, { scope: "reactive" });
           break;
         }
@@ -3044,12 +3058,13 @@ class Checker {
             if (S.closesP && !scoped) sh.closesP = true; if (S.a) sh.a = true; if (S.form) sh.form = true;
             for (const ch of S.childrenAt) {                                               // the caller's children, where that component puts them
               const sc = scoped || ch.some(t => P_SCOPE.has(t));
-              walk([...m.children, ...this.componentValues(m, env).values()], [...anc, ...ch], sc, env);
+              walk([...m.children.filter(x => !this.viewElsewhere(s, x)), ...this.componentValues(m, env).values()], [...anc, ...ch], sc, env);
               if (s.factory && !this.expanding.shape.has(s)) { this.expanding.shape.add(s); walk(this.factoryTree(s, m.line), [...anc, ...ch], sc, s.factory.env); this.expanding.shape.delete(s); }
             }
+            for (const x of m.children) { const f = this.viewElsewhere(s, x); for (const at of f === undefined ? [] : S.viewsAt?.[f] ?? []) walk([x], [...anc, ...at], scoped || at.some(t => P_SCOPE.has(t)), env); }
             break;
           }
-          if (this.shows(m.tag, env)) { sh.childrenAt.push(anc); break; }
+          { const c = this.shows(m.tag, env); if (c) { if (c.view === "children") sh.childrenAt.push(anc); else ((sh.viewsAt ??= {})[c.view] ??= []).push(anc); break; } }
           if (!anc.length) roots.add(m.tag);
           if (P_CLOSERS.has(m.tag) && !scoped) sh.closesP = true; if (m.tag === "a") sh.a = true; if (m.tag === "form") sh.form = true;
           walk(m.children, [...anc, m.tag], scoped || P_SCOPE.has(m.tag), env); break;
@@ -3110,6 +3125,9 @@ class Checker {
     if (!r) { r = { k: "read", e: { k: "member", o: { k: "id", name }, p: "children" }, line: m.line } as Markup; this.throughReads.set(r, m); }
     return [r];
   }
+  /** RG-4c: a view of another name, which a component shows where it says, not among its children. */
+  private viewElsewhere(s: Sym, x: Markup): string | undefined { return x.k === "mview" && x.prop && this.shownBy(s)?.has(x.prop) ? x.prop : undefined; }
+  private expectsView(tag: string, view?: string) { this.err("VIEW_FN_EXPECTED", "RG-4c", `<${tag}> shows its ${view ?? "children"} with what it knows, as one view with one parameter: write ${view === undefined ? "them" : "it"} as \`{view ${view === undefined ? "" : `${view} `}(s) { … }}\`, \`s.x\` for what it passes as \`x\``); }
   private readsChildren(e: Expr, env: Env) { return e.k === "member" && e.p === "children" && e.o.k === "id" && env.lookup(e.o.name)?.kind === "props"; }
   /** SV-7d: every element, text and component root of a view against the elements open above it (in this view; a view's
    *  root is an unknown place), and a component's caller's children where that component places them. */
@@ -3126,9 +3144,10 @@ class Checker {
             for (const r of S.roots) report(r === "#text" ? `<${m.tag}>'s text` : `<${r}>, the root of <${m.tag}>,`, misnested(anc, r));
             report(`<${m.tag}>`, misnestedInside(anc, S));
             for (const ch of S.childrenAt) {
-              this.contentCheck([...m.children, ...this.componentValues(m, env).values()], env, [...anc, ...ch]);
+              this.contentCheck([...m.children.filter(x => !this.viewElsewhere(s, x)), ...this.componentValues(m, env).values()], env, [...anc, ...ch]);
               if (s.factory && !this.expanding.content.has(s)) { this.expanding.content.add(s); this.contentCheck(this.factoryTree(s, m.line), s.factory.env, [...anc, ...ch]); this.expanding.content.delete(s); }
             }
+            for (const x of m.children) { const f = this.viewElsewhere(s, x); for (const at of f === undefined ? [] : S.viewsAt?.[f] ?? []) this.contentCheck([x], env, [...anc, ...at]); }
             break;
           }
           if (this.shows(m.tag, env)) break;
@@ -3309,7 +3328,7 @@ class Checker {
       const local: Step[] = []; let out: Step[][] = [];
       for (let r: Region | null = R; r; r = r.parent) {
         if (r.catches || r.provides.size) local.push({ f: r.catches, p: r.provides.size ? r.provides : undefined });
-        if (r.kids) { for (const p of PF(r.kids.comp, "children")) if (p.term === null) for (const q of routes(r.kids.site)) out.push([...local, ...p.chain, ...q]); break; }
+        if (r.kids) { for (const p of PF(r.kids.comp, r.kids.view ?? "children")) if (p.term === null) for (const q of routes(r.kids.site)) out.push([...local, ...p.chain, ...q]); break; }
         if (r.isComponentRoot || !r.parent) { out = [local]; break; }
       }
       out = dedupe(out); rBusy.delete(R); rMemo.set(R, out); return out;
@@ -3317,7 +3336,7 @@ class Checker {
     // PF: where a component's prop field goes once read — up to its root, or out of an action
     const occ: { comp: Region; field: string; pre: Step[]; via: () => PFEntry[] }[] = [];
     for (const r of readerF) for (const pr of r.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => routes(r.region).map(q => ({ chain: q, term: null })) });
-    for (const x of this.shownAt) occ.push({ comp: x.comp, field: "children", pre: [], via: () => routes(x.region).map(q => ({ chain: q, term: null })) });   // RG-4c
+    for (const x of this.shownAt) occ.push({ comp: x.comp, field: x.view, pre: [], via: () => routes(x.region).map(q => ({ chain: q, term: null })) });   // RG-4c
     for (const a of argF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => PF(a.app.comp, a.field).flatMap(p => p.term ? [p] : routes(a.app.site).map(q => ({ chain: [...p.chain, ...q], term: null }))) });
     for (const a of actF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => [{ chain: [], term: { line: a.line, name: a.name } }] });
     const pfMemo = new Map<string, PFEntry[]>(); const pfBusy = new Set<string>();
@@ -3393,7 +3412,7 @@ class Checker {
       for (const f of fields) {
         const es = PF(G, f); let df: Catch = "all", dp: Catch = "all", da: Catch | null = null; let an = ""; let rendered = false;
         for (const e of es) { if (e.term) { da = da === null ? along(e.chain, "f") : meet(da, along(e.chain, "f")); an = e.term.name; } else { rendered = true; df = meet(df, along(e.chain, "f")); dp = meet(dp, along(e.chain, "p")); } }
-        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...(f === "children" && this.compSyms.get(G) && this.shownBy(this.compSyms.get(G)!) ? { view: { optional: this.shownBy(this.compSyms.get(G)!)!.optional, values: [...new Set((this.placed.get(G) ?? []).flat().map(x => x.field))].filter(x => this.viewValue(this.compSyms.get(G)!, x)).sort(), ...((t => t !== undefined && /^\{[^"'`/]*\}$/.test(oneLine(t)) ? { type: oneLine(t) } : {})(this.shownBy(this.compSyms.get(G)!)!.param)) } } : {}), ...((() => { const ts = (this.propHeld.get(G) ?? []).flatMap(([p, h, c]) => p.startsWith(`${f}.`) ? [[p.slice(f.length + 1), h, c] as [string, boolean, string[]]] : []); return ts.length ? { takes: ts } : {}; })()) };
+        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...this.viewSig(G, f), ...((() => { const ts = (this.propHeld.get(G) ?? []).flatMap(([p, h, c]) => p.startsWith(`${f}.`) ? [[p.slice(f.length + 1), h, c] as [string, boolean, string[]]] : []); return ts.length ? { takes: ts } : {}; })()) };
       }
       const e = esc(G);
       const file = (this.opts.file ?? "main.rx").split("/").pop();
@@ -3403,6 +3422,12 @@ class Checker {
       const hosts = record(sitesOf(G));
       return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props, shape: cs ? this.shape(cs) : EMPTY_SHAPE, ...(st ? { stored } : {}), ...(Object.keys(hosts).length ? { hosts } : {}) };
     };
+  }
+  private viewSig(G: Region, f: string): { view?: CompSig["props"][string]["view"] } {
+    const c = this.compSyms.get(G), v = c && this.shownBy(c)?.get(f); if (!v) return {};
+    const t = v.param === undefined ? undefined : oneLine(v.param);
+    const given = [...new Set((this.placed.get(`${G.id}:${f}`) ?? []).flat().map(x => x.field))];
+    return { view: { optional: v.optional, mixed: v.mixed, values: ((safe: string[]) => given.includes("*") ? safe.length === given.length ? ["*"] : safe.filter(x => x !== "*") : safe)(given.filter(x => this.viewValue(c, f, x)).sort()), ...(t !== undefined && /^\{[^"'`/]*\}$/.test(t) ? { type: t } : {}) } };
   }
   compSig: ((G: Region) => CompSig) | null = null;
 }

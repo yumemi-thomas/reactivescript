@@ -368,9 +368,9 @@ component Card(props: { title: string; children: View }) {
 
 - `props` is a structured value; reading `props.x` tracks the caller's
   equation for `x`. `props.children` is a `View`, shown by reading it.
-- A component that shows its children with what it knows takes a view (RG-4c):
-  `props: { children: (s: { on: boolean }) => View }`, shown as
-  `<props.children on={lit} />`, given as `<Toggle>{view (s) { {s.on ? "on" : "off"} }}</Toggle>`.
+- A component that shows what it is given with what it knows takes a view
+  (RG-4c): `props: { children: (s: { on: boolean }) => View }` (or `View | (…)`,
+  for plain content as well), shown as `<props.children on={lit} />`, given as `<Toggle>{view (s) { {s.on ? "on" : "off"} }}</Toggle>`.
 - A component is applied only in markup. It returns nothing.
 
 ## 6b. Scoped styles (ruled 2026-10-24: per component, as TSRX)

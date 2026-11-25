@@ -17,7 +17,7 @@ import {
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failure.ts";
-import { singleModule, given, defaulted, bindGiven, viewFields, shownIn, showsView, type Given, type ModuleSet } from "../src/modules.ts";
+import { singleModule, given, defaulted, bindGiven, viewFields, shown, shownIn, type Given, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits, placed, viewReaders } from "../src/awaits.ts";
 import { unwrapServer } from "../src/check.ts";
 import { primsSolid, isPrims } from "../src/prims.ts";
@@ -727,6 +727,16 @@ export class Oracle {
    *  holes, each inserted at its own marker (`inEl`), so each reader is its own render effect. */
   fragment(m: Markup[], scope: Scope, inEl = false): unknown[] { const items = m.map(x => this.node(x, scope, inEl)); return inEl ? items : items.map(x => (x as { $read?: boolean })?.$read ? R.memo(x as () => unknown) : x); }
   /** RG-7b, 08: children with a `use` are owned where they are read, so it reads there (what a context carries, and a snapshot, are read at the caller). */
+  private props(m: Extract<Markup, { k: "el" }>, scope: Scope, kids?: Record<string, unknown>): Record<string, unknown> {
+    const parts: unknown[] = []; let run: Record<string, unknown> | null = null;    // 07 §4: a spread is a function source of Solid's merge, between runs of named props
+    for (const a of m.attrs) {
+      if (a.name === "...") { run = null; parts.push(() => this.ev(a.e, scope)); continue; }
+      if (!run) { run = {}; parts.push(run); }
+      Object.defineProperty(run, a.name, { enumerable: true, get: () => this.ev(a.e, scope) });
+    }
+    if (kids) parts.push(kids);
+    return parts.length === 0 ? {} : parts.length === 1 ? (typeof parts[0] === "function" ? (merge as any)(parts[0]) : parts[0] as Record<string, unknown>) : (merge as (...xs: unknown[]) => Record<string, unknown>)(...parts);
+  }
   private carried = false;
   private snapshot<T>(f: () => T): T { const was = this.carried; this.carried = true; try { return untrack(f); } finally { this.carried = was; } }
   private place(kids: Markup[], scope: Scope): Scope {
@@ -742,23 +752,19 @@ export class Oracle {
       case "read": { const g = () => { const v = this.ev(m.e, scope); return isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; }   // a view value (children) is inserted as structure
       case "el": {
         if (m.tag === "") return this.fragment(m.children, scope, inEl);     // `<>…</>`
-        const shown = shownIn(m.tag) === undefined ? undefined : scope.lookup(shownIn(m.tag)!);
-        if (shown?.k === "const" && typeof (shown.value as { children?: unknown } | undefined)?.children === "function") {   // RG-4c: the view it was given, applied
-          const s: Record<string, unknown> = {}; for (const a of m.attrs) Object.defineProperty(s, a.name, { enumerable: true, get: () => this.ev(a.e, scope) });
-          return R.createComponent((shown.value as { children: any }).children, s);
+        const n = shownIn(m.tag), given = n && scope.lookup(n[0]);
+        if (given?.k === "const" && typeof given.value === "object" && given.value) {   // RG-4c: the view it was given, applied; plain content, as it is
+          const g = () => { const v = (given.value as Record<string, any>)[n![1]]; return typeof v === "function" && v.length ? R.createComponent(v, this.props(m, scope)) : v == null ? "" : isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g;
         }
         if (/^[A-Z]/.test(m.tag)) {
           const b = scope.lookup(m.tag); if (!b || b.k !== "comp") throw new Error(`unknown component ${m.tag}`);
           const comp = b.decl, home = b.home;
-          const parts: unknown[] = []; let run: Record<string, unknown> | null = null;    // 07 §4: a spread is a function source of Solid's merge, between runs of named props
-          for (const a of m.attrs) {
-            if (a.name === "...") { run = null; parts.push(() => this.ev(a.e, scope)); continue; }
-            if (!run) { run = {}; parts.push(run); }
-            Object.defineProperty(run, a.name, { enumerable: true, get: () => this.ev(a.e, scope) });
-          }
-          const view = m.children.find(c => c.k === "mview" && !c.prop);
-          const kids = {}; Object.defineProperty(kids, "children", view?.k === "mview" || (!m.children.length && showsView(comp)) ? { enumerable: true, value: view?.k === "mview" ? (p: unknown) => { const s2 = new Scope(scope); for (const n of view.params) s2.vars.set(n, { k: "const", value: p }); return this.region(view.decls, view.body, s2); } : undefined } : { enumerable: true, get: () => this.fragment(m.children, this.place(m.children, scope)) }); parts.push(kids);
-          const props = parts.length === 1 ? kids : (merge as (...xs: unknown[]) => Record<string, unknown>)(...parts);
+          const view = m.children.find(c => c.k === "mview" && !c.prop), kids: Record<string, unknown> = {};
+          const fn = (v: Extract<Markup, { k: "mview" }>) => (p: unknown) => { const s2 = new Scope(scope); for (const x of v.params) s2.vars.set(x, { k: "const", value: p }); return this.region(v.decls, v.body, s2); };   // RG-4c
+          for (const c of m.children) if (c.k === "mview" && c.prop) kids[c.prop] = fn(c);
+          const content = m.children.filter(c => c.k !== "mview"); const none = !m.children.length && shown(comp, this.typeDecls).get("children")?.mixed === false;
+          Object.defineProperty(kids, "children", view?.k === "mview" || none ? { enumerable: true, value: view?.k === "mview" ? fn(view) : undefined } : { enumerable: true, get: () => this.fragment(content, this.place(content, scope)) });
+          const props = this.props(m, scope, kids);
           return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); s2.givens.set(comp.props, { props: { less: [], views: viewFields(comp.propsType, this.typeDecls) } }); return this.region(comp.decls, comp.view, s2); }, props);
         }
         const el = R.createElement(m.tag);

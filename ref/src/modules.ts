@@ -374,59 +374,73 @@ export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set
   return out;
 }
 
-/** RG-4c: the view a `.rx` component shows, when it takes one: its `children` are declared a function giving a `View`, of one
- *  parameter or none, and its view shows them as `<props.children … />`. `param`: the parameter's type. */
-export type Shown = { optional: boolean; param?: string };
-export const shownTag = (props: string) => `${props}.children`;
-export function shown(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, decls: Decl[]): Shown | undefined {
-  const t = childrenType(d.propsType, decls); const v = t && viewType(t.type);
-  return v && showsView(d) ? { optional: t!.optional, ...v } : undefined;
+/** RG-4c: a view a component takes and shows: a field of its props declared a function giving a `View`, of one parameter or
+ *  none, which its view shows as `<props.f … />`. `mixed`: `children` declared `View | ((s: T) => View)` take plain content as well.
+ *  `param`: the parameter's type. */
+export type Shown = { optional: boolean; mixed: boolean; param?: string };
+export function shown(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, decls: Decl[]): Map<string, Shown> {
+  const out = new Map<string, Shown>();
+  for (const f of shownFields(d)) { const t = fieldType(d.propsType, f, decls), v = t && viewType(t.type); if (v && (!v.mixed || f === "children")) out.set(f, { optional: t.optional, ...v }); }
+  return out;
 }
-/** Whether a component shows its children as a view, whatever their type says. */
-export const showsView = (d: { props: string; decls: Decl[]; view: Markup[] }): boolean => applies([...d.decls, ...d.view], shownTag(d.props));
-function applies(x: unknown, tag: string): boolean {
-  if (!x || typeof x !== "object") return false;
-  return (x as { k?: string; tag?: string }).k === "el" && (x as { tag?: string }).tag === tag || Object.values(x).some(y => applies(y, tag));
+/** `<props.f … />`: the name of the props, and the field. */
+export const shownIn = (tag: string): [string, string] | undefined => { const m = /^([a-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/.exec(tag); return m ? [m[1], m[2]] : undefined; };
+/** The fields of its props a component shows so, whatever their types say. */
+export function shownFields(d: { props: string; decls: Decl[]; view: Markup[] }): Set<string> {
+  const out = new Set<string>();
+  const walk = (x: unknown): void => {
+    if (!x || typeof x !== "object") return;
+    const o = x as { k?: string; tag?: string }; const t = o.k === "el" && o.tag ? shownIn(o.tag) : undefined;
+    if (t?.[0] === d.props) out.add(t[1]);
+    Object.values(x).forEach(walk);
+  };
+  if (/^[a-z_$]/.test(d.props)) walk([...d.decls, ...d.view]);
+  return out;
 }
-function childrenType(t: string | undefined, decls: Decl[], depth = 0): { type: string; optional: boolean } | undefined {
+function fieldType(t: string | undefined, field: string, decls: Decl[], depth = 0): { type: string; optional: boolean } | undefined {
   if (t === undefined || depth > 8) return undefined;
   for (const part of splitTop(t, "&").map(x => x.trim())) {
-    if (part.startsWith("{") && part.endsWith("}")) { for (const f of splitTop(part.slice(1, -1), ",;\n")) { const i = f.indexOf(":"); if (i > 0 && fieldName(f.slice(0, i)) === "children") return { type: f.slice(i + 1).trim(), optional: f.slice(0, i).trim().endsWith("?") }; } continue; }
+    if (part.startsWith("{") && part.endsWith("}")) { for (const f of splitTop(part.slice(1, -1), ",;\n")) { const i = f.indexOf(":"); if (i > 0 && fieldName(f.slice(0, i)) === field) return { type: f.slice(i + 1).trim(), optional: f.slice(0, i).trim().endsWith("?") }; } continue; }
     const d = decls.find(x => x.k === "typedecl" && x.name === /^\w+/.exec(part)?.[0]);
     const body = d?.k === "typedecl" ? /^(?:type\s[^=]*=|interface\s[^{]*(?={))([^]*)$/.exec((d.text ?? "").replace(/^export\s+/, ""))?.[1] : undefined;
-    const r = childrenType(body?.trim().replace(/;$/, ""), decls, depth + 1); if (r) return r;
+    const r = fieldType(body?.trim().replace(/;$/, ""), field, decls, depth + 1); if (r) return r;
   }
   return undefined;
 }
-/** `(s: T) => View`, `() => View`. */
-function viewType(t: string): { param?: string } | undefined {
+/** `(s: T) => View`, `() => View`; `View | ((s: T) => View)`, either way round. */
+function viewType(t: string): { mixed: boolean; param?: string } | undefined {
+  const alts = splitTop(t, "|").map(x => x.trim());
+  if (alts.length === 2) {
+    const i = alts.indexOf("View"), f = alts[1 - i];
+    if (i < 0 || !f.startsWith("(") || closes(f, 0) !== f.length) return undefined;
+    const v = viewType(f.slice(1, -1)); return v && !v.mixed ? { ...v, mixed: true } : undefined;
+  }
   t = t.trim(); if (!t.startsWith("(")) return undefined;
   const end = closes(t, 0); if (end === undefined || !/^\s*=>\s*View$/.test(t.slice(end))) return undefined;
   const ps = splitTop(t.slice(1, end - 1), ",").map(x => x.trim()).filter(Boolean);
-  if (!ps.length) return {};
+  if (!ps.length) return { mixed: false };
   const m = ps.length === 1 ? /^[A-Za-z_$][\w$]*\s*:\s*([^]+)$/.exec(ps[0]) : null;
-  return m ? { param: m[1].trim() } : undefined;
+  return m ? { mixed: false, param: m[1].trim() } : undefined;
 }
-/** What names the view a component shows anywhere but where it is shown or asked for (`if props.children`): each mention's line
- *  is its statement's. A projection that takes it out of a rest (`{ children: rest0, ...rest } = props`) and is not named again is none. */
-export function otherMention(d: { props: string; decls: Decl[]; view: Markup[] }): { line: number } | undefined {
-  const P = d.props; let found: { line: number } | undefined;
-  const projections = new Set<unknown>(d.decls.filter(x => x.k === "eq" && isChildren(x.e, P) && !mentions([...d.decls, ...d.view], x.name)).map(x => (x as { e: unknown }).e));
+/** What names a view a component shows (`fields`) anywhere but where it is shown or asked for (`if props.f`, which plain
+ *  content as well is not): the field, and its statement's line. A projection that takes it out of a rest
+ *  (`{ children: none, ...rest } = props`) and is not named again is none. */
+export function otherMention(d: { props: string; decls: Decl[]; view: Markup[] }, fields: Map<string, Shown>): { field: string; line: number } | undefined {
+  const P = d.props, all = [...d.decls, ...d.view]; let found: { field: string; line: number } | undefined;
+  const of = (e: unknown): string | undefined => { const x = e as Expr; return x.k === "member" && x.o.k === "id" && x.o.name === P && fields.has(x.p) ? x.p : undefined; };
+  const out = new Set<unknown>(d.decls.filter(x => x.k === "eq" && of(x.e) !== undefined && !mentions(all, x.name)));
   const walk = (x: unknown, line: number): void => {
-    if (!x || typeof x !== "object" || found || projections.has(x)) return;
+    if (!x || typeof x !== "object" || found || out.has(x)) return;
     if (Array.isArray(x)) { for (const y of x) walk(y, line); return; }
     const o = x as Record<string, unknown>; if (typeof o.line === "number") line = o.line;
-    if (o.k === "member" && (o.o as Expr).k === "id" && (o.o as { name: string }).name === P) { if (o.p === "children") found = { line }; return; }
-    if (o.k === "omit" && (o.e as Expr).k === "id" && (o.e as { name: string }).name === P && (o.keys as string[]).includes("children")) return;
-    if ((o.k === "id" && o.name === P) || (o.k === "pre" && o.name === P)) { found = { line }; return; }
-    for (const [k, v] of Object.entries(o)) if (!(o.k === "mif" && k === "c" && isChildren(v as Expr, P))) walk(v, line);
+    if (o.k === "member" && (o.o as Expr).k === "id" && (o.o as { name: string }).name === P) { if (fields.has(o.p as string)) found = { field: o.p as string, line }; return; }
+    if (o.k === "omit" && (o.e as Expr).k === "id" && (o.e as { name: string }).name === P && [...fields.keys()].every(f => (o.keys as string[]).includes(f))) return;
+    if ((o.k === "id" || o.k === "pre") && o.name === P) { found = { field: [...fields.keys()][0], line }; return; }
+    for (const [k, v] of Object.entries(o)) { const f = o.k === "mif" && k === "c" ? of(v) : undefined; if (f === undefined || fields.get(f)!.mixed) walk(v, line); }
   };
-  walk([...d.decls, ...d.view], 0);
+  walk(all, 0);
   return found;
 }
-/** `<props.children … />`: the name of the props. */
-export const shownIn = (tag: string): string | undefined => /^([a-z_$][\w$]*)\.children$/.exec(tag)?.[1];
-export const isChildren = (e: Expr, props: string): boolean => e.k === "member" && e.p === "children" && e.o.k === "id" && e.o.name === props;
 function mentions(x: unknown, name: string): boolean {
   if (!x || typeof x !== "object") return false;
   const o = x as { k?: string; name?: string; tag?: string };

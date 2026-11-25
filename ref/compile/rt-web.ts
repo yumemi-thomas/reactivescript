@@ -521,6 +521,8 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
 
     // ---- views: compiled JSX (compile/jsx.ts, generate "dom") does the rest ----
     show: (v: unknown) => isView(v) ? v : fmt(v),
+    /** RG-4c: a view a component was given, shown with what it knows (a function of one parameter; one of none is a thunk, as JSX has it); plain content, as it is. */
+    view(c: unknown, f: (view: unknown) => unknown) { return typeof c === "function" && c.length ? f(c) : app.kids(c); },
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
     kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out

@@ -8,7 +8,7 @@
 import { inPrelude, language } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
-import { isRx, relativeModule, ViewProps, type ModuleSet } from "../src/modules.ts";
+import { isRx, relativeModule, ViewProps, type ModuleSet, shown } from "../src/modules.ts";
 import { splitTop, shapeHasRef, type JsDecl, type Shape } from "../src/parse.ts";
 import type { ModSig } from "../src/check.ts";
 
@@ -77,6 +77,7 @@ export declare function sum(xs: readonly number[]): number;
 export declare function fail(msg: string): never;
 export declare function fetch(key: string): Promise<any>;
 export declare function log(...a: unknown[]): void;
+export declare function view<T>(v: T): Extract<T, (s: any) => any>;   // RG-4c: \`<props.children … />\` where it is optional, or plain content is taken as well
 `;
 
 /** One projected file: its TSX, and for each of its lines the `.rx` line it came from. */
@@ -181,6 +182,7 @@ class Proj {
   private refFns = new Map<string, Extract<JsDecl, { kind: "fn" }>>();   // MO-10: declared JS fns with a `ref` parameter or result, by local name
   private refParts = new Map<string, Shape>();               // MO-10b: equations bound to such a fn's tuple or record result
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; this.views = new ViewProps(set, set.programs.get(path)?.decls ?? []); }
+  private loose = new Set<string>();   // RG-4c: what the component shows as a view that may be plain content, or nothing
   private views: ViewProps;   // MO-11t
 
   module(p: Program) {
@@ -223,8 +225,10 @@ class Proj {
         // where a library asks for one (`toast(() => JSX.Element)`) and wherever a component is asked for
         if (d.noProps) this.w.emit(`${ind}${ex(d)}function ${d.name}() {`, d.line);
         else this.w.emit(`${ind}${ex(d)}function ${d.name}(${d.props}${d.propsType ? `: ${d.propsType.replace(/(:\s*)((?:pending\s+|fails\([^)]*\)\s*)+)/g, "$1")}` : ": any"}) {`, d.line);   // MO-10f: a field's row words are .rx's, not TypeScript's
+        const was = this.loose; this.loose = new Set([...shown(d, this.set.programs.get(this.path)?.decls ?? [])].flatMap(([f, v]) => v.mixed || v.optional ? [`${d.props}.${f}`] : []));
         this.decls(d.decls, ind + "  ");
         this.w.emit(`${ind}  return (`, d.line); this.markup(d.view.length ? d.view : [], ind + "    "); this.w.emit(`${ind}  );\n${ind}}`, d.line);
+        this.loose = was;
       }
       if (d.k === "action" || d.k === "server") {
         const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
@@ -374,7 +378,9 @@ class Proj {
       case "read": this.w.emit(`${ind}{${this.expr(m.e, false)}}`, line); return;
       case "el": {
         if (m.tag === "") { this.w.emit(`${ind}<>`, line); for (const c of m.children) this.child(c, ind + "  "); this.w.emit(`${ind}</>`, line); return; }
+        const shows = this.loose.has(m.tag);                                                     // RG-4c: optional, or plain content is taken as well
         const attrs = m.attrs.map(a => a.name === "..." ? ` {...${this.expr(a.e, false)}}` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : this.views.given(m.tag, a.name, a.e) ? ` ${a.name}={<${this.views.given(m.tag, a.name, a.e)} />}` : ` ${a.name}={${this.expr(a.e, isHandler(a.name))}}`).join("");   // MO-11t: a component given by name to a prop typed `View` is the component applied, which is what the library's type takes
+        if (shows) { this.w.emit(`${ind}{((V$) => <V$${attrs} />)(__.view(${m.tag}))}`, line); return; }
         const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
         const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
         if (named.length) {

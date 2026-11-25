@@ -8,7 +8,7 @@
 /** What a component contributes where it is applied: its root elements (`#text` for text), whether it contains an element
  *  that closes an open `<p>` (outside the scopes that shield one), an `<a>`, a `<form>`; and the ancestor chains (inside it,
  *  innermost last) where it places its caller's children. */
-export type Shape = { roots: string[]; closesP: boolean; a: boolean; form: boolean; childrenAt: string[][] };
+export type Shape = { roots: string[]; closesP: boolean; a: boolean; form: boolean; childrenAt: string[][]; viewsAt?: Record<string, string[][]> };   // viewsAt: RG-4c, a view of another name, where it shows it
 export const EMPTY_SHAPE: Shape = { roots: [], closesP: false, a: false, form: false, childrenAt: [] };
 
 const words = (s: string) => new Set(s.split(" "));

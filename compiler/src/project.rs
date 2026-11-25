@@ -178,7 +178,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), views: crate::modules::ViewProps::of(set, &set.programs[path].decls), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), views: crate::modules::ViewProps::of(set, &set.programs[path].decls), loose: HashSet::new(), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -375,6 +375,8 @@ struct Proj<'a> {
     ref_parts: HashMap<String, crate::parse::Shape>,
     /// MO-11t: the props of the JS components this module imports that take a view
     views: crate::modules::ViewProps,
+    /// RG-4c: what the component shows as a view that may be plain content, or nothing
+    loose: HashSet<String>,
     prelude: Option<&'a str>,
 }
 
@@ -573,10 +575,13 @@ impl Proj<'_> {
                         None => Code::of(": any"),
                     };
                     self.w.emit(Code::of(ind).t(ex(d)).t("function ").c(nm).t("(").c(pn).c(pt).t(") {"), *line);
+                    let shown = crate::modules::shown(props, props_type.as_deref(), decls, view, &self.set.programs[self.path].decls);
+                    let was = std::mem::replace(&mut self.loose, shown.iter().filter(|(_, v)| v.mixed || v.optional).map(|(f, _)| format!("{props}.{f}")).collect());
                     self.decls(decls, &format!("{ind}  "), false);
                     self.w.emit(Code::of(&format!("{ind}  return (")), *line);
                     self.markup(view, &format!("{ind}    "));
                     self.w.emit(Code::of(&format!("{ind}  );\n{ind}}}")), *line);
+                    self.loose = was;
                 }
                 Decl::Action { name, params, ptypes, body, line, .. } | Decl::Server { name, params, ptypes, body, line, .. } => {
                     let nm = self.name(name, sp, &mut at);
@@ -1080,6 +1085,11 @@ impl Proj<'_> {
                     if !matches!(at.e.k, ExprKind::Lit(Lit::Bool(true))) {
                         a = a.t("={").c(self.expr(&at.e, is_handler(&at.name), None)).t("}");
                     }
+                }
+                // RG-4c: optional, or plain content is taken as well
+                if self.loose.contains(tag) {
+                    self.w.emit(Code::of(&format!("{ind}{{((V$) => <V$")).c(a).t(" />)(__.view(").at(tag, tag_at).t("))}"), line);
+                    return;
                 }
                 let open = Code::of(&format!("{ind}<")).at(tag, tag_at).c(a);
                 // MO-11k: named render props are attributes

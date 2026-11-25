@@ -3,7 +3,7 @@
 ## Unreleased
 
 - **A view an `.rx` component shows with what it knows** (proposals/25): `children: (s: { on: boolean }) => View`, shown as `<props.children on={lit} />`,
-  given as `<Toggle>{view (s) { … }}</Toggle>` (RG-4c; S-view-3, S-view-4). The crate gives a view that provides an owner of its own, as ref/ did (proposals/bugs/38).
+  given as `<Toggle>{view (s) { … }}</Toggle>`; a prop of another name as `{view cell (s) { … }}`; `View | (…)` takes plain content as well (RG-4c; S-view-3 to S-view-5). The crate gives a view that provides an owner of its own, as ref/ did (proposals/bugs/38).
 - **Fixed: a context read in a component's children** (`<P>{use c}</P>`) read at the caller, compiled; it reads where the component shows them, where the children
   hold no `await` (RG-7b, 08; S-context-4; proposals/bugs/33). A package compiled so needs the runtime of this version or newer.
   The interpreter and the oracle call a closure given as children, as compiled code did (proposals/bugs/34).

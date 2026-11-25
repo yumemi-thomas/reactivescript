@@ -83,7 +83,7 @@ function absKey(from: string, rel: string): string {
 }
 function shapeText(s: Shape | undefined): string {
   if (!s) return "";
-  const parts = [...(s.roots.length ? [`roots ${s.roots.join(" ")}`] : []), ...(s.closesP ? ["closes-p"] : []), ...(s.a ? ["a"] : []), ...(s.form ? ["form"] : []), ...s.childrenAt.map(c => `children-at ${c.join(" ")}`)];
+  const parts = [...(s.roots.length ? [`roots ${s.roots.join(" ")}`] : []), ...(s.closesP ? ["closes-p"] : []), ...(s.a ? ["a"] : []), ...(s.form ? ["form"] : []), ...s.childrenAt.map(c => `children-at ${c.join(" ")}`), ...Object.entries(s.viewsAt ?? {}).sort(([a], [b]) => a < b ? -1 : 1).flatMap(([f, at]) => at.map(c => `${f}-at ${c.join(" ")}`.trim()))];
   return parts.length ? ` shape(${parts.join("; ")})` : "";
 }
 
@@ -124,7 +124,7 @@ function line(file: string, name: string, x: ExportSig): string {
       const props = Object.entries(s.props).map(([f, v]) => {
         const parts: string[] = [];
         if (v.takes?.length) parts.push(`takes(${v.takes.map(([p, holds, fails]) => `${p}${holds ? " pending" : ""}${fails.length ? ` fails(${fails.join(" | ")})` : ""}`).join(", ")})`);   // MO-10f: the fields it reads as ones that hold or fail
-        if (v.view) parts.push(`view${v.view.optional ? "?" : ""}${v.view.type !== undefined ? ` ${v.view.type}` : ""}${v.view.values.length ? ` value(${v.view.values.join(", ")})` : ""}`);   // RG-4c: a view it shows; `value(…)`: what it shows it with that holds no closure of its own (O-3)
+        if (v.view) parts.push(`view${v.view.optional ? "?" : ""}${v.view.mixed ? " | View" : ""}${v.view.type !== undefined ? ` ${v.view.type}` : ""}${v.view.values.length ? ` value(${v.view.values.join(", ")})` : ""}`);   // RG-4c: a view it shows; `value(…)`: what it shows it with that holds no closure of its own (O-3)
         if (!v.rendered) parts.push("unrendered");
         else {
           if (!(v.f instanceof Set && v.f.size === 0)) parts.push(`catches(${cls(v.f)})`);
@@ -165,13 +165,13 @@ function rowWords(s: string): { rows: string[]; fails: string[]; rest: string } 
   return { rows, fails, rest: words.slice(i).join(" ") };
 }
 /** SV-7d's words, `roots p div; closes-p; children-at div` (MO-9b; a JS component's, MO-11a). */
-export function contentShapeOf(s: string | undefined): Shape {
+export function contentShapeOf(s: string | undefined, printed = false): Shape {
   if (!s) return { ...EMPTY_SHAPE, roots: [], childrenAt: [] };
   const sh: Shape = { roots: [], closesP: false, a: false, form: false, childrenAt: [] };
   for (const p of s.split(";").map(x => x.trim()).filter(Boolean)) {
     const [w, ...rest] = p.split(/\s+/);
     if (w === "roots") sh.roots = rest; else if (w === "closes-p") sh.closesP = true; else if (w === "a") sh.a = true; else if (w === "form") sh.form = true;
-    else if (w === "children-at") sh.childrenAt.push(rest); else throw new SignatureError(`shape: ${p}`);
+    else if (w === "children-at") sh.childrenAt.push(rest); else if (printed && w.endsWith("-at")) ((sh.viewsAt ??= {})[w.slice(0, -3)] ??= []).push(rest); else throw new SignatureError(`shape: ${p}`);
   }
   return sh;
 }
@@ -221,8 +221,8 @@ export function parseSignature(src: string, file: string): ModSig {
         const [fname0, spec0 = ""] = f.includes(":") ? [f.slice(0, f.indexOf(":")).trim(), f.slice(f.indexOf(":") + 1).trim()] : [f.trim(), ""];
         const fname = fname0 === "...props" ? "*" : fname0;
         const v: CompSig["props"][string] = { f: new Set(), p: new Set(), rendered: true };
-        let spec = spec0; { const vw = /^view(\??)(?:\s|$)/.exec(spec); if (vw) {   // RG-4c
-          spec = spec.slice(vw[0].length).trim(); v.view = { optional: !!vw[1], values: [] };
+        let spec = spec0; { const vw = /^view(\??)(\s*\|\s*View)?(?:\s|$)/.exec(spec); if (vw) {   // RG-4c
+          spec = spec.slice(vw[0].length).trim(); v.view = { optional: !!vw[1], mixed: !!vw[2], values: [] };
           if (spec[0] === "{") { const end = closes(spec, 0) ?? spec.length; v.view.type = spec.slice(0, end); spec = spec.slice(end).trim(); }
           const val = /^value\(([^)]*)\)/.exec(spec); if (val) { v.view.values = val[1].split(",").map(x => x.trim()).filter(Boolean); spec = spec.slice(val[0].length).trim(); }
         } }
@@ -244,7 +244,7 @@ export function parseSignature(src: string, file: string): ModSig {
       const fl = /\bfails\(([^)]*)\)/.exec(tail); if (fl) sig.own = classesOf(fl[1]).map(c => ({ cls: c, what: `${m![1]}'s root`, at: file.split("/").pop() }));
       const us = /\buses\(([^)]*)\)/.exec(tail); if (us) sig.requires = us[1].split(",").map(k => absKey(file, k.trim()));
       const so = /\bretains\(([^)]*)\)/.exec(tail); if (so) { sig.stored = {}; for (const x of split(so[1], ",")) { const i = x.indexOf(":"); const f0 = x.slice(0, i).trim(); const f = f0 === "...props" ? "*" : f0; const t = x.slice(i + 1).trim(); (sig.stored[f] ??= []).push(t === "module" ? t : absKey(file, t)); } }   // O-3
-      sig.shape = contentShapeOf(/\bshape\(([^)]*)\)/.exec(tail)?.[1]);
+      sig.shape = contentShapeOf(/\bshape\(([^)]*)\)/.exec(tail)?.[1], true);
       exports.set(m[1], { kind: "comp", sig }); return;
     }
     if ((m = /^([A-Za-z_$][\w$]*)\s*(?::\s*(.*))?$/.exec(s))) { const r = rowWords(m[2] ?? ""); const acts = actionsOf(r.rest); if (r.rest && !acts) fail("an equation's rows"); exports.set(m[1], { kind: "eq", rows: r.rows.filter(x => x !== "io"), fails: r.fails, io: r.rows.includes("io"), ...(acts ? { actions: acts } : {}) }); return; }

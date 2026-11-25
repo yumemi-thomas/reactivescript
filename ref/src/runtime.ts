@@ -11,7 +11,7 @@ import { RuleError, CheckError } from "./errors.ts";
 import { checkModules, unwrapServer } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
-import { singleModule, shownIn, showsView, type ModuleSet } from "./modules.ts";
+import { singleModule, shown, shownIn, type ModuleSet } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
@@ -175,10 +175,11 @@ export class Runtime {
 
   /** 09 MO-1: each imported module's region, instantiated once, dependencies first; its state is app state. */
   modules = new Map<string, Region>();
+  private typeDecls: Decl[] = [];
   constructor(input: Program | ModuleSet) {
     const set = "programs" in input ? input : singleModule(input);
     const program = set.programs.get(set.entry)!;
-    this.program = program;
+    this.program = program; this.typeDecls = [...set.programs.values()].flatMap(p => p.decls.filter(d => d.k === "typedecl"));
     this.root = new Region(null, this, null);
     const { diags } = checkModules(set); if (diags.length) throw new CheckError(diags);   // 08: the checker runs first; every static diagnostic is an error
     for (const path of set.order) { if (path === set.entry) continue; const r = new Region(this.root, this, null); this.modules.set(path, r); this.declare(set.programs.get(path)!.decls, r); }
@@ -1228,11 +1229,12 @@ export class Runtime {
       case "portal": { const r = new Region(region, this, region.boundary); this.declare(m.decls, r); return { k: "comp", portal: true, inst: this.instantiate(m.body, r) }; }   // RG-8: owned here (its boundary, its provisions), shown elsewhere
       case "read": return { k: "read", node: this.mkNode("reader", "reader", region, rt => rt.evalExpr(m.e, region)), shown: null };
       case "el": {
-        const shown = shownIn(m.tag) === undefined ? undefined : region.lookup(shownIn(m.tag)!);
-        const view = shown && "constant" in shown ? (shown.constant as { children?: unknown } | undefined)?.children : undefined;
-        if (view instanceof ViewFn) {                              // RG-4c: owned where it is shown, names from where it is written
-          const r = new Region(region, this, region.boundary, view.region), s: Record<string, unknown> = {};
-          for (const a of m.attrs) { const node = this.mkNode("eq", `${m.tag}.${a.name}`, region, rt => rt.evalExpr(a.e, region)); Object.defineProperty(s, a.name, { enumerable: true, get: () => this.readNode(node) }); }
+        const n = shownIn(m.tag), given = n && region.lookup(n[0]);
+        if (given && "constant" in given && typeof given.constant === "object" && given.constant) {   // RG-4c
+          const view = Object.getOwnPropertyDescriptor(given.constant, n![1])?.value;
+          if (!(view instanceof ViewFn)) return this.inst1({ k: "read", e: { k: "bin", op: "??", l: { k: "member", o: { k: "id", name: n![0] }, p: n![1] }, r: { k: "lit", v: "" } } }, region);   // plain content, as it is
+          const r = new Region(region, this, region.boundary, view.region);   // owned where it is shown, names from where it is written
+          const parts = this.parts(m, region), s = this.spread({}, parts);
           for (const p of view.m.params) r.scope.set(p, { constant: s });
           this.declare(view.m.decls, r);
           return { k: "comp", inst: { region: r, items: view.m.body.map(c => this.inst1(c, r)) } };
@@ -1241,26 +1243,14 @@ export class Runtime {
           const b = region.lookup(m.tag);
           if (!b || !("comp" in b)) throw new RuleError("SCOPE", `unknown component ${m.tag}`);
           const comp = b.comp; const r = new Region(region, this, region.boundary, b.home);   // owned at the application, names from the declaration (RG-7a, MO-6)
-          const parts = m.attrs.map(a => ({ name: a.name, node: this.mkNode("eq", `${m.tag}.${a.name}`, region, rt => rt.evalExpr(a.e, region)) }));
-          let props: Record<string, unknown> = {};
-          if (!parts.some(p => p.name === "...")) for (const p of parts) Object.defineProperty(props, p.name, { enumerable: true, get: () => this.readNode(p.node) });   // a prop read is a read of the argument's node: taint, lanes, serving (found by S-fail-2)
-          else {                                                                                  // 07 §4: a spread gives every field of its value; the last part that has a field wins, as Solid's merge
-            const obj = (v: unknown) => v != null && typeof v === "object" ? v as Record<string, unknown> : {};
-            const find = (k: string) => { for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; if (p.name === k) return { p, spread: false }; if (p.name === "..." && k in obj(this.readNode(p.node))) return { p, spread: true }; } return null; };
-            const read = (k: string) => { const f = find(k); return !f ? undefined : f.spread ? obj(this.readNode(f.p.node))[k] : this.readNode(f.p.node); };
-            const keys = () => [...new Set(parts.flatMap(p => p.name === "..." ? Object.keys(obj(this.readNode(p.node))) : [p.name]))].filter(k => k !== "children");
-            props = new Proxy(props, {
-              get: (t, k) => typeof k !== "string" || k === "children" ? Reflect.get(t, k) : read(k),
-              has: (t, k) => typeof k !== "string" || k === "children" ? Reflect.has(t, k) : !!find(k),
-              ownKeys: t => [...keys(), ...Reflect.ownKeys(t)],
-              getOwnPropertyDescriptor: (t, k) => typeof k === "string" && k !== "children" ? (find(k) ? { enumerable: true, configurable: true, value: read(k) } : undefined) : Reflect.getOwnPropertyDescriptor(t, k),
-            });
-          }
+          const views = new Set(["children"]); for (const c of m.children) if (c.k === "mview" && c.prop) views.add(c.prop);
+          const props = this.spread({}, this.parts(m, region), views);
+          for (const c of m.children) if (c.k === "mview" && c.prop) Object.defineProperty(props, c.prop, { enumerable: true, configurable: true, value: new ViewFn(c, region) });
           const view = m.children.find(c => c.k === "mview" && !c.prop);
-          const shows = !!view || (!m.children.length && showsView(comp));
+          const shows = !!view || (!m.children.length && shown(comp, this.typeDecls).get("children")?.mixed === false);
           if (shows) Object.defineProperty(props, "children", { enumerable: true, value: view?.k === "mview" ? new ViewFn(view, region) : undefined });
           let children: ViewValue | null = null;                   // RG-4c: instantiated where first read — owned by the reader's region, named by the caller's
-          if (!shows) Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, m.children.map(c => this.inst1(c, cr))); } return children; } });
+          if (!shows) Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, m.children.filter(c => c.k !== "mview").map(c => this.inst1(c, cr))); } return children; } });
           r.scope.set(comp.props, { constant: props });
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };
@@ -1280,6 +1270,23 @@ export class Runtime {
         return item;
       }
     }
+  }
+  /** The arguments of an application, each a node of the caller's. */
+  private parts(m: Extract<Markup, { k: "el" }>, region: Region) { return m.attrs.map(a => ({ name: a.name, node: this.mkNode("eq", `${m.tag}.${a.name}`, region, rt => rt.evalExpr(a.e, region)) })); }
+  /** `views`: the fields that are no argument's, defined on the target: a view given, the children. */
+  private spread(props: Record<string, unknown>, parts: { name: string; node: Node }[], views = new Set(["children"])): Record<string, unknown> {
+    if (!parts.some(p => p.name === "...")) { for (const p of parts) Object.defineProperty(props, p.name, { enumerable: true, get: () => this.readNode(p.node) }); return props; }   // a prop read is a read of the argument's node: taint, lanes, serving (found by S-fail-2)
+    // 07 §4: a spread gives every field of its value; the last part that has a field wins, as Solid's merge
+    const obj = (v: unknown) => v != null && typeof v === "object" ? v as Record<string, unknown> : {};
+    const find = (k: string) => { for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; if (p.name === k) return { p, spread: false }; if (p.name === "..." && k in obj(this.readNode(p.node))) return { p, spread: true }; } return null; };
+    const read = (k: string) => { const f = find(k); return !f ? undefined : f.spread ? obj(this.readNode(f.p.node))[k] : this.readNode(f.p.node); };
+    const keys = () => [...new Set(parts.flatMap(p => p.name === "..." ? Object.keys(obj(this.readNode(p.node))) : [p.name]))].filter(k => !views.has(k));
+    return new Proxy(props, {
+      get: (t, k) => typeof k !== "string" || views.has(k) ? Reflect.get(t, k) : read(k),
+      has: (t, k) => typeof k !== "string" || views.has(k) ? Reflect.has(t, k) : !!find(k),
+      ownKeys: t => [...keys(), ...Reflect.ownKeys(t)],
+      getOwnPropertyDescriptor: (t, k) => typeof k === "string" && !views.has(k) ? (find(k) ? { enumerable: true, configurable: true, value: read(k) } : undefined) : Reflect.getOwnPropertyDescriptor(t, k),
+    });
   }
   private allNodes(): Node[] { const out: Node[] = []; const walk = (r: Region) => { out.push(...r.nodes); for (const c of r.children) walk(c); }; walk(this.root); return out; }
 }

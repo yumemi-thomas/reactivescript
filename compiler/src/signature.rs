@@ -64,6 +64,8 @@ pub struct PropSig {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewSig {
     pub optional: bool,
+    /// plain content is taken as well
+    pub mixed: bool,
     pub ty: Option<String>,
     pub values: Vec<String>,
 }
@@ -281,6 +283,11 @@ fn shape_text(s: &Option<Shape>) -> String {
     for c in &s.children_at {
         parts.push(format!("children-at {}", c.join(" ")));
     }
+    for (f, at) in &s.views_at {
+        for c in at {
+            parts.push(format!("{f}-at {}", c.join(" ")).trim_end().to_string());
+        }
+    }
     if parts.is_empty() { String::new() } else { format!(" shape({})", parts.join("; ")) }
 }
 /// MO-11u: `hosts(<key> catches(…) provides(…); …)`, one entry an application.
@@ -449,9 +456,9 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                         let ts: Vec<String> = v.takes.iter().map(|(p, holds, fails)| format!("{p}{}{}", if *holds { " pending" } else { "" }, if fails.is_empty() { String::new() } else { format!(" fails({})", fails.join(" | ")) })).collect();
                         parts.push(format!("takes({})", ts.join(", ")));
                     }
-                    if let Some(ViewSig { optional, ty, values }) = &v.view {
+                    if let Some(ViewSig { optional, mixed, ty, values }) = &v.view {
                         // RG-4c: a view it shows; `value(…)`: what it shows it with that holds no closure of its own (O-3)
-                        parts.push(format!("view{}{}{}", if *optional { "?" } else { "" }, ty.as_ref().map(|t| format!(" {t}")).unwrap_or_default(), if values.is_empty() { String::new() } else { format!(" value({})", values.join(", ")) }));
+                        parts.push(format!("view{}{}{}{}", if *optional { "?" } else { "" }, if *mixed { " | View" } else { "" }, ty.as_ref().map(|t| format!(" {t}")).unwrap_or_default(), if values.is_empty() { String::new() } else { format!(" value({})", values.join(", ")) }));
                     }
                     if !v.rendered {
                         parts.push("unrendered".to_string());
@@ -538,7 +545,7 @@ re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
 re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(([^)]*)\)");
 re!(P_UNRENDERED, r"(^|[^A-Za-z0-9_])unrendered([^A-Za-z0-9_]|$)");
 re!(P_TAKES, r"(^|[^A-Za-z0-9_])takes\(((?:[^()]|\([^()]*\))*)\)");
-re!(P_VIEW, r"^view(\??)(?:\s|$)");
+re!(P_VIEW, r"^view(\??)(\s*\|\s*View)?(?:\s|$)");
 re!(P_VALUE, r"^value\(([^)]*)\)");
 re!(P_PENDING, r"(^|\s)pending(\s|$)");
 re!(P_FAILS, r"fails\(([^)]*)\)");
@@ -603,7 +610,7 @@ fn row_words(s: &str) -> RowWords {
     RowWords { rows, fails, rest: words[i..].join(" ") }
 }
 /// SV-7d's words (MO-9b; a JS component's, MO-11a).
-pub fn content_shape_of(s: Option<&str>) -> Result<Shape, String> {
+pub fn content_shape_of(s: Option<&str>, printed: bool) -> Result<Shape, String> {
     let mut sh = Shape::default();
     let Some(s) = s else { return Ok(sh) };
     for p in s.split(';').map(crate::parse::js_trim).filter(|x| !x.is_empty()) {
@@ -615,6 +622,7 @@ pub fn content_shape_of(s: Option<&str>) -> Result<Shape, String> {
             "a" => sh.a = true,
             "form" => sh.form = true,
             "children-at" => sh.children_at.push(rest),
+            _ if printed && w.ends_with("-at") => sh.views_at.entry(w[..w.len() - 3].to_string()).or_default().push(rest),
             _ => return Err(format!("shape: {}", p)),
         }
     }
@@ -746,7 +754,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                 let mut spec = spec;
                 if let Some(m) = P_VIEW.captures(&spec) {
                     // RG-4c
-                    let mut view = ViewSig { optional: !m[1].is_empty(), ty: None, values: vec![] };
+                    let mut view = ViewSig { optional: !m[1].is_empty(), mixed: m.get(2).is_some(), ty: None, values: vec![] };
                     let mut at = spec[m.get(0).unwrap().end()..].js_trim().to_string();
                     if at.starts_with('{') {
                         let end = crate::parse::closes(&at, 0).unwrap_or(at.len());
@@ -830,7 +838,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     sig.stored.entry(f).or_default().push(if t == "module" { t } else { abs_key(file, &t) });
                 }
             }
-            sig.shape = Some(content_shape_of(C_SHAPE.captures(tail).map(|x| x.get(2).unwrap().as_str())).map_err(|e| fail(&e))?);
+            sig.shape = Some(content_shape_of(C_SHAPE.captures(tail).map(|x| x.get(2).unwrap().as_str()), true).map_err(|e| fail(&e))?);
             exports.insert(m[1].to_string(), ExportSig::Comp { sig });
             continue;
         }
