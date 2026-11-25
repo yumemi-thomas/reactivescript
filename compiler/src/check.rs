@@ -8,7 +8,7 @@
 
 use crate::parse::JsTrim;
 use crate::ast::*;
-use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
+use crate::content::{carried_by, misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE, USE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::{other_mention, shown, shown_in, takes_view, view_uses, ModuleSet, Shown};
@@ -188,11 +188,29 @@ struct Region {
     fn_sym: Option<SId>,
 }
 
+/// RG-4c: what is given to a context that holds a view, around a place: a view of the walked component (`own`), markup
+/// written there, or a value.
+#[derive(Clone)]
+struct Carrier<'a> {
+    key: String,
+    own: Option<String>,
+    content: Option<(Vec<&'a Markup>, EId)>,
+    text: bool,
+}
+fn put_at(sh: &mut Shape, f: &str, anc: Vec<String>) {
+    if f == "children" {
+        sh.children_at.push(anc);
+    } else {
+        sh.views_at.entry(f.to_string()).or_default().push(anc);
+    }
+}
 #[derive(Clone)]
 struct PropRef {
     comp: RId,
     field: String,
     pre: Vec<Catch>,
+    /// RG-4c, read through a context that holds a view: the block that provides it, above every place that shows it
+    from: Option<RId>,
 }
 #[derive(Clone, Default)]
 struct Fails {
@@ -229,6 +247,8 @@ struct CtxInfo {
     contract: Option<(IndexSet<String>, IndexSet<String>)>,
     /// its declared type, the row words taken out (MO-10k: read a step at a time, as a declared result's is)
     ty: Option<String>,
+    /// RG-4c: it holds a view (whether one with a parameter, and the parameter's type)
+    view: Option<(bool, Option<String>)>,
 }
 
 /// MO-10k: the kind of value the checker confines by mention (`Checker::tainted`)
@@ -1688,6 +1708,8 @@ fn along(chain: &[Step], f: bool) -> Catch {
 #[derive(Clone)]
 enum Via {
     Reader(RId),
+    /// RG-4c: a view shown through a context: up from where it is shown to that component's root, then from the block that provides it
+    ReaderFrom(RId, RId),
     Arg { comp: RId, field: String, site: RId },
     Action { line: i64, name: String },
 }
@@ -1758,9 +1780,13 @@ struct Provision<'a> {
     key: String,
     e: &'a Expr,
     env: EId,
+    /// of a context that holds a view, the region of its `provide`
+    block: Option<RId>,
 }
 enum Later<'a> {
     Content { ms: &'a [Markup], env: EId, anc: Vec<String> },
+    /// RG-4c: `<use.item … />`: every provision of the context in the module may be the view shown there
+    ShownCarried { key: String, region: RId, attrs: Vec<(String, &'a Expr, EId)> },
     Provide { name: String, e: &'a Expr, env: EId, line: i64, contract: (IndexSet<String>, IndexSet<String>) },
     RowFails { name: String, env: EId, fw: Option<String>, written: String, line: i64 },
     Escape { target: &'a Target, e: &'a Expr, tsym: Option<SId>, env: EId, line: i64 },
@@ -2033,7 +2059,11 @@ pub struct Checker<'a> {
     /// by component and view, each place it shows it: what with
     placed: HashMap<(RId, String), Vec<Vec<(String, &'a Expr, EId)>>>,
     /// where a component shows its views: what is read there goes up from there
-    shown_at: Vec<(RId, RId, String)>,
+    shown_at: Vec<(RId, RId, String, Option<RId>)>,
+    /// RG-4c: `provide item = props.f` of a view with a parameter: the context's key, the component, its prop, the block
+    carried_fns: Vec<(String, SId, String, RId)>,
+    /// the `use` of a context that holds a view that a reader shows
+    shown_use: Option<*const Expr>,
     /// O-3: what a view stores where it outlives it
     view_stores: Vec<((SId, String), String, i64)>,
     /// the branch of `if props.f` where it is
@@ -2096,6 +2126,17 @@ pub struct Checker<'a> {
     /// RG-4c: each reader that shows a view its component was given, each argument and each content that gives one on (by
     /// the address of the `Markup` or the `Attr`): the props it is of. Per component, once (`view_placed`).
     view_places: HashMap<usize, Vec<String>>,
+    /// RG-4c: each component's views provided to a context that holds a view (the context's name, the props)
+    view_carried: HashMap<SId, Vec<(String, Vec<String>)>>,
+    sh_carried: Vec<Carrier<'a>>,
+    sh_depth: HashMap<usize, u8>,
+    cc_carried: Vec<Carrier<'a>>,
+    cc_depth: HashMap<usize, u8>,
+    /// the element whose application is being walked (the key of its content's place)
+    cur_el: usize,
+    cc_quiet: u32,
+    /// RG-4c: the contexts that hold a view and are given a value somewhere: text
+    text_given: HashSet<String>,
     view_placed: HashSet<SId>,
     // the application tree (resolve_tree), kept for the signature's component summaries
     occ: Vec<Occ>,
@@ -2483,6 +2524,8 @@ impl<'a> Checker<'a> {
             placed: HashMap::new(),
             view_stores: vec![],
             shown_at: vec![],
+            carried_fns: vec![],
+            shown_use: None,
             asked: HashMap::new(),
             nested: IndexMap::new(),
             nesting_word: None,
@@ -2520,6 +2563,14 @@ impl<'a> Checker<'a> {
             awaited: HashSet::new(),
             shapes: HashMap::new(),
             view_places: HashMap::new(),
+            view_carried: HashMap::new(),
+            sh_carried: vec![],
+            sh_depth: HashMap::new(),
+            cc_carried: vec![],
+            cc_depth: HashMap::new(),
+            cur_el: 0,
+            cc_quiet: 0,
+            text_given: HashSet::new(),
             view_placed: HashSet::new(),
             occ: vec![],
             r_memo: HashMap::new(),
@@ -2796,6 +2847,15 @@ impl<'a> Checker<'a> {
     fn run_later(&mut self, job: Later<'a>) {
         match job {
             Later::Content { ms, env, anc } => self.content_check(ms, env, &anc),
+            Later::ShownCarried { key, region, attrs } => {
+                for (k, cs, f, block) in self.carried_fns.clone() {
+                    if k == key {
+                        let r = self.syms[cs].comp_region.unwrap();
+                        self.shown_at.push((region, r, f.clone(), Some(block)));
+                        self.placed.entry((r, f)).or_default().push(attrs.clone());
+                    }
+                }
+            }
             Later::Carried { e, env, line, attr, in_fn } => {
                 let ExprKind::Call { f, .. } = &e.k else { return };
                 if !self.action_parts(f, env).contains("") {
@@ -2909,10 +2969,19 @@ impl<'a> Checker<'a> {
                     };
                     let key = format!("{}#{}{}", self.opts.file.as_deref().unwrap_or("main.rx"), name, suffix);
                     let mut s = Sym::new(SymKind::Context, name, region, *line as i64);
-                    s.ctx = Some(CtxInfo { key: key.clone(), source: *source, dflt: dflt.is_some(), contract, ty: ty.as_ref().map(|t| field_rows(&ROW_WORDS.replace(t, "")).0) });
+                    // RG-4c: a context that holds a view
+                    let view = crate::modules::view_ctx(ty.as_ref().map(|t| ROW_WORDS.replace(t, "").to_string()).as_deref(), &self.opts.types);
+                    s.ctx = Some(CtxInfo { key: key.clone(), source: *source, dflt: dflt.is_some(), contract, ty: ty.as_ref().map(|t| field_rows(&ROW_WORDS.replace(t, "")).0), view: view.clone() });
                     self.bind(env, name, s);
+                    if view.is_some() {
+                        if *exported {
+                            self.err("VIEW_NOT_SHOWN", "RG-4c", format!("context {name} holds a view, and is exported: a view carried by a context is provided and shown in the module that declares it, where every place that shows it is checked — export the components that provide and show it"));
+                        } else if ty.as_ref().is_some_and(|t| ROW_WORDS.is_match(t)) {
+                            self.err("VIEW_NOT_SHOWN", "RG-4c", format!("context {name} holds a view: it has no rows of its own (what the view waits on and fails with is checked at each place that shows it)"));
+                        }
+                    }
                     if let Some(e) = dflt {
-                        self.provisions.push(Provision { key, e, env });
+                        self.provisions.push(Provision { key, e, env, block: None });
                     }
                     continue;
                 }
@@ -3185,7 +3254,7 @@ impl<'a> Checker<'a> {
                 }
                 ExportSig::Context { key, source, dflt, rows, fails, ty } => {
                     let mut s = Sym::new(SymKind::Context, alias, region, line);
-                    s.ctx = Some(CtxInfo { key: key.clone(), source: *source, dflt: *dflt, contract: Some((set(rows), set(fails))), ty: ty.as_ref().map(|t| field_rows(t).0) });
+                    s.ctx = Some(CtxInfo { key: key.clone(), source: *source, dflt: *dflt, contract: Some((set(rows), set(fails))), ty: ty.as_ref().map(|t| field_rows(t).0) , view: None });
                     s
                 }
             };
@@ -4021,7 +4090,38 @@ impl<'a> Checker<'a> {
                 let info = self.syms[c].ctx.clone().unwrap();
                 let region = self.reg(env);
                 self.regions[region].provides.insert(info.key.clone());
-                self.provisions.push(Provision { key: info.key.clone(), e, env });
+                let block = (info.view.is_some() && self.regions[region].component.is_some()).then_some(region);
+                self.provisions.push(Provision { key: info.key.clone(), e, env, block });
+                if let Some((false, _)) = &info.view {
+                    // RG-4c: given what is no view of the component alone (a value, a choice with one), it may hold text
+                    self.ensure_places(env);
+                    let pure = matches!(e.k, ExprKind::Id(_) | ExprKind::Member { .. }) && self.regions[region].component.is_some() && self.view_places.get(&(d as *const Decl as usize)).is_some_and(|fs| !fs.is_empty());
+                    if !pure {
+                        self.text_given.insert(info.key.clone());
+                    }
+                }
+                if let Some((true, param)) = &info.view {
+                    // RG-4c: a context that holds a view with a parameter is given one the component was given, as it is
+                    let found = match &e.k {
+                        ExprKind::Member { o, p, .. } => match &o.k {
+                            ExprKind::Id(n) => self.lookup(env, n).filter(|&ps| self.syms[ps].kind == SymKind::Props && self.syms[ps].view_of.is_none()).and_then(|ps| self.comp_syms.get(&self.syms[ps].region).copied()).map(|cs| (cs, p.clone())),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    let how = found.as_ref().and_then(|(cs, f)| self.shown_by(*cs).get(f).cloned());
+                    match (found, how) {
+                        (Some((cs, f)), Some(how)) => {
+                            let want = param.as_ref().map(|t| crate::modules::expand_type(t, &self.opts.types, 0)).unwrap_or_default();
+                            if how.mixed || how.param.clone().unwrap_or_default() != want {
+                                self.err("VIEW_NOT_SHOWN", "RG-4c", format!("context {name} is declared {}, and {} is another type: what shows it, `<use.{name} … />`, gives it what the context says", info.ty.clone().unwrap_or_default(), show(e)));
+                            } else {
+                                self.carried_fns.push((info.key.clone(), cs, f, region));
+                            }
+                        }
+                        _ => self.err("VIEW_NOT_SHOWN", "RG-4c", format!("context {name} holds a view with a parameter: it is provided one this component was given, `provide {name} = props.item`, of a prop declared with the context's type")),
+                    }
+                }
                 if let Some(contract) = info.contract {
                     let line = self.line;
                     self.later.push(Later::Provide { name: name.clone(), e, env, line, contract });
@@ -4129,7 +4229,7 @@ impl<'a> Checker<'a> {
                 self.bind(inner, props, ps);
                 self.syms[s].comp_env = Some(inner);
                 let fields = self.shown_by(s);
-                if let Some((f, at)) = if fields.is_empty() { None } else { other_mention(props, decls, view, &fields) } {
+                if let Some((f, at)) = if fields.is_empty() { None } else { other_mention(props, decls, view, &fields, &|n| self.lookup(inner, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| matches!(i.view, Some((true, _))))) } {
                     let was = std::mem::replace(&mut self.line, if at == 0 { *line as i64 } else { at as i64 });
                     let p = format!("{props}.{f}");
                     self.err("VIEW_FN_MISPLACED", "RG-4c", format!("{name} shows {p} as a view, `<{p} … />`: it is named nowhere else (not read, called, stored, passed or spread; `if {p}` asks for an optional one that takes no plain content, and `{{ {f}: none, ...rest }} = {props}` leaves it out of a rest)"));
@@ -4140,7 +4240,7 @@ impl<'a> Checker<'a> {
                     let s = self.lookup(inner, tag)?;
                     let Some(Decl::Component { props_type, .. }) = self.syms[s].comp else { return None };
                     takes_view(props_type.as_deref(), &self.opts.types, attr)
-                });
+                }, &|n| self.lookup(inner, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
                 if let Some((f, at, how, of)) = uses.bad.into_iter().next() {
                     let was = std::mem::replace(&mut self.line, if at == 0 { *line as i64 } else { at as i64 });
                     self.err("VIEW_NOT_SHOWN", "RG-4c", crate::modules::view_not_shown(name, props, &f, &how, &of));
@@ -6181,6 +6281,12 @@ impl<'a> Checker<'a> {
                     self.err("SERVER_CAPTURE", "SF-3", format!("a server function's body reads `use {}`: a provision is the client's — pass it as an argument", name));
                 }
                 let c = self.ctx_of(name, env);
+                if let Some((is_fn, _)) = c.and_then(|c| self.syms[c].ctx.as_ref()).and_then(|i| i.view.clone()) {
+                    if is_fn || self.shown_use != Some(e as *const Expr) {
+                        let how = if is_fn { format!("`<use.{name} … />`") } else { format!("`{{use {name}}}`") };
+                        self.err("VIEW_NOT_SHOWN", "RG-4c", format!("context {name} holds a view, and a view is only shown: {how} in a view, where it is made and owned — it is not read as a value, asked, kept, given on or provided again"));
+                    }
+                }
                 if let Some(c) = c {
                     self.read(c, ctx, false, None);
                     let info = self.syms[c].ctx.clone().unwrap();
@@ -7272,8 +7378,48 @@ impl<'a> Checker<'a> {
                 self.readers.push(ReaderRec { region, e: &a.e, env, line: self.line });
             }
         }
-        self.shown_at.push((region, r, view.clone()));
+        self.shown_at.push((region, r, view.clone(), None));
         self.placed.entry((r, view)).or_default().push(attrs.iter().map(|a| (field_of(&a.name).to_string(), &a.e, env)).collect());
+    }
+    /// RG-4c: `<use.item a={e} />`, the view a context holds, shown there with what the context's type says. Its
+    /// arguments are read there; the view's own readers go up from there, then from the block that provides it.
+    fn show_carried(&mut self, tag: &'a str, attrs: &'a [Attr], children: &'a [Markup], name: &str, env: EId) {
+        let region = self.reg(env);
+        let bad = |t: &mut Self, msg: String| t.err("VIEW_FN_MISPLACED", "RG-4c", msg);
+        let c = self.ctx_of(name, env);
+        let info = c.and_then(|c| self.syms[c].ctx.clone());
+        let Some(info) = info.filter(|i| matches!(i.view, Some((true, _)))) else {
+            let what = match c.and_then(|c| self.syms[c].ctx.clone()) {
+                Some(i) => format!("declared {}", i.ty.unwrap_or_else(|| "with no type".into())),
+                None => "no context".into(),
+            };
+            bad(self, format!("<{tag} … /> shows the view a context holds: {name} is {what} — a context that holds a view with a parameter is `context {name}: (row: T) => View` (one of no parameter is shown `{{use {name}}}`)"));
+            return;
+        };
+        if children.iter().any(|x| !matches!(&x.kind, MarkupKind::Text(t) if js_trim(t).is_empty())) {
+            bad(self, format!("<{tag}> is given nothing between its tags: what the view shows is what it was written with"));
+        }
+        self.read(c.unwrap(), Ctx::reactive(), false, None);
+        if !info.dflt {
+            self.uses.push(UseRec { region, name: info.key.clone(), line: self.line, display: name.to_string() });
+        }
+        let handles = |n: &str| n != "ref" && is_handler(n);
+        for a in attrs {
+            if a.name == "children" {
+                bad(self, format!("<{tag} children={{…}}>: a view is shown with fields of another name"));
+                continue;
+            }
+            let h = handles(&a.name);
+            if h {
+                self.handler_called(&a.e, env, &a.name);
+            }
+            self.comp(if h { "handler" } else { "prop" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, if h { Ctx::imperative() } else { Ctx::reactive() }, None));
+            if !h {
+                self.keep(&a.e, env);
+                self.readers.push(ReaderRec { region, e: &a.e, env, line: self.line });
+            }
+        }
+        self.later.push(Later::ShownCarried { key: info.key, region, attrs: attrs.iter().map(|a| (field_of(&a.name).to_string(), &a.e, env)).collect() });
     }
     /// The depth, in the site's lexical tree, of the region a provision written from beneath `site` lives as long as.
     fn prov_anchor(&self, site: RId, key: &str) -> i64 {
@@ -7320,7 +7466,9 @@ impl<'a> Checker<'a> {
                     }
                 }
                 MarkupKind::Read(e) => {
+                    let was = std::mem::replace(&mut self.shown_use, matches!(e.k, ExprKind::Use(_)).then_some(e as *const Expr));
                     self.comp("reader", env, None, Some("{…}".into()), |c| c.expr(e, env, Ctx::reactive(), None));
+                    self.shown_use = was;
                     self.keep(e, env);
                     self.readers.push(ReaderRec { region, e, env, line: self.line });
                 }
@@ -7494,6 +7642,10 @@ impl<'a> Checker<'a> {
                         self.show_view(tag, attrs, children, c, view, env);
                         continue;
                     }
+                    if let Some(u) = crate::modules::used_in(tag) {
+                        self.show_carried(tag, attrs, children, u, env);
+                        continue;
+                    }
                     // MO-11q, 07 §4: `<wardic.div>`, where wardic is bound, is no member component by its small letter: it was
                     // compiled as an element of that name, silently. Where the head is no name, it is an element (07 §4)
                     if let Some(dot) = tag.find('.').filter(|d| *d > 0) {
@@ -7649,13 +7801,30 @@ impl<'a> Checker<'a> {
         if self.view_placed.insert(c) {
             // RG-4c: a view is placed where it is shown, under whatever name, and where the component it is given on to shows it
             let skip: Vec<String> = self.shown_by(c).keys().cloned().collect();
-            let at = view_uses(props, props_type.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None).at;
-            self.view_places.extend(at);
+            let vu = view_uses(props, props_type.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
+            self.view_places.extend(vu.at);
+            self.view_carried.insert(c, vu.carried);
         }
         self.shapes.insert(c, None);
         let mut sh = Shape::default();
         let mut roots: IndexSet<String> = IndexSet::new();
+        // RG-4c: a view of this component provided to a context: shown wherever that context is, beneath
+        let saved = (std::mem::take(&mut self.sh_carried), std::mem::take(&mut self.sh_depth));
+        for (name, fs) in self.view_carried.get(&c).cloned().unwrap_or_default() {
+            let Some(key) = self.lookup(cenv, &name).and_then(|s| self.syms[s].ctx.as_ref()).map(|i| i.key.clone()) else { continue };
+            for f in fs {
+                put_at(&mut sh, &f, vec![format!("{USE}{key}")]);
+                self.sh_carried.push(Carrier { key: key.clone(), own: Some(f), content: None, text: false });
+            }
+        }
+        for (key, cs, f, _) in self.carried_fns.clone() {
+            if cs == c {
+                put_at(&mut sh, &f, vec![format!("{USE}{key}")]);
+                self.sh_carried.push(Carrier { key, own: Some(f), content: None, text: false });
+            }
+        }
         self.shape_walk(view, &[], false, cenv, &mut sh, &mut roots);
+        (self.sh_carried, self.sh_depth) = saved;
         sh.roots = roots.into_iter().collect();
         self.shapes.insert(c, Some(sh.clone()));
         sh
@@ -7679,6 +7848,8 @@ impl<'a> Checker<'a> {
                         }
                     } else if self.reads_children(e, env) {
                         sh.children_at.push(anc.to_vec());
+                    } else if let Some((key, dflt)) = self.view_shown(e, env) {
+                        self.shape_shown(&key, anc, scoped, dflt, sh, roots);
                     }
                 }
                 MarkupKind::El { tag, attrs, children } => {
@@ -7687,6 +7858,7 @@ impl<'a> Checker<'a> {
                         continue;
                     }
                     if is_upper_tag(tag) {
+                        self.cur_el = m as *const Markup as usize;
                         self.shape_app(tag, attrs, children, &[], env, anc, scoped, sh, roots);
                         continue;
                     }
@@ -7695,6 +7867,12 @@ impl<'a> Checker<'a> {
                             sh.children_at.push(anc.to_vec());
                         } else {
                             sh.views_at.entry(f).or_default().push(anc.to_vec());
+                        }
+                        continue;
+                    }
+                    if let Some(u) = crate::modules::used_in(tag) {
+                        if let Some(key) = self.lookup(env, u).and_then(|s| self.syms[s].ctx.as_ref()).filter(|i| i.view.is_some()).map(|i| i.key.clone()) {
+                            self.shape_shown(&key, anc, scoped, false, sh, roots);
                         }
                         continue;
                     }
@@ -7723,6 +7901,7 @@ impl<'a> Checker<'a> {
                     self.shape_walk(fallback, anc, scoped, env, sh, roots);
                     self.shape_walk(body, anc, scoped, env, sh, roots);
                 }
+                MarkupKind::Portal { body, .. } => self.shape_links(body, &["body".to_string()], env, sh, roots),
                 _ => {}
             }
         }
@@ -8103,7 +8282,21 @@ impl<'a> Checker<'a> {
         }
         let why = misnested_inside(anc, &ss);
         self.report_content(anc, format!("<{}>", tag), why);
+        let el = std::mem::take(&mut self.cur_el);
+        let cs = self.carriers_of(el, attrs, children, s, &ss, env);
+        let kept = self.cc_carried.len();
+        self.cc_carried.extend(cs);
+        for (k, chains) in &ss.views_at {
+            let Some(key) = k.strip_prefix(USE) else { continue };
+            for at in chains {
+                let a2: Vec<String> = anc.iter().chain(at.iter()).cloned().collect();
+                self.shown_check(key, &a2);
+            }
+        }
         for ch in &ss.children_at {
+            if carried_by(ch).is_some() {
+                continue;
+            }
             let mut a2 = anc.to_vec();
             a2.extend(ch.iter().cloned());
             for x in children.iter().filter(|x| !matches!(&x.kind, MarkupKind::Mview { prop: Some(p), .. } if takes.contains_key(p))) {
@@ -8127,11 +8320,15 @@ impl<'a> Checker<'a> {
         for x in children.iter() {
             let MarkupKind::Mview { prop: Some(p), .. } = &x.kind else { continue };
             for at in ss.views_at.get(p).filter(|_| takes.contains_key(p)).into_iter().flatten() {
+                if carried_by(at).is_some() {
+                    continue;
+                }
                 let mut a2 = anc.to_vec();
                 a2.extend(at.iter().cloned());
                 self.content_check(std::slice::from_ref(x), env, &a2);
             }
         }
+        self.cc_carried.truncate(kept);
     }
     /// SV-7d's summary of a component application inside a view (`shape`): its roots and flags, then its children and
     /// component values where it places them.
@@ -8168,7 +8365,22 @@ impl<'a> Checker<'a> {
         if ss.form {
             sh.form = true;
         }
+        // RG-4c: what this application gives to a context that holds a view: shown wherever that context is, beneath it
+        let el = std::mem::take(&mut self.cur_el);
+        let cs = self.carriers_of(el, attrs, children, s, &ss, env);
+        let kept = self.sh_carried.len();
+        self.sh_carried.extend(cs);
+        for (k, chains) in &ss.views_at {
+            let Some(key) = k.strip_prefix(USE) else { continue };
+            for at in chains {
+                let a2: Vec<String> = anc.iter().chain(at.iter()).cloned().collect();
+                self.shape_shown(key, &a2, scoped || at.iter().any(|t| P_SCOPE.contains(t.as_str())), false, sh, roots);
+            }
+        }
         for ch in &ss.children_at {
+            if carried_by(ch).is_some() {
+                continue;
+            }
             let mut a2 = anc.to_vec();
             a2.extend(ch.iter().cloned());
             let sc = scoped || ch.iter().any(|t| P_SCOPE.contains(t.as_str()));
@@ -8193,6 +8405,9 @@ impl<'a> Checker<'a> {
         for x in children.iter() {
             let MarkupKind::Mview { prop: Some(p), .. } = &x.kind else { continue };
             for at in ss.views_at.get(p).filter(|_| takes.contains_key(p)).into_iter().flatten() {
+                if carried_by(at).is_some() {
+                    continue;
+                }
                 let mut a2 = anc.to_vec();
                 a2.extend(at.iter().cloned());
                 self.shape_walk(std::slice::from_ref(x), &a2, scoped || at.iter().any(|t| P_SCOPE.contains(t.as_str())), env, sh, roots);
@@ -8218,6 +8433,235 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+        // … or as content, to a component that provides it to a context
+        if let Some(fs) = self.view_places.get(&el).cloned() {
+            for f in &fs {
+                for at in &ss.children_at {
+                    if carried_by(at).is_some() {
+                        put_at(sh, f, anc.iter().chain(at.iter()).cloned().collect());
+                    }
+                }
+            }
+        }
+        self.sh_carried.truncate(kept);
+    }
+    /// RG-4c: `use item` of a context that holds a view, shown: its key, and whether it has a default.
+    fn view_shown(&self, e: &Expr, env: EId) -> Option<(String, bool)> {
+        let ExprKind::Use(n) = &e.k else { return None };
+        // dflt: it may hold text (its default, or a value it is given)
+        self.lookup(env, n).and_then(|s| self.syms[s].ctx.as_ref()).filter(|i| i.view.is_some()).map(|i| (i.key.clone(), i.dflt || self.text_given.contains(&i.key)))
+    }
+    /// RG-4c: a context that holds a view is shown here. Whatever provides it above this component shows its view at this
+    /// place (`use:<key>-at …`); what is given to a provider written around it in this view is shown here: a view of
+    /// this component given on is placed here, markup written here is part of this component's tree.
+    #[allow(clippy::too_many_arguments)]
+    fn shape_shown(&mut self, key: &str, at: &[String], scoped: bool, dflt: bool, sh: &mut Shape, roots: &mut IndexSet<String>) {
+        sh.views_at.entry(format!("{USE}{key}")).or_default().push(at.to_vec());
+        if dflt && at.is_empty() {
+            roots.insert("#text".into()); // its default is a value: text
+        }
+        let cs: Vec<Carrier<'a>> = self.sh_carried.iter().filter(|c| c.key == key).cloned().collect();
+        for c in cs {
+            if let Some(f) = &c.own {
+                put_at(sh, f, at.to_vec());
+            } else if let Some((ms, env)) = &c.content {
+                let id = ms.first().map(|m| *m as *const Markup as usize).unwrap_or(0);
+                let d = self.sh_depth.get(&id).copied().unwrap_or(0);
+                if d < 2 {
+                    self.sh_depth.insert(id, d + 1);
+                    let sc = scoped || at.iter().any(|t| P_SCOPE.contains(t.as_str()));
+                    for m in ms {
+                        if at.iter().any(|t| t == "body") {
+                            self.shape_links(std::slice::from_ref(*m), at, *env, sh, roots);
+                        } else {
+                            self.shape_walk(std::slice::from_ref(*m), at, sc, *env, sh, roots);
+                        }
+                    }
+                    self.sh_depth.insert(id, d);
+                }
+            } else if c.text && at.is_empty() {
+                roots.insert("#text".into());
+            }
+        }
+    }
+    /// … in a portal: its body is not at this component's place (nothing of it is in the component's roots or flags), but
+    /// a context shown there is shown there: `<Portal><Listbox /></Portal>`.
+    fn shape_links(&mut self, ms: &'a [Markup], anc: &[String], env: EId, sh: &mut Shape, roots: &mut IndexSet<String>) {
+        for m in ms {
+            match &m.kind {
+                MarkupKind::Read(e) => {
+                    if let Some((key, dflt)) = self.view_shown(e, env) {
+                        self.shape_shown(&key, anc, true, dflt, sh, roots);
+                    }
+                }
+                MarkupKind::El { tag, attrs, children } => {
+                    if tag.is_empty() {
+                        self.shape_links(children, anc, env, sh, roots);
+                        continue;
+                    }
+                    if is_upper_tag(tag) {
+                        let Some(s) = self.lookup(env, tag).filter(|s| self.syms[*s].kind == SymKind::Comp) else { continue };
+                        let ss = self.shape(s);
+                        let takes = self.shown_by(s);
+                        let cs = self.carriers_of(m as *const Markup as usize, attrs, children, s, &ss, env);
+                        let kept = self.sh_carried.len();
+                        self.sh_carried.extend(cs);
+                        for (k, chains) in &ss.views_at {
+                            let Some(key) = k.strip_prefix(USE) else { continue };
+                            for at in chains {
+                                let a2: Vec<String> = anc.iter().chain(at.iter()).cloned().collect();
+                                self.shape_shown(key, &a2, true, false, sh, roots);
+                            }
+                        }
+                        for ch in &ss.children_at {
+                            if carried_by(ch).is_some() {
+                                continue;
+                            }
+                            let a2: Vec<String> = anc.iter().chain(ch.iter()).cloned().collect();
+                            for x in children.iter().filter(|x| !matches!(&x.kind, MarkupKind::Mview { prop: Some(p), .. } if takes.contains_key(p))) {
+                                self.shape_links(std::slice::from_ref(x), &a2, env, sh, roots);
+                            }
+                        }
+                        for x in children.iter() {
+                            let MarkupKind::Mview { prop: Some(p), .. } = &x.kind else { continue };
+                            for at in ss.views_at.get(p).filter(|_| takes.contains_key(p)).into_iter().flatten() {
+                                if carried_by(at).is_some() {
+                                    continue;
+                                }
+                                let a2: Vec<String> = anc.iter().chain(at.iter()).cloned().collect();
+                                self.shape_links(std::slice::from_ref(x), &a2, env, sh, roots);
+                            }
+                        }
+                        self.sh_carried.truncate(kept);
+                        continue;
+                    }
+                    if self.shows(tag, env).is_some() {
+                        continue;
+                    }
+                    if let Some(u) = crate::modules::used_in(tag) {
+                        if let Some(key) = self.lookup(env, u).and_then(|s| self.syms[s].ctx.as_ref()).filter(|i| i.view.is_some()).map(|i| i.key.clone()) {
+                            self.shape_shown(&key, anc, true, false, sh, roots);
+                        }
+                        continue;
+                    }
+                    let mut a2 = anc.to_vec();
+                    a2.push(tag.clone());
+                    self.shape_links(children, &a2, env, sh, roots);
+                }
+                MarkupKind::Mif { t, f, .. } => {
+                    self.shape_links(t, anc, env, sh, roots);
+                    self.shape_links(f, anc, env, sh, roots);
+                }
+                MarkupKind::Mfor { body, .. } | MarkupKind::Mview { body, .. } => self.shape_links(body, anc, env, sh, roots),
+                MarkupKind::Portal { body, .. } => self.shape_links(body, &["body".to_string()], env, sh, roots),
+                MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => {
+                    self.shape_links(fallback, anc, env, sh, roots);
+                    self.shape_links(body, anc, env, sh, roots);
+                }
+                _ => {}
+            }
+        }
+    }
+    /// … and, where a view is checked: markup given to a provider around this place is placed here.
+    fn shown_check(&mut self, key: &str, anc: &[String]) {
+        let cs: Vec<Carrier<'a>> = self.cc_carried.iter().filter(|c| c.key == key).cloned().collect();
+        let quiet = std::mem::take(&mut self.cc_quiet);
+        self.shown_check0(cs, anc);
+        self.cc_quiet = quiet;
+    }
+    fn shown_check0(&mut self, cs: Vec<Carrier<'a>>, anc: &[String]) {
+        for c in cs {
+            if c.text {
+                let why = misnested(anc, "#text");
+                self.report_content(anc, "the text a context is given".into(), why);
+            } else if let Some((ms, env)) = &c.content {
+                let id = ms.first().map(|m| *m as *const Markup as usize).unwrap_or(0);
+                let d = self.cc_depth.get(&id).copied().unwrap_or(0);
+                if d < 2 {
+                    let line = self.line;
+                    self.cc_depth.insert(id, d + 1);
+                    for m in ms {
+                        self.content_check(std::slice::from_ref(*m), *env, anc);
+                    }
+                    self.cc_depth.insert(id, d);
+                    self.line = line;
+                }
+            }
+        }
+    }
+    /// The places of the views of the component a scope is in (`view_places`), computed.
+    fn ensure_places(&mut self, env: EId) {
+        let Some(c) = self.regions[self.reg(env)].component.and_then(|r| self.comp_syms.get(&r).copied()) else { return };
+        let (Some(Decl::Component { view, props, props_type, decls, .. }), Some(cenv)) = (self.syms[c].comp, self.syms[c].comp_env) else { return };
+        if self.view_placed.insert(c) {
+            let skip: Vec<String> = self.shown_by(c).keys().cloned().collect();
+            let vu = view_uses(props, props_type.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
+            self.view_places.extend(vu.at);
+            self.view_carried.insert(c, vu.carried);
+        }
+    }
+    /// RG-4c: what an application gives to the props its component provides to a context that holds a view (the
+    /// component's shape says `f-at … use:<key>`): each is shown wherever that context is shown beneath. `own`: a view of
+    /// the component being walked, given on (`view_places`); `content`: markup written here; `text`: a value.
+    fn carriers_of(&mut self, el: usize, attrs: &'a [Attr], children: &'a [Markup], s: SId, ss: &Shape, env: EId) -> Vec<Carrier<'a>> {
+        let mut todo: Vec<(String, String)> = vec![];
+        for ch in &ss.children_at {
+            if let Some(k) = carried_by(ch) {
+                todo.push(("children".into(), k.to_string()));
+            }
+        }
+        for (f, chains) in &ss.views_at {
+            if f.starts_with(USE) {
+                continue;
+            }
+            for ch in chains {
+                if let Some(k) = carried_by(ch) {
+                    todo.push((f.clone(), k.to_string()));
+                }
+            }
+        }
+        if todo.is_empty() {
+            return vec![];
+        }
+        self.ensure_places(env);
+        let takes = self.shown_by(s);
+        let mut out: Vec<Carrier<'a>> = vec![];
+        for (f, key) in todo {
+            let own = |g: &str| Carrier { key: key.clone(), own: Some(g.to_string()), content: None, text: false };
+            let given = |fs: Option<&Vec<String>>, out: &mut Vec<Carrier<'a>>| -> bool {
+                for g in fs.into_iter().flatten() {
+                    out.push(own(g));
+                }
+                fs.is_some_and(|v| !v.is_empty())
+            };
+            if f == "children" {
+                let content: Vec<&'a Markup> = children.iter().filter(|x| !matches!(&x.kind, MarkupKind::Mview { prop: Some(p), .. } if takes.contains_key(p)) && !matches!(&x.kind, MarkupKind::Text(t) if js_trim(t).is_empty())).collect();
+                if !content.is_empty() {
+                    if !given(self.view_places.get(&el), &mut out) {
+                        out.push(Carrier { key: key.clone(), own: None, content: Some((content, env)), text: false });
+                    }
+                    continue;
+                }
+            } else {
+                if let Some(x) = children.iter().find(|x| matches!(&x.kind, MarkupKind::Mview { prop: Some(p), .. } if *p == f && takes.contains_key(p))) {
+                    out.push(Carrier { key: key.clone(), own: None, content: Some((vec![x], env)), text: false });
+                    continue;
+                }
+                if let Some(a) = attrs.iter().rev().find(|a| a.name == f || a.name == "...").filter(|a| a.name == f) {
+                    if !given(self.view_places.get(&(a as *const Attr as usize)), &mut out) {
+                        out.push(Carrier { key: key.clone(), own: None, content: None, text: true });
+                    }
+                    continue;
+                }
+            }
+            // a spread gives it on under its own name
+            for a in attrs {
+                if a.name == "..." && self.view_places.get(&(a as *const Attr as usize)).is_some_and(|fs| fs.iter().any(|x| *x == f)) {
+                    out.push(own(&f));
+                }
+            }
+        }
+        out
     }
     fn content_check(&mut self, ms: &'a [Markup], env: EId, anc: &[String]) {
         for m in ms {
@@ -8231,16 +8675,34 @@ impl<'a> Checker<'a> {
                         self.report_content(anc, "text".into(), why);
                     }
                 }
+                // RG-4c: a context that holds a view, shown: what is given to a provider around this place
+                MarkupKind::Read(e) => {
+                    if let Some((key, dflt)) = self.view_shown(e, env) {
+                        if dflt {
+                            let ExprKind::Use(n) = &e.k else { unreachable!() };
+                            let why = misnested(anc, "#text");
+                            self.report_content(anc, format!("the text {n} may hold (its default, or a value it is given)"), why);
+                        }
+                        self.shown_check(&key, anc);
+                    }
+                }
                 MarkupKind::El { tag, attrs, children } => {
                     if tag.is_empty() {
                         self.content_check(children, env, anc);
                         continue;
                     }
                     if is_upper_tag(tag) {
+                        self.cur_el = m as *const Markup as usize;
                         self.content_app(tag, attrs, children, &[], m.line, env, anc);
                         continue;
                     }
                     if self.shows(tag, env).is_some() {
+                        continue;
+                    }
+                    if let Some(u) = crate::modules::used_in(tag) {
+                        if let Some(key) = self.lookup(env, u).and_then(|s| self.syms[s].ctx.as_ref()).filter(|i| i.view.is_some()).map(|i| i.key.clone()) {
+                            self.shown_check(&key, anc);
+                        }
                         continue;
                     }
                     let why = misnested(anc, tag);
@@ -8253,6 +8715,14 @@ impl<'a> Checker<'a> {
                     self.content_check(t, env, anc);
                     self.content_check(f, env, anc);
                 }
+                // RG-4c: its own check is made once, apart (RG-8); here, only what a context shows in it of what is given around this place
+                MarkupKind::Portal { body, .. } => {
+                    if !self.cc_carried.is_empty() {
+                        self.cc_quiet += 1;
+                        self.content_check(body, env, &["body".to_string()]);
+                        self.cc_quiet -= 1;
+                    }
+                }
                 MarkupKind::Mfor { body, .. } | MarkupKind::Mview { body, .. } => self.content_check(body, env, anc),
                 MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => {
                     self.content_check(fallback, env, anc);
@@ -8263,6 +8733,9 @@ impl<'a> Checker<'a> {
         }
     }
     fn report_content(&mut self, anc: &[String], what: String, why: Option<String>) {
+        if self.cc_quiet > 0 {
+            return;
+        }
         if let Some(why) = why {
             self.err("CONTENT_MODEL", "SV-7d", format!("{} inside <{}>: the browser's HTML parser {}, so the served page is not the tree the client builds", what, anc.last().map(|s| s.as_str()).unwrap_or("undefined"), why));
         }
@@ -8820,7 +9293,7 @@ impl<'a> Checker<'a> {
                 let Some(s) = self.lookup(env, name) else { return out };
                 match self.syms[s].kind {
                     SymKind::Props => {
-                        out.props.push(PropRef { comp: self.syms[s].region, field: "*".into(), pre: vec![] });
+                        out.props.push(PropRef { comp: self.syms[s].region, field: "*".into(), pre: vec![], from: None });
                         out
                     }
                     SymKind::Eq | SymKind::Source if self.syms[s].fails_t.is_some() => {
@@ -8836,7 +9309,7 @@ impl<'a> Checker<'a> {
                     if !bound.contains_key(on) {
                         if let Some(s) = self.lookup(env, on) {
                             if self.syms[s].kind == SymKind::Props {
-                                out.props.push(PropRef { comp: self.syms[s].region, field: p.clone(), pre: vec![] });
+                                out.props.push(PropRef { comp: self.syms[s].region, field: p.clone(), pre: vec![], from: None });
                                 return out;
                             }
                         }
@@ -8853,7 +9326,7 @@ impl<'a> Checker<'a> {
                         if let Some(s) = self.lookup(env, on) {
                             if self.syms[s].kind == SymKind::Props {
                                 // `props["x"]` is `props.x`; `props[k]` may be any of them
-                                out.props.push(PropRef { comp: self.syms[s].region, field: lit_key(i).unwrap_or_else(|| "*".into()), pre: vec![] });
+                                out.props.push(PropRef { comp: self.syms[s].region, field: lit_key(i).unwrap_or_else(|| "*".into()), pre: vec![], from: None });
                                 let f = self.fails_of(i, env, imp, bound);
                                 out.add(f);
                                 return out;
@@ -8882,7 +9355,12 @@ impl<'a> Checker<'a> {
                 while i < self.provisions.len() {
                     let (pk, pe, penv) = (self.provisions[i].key.clone(), self.provisions[i].e, self.provisions[i].env);
                     if pk == c.key {
-                        let f = self.fails_of(pe, penv, false, &HashMap::new());
+                        let mut f = self.fails_of(pe, penv, false, &HashMap::new());
+                        if let Some(b) = self.provisions[i].block {
+                            for pr in &mut f.props {
+                                pr.from.get_or_insert(b);
+                            }
+                        }
                         out.add(f);
                     }
                     i += 1;
@@ -8920,7 +9398,7 @@ impl<'a> Checker<'a> {
                 for pr in &inn.props {
                     let mut pre = pr.pre.clone();
                     pre.push(c.clone());
-                    out.props.push(PropRef { comp: pr.comp, field: pr.field.clone(), pre });
+                    out.props.push(PropRef { comp: pr.comp, field: pr.field.clone(), pre, from: pr.from });
                 }
                 let mut b2 = bound.clone();
                 if let Some(n) = name {
@@ -9149,7 +9627,7 @@ impl<'a> Checker<'a> {
                         for pr in &b.props {
                             let mut pre = pr.pre.clone();
                             pre.push(c.clone());
-                            out.props.push(PropRef { comp: pr.comp, field: pr.field.clone(), pre });
+                            out.props.push(PropRef { comp: pr.comp, field: pr.field.clone(), pre, from: pr.from });
                         }
                         let mut b2 = bound.clone();
                         if let Some(n) = catch_name {
@@ -9263,7 +9741,7 @@ impl<'a> Checker<'a> {
         let mut occ = vec![];
         for (region, _, _, f) in &reader_f {
             for pr in &f.props {
-                occ.push(Occ { comp: pr.comp, field: pr.field.clone(), pre: pre(&pr.pre), via: Via::Reader(*region) });
+                occ.push(Occ { comp: pr.comp, field: pr.field.clone(), pre: pre(&pr.pre), via: match pr.from { Some(b) => Via::ReaderFrom(*region, b), None => Via::Reader(*region) } });
             }
         }
         // MO-14f: a component's children, read where it applies a component the host renders through
@@ -9271,8 +9749,8 @@ impl<'a> Checker<'a> {
             occ.push(Occ { comp: *comp, field: "children".into(), pre: vec![], via: Via::Reader(*kids) });
         }
         // RG-4c: a view, where it is shown
-        for (at, comp, f) in &self.shown_at {
-            occ.push(Occ { comp: *comp, field: f.clone(), pre: vec![], via: Via::Reader(*at) });
+        for (at, comp, f, from) in &self.shown_at {
+            occ.push(Occ { comp: *comp, field: f.clone(), pre: vec![], via: match from { Some(b) => Via::ReaderFrom(*at, *b), None => Via::Reader(*at) } });
         }
         for (i, field, f) in &arg_f {
             for pr in &f.props {
@@ -9493,6 +9971,10 @@ impl<'a> Checker<'a> {
     fn via(&mut self, v: &Via) -> Vec<PFEntry> {
         match v {
             Via::Reader(region) => self.routes(*region).into_iter().map(|q| PFEntry { chain: q, term: None }).collect(),
+            Via::ReaderFrom(region, from) => {
+                let (a, b) = (self.routes(*region), self.routes(*from));
+                a.iter().flat_map(|q| b.iter().map(move |q2| PFEntry { chain: q.iter().chain(q2.iter()).cloned().collect(), term: None })).collect()
+            }
             Via::Arg { comp, field, site } => {
                 let mut out = vec![];
                 for p in self.pf(*comp, field) {

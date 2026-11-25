@@ -11,7 +11,7 @@ import { RuleError, CheckError } from "./errors.ts";
 import { checkModules, unwrapServer } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
-import { singleModule, shownAll, shownIn, heldReads, type ModuleSet, type Shown } from "./modules.ts";
+import { singleModule, shownAll, shownIn, usedIn, heldReads, viewCtxAll, type ModuleSet, type Shown } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
@@ -178,6 +178,7 @@ export class Runtime {
   private shown: Map<unknown, Map<string, Shown>>;   // RG-4c
   providing: Node | null = null;                       // RG-7b: the provision being computed reads what is above it
   private held: Set<unknown>;                          // RG-4c: the readers that show a component's children
+  private viewCtxs = new Set<unknown>();                // RG-4c: the contexts that hold a view
   /** RG-4c: what answers when a view is asked whether it was given. A view is a value that is not made until it is
    *  shown, so the question is the value's own, as of any other (`0`, `""`, `undefined` answer as JavaScript has it):
    *  content, a named view and one given on are something. Content that is one `{e}` asking nothing of its place is
@@ -194,7 +195,7 @@ export class Runtime {
   constructor(input: Program | ModuleSet) {
     const set = "programs" in input ? input : singleModule(input);
     const program = set.programs.get(set.entry)!;
-    this.program = program; this.shown = shownAll(set); this.held = heldReads(set);
+    this.program = program; this.shown = shownAll(set); this.held = heldReads(set); this.viewCtxs = viewCtxAll(set);
     this.root = new Region(null, this, null);
     const { diags } = checkModules(set); if (diags.length) throw new CheckError(diags);   // 08: the checker runs first; every static diagnostic is an error
     for (const path of set.order) { if (path === set.entry) continue; const r = new Region(this.root, this, null); this.modules.set(path, r); this.declare(set.programs.get(path)!.decls, r); }
@@ -1251,12 +1252,22 @@ export class Runtime {
         return { k: "read", node: this.mkNode("reader", "reader", region, rt => {
           const v = rt.evalExpr(m.e, region);
           if (held && held.of !== v) { held.view.region.dispose(); held = null; }
-          if (!(v instanceof ViewFn) || !v.plain) return v === undefined && this.held.has(m) ? "" : v;   // children that were not given show nothing
+          if (!(v instanceof ViewFn) || !v.plain) return v === undefined && (this.held.has(m) || (m.e.k === "use" && this.viewCtxs.has((region.lookup(m.e.name) as { context?: unknown })?.context))) ? "" : v;   // children that were not given show nothing; so does a context that holds a view
           if (!held) { const cr = new Region(region, this, region.boundary, v.region); held = { of: v, view: new ViewValue(cr, v.m.body.map(c => this.inst1(c, cr))) }; }
           return held.view;
         }), shown: null };
       }
       case "el": {
+        { const u = usedIn(m.tag); if (u !== undefined) {                              // RG-4c: `<use.item … />`, the view a context holds: an instance of this place, owned by it, named by where it is written
+          let held: { of: ViewFn; view: ViewValue } | null = null; const s = this.spread({}, this.parts(m, region), new Set());
+          return { k: "read", node: this.mkNode("reader", "reader", region, rt => {
+            const v = rt.evalExpr({ k: "use", name: u }, region);
+            if (held && held.of !== v) { held.view.region.dispose(); held = null; }
+            if (!(v instanceof ViewFn)) return v === undefined ? "" : v;
+            if (!held) { const r = new Region(region, this, region.boundary, v.region); for (const p of v.m.params) r.scope.set(p, { constant: s }); this.declare(v.m.decls, r); held = { of: v, view: new ViewValue(r, v.m.body.map(c => this.inst1(c, r))) }; }
+            return held.view;
+          }), shown: null };
+        } }
         const n = shownIn(m.tag), given = n && region.lookup(n[0]);
         if (given && "constant" in given && typeof given.constant === "object" && given.constant) {   // RG-4c
           const view = Object.getOwnPropertyDescriptor(given.constant, n![1])?.value;

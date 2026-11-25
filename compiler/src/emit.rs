@@ -73,8 +73,8 @@ struct Bind {
     js: String,
     /// RG-4b: a component's props, or a projection of them that holds a view
     given: Option<Given>,
-    /// RG-4c: of a name for a view the component was given, whether it was given
-    /// … and whether it is not `undefined`
+    /// RG-4c: a context that holds a view
+    view_ctx: bool,
     /// RG-4c: a component's props: the views it shows (`<props.f … />`), and whether it takes plain content as well
     shows: Vec<(String, bool)>,
     /// RG-4c: a component whose children are a view or plain content
@@ -103,7 +103,7 @@ fn takes_plain(d: &Decl, types: &Types) -> bool {
     matches!(d, Decl::Component { props, props_type, decls, view, .. } if shown(props, props_type.as_deref(), decls, view, types).get("children").is_some_and(|v| v.mixed))
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), given: None, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
+    Bind { kind, js: js.into(), given: None, view_ctx: false, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -806,7 +806,13 @@ impl<'p> Gen<'p> {
                     self.set(env, name, b)
                 }
                 Decl::Action { name, .. } => self.set(env, name, bind(Kind::Act, mg(name))),
-                Decl::Server { name, .. } | Decl::Error { name, .. } | Decl::Context { name, .. } => self.set(env, name, val(mg(name))),
+                Decl::Server { name, .. } | Decl::Error { name, .. } => self.set(env, name, val(mg(name))),
+                Decl::Context { name, ty, .. } => {
+                    // RG-4c: a context that holds a view
+                    let mut b = val(mg(name));
+                    b.view_ctx = crate::modules::view_ctx(ty.as_deref(), &self.types(&self.file)).is_some();
+                    self.set(env, name, b)
+                }
                 Decl::Source { name, .. } => {
                     let mut b = bind(Kind::Src, mg(name));
                     b.w = Some(format!("w${name}"));
@@ -2355,6 +2361,11 @@ impl<'p> Gen<'p> {
         Ok(Child::Expr(call(f, vec![])))
     }
     /// RG-4c: the view a tag shows, `<props.f … />` in a component that does: the props, the field.
+    /// RG-4c: the context a tag shows the view of, `<use.item … />`.
+    fn used_view(&self, tag: &str, env: Env) -> Option<String> {
+        let u = crate::modules::used_in(tag)?;
+        self.lookup(env, u).filter(|b| b.view_ctx).map(|_| u.to_string())
+    }
     fn shown_from(&self, tag: &str, env: Env) -> Option<(E, bool)> {
         let (n, f) = shown_in(tag)?;
         let b = self.lookup(env, n)?;
@@ -2380,6 +2391,8 @@ impl<'p> Gen<'p> {
                 let f = match self.given(e, env) {
                     Some(Given::Children { .. }) => "kids",
                     Some(g) if g.held() => "opt",
+                    // a context that holds a view, shown: one that was not given shows nothing
+                    _ if matches!(&e.k, ExprKind::Use(n) if self.lookup(env, n).is_some_and(|b| b.view_ctx)) => "opt",
                     _ => "show",
                 };
                 Child::Expr(rtc(f, vec![self.expr(e, env, &re)?]))
@@ -2392,8 +2405,12 @@ impl<'p> Gen<'p> {
                 }
             }
             // RG-4c: the view the component was given, applied (plain content, as it is)
-            MarkupKind::El { tag, attrs, .. } if self.shown_from(tag, env).is_some() => {
-                let (view, mixed) = self.shown_from(tag, env).unwrap();
+            MarkupKind::El { tag, attrs, .. } if self.shown_from(tag, env).is_some() || self.used_view(tag, env).is_some() => {
+                // `<use.item … />`: the view a context holds
+                let (view, mixed) = match self.used_view(tag, env) {
+                    Some(u) => (rtc("useGet", vec![self.reference(&u, env, &reactive())?, id("__o")]), false),
+                    None => self.shown_from(tag, env).unwrap(),
+                };
                 let mut xs = vec![];
                 for a in attrs {
                     xs.push(self.attr(&a.name, &a.e, env)?);

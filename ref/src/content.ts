@@ -8,7 +8,7 @@
 /** What a component contributes where it is applied: its root elements (`#text` for text), whether it contains an element
  *  that closes an open `<p>` (outside the scopes that shield one), an `<a>`, a `<form>`; and the ancestor chains (inside it,
  *  innermost last) where it places its caller's children. */
-export type Shape = { roots: string[]; closesP: boolean; a: boolean; form: boolean; childrenAt: string[][]; viewsAt?: Record<string, string[][]> };   // viewsAt: RG-4c, a view of another name, where it shows it
+export type Shape = { roots: string[]; closesP: boolean; a: boolean; form: boolean; childrenAt: string[][]; viewsAt?: Record<string, string[][]> };   // viewsAt: RG-4c, a view of another name, where it shows it. A chain that ends `use:<context>`: wherever that context is shown beneath (the prop is provided to it); under the name `use:<context>`: where the component shows that context, with no provider of its own above
 export const EMPTY_SHAPE: Shape = { roots: [], closesP: false, a: false, form: false, childrenAt: [] };
 
 const words = (s: string) => new Set(s.split(" "));
@@ -30,6 +30,7 @@ const HEADING = /^h[1-6]$/;
  *  placed there. An empty `anc` is an unknown place (a view's root): nothing is said. */
 export function misnested(anc: string[], t: string): string | null {
   if (!anc.length) return null;
+  { const b = anc.lastIndexOf("body"); if (b > 0) anc = anc.slice(b); }   // a portal's place is the end of the document: what is open above where it is written is not above it
   const P = anc[anc.length - 1];
   if (P === "template") return null;
   const allowed = TABLE[P];
@@ -57,8 +58,13 @@ export function misnested(anc: string[], t: string): string | null {
 }
 /** A component's `closesP`, `a`, `form` against the places above its application. */
 export function misnestedInside(anc: string[], s: Shape): string | null {
+  { const b = anc.lastIndexOf("body"); if (b > 0) anc = anc.slice(b); }
   if (s.closesP) for (let i = anc.length - 1; i >= 0; i--) { if (anc[i] === "p") return "contains a block that closes the open <p>"; if (P_SCOPE.has(anc[i])) break; }
   if (s.a && anc.includes("a")) return "contains an <a>, and links do not nest";
   if (s.form && anc.includes("form")) return "contains a <form>, and forms do not nest";
   return null;
 }
+
+/** RG-4c: `use:<key>`, the place a context that holds a view is shown, in a chain or as the name of one. */
+export const USE = "use:";
+export const carriedBy = (chain: string[]): string | undefined => { const t = chain[chain.length - 1]; return t?.startsWith(USE) ? t.slice(USE.length) : undefined; };

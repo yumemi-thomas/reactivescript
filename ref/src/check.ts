@@ -6,9 +6,9 @@ import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
-import { expandType, otherMention, shown, shownIn, typesOf, viewUses, viewNotShown, takesView, type ViewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
+import { expandType, otherMention, shown, shownIn, usedIn, typesOf, viewUses, viewNotShown, takesView, viewCtx, type ViewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
 import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
-import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
+import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, USE, carriedBy, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
 import { scopeFacts, scoped } from "./scope.ts";
 import { guessFacts, inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
@@ -51,7 +51,9 @@ type Region = {
 /** What a catch or a boundary discharges: named classes, or every failure. `Error` is the top: only "all" discharges it. */
 type Catch = Set<string> | "all";
 /** A read of a component's prop: its failures are the argument's, known only at each application (R-f-5). `pre`: catches already applied. */
-type PropRef = { comp: Region; field: string; pre: Catch[] };
+/** RG-4c: what is given to a context that holds a view, around a place: a view of the walked component (`own`), markup written there, or a value. */
+type Carrier = { key: string; own?: string; content?: Markup[]; env?: Env; text?: boolean };
+type PropRef = { comp: Region; field: string; pre: Catch[]; from?: Region };   // from: RG-4c, read through a context that holds a view: the block that provides it, above every place that shows it
 type Fails = { cls: Set<string>; props: PropRef[] };
 /** One step on the way up from a read: what it discharges — failures (`f`: a boundary or a catch) and provisions (`p`). */
 type Step = { f?: Catch; p?: Catch };
@@ -130,7 +132,7 @@ type Sym = {
   fnTail?: Expr; fnEnv?: Env;          // a fn: its result, for what an `await` of a call to it rejects with
   rejects?: Set<string>;               // an import: what its promises reject with (R-f-8)
   imported?: string;                   // a source imported from an .rx module: read-only here (MO-2)
-  ctx?: { key: string; source: boolean; dflt: boolean; contract: { rows: Set<string>; fails: Set<string> } | null; ty?: string };   // ty: its declared type, the row words taken out (MO-10k: read a step at a time, as a declared result's is)
+  ctx?: { key: string; source: boolean; dflt: boolean; contract: { rows: Set<string>; fails: Set<string> } | null; ty?: string; view?: { fn: boolean; param?: string } };   // view: it holds a view (RG-4c)   // ty: its declared type, the row words taken out (MO-10k: read a step at a time, as a declared result's is)
   side?: "server" | "client";          // 12 SF-5: JS that runs on one side only
   ioVia?: string;                      // 12 SF-1: a server fn that is io — the call in its body that makes it so
   serverRejects?: () => Set<string>;   // SF-6b: what a call's promise rejects with — its body's failures, and Error (transit)
@@ -716,7 +718,10 @@ class Checker {
   private actions: { name: string; body: Stmt[]; env: Env; line: number }[] = [];
   private scalarAliases = new Set<string>();
   private handlers: { attrs: { name: string; e: Expr }[]; kids: Markup[]; h: Expr; env: Env; region: Region; line: number; what: string }[] = [];   // AC-3a: element handlers, by where they are
-  private provisions: { key: string; e: Expr; env: Env }[] = [];
+  private provisions: { key: string; e: Expr; env: Env; block?: Region }[] = [];   // block: of a context that holds a view, the region of its `provide`
+  private textGiven = new Set<string>();                                                   // RG-4c: the contexts that hold a view and are given a value somewhere: text
+  private carriedFns: { key: string; comp: Sym; view: string; block: Region }[] = [];       // RG-4c: `provide item = props.f` of a view with a parameter: the component, its prop, the block
+  private shownUse: Expr | null = null;                                                    // RG-4c: the `use` of a context that holds a view that a reader shows
   private importSyms = new Set<Sym>();                                                     // MO-1d: what imports bound; a nested block may not shadow it
   private later: (() => void)[] = [];
   private compSyms = new Map<Region, Sym>();
@@ -972,6 +977,10 @@ class Checker {
         const contract = (d.type && ROW_WORDS.test(d.type)) || d.exported ? this.contractOf(d.type) : null;   // RG-7e: written rows, or exported (its type is then the contract: no row words, no rows)
         if (d.source) this.err("SOURCE_CONTEXT", "O-4", `context ${d.name}: source … is withdrawn (RG-7c, 2026-10-31): what is provided is read beneath it — provide the writes you allow, as actions (\`context ${d.name}: { current: T; set: (v: T) => void }\`)`);
         this.bind(env, d.name, { kind: "context", name: d.name, region: env.region, line: d.line, ctx: { key: `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${this.seq++}` : ""}`, source: d.source, dflt: !!d.dflt, contract, ...(d.type !== undefined ? { ty: fieldRows(d.type.replace(ROW_WORDS, "")).text } : {}) } });
+        { const view = viewCtx(d.type?.replace(ROW_WORDS, ""), this.types);                  // RG-4c: a context that holds a view
+          if (view) { env.vars.get(d.name)!.ctx!.view = view;
+            if (d.exported) this.err("VIEW_NOT_SHOWN", "RG-4c", `context ${d.name} holds a view, and is exported: a view carried by a context is provided and shown in the module that declares it, where every place that shows it is checked — export the components that provide and show it`);
+            else if (d.type && ROW_WORDS.test(d.type)) this.err("VIEW_NOT_SHOWN", "RG-4c", `context ${d.name} holds a view: it has no rows of its own (what the view waits on and fails with is checked at each place that shows it)`); } }
         if (d.dflt) this.provisions.push({ key: env.vars.get(d.name)!.ctx!.key, e: d.dflt, env });
         continue;
       }
@@ -1161,7 +1170,7 @@ class Checker {
   private get types(): Types { return this.opts.types ?? new Map(); }
   private viewFor = new WeakMap<Markup, { comp: Sym; view: string }>();                     // what a view lambda is given to
   private placed = new Map<string, { e: Expr; field: string; env: Env }[][]>();            // by component and view, each place it shows it: what with
-  private shownAt: { region: Region; comp: Region; view: string }[] = [];                   // … and where: what is read there goes up from there
+  private shownAt: { region: Region; comp: Region; view: string; from?: Region }[] = [];                   // … and where: what is read there goes up from there
   private viewStores: { comp: Sym; view: string; field: string; line: number }[] = [];      // O-3: what a view stores where it outlives it
   private asked = new Map<Region, string>();                                                // the branch of `if props.f` where it is
   /** The component a tag shows a view of, `<props.f … />` in its own view, and which. */
@@ -1371,7 +1380,17 @@ class Checker {
       case "provide": {
         this.comp("provide", env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env);
         const c = this.ctxOf(d.name, env); if (!c) return;
-        env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env });
+        env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env, ...(c.ctx!.view && env.region.component ? { block: env.region } : {}) });
+        if (c.ctx!.view && !c.ctx!.view.fn) {                                              // RG-4c: given what is no view of the component alone (a value, a choice with one), it may hold text
+          const comp = env.region.component ? this.compSyms.get(env.region.component) : undefined;
+          if (!((d.e.k === "id" || d.e.k === "member") && comp && this.usesOf(comp)?.at.get(d)?.length)) this.textGiven.add(c.ctx!.key);
+        }
+        if (c.ctx!.view?.fn) {                                                             // RG-4c: a context that holds a view with a parameter is given one the component was given, as it is
+          const p = d.e.k === "member" && d.e.o.k === "id" ? env.lookup(d.e.o.name) : undefined; const cs = p?.kind === "props" && !p.viewOf ? this.compSyms.get(p.region) : undefined; const how = cs && this.shownBy(cs)?.get((d.e as { p: string }).p);
+          if (!cs || !how) this.err("VIEW_NOT_SHOWN", "RG-4c", `context ${d.name} holds a view with a parameter: it is provided one this component was given, \`provide ${d.name} = props.item\`, of a prop declared with the context's type`);
+          else if (how.mixed || (how.param ?? "") !== (c.ctx!.view.param === undefined ? "" : expandType(c.ctx!.view.param, this.types))) this.err("VIEW_NOT_SHOWN", "RG-4c", `context ${d.name} is declared ${c.ctx!.ty}, and ${show(d.e)} is another type: what shows it, \`<use.${d.name} … />\`, gives it what the context says`);
+          else this.carriedFns.push({ key: c.ctx!.key, comp: cs, view: (d.e as { p: string }).p, block: env.region });
+        }
         const contract = c.ctx!.contract; const line = this.line;
         if (contract) this.later.push(() => {                                              // RG-7e: a provision is checked against the declared rows
           const rows = this.rowsThunk(d.e, env)(); const f = this.failsOf(d.e, env, false, new Map());
@@ -1430,8 +1449,8 @@ class Checker {
         if (d.propsType !== undefined) this.propsTy.set(r, fieldRows(d.propsType).text);
         this.bind(inner, d.props, { kind: "props", name: d.props, region: r, line: d.line, ...(d.noProps ? { noProps: d.name } : {}), ...(ph ? { held: ph, ...(d.propsType !== undefined ? { retTy: fieldRows(d.propsType).text } : {}) } : {}) });
         sym.compEnv = inner;
-        { const fs = this.shownBy(sym); const o = fs && otherMention(d, fs); if (o) { const at = this.line; this.line = o.line || d.line; const p = `${d.props}.${o.field}`; this.err("VIEW_FN_MISPLACED", "RG-4c", `${d.name} shows ${p} as a view, \`<${p} … />\`: it is named nowhere else (not read, called, stored, passed or spread; \`if ${p}\` asks for an optional one that takes no plain content, and \`{ ${o.field}: none, ...rest } = ${d.props}\` leaves it out of a rest)`); this.line = at; } }
-        { const o = process.env.RX_VIEW_WIDE ? undefined : viewUses(d, this.types, new Set(this.shownBy(sym)?.keys() ?? []), (tag, attr) => { const s = inner.lookup(tag); return s?.comp ? takesView(s.comp.propsType, this.types, attr) : undefined; }).bad[0]; if (o) { const at = this.line; this.line = o.line || d.line; this.err("VIEW_NOT_SHOWN", "RG-4c", viewNotShown(d.name, d.props, o.field, o.how, o.of)); this.line = at; } }
+        { const fs = this.shownBy(sym); const o = fs && otherMention(d, fs, n => !!inner.lookup(n)?.ctx?.view?.fn); if (o) { const at = this.line; this.line = o.line || d.line; const p = `${d.props}.${o.field}`; this.err("VIEW_FN_MISPLACED", "RG-4c", `${d.name} shows ${p} as a view, \`<${p} … />\`: it is named nowhere else (not read, called, stored, passed or spread; \`if ${p}\` asks for an optional one that takes no plain content, and \`{ ${o.field}: none, ...rest } = ${d.props}\` leaves it out of a rest)`); this.line = at; } }
+        { const o = process.env.RX_VIEW_WIDE ? undefined : viewUses(d, this.types, new Set(this.shownBy(sym)?.keys() ?? []), (tag, attr) => { const s = inner.lookup(tag); return s?.comp ? takesView(s.comp.propsType, this.types, attr) : undefined; }, n => !!inner.lookup(n)?.ctx?.view).bad[0]; if (o) { const at = this.line; this.line = o.line || d.line; this.err("VIEW_NOT_SHOWN", "RG-4c", viewNotShown(d.name, d.props, o.field, o.how, o.of)); this.line = at; } }
         this.block(d.decls, d.view, inner, { scope: "reactive" });
         this.later.push(() => this.contentCheck(d.view, inner, []));
         return;
@@ -2351,7 +2370,7 @@ class Checker {
       case "lit": return;
       case "id": { { const c = env.lookup(e.name); if (c?.kind === "comp" && c.compRegion?.key) this.escapes.add(c.compRegion.key); }   /* E-5a: a component as a value is applied by JS */ if (this.valueIds.has(e)) return; const s = this.resolve(e.name, env, ctx); if (s) this.draftHere(s, e.name); if (s?.updater && !this.updaterOk.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} is a draft callback (it is given to a function that hands its parameter a library's draft, and writes it): it is used only there, \`setStore(${e.name})\` — called by hand, passed elsewhere or stored, it would be given something that is no draft, or keep one`);   /* MO-10i: a named draft callback is given to what hands it a draft, and used for nothing else */ if (s?.drafts?.length && !this.calleeIds.has(e)) this.err("DRAFT_ESCAPES", "MO-10i", `${e.name} hands its callback a library's draft: it is called by this name, with the callback written in the call (\`${e.name}((d) => { … })\`), and not passed, stored or given another name — a function that travels would be given a callback the checker cannot see; share the change as an action`);   /* MO-10i: such a function is called by its own name, where the callback is written */ if (s) this.wholeUse(e, env); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp" && !(field !== undefined && s.factory)) this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view, or pass it where JS takes one: a JS component's prop typed \`Component\` or \`View\` (or, where its type holds components, the record or the array written there), or a JS fn's arguments (MO-11c, MO-11t, MO-11f, MO-11s)`);   /* MO-11m: a made component's properties (`Router.paths`) are values */ if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
       case "pre": { const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", true); if (s && (!reactiveKinds.has(s.kind) || s.kind === "props")) this.err("PRE_OF_NON_REACTIVE", "C-2", s.kind === "props" ? `pre of ${e.name}: props are not a value of their own — name the field, \`x = ${e.name}.x\`, and read \`pre x\`` : `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
-      case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c) { this.model.read(c, ctx.scope === "imperative"); } if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
+      case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c?.ctx!.view && (c.ctx!.view.fn || e !== this.shownUse)) this.err("VIEW_NOT_SHOWN", "RG-4c", `context ${e.name} holds a view, and a view is only shown: ${c.ctx!.view.fn ? `\`<use.${e.name} … />\`` : `\`{use ${e.name}}\``} in a view, where it is made and owned — it is not read as a value, asked, kept, given on or provided again`); if (c) { this.model.read(c, ctx.scope === "imperative"); } if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
       case "peek": this.model.snap++; go(e.e); this.model.snap--; return;                  // E-5: a snapshot
       case "latest": case "pending": { const save = this.model.probe; this.model.probe = e.k; go(e.e); this.model.probe = save; return; }   // R-9, R-12: probes
       case "un": this.wholeOk.add(e.e); go(e.e); return;                                  // `!q`, `typeof q`: no field of it is read
@@ -2753,6 +2772,26 @@ class Checker {
     const key = `${R.id}:${view}`; let at = this.placed.get(key); if (!at) this.placed.set(key, at = []);
     at.push(m.attrs.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })));
   }
+  /** RG-4c: `<use.item a={e} />`, the view a context holds, shown there with what the context's type says. Its
+   *  arguments are read there; the view's own readers go up from there, then from the block that provides it. */
+  private showCarried(m: Extract<Markup, { k: "el" }>, name: string, env: Env) {
+    const c = this.ctxOf(name, env); const bad = (msg: string) => this.err("VIEW_FN_MISPLACED", "RG-4c", msg);
+    if (!c?.ctx!.view?.fn) { bad(`<${m.tag} … /> shows the view a context holds: ${name} is ${c ? `declared ${c.ctx!.ty ?? "with no type"}` : "no context"} — a context that holds a view with a parameter is \`context ${name}: (row: T) => View\` (one of no parameter is shown \`{use ${name}}\`)`); return; }
+    if (m.children.some(x => x.k !== "text" || x.s.trim())) bad(`<${m.tag}> is given nothing between its tags: what the view shows is what it was written with`);
+    this.model.read(c, false); if (!c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: name });
+    const handles = (n: string) => n !== "ref" && isHandler(n);
+    for (const a of m.attrs) {
+      if (a.name === "children") { bad(`<${m.tag} children={…}>: a view is shown with fields of another name`); continue; }
+      if (handles(a.name)) this.handlerCalled(a.e, env, a.name);
+      this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" }));
+      if (!handles(a.name)) { this.keep(a.e, env); this.readers.push({ region: env.region, e: a.e, env, line: this.line }); }
+    }
+    const key = c.ctx!.key, attrs = m.attrs.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env }));
+    this.later.push(() => { for (const p of this.carriedFns) if (p.key === key) {         // every provision of it in the module: each view may be the one shown here
+      this.shownAt.push({ region: env.region, comp: p.comp.compRegion!, view: p.view, from: p.block });
+      const k = `${p.comp.compRegion!.id}:${p.view}`; let at = this.placed.get(k); if (!at) this.placed.set(k, at = []); at.push(attrs);
+    } });
+  }
   private markup(ms: Markup[], env: Env, viewRoot = false) {
     let styles = 0;
     for (const m of ms) {
@@ -2764,7 +2803,7 @@ class Checker {
           else if (++styles > 1) this.err("STYLE_PLACEMENT", "CSS-1", "a second <style> in one view: a view has one stylesheet");
           break;
         case "read": if (this.throughReads.has(m)) { this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break; }   // MO-14f: no expression of the program's
-          this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.keep(m.e, env); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
+          this.comp("reader", env, { at: "{…}" }, () => { const was = this.shownUse; this.shownUse = m.e.k === "use" ? m.e : null; try { this.expr(m.e, env, { scope: "reactive" }); } finally { this.shownUse = was; } }); this.keep(m.e, env); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
           for (const a of m.attrs) if (a.name === "ref") for (const x of a.e.k === "arr" ? a.e.items : [a.e]) this.refCalls.add(x);
           if (/^[A-Z]/.test(m.tag)) {
@@ -2825,6 +2864,7 @@ class Checker {
             break;
           }
           { const c = this.shows(m.tag, env); if (c) { this.showView(m, c.comp, c.view, env); break; } }
+          { const u = usedIn(m.tag); if (u !== undefined) { this.showCarried(m, u, env); break; } }
           { const dot = m.tag.indexOf("."); if (dot > 0) { const head = m.tag.slice(0, dot); const bound = !!env.lookup(head); if (bound) this.err("UNKNOWN_COMPONENT", "MO-11q", memberTagLowercase(m.tag)); } }
           for (const a of m.attrs) { if (isHandler(a.name) && a.name !== "ref") this.handlerCalled(a.e, env, a.name); this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.keep(a.e, env); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
           this.markup(m.children, env);
@@ -3040,7 +3080,39 @@ class Checker {
   // ---- SV-7d: the content model across templates ----
   private viewUsesMemo = new Map<Sym, ViewUses>();
   /** RG-4c: where a component shows each view it is given, and gives it on. */
-  private usesOf(c: Sym): ViewUses | undefined { if (!c.comp) return undefined; let u = this.viewUsesMemo.get(c); if (!u) this.viewUsesMemo.set(c, u = viewUses(c.comp, this.types, new Set(this.shownBy(c)?.keys() ?? []))); return u; }
+  private usesOf(c: Sym): ViewUses | undefined { if (!c.comp) return undefined; let u = this.viewUsesMemo.get(c); if (!u) this.viewUsesMemo.set(c, u = viewUses(c.comp, this.types, new Set(this.shownBy(c)?.keys() ?? []), undefined, n => !!c.compEnv?.lookup(n)?.ctx?.view)); return u; }
+  /** RG-4c: `use item` of a context that holds a view, shown. */
+  private viewShown(e: Expr, env: Env): { key: string; dflt: boolean } | undefined { const c = e.k === "use" ? env.lookup(e.name)?.ctx : undefined; return c?.view ? { key: c.key, dflt: c.dflt || this.textGiven.has(c.key) } : undefined; }   // dflt: it may hold text (its default, or a value it is given)
+  /** RG-4c: what an application gives to the props its component provides to a context that holds a view (the
+   *  component's shape says `f-at … use:<key>`): each is shown wherever that context is shown beneath. `own`: a view of
+   *  the component being walked, given on (`places`); `content`: markup written here; `text`: a value. */
+  private carriersOf(m: Extract<Markup, { k: "el" }>, s: Sym, S: Shape, env: Env, places?: Map<unknown, string[]>): Carrier[] {
+    const out: Carrier[] = [];
+    const add = (f: string, key: string) => {
+      const given = (fs: string[] | undefined) => { for (const g of fs ?? []) out.push({ key, own: g }); return !!fs?.length; };
+      if (f === "children") {
+        const content = m.children.filter(x => !this.viewElsewhere(s, x) && (x.k !== "text" || !!x.s.trim()));
+        if (content.length) { if (!given(places?.get(m))) out.push({ key, content, env }); return; }
+      } else {
+        const x = m.children.find(x => this.viewElsewhere(s, x) === f); if (x) { out.push({ key, content: [x], env }); return; }
+        const a = [...m.attrs].reverse().find(a => a.name === f || a.name === "...");
+        if (a && a.name === f) { if (!given(places?.get(a))) out.push({ key, text: true }); return; }
+      }
+      for (const a of m.attrs) if (a.name === "..." && places?.get(a)?.includes(f)) out.push({ key, own: f });   // a spread gives it on under its own name
+    };
+    for (const ch of S.childrenAt) { const k = carriedBy(ch); if (k !== undefined) add("children", k); }
+    for (const [f, chains] of Object.entries(S.viewsAt ?? {}).sort(([a], [b]) => a < b ? -1 : 1)) if (!f.startsWith(USE)) for (const ch of chains) { const k = carriedBy(ch); if (k !== undefined) add(f, k); }
+    return out;
+  }
+  private ccCarried: Carrier[] = []; private ccDepth = new Map<Markup[], number>(); private ccQuiet = 0;
+  /** … and, where a view is checked: markup given to a provider around this place is placed here. */
+  private shownCheck(key: string, anc: string[]) {
+    const quiet = this.ccQuiet; this.ccQuiet = 0;
+    try { for (const c of this.ccCarried) if (c.key === key) {
+      if (c.text) { const why = misnested(anc, "#text"); if (why) this.err("CONTENT_MODEL", "SV-7d", `the text a context is given inside <${anc[anc.length - 1]}>: the browser's HTML parser ${why}, so the served page is not the tree the client builds`); }
+      else if (c.content && (this.ccDepth.get(c.content) ?? 0) < 2) { const line = this.line; this.ccDepth.set(c.content, (this.ccDepth.get(c.content) ?? 0) + 1); try { this.contentCheck(c.content, c.env!, anc); } finally { this.ccDepth.set(c.content, this.ccDepth.get(c.content)! - 1); this.line = line; } }
+    } } finally { this.ccQuiet = quiet; }
+  }
   private shapes = new Map<Sym, Shape | null>();   // null: being computed (a recursive component contributes nothing more)
   /** What a component contributes where it is applied (content.ts Shape): from its signature, or its body. */
   private shape(c: Sym): Shape {
@@ -3051,10 +3123,48 @@ class Checker {
     const sh: Shape = { roots: [], closesP: false, a: false, form: false, childrenAt: [] }; const roots = new Set<string>();
     const places = this.usesOf(c)?.at;                                                    // RG-4c: a view is placed where it is shown, under whatever name, and where the component it is given on to shows it
     const put = (f: string, anc: string[]) => { if (f === "children") sh.childrenAt.push(anc); else ((sh.viewsAt ??= {})[f] ??= []).push(anc); };
+    // RG-4c: a context that holds a view is shown here. Whatever provides it above this component shows its view at
+    // this place (`use:<key>-at …`); what is given to a provider written around it in this view is shown here: a view
+    // of this component given on is placed here, markup written here is part of this component's tree
+    const carried: Carrier[] = []; const depth = new Map<Markup[], number>();
+    const shownAt = (key: string, at: string[], scoped: boolean, dflt = false) => {
+      ((sh.viewsAt ??= {})[USE + key] ??= []).push(at);
+      if (dflt && !at.length) roots.add("#text");                                          // its default is a value: text
+      for (const c of carried) if (c.key === key) {
+        if (c.own !== undefined) put(c.own, at);
+        else if (c.content && (depth.get(c.content) ?? 0) < 2) { depth.set(c.content, (depth.get(c.content) ?? 0) + 1); try { if (at.includes("body")) links(c.content, at, c.env!); else walk(c.content, at, scoped || at.some(t => P_SCOPE.has(t)), c.env!); } finally { depth.set(c.content, depth.get(c.content)! - 1); } }
+        else if (c.text && !at.length) roots.add("#text");
+      }
+    };
+    // … in a portal: its body is not at this component's place (nothing of it is in the component's roots or flags), but
+    // a context shown there is shown there: `<Portal><Listbox /></Portal>`
+    const links = (ms: Markup[], anc: string[], env: Env) => {
+      for (const m of ms) switch (m.k) {
+        case "read": { const k = this.viewShown(m.e, env); if (k) shownAt(k.key, anc, true, k.dflt); break; }
+        case "el": {
+          if (m.tag === "") { links(m.children, anc, env); break; }
+          if (/^[A-Z]/.test(m.tag)) {
+            const s = env.lookup(m.tag); if (s?.kind !== "comp") break; const S = this.shape(s);
+            const cs = this.carriersOf(m, s, S, env, places); carried.push(...cs);
+            try { for (const [k, chains] of Object.entries(S.viewsAt ?? {}).sort(([a], [b]) => a < b ? -1 : 1)) if (k.startsWith(USE)) for (const at of chains) shownAt(k.slice(USE.length), [...anc, ...at], true);
+              for (const ch of S.childrenAt) if (carriedBy(ch) === undefined) links(m.children.filter(x => !this.viewElsewhere(s, x)), [...anc, ...ch], env);
+              for (const x of m.children) { const f = this.viewElsewhere(s, x); for (const at of f === undefined ? [] : S.viewsAt?.[f] ?? []) if (carriedBy(at) === undefined) links([x], [...anc, ...at], env); }
+            } finally { carried.length -= cs.length; }
+            break;
+          }
+          if (this.shows(m.tag, env)) break;
+          { const u = usedIn(m.tag), k = u === undefined ? undefined : env.lookup(u)?.ctx; if (u !== undefined) { if (k?.view) shownAt(k.key, anc, true); break; } }
+          links(m.children, [...anc, m.tag], env); break;
+        }
+        case "mif": links(m.t, anc, env); links(m.f, anc, env); break;
+        case "mfor": case "mview": case "portal": links(m.body, m.k === "portal" ? ["body"] : anc, env); break;
+        case "loading": case "errored": links(m.fallback, anc, env); links(m.body, anc, env); break;
+      }
+    };
     const walk = (ms: Markup[], anc: string[], scoped: boolean, env: Env) => {
       for (const m of ms) switch (m.k) {
         case "text": if (!anc.length) roots.add("#text"); break;
-        case "read": { const fs = places?.get(m); if (fs) for (const f of fs) put(f, anc); else if (this.readsChildren(m.e, env)) sh.childrenAt.push(anc); break; }
+        case "read": { const fs = places?.get(m); if (fs) for (const f of fs) put(f, anc); else if (this.readsChildren(m.e, env)) sh.childrenAt.push(anc); else { const k = this.viewShown(m.e, env); if (k) shownAt(k.key, anc, scoped, k.dflt); } break; }
         case "el": {
           if (m.tag === "") { walk(m.children, anc, scoped, env); break; }
           if (/^[A-Z]/.test(m.tag)) {
@@ -3062,16 +3172,22 @@ class Checker {
             if (this.isThrough(s) && this.propsNameOf(env) !== undefined) { if (s.compRegion?.js) sh.childrenAt.push(anc); else for (const at of S.childrenAt) sh.childrenAt.push([...anc, ...at]); }   // MO-14f: the component's children, rendered where it applies the host's own — or, through an `.rx` component that does, where that one places its own
             if (!anc.length) S.roots.forEach(r => roots.add(r));
             if (S.closesP && !scoped) sh.closesP = true; if (S.a) sh.a = true; if (S.form) sh.form = true;
+            const cs = this.carriersOf(m, s, S, env, places); carried.push(...cs);        // RG-4c: what this application gives to a context that holds a view: shown wherever that context is, beneath it
+            try { for (const [k, chains] of Object.entries(S.viewsAt ?? {}).sort(([a], [b]) => a < b ? -1 : 1)) if (k.startsWith(USE)) for (const at of chains) shownAt(k.slice(USE.length), [...anc, ...at], scoped || at.some(t => P_SCOPE.has(t)));
             for (const ch of S.childrenAt) {                                               // the caller's children, where that component puts them
+              if (carriedBy(ch) !== undefined) continue;
               const sc = scoped || ch.some(t => P_SCOPE.has(t));
               walk([...m.children.filter(x => !this.viewElsewhere(s, x)), ...this.componentValues(m, env).values()], [...anc, ...ch], sc, env);
               if (s.factory && !this.expanding.shape.has(s)) { this.expanding.shape.add(s); walk(this.factoryTree(s, m.line), [...anc, ...ch], sc, s.factory.env); this.expanding.shape.delete(s); }
             }
-            for (const x of m.children) { const f = this.viewElsewhere(s, x); for (const at of f === undefined ? [] : S.viewsAt?.[f] ?? []) walk([x], [...anc, ...at], scoped || at.some(t => P_SCOPE.has(t)), env); }
+            for (const x of m.children) { const f = this.viewElsewhere(s, x); for (const at of f === undefined ? [] : S.viewsAt?.[f] ?? []) if (carriedBy(at) === undefined) walk([x], [...anc, ...at], scoped || at.some(t => P_SCOPE.has(t)), env); }
             for (const a of m.attrs) { const fs = places?.get(a); if (fs) for (const f of fs) { const to = a.name === "..." ? f : a.name; if (to === "children" && m.children.some(x => x.k !== "text" || x.s.trim())) continue; for (const at of (to === "children" ? S.childrenAt : S.viewsAt?.[to]) ?? []) put(f, [...anc, ...at]); } }   // a view given on as an argument, or by a spread: where that component shows it
+            { const fs = places?.get(m); if (fs) for (const f of fs) for (const at of S.childrenAt) if (carriedBy(at) !== undefined) put(f, [...anc, ...at]); }   // … or as content, to a component that provides it to a context
+            } finally { carried.length -= cs.length; }
             break;
           }
           { const c = this.shows(m.tag, env); if (c) { if (c.view === "children") sh.childrenAt.push(anc); else ((sh.viewsAt ??= {})[c.view] ??= []).push(anc); break; } }
+          { const u = usedIn(m.tag), k = u === undefined ? undefined : env.lookup(u)?.ctx; if (u !== undefined) { if (k?.view) shownAt(k.key, anc, scoped); break; } }
           if (!anc.length) roots.add(m.tag);
           if (P_CLOSERS.has(m.tag) && !scoped) sh.closesP = true; if (m.tag === "a") sh.a = true; if (m.tag === "form") sh.form = true;
           walk(m.children, [...anc, m.tag], scoped || P_SCOPE.has(m.tag), env); break;
@@ -3079,9 +3195,13 @@ class Checker {
         case "mif": walk(m.t, anc, scoped, env); walk(m.f, anc, scoped, env); break;
         case "mfor": case "mview": walk(m.body, anc, scoped, env); break;
         case "loading": case "errored": walk(m.fallback, anc, scoped, env); walk(m.body, anc, scoped, env); break;
+        case "portal": links(m.body, ["body"], env); break;
       }
     };
+    if (places) for (const [k, fs] of places) if ((k as Decl).k === "provide") { const key = c.compEnv.lookup((k as { name: string }).name)?.ctx?.key; if (key !== undefined) for (const f of fs) { put(f, [USE + key]); carried.push({ key, own: f }); } }   // RG-4c: a view of this component provided to a context: shown wherever that context is, beneath
+    for (const p of this.carriedFns) if (p.comp === c) { put(p.view, [USE + p.key]); carried.push({ key: p.key, own: p.view }); }   // … and one with a parameter
     walk(c.comp.view, [], false, c.compEnv);
+    if (sh.viewsAt) sh.viewsAt = Object.fromEntries(Object.entries(sh.viewsAt).sort(([a], [b]) => a < b ? -1 : 1));   // in the order a signature prints them
     sh.roots = [...roots]; this.shapes.set(c, sh); return sh;
   }
   /** MO-14f: in a host's view, a JS component the host renders through (`<Outlet />`, the router's own component in the
@@ -3164,33 +3284,42 @@ class Checker {
     return typed(this.declTy(e, env)) ?? true;
   }
   private expectsView(tag: string, view?: string) { this.err("VIEW_FN_EXPECTED", "RG-4c", `<${tag}> shows its ${view ?? "children"} with what it knows, as one view with one parameter: write ${view === undefined ? "them" : "it"} as \`{view ${view === undefined ? "" : `${view} `}(s) { … }}\`, \`s.x\` for what it passes as \`x\``); }
+  /** The places of the views of the component a scope is in (`ViewUses.at`). */
+  private placesOf(env: Env): Map<unknown, string[]> | undefined { const c = env.region.component && this.compSyms.get(env.region.component); return c ? this.usesOf(c)?.at : undefined; }
   private readsChildren(e: Expr, env: Env) { return e.k === "member" && e.p === "children" && e.o.k === "id" && env.lookup(e.o.name)?.kind === "props"; }
   /** SV-7d: every element, text and component root of a view against the elements open above it (in this view; a view's
    *  root is an unknown place), and a component's caller's children where that component places them. */
   private contentCheck(ms: Markup[], env: Env, anc: string[]) {
-    const report = (what: string, why: string | null) => { if (why) this.err("CONTENT_MODEL", "SV-7d", `${what} inside <${anc[anc.length - 1]}>: the browser's HTML parser ${why}, so the served page is not the tree the client builds`); };
+    const report = (what: string, why: string | null) => { if (why && !this.ccQuiet) this.err("CONTENT_MODEL", "SV-7d", `${what} inside <${anc[anc.length - 1]}>: the browser's HTML parser ${why}, so the served page is not the tree the client builds`); };
     for (const m of ms) {
       if (m.line) this.line = m.line;
       switch (m.k) {
         case "text": if (m.s.trim()) report("text", misnested(anc, "#text")); break;
+        case "read": { const k = this.viewShown(m.e, env); if (k) { if (k.dflt) report(`the text ${(m.e as { name: string }).name} may hold (its default, or a value it is given)`, misnested(anc, "#text")); this.shownCheck(k.key, anc); } break; }   // RG-4c: a context that holds a view, shown: what is given to a provider around this place
         case "el": {
           if (m.tag === "") { this.contentCheck(m.children, env, anc); break; }
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag); if (s?.kind !== "comp") break; const S = this.shape(s);
             for (const r of S.roots) report(r === "#text" ? `<${m.tag}>'s text` : `<${r}>, the root of <${m.tag}>,`, misnested(anc, r));
             report(`<${m.tag}>`, misnestedInside(anc, S));
+            const cs = this.carriersOf(m, s, S, env, this.placesOf(env)); this.ccCarried.push(...cs);
+            try { for (const [k, chains] of Object.entries(S.viewsAt ?? {}).sort(([a], [b]) => a < b ? -1 : 1)) if (k.startsWith(USE)) for (const at of chains) this.shownCheck(k.slice(USE.length), [...anc, ...at]);
             for (const ch of S.childrenAt) {
+              if (carriedBy(ch) !== undefined) continue;
               this.contentCheck([...m.children.filter(x => !this.viewElsewhere(s, x)), ...this.componentValues(m, env).values()], env, [...anc, ...ch]);
               if (s.factory && !this.expanding.content.has(s)) { this.expanding.content.add(s); this.contentCheck(this.factoryTree(s, m.line), s.factory.env, [...anc, ...ch]); this.expanding.content.delete(s); }
             }
-            for (const x of m.children) { const f = this.viewElsewhere(s, x); for (const at of f === undefined ? [] : S.viewsAt?.[f] ?? []) this.contentCheck([x], env, [...anc, ...at]); }
+            for (const x of m.children) { const f = this.viewElsewhere(s, x); for (const at of f === undefined ? [] : S.viewsAt?.[f] ?? []) if (carriedBy(at) === undefined) this.contentCheck([x], env, [...anc, ...at]); }
+            } finally { this.ccCarried.length -= cs.length; }
             break;
           }
           if (this.shows(m.tag, env)) break;
+          { const u = usedIn(m.tag), k = u === undefined ? undefined : env.lookup(u)?.ctx; if (u !== undefined) { if (k?.view) this.shownCheck(k.key, anc); break; } }
           report(`<${m.tag}>`, misnested(anc, m.tag));
           this.contentCheck(m.children, env, [...anc, m.tag]); break;
         }
         case "mif": this.contentCheck(m.t, env, anc); this.contentCheck(m.f, env, anc); break;
+        case "portal": if (this.ccCarried.length) { this.ccQuiet++; try { this.contentCheck(m.body, env, ["body"]); } finally { this.ccQuiet--; } } break;   // RG-4c: its own check is made once, apart (RG-8); here, only what a context shows in it of what is given around this place
         case "mfor": case "mview": this.contentCheck(m.body, env, anc); break;
         case "loading": case "errored": this.contentCheck(m.fallback, env, anc); this.contentCheck(m.body, env, anc); break;
       }
@@ -3230,7 +3359,7 @@ class Checker {
         const c = env.lookup(e.name)?.ctx; if (!c) return out;
         if (c.contract) { for (const x of c.contract.fails) out.cls.add(x); return out; }
         if (this.useBusy.has(c.key)) return out;                                          // `provide c = use c`: a provision that reads its own context adds nothing to it
-        this.useBusy.add(c.key); try { for (const p of this.provisions) if (p.key === c.key) addF(out, this.failsOf(p.e, p.env, false, new Map())); } finally { this.useBusy.delete(c.key); } return out;
+        this.useBusy.add(c.key); try { for (const p of this.provisions) if (p.key === c.key) { const f = this.failsOf(p.e, p.env, false, new Map()); addF(out, p.block ? { cls: f.cls, props: f.props.map(pr => pr.from ? pr : { ...pr, from: p.block }) } : f); } } finally { this.useBusy.delete(c.key); } return out;
       }
       case "await": go(e.e); if (e.init) go(e.init); for (const c of this.rejects(e.e, env, new Set())) out.cls.add(c); return out;
       case "throw": go(e.e); out.cls.add(this.classOf(e.e, env, bound)); return out;
@@ -3373,8 +3502,8 @@ class Checker {
     };
     // PF: where a component's prop field goes once read — up to its root, or out of an action
     const occ: { comp: Region; field: string; pre: Step[]; via: () => PFEntry[] }[] = [];
-    for (const r of readerF) for (const pr of r.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => routes(r.region).map(q => ({ chain: q, term: null })) });
-    for (const x of this.shownAt) occ.push({ comp: x.comp, field: x.view, pre: [], via: () => routes(x.region).map(q => ({ chain: q, term: null })) });   // RG-4c
+    for (const r of readerF) for (const pr of r.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => routes(r.region).flatMap(q => pr.from ? routes(pr.from).map(q2 => ({ chain: [...q, ...q2], term: null })) : [{ chain: q, term: null }]) });   // RG-4c: a view shown through a context: up from where it is shown to that component's root, then from the block that provides it (which is above every such place)
+    for (const x of this.shownAt) occ.push({ comp: x.comp, field: x.view, pre: [], via: () => routes(x.region).flatMap(q => x.from ? routes(x.from).map(q2 => ({ chain: [...q, ...q2], term: null })) : [{ chain: q, term: null }]) });   // RG-4c
     for (const a of argF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => PF(a.app.comp, a.field).flatMap(p => p.term ? [p] : routes(a.app.site).map(q => ({ chain: [...p.chain, ...q], term: null }))) });
     for (const a of actF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => [{ chain: [], term: { line: a.line, name: a.name } }] });
     const pfMemo = new Map<string, PFEntry[]>(); const pfBusy = new Set<string>();

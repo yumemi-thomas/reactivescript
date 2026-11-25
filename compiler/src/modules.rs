@@ -948,6 +948,25 @@ fn expand(t: &str, depth: usize, named: &mut dyn FnMut(&str) -> Option<String>) 
     t.to_string()
 }
 /// `<props.f … />`: the name of the props, and the field.
+/// RG-4c, a context that holds a view (proposals/27): its declared type, read, is `View` (`fn_: false`) or a function
+/// giving one, of one parameter or none (`fn_: true`; the parameter's type). `ref/src/modules.ts` `viewCtx`.
+pub fn view_ctx(ty: Option<&str>, types: &Types) -> Option<(bool, Option<String>)> {
+    let t = expand_type(ty?, types, 0);
+    let t = t.trim();
+    if crate::parse::is_view_type(t) {
+        return Some((false, None));
+    }
+    match view_type(t) {
+        Some((false, param)) => Some((true, param)),
+        _ => None,
+    }
+}
+/// `<use.item … />`: the context whose view is shown.
+pub fn used_in(tag: &str) -> Option<&str> {
+    let n = tag.strip_prefix("use.")?;
+    let first = n.bytes().next()?;
+    (!first.is_ascii_digit() && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')).then_some(n)
+}
 pub fn shown_in(tag: &str) -> Option<(&str, &str)> {
     let (n, f) = tag.split_once('.')?;
     let word = |s: &str| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
@@ -961,6 +980,14 @@ pub fn shown_fields(props: &str, decls: &[Decl], view: &[Markup]) -> indexmap::I
         for d in decls {
             if let Decl::Component { decls, view, .. } = d {
                 go(props, decls, view, out);
+            }
+            // `provide item = props.f`: a context that holds a view carries it to where it is shown
+            if let Decl::Provide { e, .. } = d {
+                if let crate::ast::ExprKind::Member { o, p, .. } = &e.k {
+                    if matches!(&o.k, crate::ast::ExprKind::Id(n) if n == props) {
+                        out.insert(p.clone());
+                    }
+                }
             }
         }
         for m in view {
@@ -1040,7 +1067,7 @@ fn view_type(t: &str) -> Option<(bool, Option<String>)> {
 /// What names a view a component shows (`fields`) anywhere but where it is shown or asked for (`if props.f`, which plain
 /// content as well is not): the field, and its line. A projection that takes it out of a rest
 /// (`{ children: none, ...rest } = props`) and is not named again is none.
-pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup], fields: &IndexMap<String, Shown>) -> Option<(String, usize)> {
+pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup], fields: &IndexMap<String, Shown>, ctx: &dyn Fn(&str) -> bool) -> Option<(String, usize)> {
     use serde_json::Value;
     fn of<'v>(v: &'v Value, p: &str, fields: &IndexMap<String, Shown>) -> Option<&'v str> {
         (v["k"] == "member" && v["o"]["k"] == "id" && v["o"]["name"] == p).then(|| v["p"].as_str()).flatten().filter(|f| fields.contains_key(*f))
@@ -1055,13 +1082,17 @@ pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup], fields: &Inde
             _ => false,
         }
     }
-    fn walk(v: &Value, p: &str, fields: &IndexMap<String, Shown>, line: usize) -> Option<(String, usize)> {
+    fn walk(v: &Value, p: &str, fields: &IndexMap<String, Shown>, line: usize, ctx: &dyn Fn(&str) -> bool) -> Option<(String, usize)> {
         match v {
-            Value::Array(xs) => xs.iter().find_map(|x| walk(x, p, fields, line)),
+            Value::Array(xs) => xs.iter().find_map(|x| walk(x, p, fields, line, ctx)),
             Value::Object(o) => {
                 let line = o.get("line").and_then(Value::as_u64).map(|l| l as usize).unwrap_or(line);
                 let k = o.get("k").and_then(Value::as_str);
                 let of_props = |f: &str| v[f]["k"] == "id" && v[f]["name"] == p;
+                // `provide item = props.f` of a context that holds a view with a parameter: carried to where it is shown
+                if k == Some("provide") && v["name"].as_str().is_some_and(ctx) && of(&v["e"], p, fields).is_some() {
+                    return None;
+                }
                 if k == Some("member") && of_props("o") {
                     return of(v, p, fields).map(|f| (f.to_string(), line));
                 }
@@ -1071,14 +1102,14 @@ pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup], fields: &Inde
                 if matches!(k, Some("id" | "pre")) && v["name"] == p {
                     return fields.keys().next().map(|f| (f.clone(), line));
                 }
-                o.iter().find_map(|(f, x)| if k == Some("mif") && f == "c" && of(x, p, fields).is_some_and(|g| !fields[g].mixed) { None } else { walk(x, p, fields, line) })
+                o.iter().find_map(|(f, x)| if k == Some("mif") && f == "c" && of(x, p, fields).is_some_and(|g| !fields[g].mixed) { None } else { walk(x, p, fields, line, ctx) })
             }
             _ => None,
         }
     }
     let all: Vec<Value> = decls.iter().map(|d| d.to_json()).chain(view.iter().map(|m| m.to_json())).collect();
     let out = |d: &Value| d["k"] == "eq" && of(&d["e"], props, fields).is_some() && !all.iter().any(|x| mentions(x, d["name"].as_str().unwrap_or_default()));
-    all.iter().find_map(|d| if out(d) { None } else { walk(d, props, fields, 0) })
+    all.iter().find_map(|d| if out(d) { None } else { walk(d, props, fields, 0, ctx) })
 }
 
 /// RG-4c: what a component does with the views it is given: the props declared `View` where its type is read
@@ -1094,8 +1125,10 @@ pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup], fields: &Inde
 pub struct ViewUses {
     pub bad: Vec<(String, usize, String, String)>,
     pub at: HashMap<usize, Vec<String>>,
+    /// each `provide item = props.f` of a context that holds a view: the context's name, the props it carries
+    pub carried: Vec<(String, Vec<String>)>,
 }
-pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String], dest: &dyn Fn(&str, &str) -> Option<bool>) -> ViewUses {
+pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String], dest: &dyn Fn(&str, &str) -> Option<bool>, ctx: &dyn Fn(&str) -> bool) -> ViewUses {
     use crate::ast::{Attr, Field, MarkupKind, PathSeg, Stmt, StmtKind, TplPart};
     #[derive(Default)]
     struct Sc {
@@ -1109,6 +1142,8 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
         scs: Vec<Sc>,
         out: ViewUses,
         dest: &'a dyn Fn(&str, &str) -> Option<bool>,
+        /// whether a context of that name holds a view (`context item: View`)
+        ctx: &'a dyn Fn(&str) -> bool,
     }
     fn near<'h>(how: &'h str, k: &'h str) -> &'h str {
         // what reads it: the nearest, but a handler's or an effect's body whatever is in it
@@ -1493,6 +1528,15 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
                         let inner = self.sub(sc, &ps);
                         self.stmts(body, inner, at, near(how, "handler"));
                     }
+                    // a context that holds a view carries it to where it is shown (`{use item}`)
+                    Decl::Provide { name, e, .. } if (self.ctx)(name) => {
+                        self.ve(e, sc, at, how);
+                        let fs = self.fields(e, sc);
+                        if !fs.is_empty() {
+                            self.out.at.insert(x as *const Decl as usize, fs.clone());
+                            self.out.carried.push((name.clone(), fs));
+                        }
+                    }
                     Decl::Provide { e, .. } => self.plain(e, sc, at, near(how, "context")),
                     Decl::Context { dflt, .. } => {
                         if let Some(d) = dflt {
@@ -1615,7 +1659,7 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
     views.retain(|f| !skip.contains(f));
     let mut root = Sc::default();
     root.names.insert(props.to_string(), Some(Given::Props { less: vec![], views: views.into() }));
-    let mut w = W { scs: vec![root], out: ViewUses::default(), dest };
+    let mut w = W { scs: vec![root], out: ViewUses::default(), dest, ctx };
     w.inner(decls, view, 0, 0);
     w.out
 }
@@ -1634,7 +1678,7 @@ pub fn view_not_shown(comp: &str, props: &str, field: &str, how: &str, of: &str)
         "closure" => format!("a closure that answers it is not shown — show `{{{v}}}` there, or give it on as an argument typed `View`: `<Q part={{{v}}} />`"),
         "record" => "a record does not hold it — give each on as an argument typed `View`: `<Q header={…} footer={…} />`".to_string(),
         "list" => format!("a list does not hold it — write them one after the other: `{{{v}}}{{…}}`"),
-        "context" => format!("a context does not carry it — give it on as an argument typed `View` of the component that shows it (`<Q part={{{v}}} />`), or let what is shown elsewhere be shown by a `portal to(…)` where it is written"),
+        "context" => format!("this context does not carry it — one that holds a view does (`context item: View`, `provide item = {v}`, shown by `{{use item}}`); or give it on as an argument typed `View` of the component that shows it (`<Q part={{{v}}} />`)"),
         "argument" => format!("a fn does not take it — a component does: `<Q part={{{v}}} />`"),
         "prop" => format!("{of} takes a value, not a view — give it on to a prop typed `View`, or show it: `{{{v}}}`"),
         _ => format!("it is not read as a value (compared, written out, computed with, kept from one instant to the next) — `{{{v}}}` shows it, `{v} != undefined` asks whether one was given"),

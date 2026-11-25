@@ -1093,6 +1093,11 @@ impl Proj<'_> {
                     self.w.emit(Code::of(&format!("{ind}{{((V$) => <")).c(name).c(a).t(" />)(__.view(").at(tag, tag_at).t("))}"), line);
                     return;
                 }
+                // RG-4c: the view a context holds, shown with what its type says
+                if let Some(u) = crate::modules::used_in(tag) {
+                    self.w.emit(Code::of(&format!("{ind}{{((V$) => <V$")).c(a).t(" />)(__.use(").at(u, tag_at.map(|x| x + 4)).t("))}"), line);
+                    return;
+                }
                 let open = Code::of(&format!("{ind}<")).at(tag, tag_at).c(a);
                 // MO-11k: named render props are attributes
                 let named: Vec<&Markup> = children.iter().filter(|c| matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();

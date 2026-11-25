@@ -3101,7 +3101,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             c.ws(true);
             source = c.keyword("source");
             c.ws(true);
-            ty = Some(parse_type(c, false, false)?);
+            ty = Some(parse_type(c, false, true)?); // a function's type is one: `context item: (row: T) => View`
         }
         let save = c.i;
         c.ws(false);

@@ -6,7 +6,7 @@
 import { inPrelude, language, scalar } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { instantiates, keptParts } from "../src/ast.ts";
-import { singleModule, isRx, madeComponent, ViewProps, typeOnly, given, defaulted, bindGiven, viewsOf, shownIn, shown, typesOf, type Given, type ModuleSet } from "../src/modules.ts";
+import { singleModule, isRx, madeComponent, ViewProps, typeOnly, given, defaulted, bindGiven, viewsOf, viewCtx, shownIn, usedIn, shown, typesOf, type Given, type ModuleSet } from "../src/modules.ts";
 export { madeComponent };
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
@@ -21,7 +21,7 @@ import { instance } from "../src/parse.ts";
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "jfn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; given?: Given; shows?: Map<string, boolean>; plain?: boolean; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[] };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Bind = { kind: Kind; js: string; given?: Given; viewCtx?: boolean; shows?: Map<string, boolean>; plain?: boolean; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[] };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
 /** RG-4c: a view given to an .rx component, a function of one parameter. */
 const viewParam = (v: { params: string[] }) => v.params.map(mg).join(", ") || "__s";
@@ -268,7 +268,7 @@ class Gen {
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name), ...this.plain(d, this.file) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
       if (d.k === "server") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
-      if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
+      if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name), ...(d.k === "context" && viewCtx(d.type, typesOf(this.mods?.set, this.file)) ? { viewCtx: true } : {}) });   // RG-4c: a context that holds a view
       if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
       if (d.k === "eq" && unwrapServer(d.e)) { env.vars.set(d.name, { kind: "val", js: mg(d.name) }); continue; }   // SF-1d: a server fn, not an accessor
       if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; if (jf?.kind === "jfn" && jf.shape === "comp") { env.vars.set(d.name, { kind: "comp", js: cm(d.name), inst: cm(d.name), shape: "comp" }); continue; } env.vars.set(d.name, { kind: "acc", js: mg(d.name), w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}), ...this.draftsOfBinding(d.e, env) }); }
@@ -757,7 +757,10 @@ class Gen {
   private region(decls: Decl[], view: Markup[], env: Env, ind: number): string { return `{(${this.regionFn(decls, view, env, ind)})()}`; }
   private attr(name: string, e: Expr, env: Env): string { return name === "..." ? `{...${this.expr(e, env, { imp: false })}}` : `${name}={${this.expr(e, env, { imp: isHandler(name), ref: name === "ref" })}}`; }   // 07 §4: a spread is Solid's
   /** RG-4c: the view a tag shows, `<props.f … />` in a component that does. */
-  private shownFrom(tag: string, env: Env): { view: string; mixed: boolean } | undefined { const n = shownIn(tag), b = n && env.lookup(n[0]), mixed = b?.shows?.get(n![1]); return mixed === undefined ? undefined : { view: `${b!.js}.${n![1]}`, mixed }; }
+  private shownFrom(tag: string, env: Env): { view: string; mixed: boolean } | undefined {
+    const u = usedIn(tag); if (u !== undefined && env.lookup(u)?.viewCtx) return { view: `__rt.useGet(${this.ref(u, env, { imp: false })}, __o)`, mixed: false };   // `<use.item … />`: the view a context holds
+    const n = shownIn(tag), b = n && env.lookup(n[0]), mixed = b?.shows?.get(n![1]); return mixed === undefined ? undefined : { view: `${b!.js}.${n![1]}`, mixed };
+  }
   private child(m: Markup, env: Env, ind: number): string {
     const re: Ctx = { imp: false };
     const pad = " ".repeat((ind + 1) * 2);
@@ -767,7 +770,7 @@ class Gen {
       // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another value
       // is formatted. A JS library hands a component its text as an array of strings (solid-marked's paragraphs), which
       // `show` would print as the list it also is (2026-11-24)
-      case "read": { const h = given(m.e, n => env.lookup(n)?.given)?.held; return `{__rt.${h === "children" ? "kids" : h ? "opt" : "show"}(${this.expr(m.e, env, re)})}`; }
+      case "read": { const h = given(m.e, n => env.lookup(n)?.given)?.held ?? (m.e.k === "use" && env.lookup(m.e.name)?.viewCtx ? "view" : undefined); return `{__rt.${h === "children" ? "kids" : h ? "opt" : "show"}(${this.expr(m.e, env, re)})}`; }   // a context that holds a view, shown: one that was not given shows nothing
       case "el": {
         if (m.tag === "") return this.markup(m.children, env, ind);
         { const p = this.shownFrom(m.tag, env); if (p) return `{__rt.view(${p.view}, V$view => <V$view${m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("")} />${p.mixed ? ", true" : ""})}`; }   // RG-4c: the view the component was given, applied (plain content, as it is)

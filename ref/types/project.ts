@@ -381,6 +381,7 @@ class Proj {
         const shows = this.loose.has(m.tag);                                                     // RG-4c: optional, or plain content is taken as well
         const attrs = m.attrs.map(a => a.name === "..." ? ` {...${this.expr(a.e, false)}}` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : this.views.given(m.tag, a.name, a.e) ? ` ${a.name}={<${this.views.given(m.tag, a.name, a.e)} />}` : ` ${a.name}={${this.expr(a.e, isHandler(a.name))}}`).join("");   // MO-11t: a component given by name to a prop typed `View` is the component applied, which is what the library's type takes
         if (shows) { this.w.emit(`${ind}{((V$) => <V$${attrs} />)(__.view(${m.tag}))}`, line); return; }
+        if (/^use\.[A-Za-z_$][\w$]*$/.test(m.tag)) { this.w.emit(`${ind}{((V$) => <V$${attrs} />)(__.use(${m.tag.slice(4)}))}`, line); return; }   // RG-4c: the view a context holds, shown with what its type says
         const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
         const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
         if (named.length) {

@@ -46,6 +46,11 @@ fn heading(t: &str) -> bool {
 /// What the parser does with `t` (a tag, or `#text`) as the next child where `anc` are open (innermost last); `None`: it is
 /// placed there. An empty `anc` is an unknown place (a view's root): nothing is said.
 pub fn misnested(anc: &[String], t: &str) -> Option<String> {
+    // a portal's place is the end of the document: what is open above where it is written is not above it
+    let anc = match anc.iter().rposition(|x| x == "body") {
+        Some(b) if b > 0 => &anc[b..],
+        _ => anc,
+    };
     let p = anc.last()?.as_str();
     if p == "template" {
         return None;
@@ -128,6 +133,10 @@ pub fn misnested(anc: &[String], t: &str) -> Option<String> {
 }
 /// A component's `closes_p`, `a`, `form` against the places above its application.
 pub fn misnested_inside(anc: &[String], s: &Shape) -> Option<String> {
+    let anc = match anc.iter().rposition(|x| x == "body") {
+        Some(b) if b > 0 => &anc[b..],
+        _ => anc,
+    };
     if s.closes_p {
         for a in anc.iter().rev() {
             if a == "p" {
@@ -145,4 +154,10 @@ pub fn misnested_inside(anc: &[String], s: &Shape) -> Option<String> {
         return Some("contains a <form>, and forms do not nest".into());
     }
     None
+}
+
+/// RG-4c: `use:<key>`, the place a context that holds a view is shown, in a chain or as the name of one.
+pub const USE: &str = "use:";
+pub fn carried_by(chain: &[String]) -> Option<&str> {
+    chain.last().and_then(|t| t.strip_prefix(USE))
 }

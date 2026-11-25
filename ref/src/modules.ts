@@ -404,6 +404,23 @@ export function takesView(propsType: string | undefined, types: Types, field: st
   return /\bView\b/.test(t.type) ? true : valueType(t.type) ? false : undefined;
 }
 
+/** RG-4c, a context that holds a view (proposals/27): its declared type, read, is `View` (`fn: false`) or a function
+ *  giving one, of one parameter or none (`fn: true`; `param`: the parameter's type). */
+export function viewCtx(type: string | undefined, types: Types): { fn: boolean; param?: string } | undefined {
+  if (type === undefined) return undefined;
+  const t = expandType(type, types).trim();
+  if (isViewType(t)) return { fn: false };
+  const v = viewType(t); return v && !v.mixed ? { fn: true, ...(v.param !== undefined ? { param: v.param } : {}) } : undefined;
+}
+/** The declarations of the contexts that hold a view, of every module of a program: for the runners. */
+export function viewCtxAll(set: ModuleSet): Set<unknown> {
+  const out = new Set<unknown>();
+  for (const [path, p] of set.programs) {
+    const walk = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string; type?: string }; if (o.k === "context" && viewCtx(o.type, typesOf(set, path))) out.add(o); Object.values(x).forEach(walk); };
+    walk(p.decls); walk(p.view);
+  }
+  return out;
+}
 /** RG-4c: a view a component takes and shows: a field of its props declared a function giving a `View`, of one parameter or
  *  none, which its view shows as `<props.f … />`. `mixed`: `children` declared `View | ((s: T) => View)` take plain content as well.
  *  `param`: the parameter's type. */
@@ -476,6 +493,8 @@ function expand(t: string, named: (n: string) => string | undefined, depth = 0):
   return (/^[A-Za-z_$][\w$]*$/.test(t) ? named(t) : undefined) ?? t;
 }
 /** `<props.f … />`: the name of the props, and the field. */
+/** `<use.item … />`: the context whose view is shown. */
+export const usedIn = (tag: string): string | undefined => /^use\.([A-Za-z_$][\w$]*)$/.exec(tag)?.[1];
 export const shownIn = (tag: string): [string, string] | undefined => { const m = /^([a-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/.exec(tag); return m ? [m[1], m[2]] : undefined; };
 /** The fields of its props a component shows so, whatever their types say. */
 export function shownFields(d: { props: string; decls: Decl[]; view: Markup[] }): Set<string> {
@@ -484,6 +503,8 @@ export function shownFields(d: { props: string; decls: Decl[]; view: Markup[] })
     if (!x || typeof x !== "object") return;
     const o = x as { k?: string; tag?: string }; const t = o.k === "el" && o.tag ? shownIn(o.tag) : undefined;
     if (t?.[0] === d.props) out.add(t[1]);
+    const pe = o.k === "provide" ? (o as { e?: Expr }).e : undefined;                    // `provide item = props.f`: a context that holds a view carries it to where it is shown
+    if (pe?.k === "member" && pe.o.k === "id" && pe.o.name === d.props) out.add(pe.p);
     Object.values(x).forEach(walk);
   };
   if (/^[a-z_$]/.test(d.props)) walk([...d.decls, ...d.view]);
@@ -514,7 +535,7 @@ function viewType(t: string): { mixed: boolean; param?: string } | undefined {
 /** What names a view a component shows (`fields`) anywhere but where it is shown or asked for (`if props.f`, which plain
  *  content as well is not): the field, and its statement's line. A projection that takes it out of a rest
  *  (`{ children: none, ...rest } = props`) and is not named again is none. */
-export function otherMention(d: { props: string; decls: Decl[]; view: Markup[] }, fields: Map<string, Shown>): { field: string; line: number } | undefined {
+export function otherMention(d: { props: string; decls: Decl[]; view: Markup[] }, fields: Map<string, Shown>, ctx?: (name: string) => boolean): { field: string; line: number } | undefined {   // ctx: whether a context of that name holds a view with a parameter: `provide item = props.f` carries the view to where it is shown, `<use.item … />`
   const P = d.props, all = [...d.decls, ...d.view]; let found: { field: string; line: number } | undefined;
   const of = (e: unknown): string | undefined => { const x = e as Expr; return x.k === "member" && x.o.k === "id" && x.o.name === P && fields.has(x.p) ? x.p : undefined; };
   const out = new Set<unknown>(d.decls.filter(x => x.k === "eq" && of(x.e) !== undefined && !mentions(all, x.name)));
@@ -522,6 +543,7 @@ export function otherMention(d: { props: string; decls: Decl[]; view: Markup[] }
     if (!x || typeof x !== "object" || found || out.has(x)) return;
     if (Array.isArray(x)) { for (const y of x) walk(y, line); return; }
     const o = x as Record<string, unknown>; if (typeof o.line === "number") line = o.line;
+    if (o.k === "provide" && ctx?.(o.name as string) && of(o.e) !== undefined) return;
     if (o.k === "member" && (o.o as Expr).k === "id" && (o.o as { name: string }).name === P) { if (fields.has(o.p as string)) found = { field: o.p as string, line }; return; }
     if (o.k === "omit" && (o.e as Expr).k === "id" && (o.e as { name: string }).name === P && [...fields.keys()].every(f => (o.keys as string[]).includes(f))) return;
     if ((o.k === "id" || o.k === "pre") && o.name === P) { found = { field: [...fields.keys()][0], line }; return; }
@@ -558,14 +580,14 @@ export function viewNotShown(comp: string, props: string, field: string, how: st
     closure: `a closure that answers it is not shown — show \`{${v}}\` there, or give it on as an argument typed \`View\`: \`<Q part={${v}} />\``,
     record: `a record does not hold it — give each on as an argument typed \`View\`: \`<Q header={…} footer={…} />\``,
     list: `a list does not hold it — write them one after the other: \`{${v}}{…}\``,
-    context: `a context does not carry it — give it on as an argument typed \`View\` of the component that shows it (\`<Q part={${v}} />\`), or let what is shown elsewhere be shown by a \`portal to(…)\` where it is written`,
+    context: `this context does not carry it — one that holds a view does (\`context item: View\`, \`provide item = ${v}\`, shown by \`{use item}\`); or give it on as an argument typed \`View\` of the component that shows it (\`<Q part={${v}} />\`)`,
     argument: `a fn does not take it — a component does: \`<Q part={${v}} />\``,
     prop: `${of} takes a value, not a view — give it on to a prop typed \`View\`, or show it: \`{${v}}\``,
     value: `it is not read as a value (compared, written out, computed with, kept from one instant to the next) — \`{${v}}\` shows it, \`${v} != undefined\` asks whether one was given`,
   };
   return `${comp} is given a view, ${field === "view" ? "a prop typed View" : field}, and a view is only shown: ${tail[how] ?? tail.value}`;
 }
-export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, types: Types, skip: Set<string> = new Set(), dest?: (tag: string, attr: string) => boolean | undefined): ViewUses {
+export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, types: Types, skip: Set<string> = new Set(), dest?: (tag: string, attr: string) => boolean | undefined, ctx?: (name: string) => boolean): ViewUses {   // ctx: whether a context of that name holds a view (`context item: View`)
   const kids = new Set<unknown>(), bad: ViewUses["bad"] = [], places = new Map<unknown, string[]>();
   const views = new Set([...viewsOf(d.propsType, types)].filter(f => !skip.has(f)));
   type Sc = { names: Map<string, Given | null>; up: Sc | null; fields?: Map<string, string[]> };   // fields: the props a name of this block stands for   // null: a name of this block that is no view
@@ -672,7 +694,7 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
       case "component": { const b = block(x.decls, sub(sc, x.props)); dk(x.decls, b, at, near(how, "closure")); mk(x.view, b, at); break; }
       case "effect": plain(x.inputs, sc, at, "effect"); stmts(x.body, sc, at, "effect"); break;
       case "action": case "server": stmts(x.body, sub(sc, ...x.params), at, near(how, "handler")); break;
-      case "provide": plain(x.e, sc, at, near(how, "context")); break;
+      case "provide": if (ctx?.(x.name)) { ve(x.e, sc, at, how); const fs = fields(x.e, sc); if (fs.length) places.set(x, fs); } else plain(x.e, sc, at, near(how, "context")); break;   // a context that holds a view carries it to where it is shown (`{use item}`)
       case "context": plain(x.dflt, sc, at, how); break;
       case "error": plain(x.msg, sub(sc, ...x.params), at, how); break;
       default: break;   // import, typedecl
