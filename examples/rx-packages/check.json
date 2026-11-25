@@ -1,0 +1,54 @@
+{
+ "kobalte-switch": {
+  "caught": {
+   "rx": 12,
+   "orig": 9,
+   "tsx": 2
+  },
+  "refused": {
+   "rx": 1,
+   "orig": 1,
+   "tsx": 0
+  },
+  "good": {
+   "rx": [],
+   "orig": [],
+   "tsx": []
+  },
+  "missed": {
+   "rx": [],
+   "orig": [
+    "P1",
+    "P2",
+    "P3"
+   ],
+   "tsx": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6",
+    "P1",
+    "P2",
+    "P3",
+    "A1"
+   ]
+  },
+  "refusedWhat": {
+   "rx": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "orig": {
+    "C7": [
+     "REACTIVE_WRITE_IN_OWNED_SCOPE"
+    ]
+   },
+   "tsx": {}
+  },
+  "disagree": [],
+  "tsxOverRewrite": []
+ }
+}

@@ -18,13 +18,17 @@
       "src/button.rx",
       "src/checkbox.rx",
       "src/collapsible.rx",
+      "src/dialog.rx",
       "src/form.rx",
       "src/meter.rx",
       "src/pagination.rx",
       "src/radio.rx",
+      "src/select.rx",
       "src/small.rx",
       "src/switch.rx",
-      "src/tabs.rx"
+      "src/tabs.rx",
+      "src/toast.rx",
+      "src/tooltip.rx"
     ]
   },
   "exports": {
@@ -107,6 +111,38 @@
       "deno": "./dist/tabs.server.js",
       "node": "./dist/tabs.server.js",
       "default": "./dist/tabs.js"
+    },
+    "./dialog": {
+      "types": "./dist/dialog.d.ts",
+      "worker": "./dist/dialog.server.js",
+      "browser": "./dist/dialog.js",
+      "deno": "./dist/dialog.server.js",
+      "node": "./dist/dialog.server.js",
+      "default": "./dist/dialog.js"
+    },
+    "./tooltip": {
+      "types": "./dist/tooltip.d.ts",
+      "worker": "./dist/tooltip.server.js",
+      "browser": "./dist/tooltip.js",
+      "deno": "./dist/tooltip.server.js",
+      "node": "./dist/tooltip.server.js",
+      "default": "./dist/tooltip.js"
+    },
+    "./select": {
+      "types": "./dist/select.d.ts",
+      "worker": "./dist/select.server.js",
+      "browser": "./dist/select.js",
+      "deno": "./dist/select.server.js",
+      "node": "./dist/select.server.js",
+      "default": "./dist/select.js"
+    },
+    "./toast": {
+      "types": "./dist/toast.d.ts",
+      "worker": "./dist/toast.server.js",
+      "browser": "./dist/toast.js",
+      "deno": "./dist/toast.server.js",
+      "node": "./dist/toast.server.js",
+      "default": "./dist/toast.js"
     }
   },
   "peerDependencies": {

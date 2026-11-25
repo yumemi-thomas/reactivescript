@@ -1,0 +1,27 @@
+{
+ "kobalte-switch": {
+  "steps": 6,
+  "same": 6,
+  "sameSsr": 6,
+  "errors": {
+   "orig": [],
+   "rx": []
+  },
+  "diag": {
+   "orig": [
+    "STRICT_READ_UNTRACKED"
+   ],
+   "rx": []
+  },
+  "alive": {
+   "orig": [
+    0,
+    450
+   ],
+   "rx": [
+    0,
+    450
+   ]
+  }
+ }
+}

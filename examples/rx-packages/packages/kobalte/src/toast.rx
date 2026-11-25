@@ -1,0 +1,74 @@
+// Toast: what is shown is data, and the region's caller writes how one looks. Derived from toast/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// Not the original's `toaster.show((props) => <Toast.Root …>)`: a view is not given to a fn. Without the swipe and the progress bar.
+import { call, give, within, isFocusIn } from "./dom.js"
+import { after } from "@reactivescript/std/time"
+import pure { uniqueId, flag, mix } from "./dom.js"
+import { Div, Ol, Li, Button as ButtonProps } from "./types.js"
+
+export type Notice = { id: number; title: string; description?: string; region?: string; kind?: string; duration?: number; persistent?: boolean }
+source seq := 0
+source notices: Notice[] key id := []
+export action show(n: Omit<Notice, "id">) { let k = latest seq + 1
+  seq := k
+  notices := xs => [...xs, { ...n, id: k }] }
+export action update(id: number, n: Omit<Notice, "id">) { notices := xs => xs.map(x => x.id == id ? { ...n, id: id } : x) }
+export action dismiss(id: number) { notices := xs => xs.filter(x => x.id != id) }
+export action clear() { notices := [] }
+export shownCount = notices.length
+
+type Bag = { id: string; shown: Notice[]; paused: boolean; duration: number; pause: (v: boolean) => void }
+context region: Bag
+context toastOf: (p: { toast: Notice }) => View
+type Of = { id: string; close: () => void; name: (part: "title" | "description", id: string | undefined) => void }
+context here: Of
+
+export component Region(props: Div & { toast: (p: { toast: Notice }) => View; duration?: number; limit?: number; regionId?: string }) {
+  { toast: none, duration = 5000, limit = 3, regionId, id, style, children, ...rest } = props
+  own = uniqueId("toast-region")
+  source paused := false
+  action pause(v: boolean) { paused := v }
+  shown = notices.filter(n => n.region == regionId).slice(0, limit)
+  provide toastOf = props.toast
+  provide region = { id: id ?? own, shown: shown, paused: paused, duration: duration, pause: pause }
+  <div id={id ?? own} role="region" tabindex={0 - 1} aria-label={props["aria-label"] ?? "Notifications"} style={mix({ "pointer-events": shown.length > 0 ? "auto" : "none" }, style)} data-kb-top-layer="" {...rest}>{children}</div>
+}
+export component List(props: Omit<Ol, "children">) {
+  { onFocusIn, onFocusOut, onPointerMove, onPointerLeave, ref: user, ...rest } = props
+  r = use region
+  source el: any := undefined
+  <ol ref={(e: Element) => { el := e; give(user, e) }} tabindex={0 - 1} onFocusIn={(e) => { call(e, onFocusIn); r.pause(true) }} onFocusOut={(e) => { call(e, onFocusOut); if (!within(el, e.relatedTarget)) { r.pause(false) } }}
+    onPointerMove={(e) => { call(e, onPointerMove); r.pause(true) }} onPointerLeave={(e) => { call(e, onPointerLeave); if (!isFocusIn(el)) { r.pause(false) } }} {...rest}>{for n in r.shown { <use.toastOf toast={n} /> }}</ol>
+}
+export component Root(props: Li & { toast: Notice; priority?: "high" | "low" }) {
+  { toast, priority = "high", id, style, onKeyDown, children, ...rest } = props
+  r = use region
+  own = uniqueId("toast")
+  source ids: { title?: string; description?: string } := {}
+  action close() { dismiss(toast.id) }
+  action name(part: "title" | "description", v: string | undefined) { ids[part] := v }
+  wait = r.paused || toast.persistent ? undefined : toast.duration ?? r.duration
+  effect (wait) { let ms = $0
+    return ms == undefined ? undefined : after(ms, () => { close() }) }
+  provide here = { id: id ?? own, close: close, name: name }
+  <li id={id ?? own} role="status" tabindex={0} style={mix({ "user-select": "none", "touch-action": "none" }, style)} aria-live={priority == "high" ? "assertive" : "polite"} aria-atomic="true" aria-labelledby={ids.title} aria-describedby={ids.description} data-opened=""
+    onKeyDown={(e) => { call(e, onKeyDown); if (e.key == "Escape") { close() } }} {...rest}>{children}</li>
+}
+export component Title(props: Div) {
+  { id, children, ...rest } = props
+  h = use here
+  mine = id ?? h.id + "-title"
+  effect (mine) { h.name("title", $0); return () => { h.name("title", undefined) } }
+  <div id={mine} {...rest}>{children}</div>
+}
+export component Description(props: Div) {
+  { id, children, ...rest } = props
+  h = use here
+  mine = id ?? h.id + "-description"
+  effect (mine) { h.name("description", $0); return () => { h.name("description", undefined) } }
+  <div id={mine} {...rest}>{children}</div>
+}
+export component CloseButton(props: ButtonProps) {
+  { onClick, children, ...rest } = props
+  h = use here
+  <button type="button" aria-label={props["aria-label"] ?? "Close"} onClick={(e) => { call(e, onClick); h.close() }} {...rest}>{children}</button>
+}

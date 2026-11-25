@@ -2,7 +2,7 @@
 import { call, give, move, pickTab, tabOf, place, hasTabbable } from "./dom.js"
 import client { onResize, onMutation } from "@reactivescript/std/browser"
 import pure { uniqueId, flag, mix } from "./dom.js"
-import { Div, Button as ButtonProps } from "./dom.js"
+import { Div, Button as ButtonProps } from "./types.js"
 
 type Orientation = "horizontal" | "vertical"
 type Tabs = { id: string; value: string | undefined; orientation: Orientation; automatic: boolean; disabled: boolean; select: (v: string) => void

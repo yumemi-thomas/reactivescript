@@ -1,6 +1,6 @@
 // Separator, Breadcrumbs, Link, Alert, Badge. Derived from the parts of those names of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
 import pure { flag } from "./dom.js"
-import { Div, Span, Hr, Nav, Anchor } from "./dom.js"
+import { Div, Span, Hr, Nav, Anchor } from "./types.js"
 
 export component Separator(props: Hr & { orientation?: "horizontal" | "vertical" }) {
   { orientation = "horizontal", ...rest } = props

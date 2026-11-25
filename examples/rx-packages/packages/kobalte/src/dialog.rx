@@ -1,0 +1,89 @@
+// Dialog and Popover. Derived from dialog/*, popover/* and popper/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+import { call, give } from "./dom.js"
+import client { openLayer, float } from "./layer.js"
+import pure { uniqueId, flag, mix } from "./dom.js"
+import { Div, P, H2, Button as ButtonProps } from "./types.js"
+import { Portal } from "./portal.js"
+import { Root as Button } from "./button.rx"
+
+type Dialog = { id: string; open: boolean; mount: boolean; modal: boolean; content: string | undefined; title: string | undefined; description: string | undefined; trigger: any; anchor: any; popover: boolean; placement: string; gutter: number; sameWidth: boolean
+  set: (v: boolean) => void; name: (part: "content" | "title" | "description", id: string | undefined) => void; triggerEl: (e: any) => void; anchorEl: (e: any) => void }
+context dialog: Dialog
+fn data(c: Dialog) => ({ "data-expanded": flag(c.open), "data-closed": flag(!c.open) })
+
+export type RootProps = { id?: string; open?: boolean; defaultOpen?: boolean; onOpenChange?: (open: boolean) => void; modal?: boolean; forceMount?: boolean; children?: View }
+component Shell(props: RootProps & { popover: boolean; placement?: string; gutter?: number; sameWidth?: boolean; kind: string }) {
+  own = uniqueId(peek props.kind)
+  source mine := peek(props.defaultOpen) ?? false
+  source ids: { content?: string; title?: string; description?: string } := {}
+  source trigger: any := undefined
+  source anchor: any := undefined
+  now = props.open ?? mine
+  action set(v: boolean) { if (v != now) { mine := v
+    if (props.onOpenChange) { props.onOpenChange(v) } } }
+  action name(part: "content" | "title" | "description", v: string | undefined) { ids[part] := v }
+  action triggerEl(e: any) { trigger := e }
+  action anchorEl(e: any) { anchor := e }
+  provide dialog = { id: props.id ?? own, open: now, mount: (props.forceMount ?? false) || now, modal: props.modal ?? !props.popover, content: ids.content, title: ids.title, description: ids.description, trigger: trigger, anchor: anchor ?? trigger, popover: props.popover, placement: props.placement ?? "bottom", gutter: props.gutter ?? 0, sameWidth: props.sameWidth ?? false, set: set, name: name, triggerEl: triggerEl, anchorEl: anchorEl }
+  {props.children}
+}
+export component Root(props: RootProps) { <Shell {...props} popover={false} kind="dialog" /> }
+export component Popover(props: RootProps & { placement?: string; gutter?: number; sameWidth?: boolean }) { <Shell {...props} popover={true} kind="popover" /> }
+export component Anchor(props: Div) {
+  { children, ref: user, ...rest } = props
+  c = use dialog
+  <div ref={(e: Element) => { c.anchorEl(e); give(user, e) }} {...data(c)} {...rest}>{children}</div>
+}
+export component Trigger(props: ButtonProps) {
+  { onClick, children, ref: user, ...rest } = props
+  c = use dialog
+  <button type="button" ref={(e: Element) => { c.triggerEl(e); give(user, e) }} aria-haspopup="dialog" aria-expanded={c.open ? "true" : "false"} aria-controls={c.open ? c.content : undefined} onClick={(e: any) => { call(e, onClick); c.set(!c.open) }} {...data(c)} {...rest}>{children}</button>
+}
+export component Page(props: { children?: View }) { c = use dialog
+  {if c.mount { <Portal>{props.children}</Portal> }} }
+export component Overlay(props: Div) {
+  { style, onPointerDown, children, ...rest } = props
+  c = use dialog
+  {if c.mount { <div style={mix({ "pointer-events": "auto" }, style)} data-layer-through="" onPointerDown={(e) => { call(e, onPointerDown); if (e.target == e.currentTarget) { e.preventDefault() } }} {...data(c)} {...rest}>{children}</div> }}
+}
+export component Content(props: Div) {
+  { id, style, children, ref: user, ...rest } = props
+  c = use dialog
+  source el: any := undefined
+  source at: any := undefined
+  mine = id ?? c.id + "-content"
+  effect (mine) { c.name("content", $0); return () => { c.name("content", undefined) } }
+  effect (c.open ? el : undefined, c.modal) { let e = $0
+    return e ? openLayer(e, { modal: $1, trigger: c.trigger, dismiss: () => { c.set(false) } }) : undefined }
+  effect (c.popover && c.open ? at : undefined, c.anchor) { let e = $0
+    let a = $1
+    return e && a ? float(a, e, { placement: c.placement, gutter: c.gutter, sameWidth: c.sameWidth, placed: () => {} }) : undefined }
+  {if c.mount {
+    {if c.popover {
+      <div ref={(e: Element) => { at := e }} data-popper-positioner="" style={{ position: "absolute", top: "0", left: "0" }}>
+        <div {...rest} ref={(e: Element) => { el := e; give(user, e) }} id={mine} role="dialog" tabindex={0 - 1} style={mix({ position: "relative" }, style)} aria-labelledby={c.title} aria-describedby={c.description} {...data(c)}>{children}</div>
+      </div>
+    } else {
+      <div {...rest} ref={(e: Element) => { el := e; give(user, e) }} id={mine} role="dialog" tabindex={0 - 1} style={mix({}, style)} aria-labelledby={c.title} aria-describedby={c.description} {...data(c)}>{children}</div>
+    }}
+  }}
+}
+export component Title(props: H2) {
+  { id, children, ...rest } = props
+  c = use dialog
+  mine = id ?? c.id + "-title"
+  effect (mine) { c.name("title", $0); return () => { c.name("title", undefined) } }
+  <h2 id={mine} {...rest}>{children}</h2>
+}
+export component Description(props: P) {
+  { id, children, ...rest } = props
+  c = use dialog
+  mine = id ?? c.id + "-description"
+  effect (mine) { c.name("description", $0); return () => { c.name("description", undefined) } }
+  <p id={mine} {...rest}>{children}</p>
+}
+export component CloseButton(props: ButtonProps) {
+  { onClick, children, ...rest } = props
+  c = use dialog
+  <Button aria-label={props["aria-label"] ?? "Dismiss"} onClick={(e: any) => { call(e, onClick); c.set(false) }} {...rest}>{children}</Button>
+}

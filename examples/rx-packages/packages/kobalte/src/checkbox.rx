@@ -2,7 +2,7 @@
 import { give, call, focus, put, formOf, announceChange } from "./dom.js"
 import client { on } from "@reactivescript/std/browser"
 import pure { hidden, flag } from "./dom.js"
-import { Div, Input as InputProps, Label as LabelProps, Validation } from "./dom.js"
+import { Div, Input as InputProps, Label as LabelProps, Validation } from "./types.js"
 import { form, createForm, useField, FormLabel, FormDescription, FormError } from "./form.rx"
 
 type State = { value: string; on: boolean; mixed: boolean; toggle: () => void; check: (v: boolean) => void; focused: (v: boolean) => void; input: (e: any) => void }

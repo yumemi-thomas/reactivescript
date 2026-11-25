@@ -63,3 +63,22 @@ export const tabOf = (list, key) => [...(list?.querySelectorAll("[role=tab]") ??
 export const place = (e, orientation) => orientation === "vertical" ? { transform: `translateY(${e.offsetTop}px)`, height: `${e.offsetHeight}px` } : { transform: `translateX(${e.offsetLeft}px)`, width: `${e.offsetWidth}px` };
 export const hasTabbable = (e) => !!e.querySelector("a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])");
 export function syncRadios(root, value) { for (const r of root?.querySelectorAll("[type='radio']") ?? []) r.checked = r.value === value; }
+export const within = (element, target) => !!element?.contains(target);
+export const scrollTo = (element) => element?.scrollIntoView?.({ block: "nearest" });
+export const byKey = (list, key) => [...(list?.querySelectorAll("[data-key]") ?? [])].find((e) => e.dataset.key === key);
+/** What an option says by a field's name or by a function. */
+export const ask = (option, how) => how == null ? option : typeof how === "function" ? how(option) : option[how];
+/** The next key that can be had from `key`, `by` a step; the first or the last when there is none. */
+export function stepKey(items, key, by, wrap) {
+  const all = items.filter((i) => !i.disabled); if (!all.length) return undefined;
+  const at = all.findIndex((i) => i.key === key); if (at < 0) return (by > 0 ? all[0] : all.at(-1)).key;
+  const to = at + by; return (all[wrap ? (to + all.length) % all.length : Math.max(0, Math.min(all.length - 1, to))]).key;
+}
+/** Type to find: the key whose text begins with what was typed in the last second, after `key` first. */
+let typed = "", when = 0;
+export function typeKey(items, key, letter) {
+  if (Date.now() - when > 1000) typed = ""; when = Date.now(); typed += letter.toLowerCase();
+  const all = items.filter((i) => !i.disabled), at = all.findIndex((i) => i.key === key), from = [...all.slice(at + (typed.length > 1 ? 0 : 1)), ...all.slice(0, Math.max(0, at + 1))];
+  return from.find((i) => i.textValue.toLowerCase().startsWith(typed))?.key;
+}
+export const isFocusIn = (e) => !!e?.contains(e.ownerDocument.activeElement);

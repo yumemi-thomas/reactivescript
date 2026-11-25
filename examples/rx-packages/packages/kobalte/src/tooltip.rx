@@ -1,0 +1,65 @@
+// Derived from tooltip/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE). Without the safe area between trigger and content, and the warm-up shared by all tooltips.
+import { call, give, within } from "./dom.js"
+import client { float } from "./layer.js"
+import client { onDocument } from "@reactivescript/std/browser"
+import { after } from "@reactivescript/std/time"
+import pure { uniqueId, flag, mix } from "./dom.js"
+import { Div, Button as ButtonProps } from "./types.js"
+import { Portal } from "./portal.js"
+
+type Tip = { id: string; open: boolean; mount: boolean; disabled: boolean; focusOnly: boolean; content: string | undefined; trigger: any; placement: string; gutter: number; contentEl: any
+  want: (v: boolean, now: boolean) => void; name: (id: string | undefined) => void; triggerRef: (e: any) => void; contentRef: (e: any) => void }
+context tip: Tip
+fn data(c: Tip) => ({ "data-expanded": flag(c.open), "data-closed": flag(!c.open) })
+export type RootProps = { id?: string; open?: boolean; defaultOpen?: boolean; onOpenChange?: (v: boolean) => void; disabled?: boolean; triggerOnFocusOnly?: boolean; openDelay?: number; closeDelay?: number; forceMount?: boolean; placement?: string; gutter?: number; children?: View }
+export component Root(props: RootProps) {
+  { openDelay = 700, closeDelay = 300, placement = "bottom", gutter = 0, disabled = false, triggerOnFocusOnly = false, forceMount = false } = props
+  own = uniqueId("tooltip")
+  source mine := peek(props.defaultOpen) ?? false
+  source wanted: { open: boolean; in: number } | undefined := undefined
+  source content: string | undefined := undefined
+  source trigger: any := undefined
+  source contentEl: any := undefined
+  now = props.open ?? mine
+  action set(v: boolean) { wanted := undefined
+    if (v != now) { mine := v
+      if (props.onOpenChange) { props.onOpenChange(v) } } }
+  action want(v: boolean, atOnce: boolean) { let ms = v ? openDelay : closeDelay
+    if (atOnce || ms <= 0) { set(v) } else { wanted := v == now ? undefined : { open: v, in: ms } } }
+  action name(v: string | undefined) { content := v }
+  action triggerRef(e: any) { trigger := e }
+  action contentRef(e: any) { contentEl := e }
+  effect (wanted) { let w = $0
+    return w ? after(w.in, () => { set(w.open) }) : undefined }
+  effect (now) { return $0 ? onDocument("keydown", (e) => { if (e.key == "Escape") { set(false) } }, true) : undefined }
+  provide tip = { id: props.id ?? own, open: now, mount: forceMount || now, disabled: disabled, focusOnly: triggerOnFocusOnly, content: content, trigger: trigger, placement: placement, gutter: gutter, contentEl: contentEl, want: want, name: name, triggerRef: triggerRef, contentRef: contentRef }
+  {props.children}
+}
+export component Trigger(props: ButtonProps) {
+  { onPointerEnter, onPointerLeave, onPointerDown, onClick, onFocus, onBlur, children, ref: user, ...rest } = props
+  c = use tip
+  source pressed := false
+  <button type="button" ref={(e: Element) => { c.triggerRef(e); give(user, e) }} aria-describedby={c.open ? c.content : undefined}
+    onPointerEnter={(e) => { call(e, onPointerEnter); if (e.pointerType != "touch" && !c.focusOnly && !c.disabled && !e.defaultPrevented) { c.want(true, false) } }}
+    onPointerLeave={(e) => { call(e, onPointerLeave); if (e.pointerType != "touch") { c.want(false, false) } }}
+    onPointerDown={(e) => { call(e, onPointerDown); pressed := true }} onClick={(e) => { call(e, onClick); pressed := false; c.want(false, true) }}
+    onFocus={(e) => { call(e, onFocus); if (!c.disabled && !e.defaultPrevented && !pressed) { c.want(true, true) } }}
+    onBlur={(e) => { call(e, onBlur); pressed := false; if (!within(c.contentEl, e.relatedTarget)) { c.want(false, true) } }} {...data(c)} {...rest}>{children}</button>
+}
+export component Page(props: { children?: View }) { c = use tip
+  {if c.mount { <Portal>{props.children}</Portal> }} }
+export component Content(props: Div) {
+  { id, style, children, ref: user, ...rest } = props
+  c = use tip
+  source at: any := undefined
+  mine = id ?? c.id + "-content"
+  effect (mine) { c.name($0); return () => { c.name(undefined) } }
+  effect (c.open ? at : undefined, c.trigger) { let e = $0
+    let a = $1
+    return e && a ? float(a, e, { placement: c.placement, gutter: c.gutter, placed: () => {} }) : undefined }
+  {if c.mount {
+    <div ref={(e: Element) => { at := e }} data-popper-positioner="" style={{ position: "absolute", top: "0", left: "0" }}>
+      <div ref={(e: Element) => { c.contentRef(e); give(user, e) }} id={mine} role="tooltip" style={mix({ position: "relative" }, style)} onPointerEnter={() => { c.want(true, false) }} onPointerLeave={() => { c.want(false, false) }} {...data(c)} {...rest}>{children}</div>
+    </div>
+  }}
+}

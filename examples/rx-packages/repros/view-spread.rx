@@ -1,0 +1,4 @@
+type Row = (p: { n: number }) => View
+component List(props: { row: Row; class?: string }) { <ul class={props.class}><props.row n={1} /></ul> }
+component Wrap(props: { row: Row; class?: string }) { <List {...props} /> }
+export default component App() { <Wrap>{view row (p) { <li>{p.n}</li> }}</Wrap> }

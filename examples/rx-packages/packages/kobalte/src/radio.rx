@@ -2,7 +2,7 @@
 import { call, give, focus, put, formOf, announceChange, syncRadios } from "./dom.js"
 import client { on } from "@reactivescript/std/browser"
 import pure { hidden, flag, words, uniqueId } from "./dom.js"
-import { Div, Span, Input as InputProps, Label as LabelProps, Validation } from "./dom.js"
+import { Div, Span, Input as InputProps, Label as LabelProps, Validation } from "./types.js"
 import { form, createForm, FormDescription, FormError } from "./form.rx"
 
 type Group = { value: string | undefined; pick: (v: string) => void; described: string | undefined }

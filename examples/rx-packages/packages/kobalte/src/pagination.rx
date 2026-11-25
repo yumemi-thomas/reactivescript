@@ -3,7 +3,7 @@ import { call } from "./dom.js"
 import { max, min } from "@reactivescript/std/math"
 import { from } from "@reactivescript/std/object"
 import pure { flag } from "./dom.js"
-import { Div, Nav, Button as ButtonProps } from "./dom.js"
+import { Div, Nav, Button as ButtonProps } from "./types.js"
 import { Root as Button } from "./button.rx"
 
 type Pages = { page: number; count: number; go: (n: number) => void; disabled: boolean; slots: (number)[] }
