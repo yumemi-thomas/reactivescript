@@ -126,7 +126,8 @@ pub enum ExportSig {
     /// `actions`: R-io-3, the parts of its value (a fn's: of its result) that are actions, as paths ("": the value)
     Eq { rows: Vec<String>, fails: Vec<String>, io: bool, actions: Vec<String> },
     /// `uses`: RG-7b, the contexts a call of it reads above the place it is written (keys)
-    Fn { params: Vec<SigParam>, instantiating: bool, rows: Vec<String>, fails: Vec<String>, rejects: Vec<String>, uses: Vec<String>, actions: Vec<String>, /// MO-13i: the parts of its result, where they are known
+    Fn { /// 07 §2: `<T>`, as text
+    tparams: Option<String>, params: Vec<SigParam>, instantiating: bool, rows: Vec<String>, fails: Vec<String>, rejects: Vec<String>, uses: Vec<String>, actions: Vec<String>, /// MO-13i: the parts of its result, where they are known
         result: Option<Res> },
     Action,
     Server { io: bool, params: Vec<String>, rejects: Vec<String> },
@@ -338,6 +339,25 @@ fn balanced(s: &str, at: usize) -> Option<&str> {
     }
     None
 }
+/// 07 §2: a fn's row without its type parameters, `pure fn f<T>(…)`, and those, as text.
+fn type_params_of(s: &str) -> (String, Option<String>) {
+    let Some(at) = T_FN_TPARAMS.find(s).map(|m| m.end()) else { return (s.to_string(), None) };
+    let (mut depth, mut prev) = (1, '<');
+    let mut end = s.len();
+    for (i, ch) in s[at..].char_indices() {
+        if ch == '<' {
+            depth += 1;
+        } else if ch == '>' && prev != '=' {
+            depth -= 1;
+        }
+        prev = ch;
+        if depth == 0 {
+            end = at + i + 1;
+            break;
+        }
+    }
+    (format!("{}{}", &s[..at - 1], &s[end..]), Some(s[at - 1..end].to_string()))
+}
 fn hosts_of(file: &str, text: &str) -> IndexMap<String, Vec<HostSite>> {
     let mut out: IndexMap<String, Vec<HostSite>> = IndexMap::new();
     for part in split(text, ';') {
@@ -417,7 +437,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
             }
             with_rows(format!("export {}", name), words([rows(&rr, fails), if *io { String::new() } else { actions_text(actions) }, String::new()]))
         }
-        ExportSig::Fn { params, instantiating, rows: r, fails, rejects, uses, actions, result } => {
+        ExportSig::Fn { tparams, params, instantiating, rows: r, fails, rejects, uses, actions, result } => {
             let parts = match result {
                 Some(x) => result_text(x),
                 None if actions.iter().any(|p| p.is_empty()) => "ref io".to_string(),
@@ -426,7 +446,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
             let ps: Vec<String> = params.iter().map(|p| format!("{}{}{}{}", if p.r#ref { "ref " } else { "" }, p.name, if p.opt { "?" } else { "" }, p.ty.as_ref().map(|t| format!(": {}", t)).unwrap_or_default())).collect();
             format!(
                 "{}{}{}{}",
-                with_rows(format!("export pure fn {}({})", name, ps.join(", ")), words([rows(r, fails), parts, String::new()])),
+                with_rows(format!("export pure fn {}{}({})", name, tparams.as_deref().unwrap_or(""), ps.join(", ")), words([rows(r, fails), parts, String::new()])),
                 if rejects.is_empty() { String::new() } else { format!(" rejects({})", rejects.join(" | ")) },
                 if *instantiating { " instantiates" } else { "" },
                 if uses.is_empty() { String::new() } else { format!(" uses({})", uses.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) }
@@ -536,6 +556,7 @@ re!(T_ERROR, r"^error\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\(([^)]*)\))?$");
 re!(T_SOURCE, r"^source\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::([^=].*?)?)??\s*(:?=)\s*…$");
 re!(T_SERVER, r"^server\s+(pure\s+)?fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$");
 re!(T_FN, r"^pure\s+fn\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(");
+re!(T_FN_TPARAMS, r"^pure\s+fn\s+[A-Za-z_$][A-Za-z0-9_$]*\s*<");
 re!(T_FN_ROWS, r"^\s*(?::\s*(.*?))?\s*(?:\brejects\(([^)]*)\))?\s*(\binstantiates)?\s*(?:\buses\(([^)]*)\))?$");
 re!(P_FIELD, r"^([A-Za-z0-9_$-]+)\s*:\s*(.+)$");
 re!(P_LEAF, r"^(ref|value)(?:\s+(.*))?$");
@@ -701,9 +722,11 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             exports.insert(m[2].to_string(), ExportSig::Server { io: m.get(1).is_none(), params, rejects: classes_of(m.get(4).map(|x| x.as_str()).unwrap_or("")) });
             continue;
         }
-        if let Some(m) = T_FN.captures(&s) {
+        let (bare, tparams) = type_params_of(&s);
+        if let Some(m) = T_FN.captures(&bare) {
+            let s = &bare;
             let open = m[0].len() - 1;
-            let Some(ps) = balanced(&s, open) else { return Err(fail("a fn's parameters")) };
+            let Some(ps) = balanced(s, open) else { return Err(fail("a fn's parameters")) };
             let Some(t) = T_FN_ROWS.captures(&s[open + ps.len() + 2..]) else { return Err(fail("a fn's rows")) };
             let params = split(ps, ',')
                 .into_iter()
@@ -727,7 +750,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                 (None, None) if text.is_empty() => (vec![], None),
                 (None, None) => return Err(fail("a fn's rows")),
             };
-            exports.insert(m[1].to_string(), ExportSig::Fn { params, instantiating: t.get(3).is_some(), actions, result, rows: r.rows.iter().filter(|x| *x != "io").cloned().collect(), fails: r.fails.clone(), rejects: classes_of(t.get(2).map(|x| x.as_str()).unwrap_or("")), uses: t.get(4).map(|u| u.as_str().split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).collect()).unwrap_or_default() });
+            exports.insert(m[1].to_string(), ExportSig::Fn { tparams, params, instantiating: t.get(3).is_some(), actions, result, rows: r.rows.iter().filter(|x| *x != "io").cloned().collect(), fails: r.fails.clone(), rejects: classes_of(t.get(2).map(|x| x.as_str()).unwrap_or("")), uses: t.get(4).map(|u| u.as_str().split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).collect()).unwrap_or_default() });
             continue;
         }
         if let Some(m) = T_CONTEXT.captures(&s) {

@@ -764,17 +764,17 @@ function parseDecl(c: Cursor): Decl {
   }
   if (c.keyword("provide")) { c.ws(); const name = c.ident() ?? c.fail("provide name"); c.ws(); c.expect("="); c.ws(); return { k: "provide", name, e: parseExpr(c), line }; }
   if (c.keyword("fn")) {
-    c.ws(); const name = c.bound("fn name"); c.ws(); c.expect("("); c.ws();
+    c.ws(); const name = c.bound("fn name"); c.ws(); const tparams = typeParams(c); c.ws(); c.expect("("); c.ws();
     const params: Param[] = [];
     while (!c.startsWith(")")) { const ref = c.keyword("ref"); c.ws(); const pname = c.bound("param"); const opt = c.peek() === "?" && c.eat("?"); if (opt && ref) c.fail("a `ref` parameter is not optional (E-9a): a value parameter may be left out");
       if (!opt && params.some(p => p.opt)) c.fail("an optional parameter is the last (E-9a): a required one follows"); const type = optType(c); params.push({ name: pname, ref, type, ...(opt ? { opt } : {}) }); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); const ret = optType(c, true); c.ws();
-    if (c.eat("=>")) { c.ws(); return { k: "fn", name, params, decls: [], tail: parseExpr(c), line, ret }; }
+    if (c.eat("=>")) { c.ws(); return { k: "fn", name, params, decls: [], tail: parseExpr(c), line, ret, ...(tparams ? { tparams } : {}) }; }
     c.expect("{");
     const decls: Decl[] = [];
     for (;;) { c.ws(); if (!looksLikeDecl(c)) break; decls.push(...parseDecls1(c)); c.ws(); c.eat(";"); }
     c.ws(); const tail = parseExpr(c); c.ws(); c.expect("}");
-    return { k: "fn", name, params, decls, tail, line, ret };
+    return { k: "fn", name, params, decls, tail, line, ret, ...(tparams ? { tparams } : {}) };
   }
   if (c.keyword("component")) {
     c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); c.expect("("); c.ws();

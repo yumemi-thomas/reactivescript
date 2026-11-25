@@ -526,8 +526,12 @@ impl Proj<'_> {
             let sp = d.span();
             let mut at = sp.start as usize;
             match d {
-                Decl::Fn { name, params, decls, tail, line, ret, .. } => {
+                Decl::Fn { name, params, decls, tail, line, ret, tparams, .. } => {
                     let nm = self.name(name, sp, &mut at);
+                    let nm = match tparams {
+                        Some(t) => nm.c(self.ty(t, sp, &mut at)),
+                        None => nm,
+                    };
                     let ps = Code::join(
                         params
                             .iter()

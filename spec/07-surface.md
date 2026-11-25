@@ -102,6 +102,11 @@ error NotFound(id: number) => `no user ${id}`   // R-f-1: an error class; `NotFo
   type (2026-11-24): `{`, and `(…) =>` with no parameters or named and
   typed ones, are the type's where a type begins (first, or after `|`,
   `&`, `=>`); the next `{` or `=>` is the body's (S-types-2).
+- A `fn` may have type parameters, `fn first<T>(xs: T[]): T | undefined`
+  (proposed 2026-11-25): TypeScript's text, after the name. The checkers
+  read none of it and the JavaScript has none. A call infers them; a call
+  has no type arguments of its own for them (`a<b>(c)` is §3's). A
+  component, an action and a server fn have none. S-generic-1.
 - `source x = e` (not `:=`) is the only place `=` declares something that
   can be written.
 - `pre x -> init` is `pre x` with the value for the first instant (C-2a).

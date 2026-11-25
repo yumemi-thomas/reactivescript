@@ -228,7 +228,8 @@ pub enum Decl {
     Error { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, msg: Option<Expr>, line: usize, span: Span, exported: bool },
     TypeDecl { name: String, line: usize, span: Span, text: String, exported: bool },
     Effect { inputs: Vec<Expr>, body: Vec<Stmt>, line: usize, span: Span },
-    Fn { name: String, params: Vec<Param>, decls: Vec<Decl>, tail: Expr, line: usize, span: Span, ret: Option<String>, exported: bool },
+    /// `tparams`: `<T>`, as text (07 §2)
+    Fn { name: String, params: Vec<Param>, decls: Vec<Decl>, tail: Expr, line: usize, span: Span, ret: Option<String>, exported: bool, tparams: Option<String> },
     Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, no_props: bool, exported: bool, is_default: bool },
     Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Server { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
@@ -824,7 +825,7 @@ impl Decl {
             ]),
             Decl::TypeDecl { name, line, text, exported, .. } => obj(vec![("k", s("typedecl")), ("name", s(name)), ("line", num(*line)), ("text", s(text)), ("exported", flag(*exported))]),
             Decl::Effect { inputs, body, line, .. } => obj(vec![("k", s("effect")), ("inputs", Some(Value::Array(inputs.iter().map(|e| e.to_json()).collect()))), ("body", Some(stmts_json(body))), ("line", num(*line))]),
-            Decl::Fn { name, params, decls, tail, line, ret, exported, .. } => obj(vec![
+            Decl::Fn { name, params, decls, tail, line, ret, exported, tparams, .. } => obj(vec![
                 ("k", s("fn")),
                 ("name", s(name)),
                 ("params", Some(Value::Array(params.iter().map(|p| obj(vec![("name", s(&p.name)), ("ref", Some(Value::Bool(p.r#ref))), ("type", os(&p.ty)), ("opt", p.opt.then_some(Value::Bool(true)))])).collect()))),
@@ -833,6 +834,7 @@ impl Decl {
                 ("line", num(*line)),
                 ("ret", os(ret)),
                 ("exported", flag(*exported)),
+                ("tparams", os(tparams)),
             ]),
             Decl::Component { name, props, decls, view, line, props_type, no_props, exported, is_default, .. } => obj(vec![
                 ("k", s("component")),

@@ -40,7 +40,7 @@ function compile(entry, target) {
   try { return JSON.parse(text); } catch { return { error: `the compiler gave no answer for ${entry}` }; }
 }
 
-/** A printed signature's rows, as the library's JavaScript exports them: `[name, kind, refs?]`. A context, a type and a
+/** A printed signature's rows, as the library's JavaScript exports them: `[name, kind, refs?, type parameters?]`. A context, a type and a
  *  server fn are not values a JS module can use (MO-13f): they are left to `.rx`. */
 export function exportsOf(signature) {
   const out = [];
@@ -55,10 +55,11 @@ export function exportsOf(signature) {
     else if ((m = /^error\s+([\w$]+)/.exec(s))) out.push([m[1], "error"]);
     else if ((m = /^source\s+([\w$]+)/.exec(s))) out.push([m[1], "accessor"]);
     else if ((m = /^component\s+([\w$]+)/.exec(s))) out.push([m[1], "component"]);
-    else if ((m = /^pure\s+fn\s+([\w$]+)\s*\(/.exec(s))) {
-      const end = closing(s, m[0].length - 1); if (end < 0) continue;
-      const refs = splitTop(s.slice(m[0].length, end)).map(p => /^ref\s/.test(p));
-      out.push([m[1], refs.some(Boolean) || /\sinstantiates(?:\s+uses\([^)]*\))?$/.test(s.slice(end + 1)) ? "primitive" : "fn", refs]);
+    else if ((m = /^pure\s+fn\s+([\w$]+)\s*(?=[<(])/.exec(s))) {
+      const open = s[m[0].length] === "<" ? closingAngle(s, m[0].length) + 1 : m[0].length;   // 07 §2: `<T>`
+      const end = closing(s, open); if (end < 0) continue;
+      const refs = splitTop(s.slice(open + 1, end)).map(p => /^ref\s/.test(p));
+      out.push([m[1], refs.some(Boolean) || /\sinstantiates(?:\s+uses\([^)]*\))?$/.test(s.slice(end + 1)) ? "primitive" : "fn", refs, ...(open > m[0].length ? [s.slice(m[0].length, open)] : [])]);
     }
     else if ((m = /^([\w$]+)\s*(?::.*)?$/.exec(s))) out.push([m[1], "accessor"]);
   }
@@ -67,6 +68,10 @@ export function exportsOf(signature) {
 /** The index of the bracket that closes the one at `i`. */
 function closing(s, i) {
   for (let depth = 0; i < s.length; i++) if ("({[".includes(s[i])) depth++; else if (")}]".includes(s[i]) && --depth === 0) return i;
+  return -1;
+}
+function closingAngle(s, i) {
+  for (let depth = 0; i < s.length; i++) if (s[i] === "<") depth++; else if (s[i] === ">" && s[i - 1] !== "=" && --depth === 0) return i;
   return -1;
 }
 function splitTop(s) {
@@ -111,23 +116,33 @@ function wrapper(name, factory, exports, id, css, stateless) {
     `/** The module as an .rx app instantiates it: once per app (MO-13c). */\nexport { __rx };\nconst __lib = __library(__rx, ${JSON.stringify(id)}${more ? `, ${JSON.stringify(refs)}, ${!!stateless}` : ""});\n` +
     vals.map(([n]) => n === "default" ? `export default __lib.default;` : `export const ${n} = __lib.${n};`).join("\n") + "\n";
 }
+const REFS = [`import type { Accessor as __Accessor } from "solid-js";`,
+  `/** A \`ref\` parameter: an accessor, or the value — where the value may be a function, an accessor. */`,
+  `type __Ref<T> = (() => unknown) extends T ? __Accessor<T> : [Extract<T, (...a: never) => unknown>] extends [never] ? T | __Accessor<T> : __Accessor<T>;`,
+  `type __Refs<A extends unknown[], R extends boolean[]> = { [K in keyof A]: K extends keyof R ? (R[K] extends true ? __Ref<A[K]> : A[K]) : A[K] };`];
+const part = (r, t) => r === "ref" ? `__Accessor<${t}>` : typeof r === "string" ? t : Array.isArray(r) ? `[${r.map((x, i) => part(x, `${t}[${i}]`)).join(", ")}]` : `{ ${Object.entries(r).map(([k, x]) => `${JSON.stringify(k)}: ${part(x, `${t}[${JSON.stringify(k)}]`)}`).join("; ")} }`;
+/** A fn that instantiates, as JavaScript calls it; `of`: its type. */
+const primitive = (n, of, refs, results) => `(...args: __Refs<Parameters<${of}>, [${refs.join(", ")}]>) => ${part(results[n] ?? "ref", `ReturnType<${of}>`)}`;
+/** A generic fn keeps its type parameters: `typeof f<T>` is the fn at T, and TypeScript infers T from the arguments. Written
+ *  in x.rx.d.ts, where the types a constraint names are in scope (a type the module does not export is not in x.d.ts). */
+function generics(exports, results = {}) {
+  const gs = exports.filter(([, k, , tp]) => k === "primitive" && tp); if (!gs.length) return "";
+  const names = tp => splitTop(tp.slice(1, -1)).map(t => /^(?:(?:const|in|out)\s+)*([\w$]+)/.exec(t)[1]).join(", ");
+  return `\n${REFS.join("\n")}\n/** The module's generic primitives, as JavaScript calls them. */\nexport declare const __js: {\n${gs.map(([n, , refs, tp]) => `  ${n}: ${tp}${primitive(n, `typeof ${n}<${names(tp)}>`, refs, results)};\n`).join("")}};\n`;
+}
 /** x.d.ts: the types of x.js, from the projection's (x.rx.d.ts): a source or an equation is an accessor, an instantiating
  *  fn takes each `ref` parameter as one, or as the value, and hands back its parts (MO-13i: an accessor, an action, a value made once), an error class makes its instances and is what `instanceof` tests. */
 function declaration(name, exports, results = {}) {
-  const part = (r, t) => r === "ref" ? `__Accessor<${t}>` : typeof r === "string" ? t : Array.isArray(r) ? `[${r.map((x, i) => part(x, `${t}[${i}]`)).join(", ")}]` : `{ ${Object.entries(r).map(([k, x]) => `${JSON.stringify(k)}: ${part(x, `${t}[${JSON.stringify(k)}]`)}`).join("; ")} }`;
   const rx = JSON.stringify(`./${name}.rx.js`);
   const lines = [`// the types of ${name}.js, for TypeScript — do not edit (spec/09 MO-13e). An .rx module reads ${name}.d.rx and ${name}.rx.d.ts.`, `import type * as __m from ${rx};`];
-  if (exports.some(([, k]) => k === "primitive")) lines.push(`import type { Accessor as __Accessor } from "solid-js";`,
-    `/** A \`ref\` parameter: an accessor, or the value — where the value may be a function, an accessor. */`,
-    `type __Ref<T> = (() => unknown) extends T ? __Accessor<T> : [Extract<T, (...a: never) => unknown>] extends [never] ? T | __Accessor<T> : __Accessor<T>;`,
-    `type __Refs<A extends unknown[], R extends boolean[]> = { [K in keyof A]: K extends keyof R ? (R[K] extends true ? __Ref<A[K]> : A[K]) : A[K] };`);
+  if (exports.some(([, k, , tp]) => k === "primitive" && !tp)) lines.push(...REFS);
   lines.push(`/** The module as an .rx app instantiates it (MO-13c). */`, `export declare const __rx: (rt: unknown) => Record<string, unknown>;`);
-  for (const [n, kind, refs] of exports) {
+  for (const [n, kind, refs, tparams] of exports) {
     if (kind === "type") lines.push(`export type { ${n} } from ${rx};`);
     else if (kind === "accessor") lines.push(`export declare const ${n}: () => typeof __m.${n};`);
     else if (kind === "action" || kind === "fn") lines.push(`export declare const ${n}: typeof __m.${n};`);
     else if (kind === "component") lines.push(n === "default" ? `declare const __default: typeof __m.default;\nexport default __default;` : `export declare const ${n}: typeof __m.${n};`);
-    else if (kind === "primitive") lines.push(`export declare const ${n}: (...args: __Refs<Parameters<typeof __m.${n}>, [${refs.join(", ")}]>) => ${part(results[n] ?? "ref", `ReturnType<typeof __m.${n}>`)};`);
+    else if (kind === "primitive") lines.push(`export declare const ${n}: ${tparams ? `typeof __m.__js.${n}` : primitive(n, `typeof __m.${n}`, refs, results)};`);
     else if (kind === "error") lines.push(`export declare const ${n}: typeof __m.${n} & { [Symbol.hasInstance](e: unknown): e is __m.${n} };\nexport type ${n} = __m.${n};`);
   }
   return lines.join("\n") + "\n";
@@ -217,7 +232,7 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
         if (!existsSync(from) || (!readFileSync(from, "utf8").trim() && exportsOf(modules.get(p).signature).length)) { problems.push(`rx-tsc wrote no declaration for ${path.relative(dir, p)} (it needs the package's dependencies installed: a node_modules above it)`); continue; }
         // the prelude the projection is written with is shipped beside the modules, as one file
         const text = readFileSync(from, "utf8").replace(/(from\s*|import\()(["'])([^"']*[\\/]\.reactivescript[\\/]prelude)(?:\.d\.ts|\.js)?\2/g, (_, a, q, at) => { prelude ??= at; return `${a}${q}${rel(path.join(dist, `${name}.rx.d.ts`), path.join(dist, "rx-prelude.js"))}${q}`; });
-        put(`${name}.rx.d.ts`, text);
+        put(`${name}.rx.d.ts`, text + generics(exportsOf(modules.get(p).signature), modules.get(p).results));
         shipImports(text, p, true);   // a module imported for its types alone is in no compiled module
       }
       if (prelude) put("rx-prelude.d.ts", readFileSync(prelude + ".d.ts", "utf8"));

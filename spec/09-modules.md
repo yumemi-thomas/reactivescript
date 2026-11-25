@@ -952,7 +952,8 @@ is the signature the compiler printed.
   | after a component | `made`, `fails(E)`, `uses`, `retains(…)`, `hosts(…)`, `shape(roots …; closes-p; a; form; children-at …)` | `fails(E)`, `uses`, `provides`, `shape(T)` |
   | types | none: a row's types are the projection's, in the `.d.ts` beside it (MO-13d); `export type T` is a name, with what it stands for where that is a record (`= { … }`: RG-4c reads a view's parameter through it) | the row's text is the module's `.d.ts` (13 TY-4b) |
   | an optional parameter `b?: T` | a trailing value parameter of the fn (E-9a) | MO-8d |
-  | type parameters, rest parameters, `handler`, `draft`, `nests`, `renders(H)`, `const` | not written | MO-8d to MO-8o, MO-10, MO-11 |
+  | type parameters | a fn's, as written (07 §2); read by `rx-lib` alone | MO-8d |
+  | rest parameters, `handler`, `draft`, `nests`, `renders(H)`, `const` | not written | MO-8d to MO-8o, MO-10, MO-11 |
   | what it is held to | nothing: the compiler inferred each row (no TY-6, no MO-8f, no MO-8j) | TY-6, MO-8f, MO-8j |
   | the import's own rows | `import pure` cannot lower an io row and `fails` is refused, with MO-4a's messages | MO-8b |
   | what the name is bound to | the app's instance of the module (MO-1b): a source and an equation are accessors, an instantiating fn is called once where it is bound, an action is launched, a component is applied (MO-9c) | the JS module's export, as it is |
@@ -1074,7 +1075,9 @@ is the signature the compiler printed.
     an accessor, as a result with no part known is one accessor.
   - *Parameters.* A `ref` parameter takes an accessor or the value: a function
     is the accessor. The `.d.ts` offers the value where its type holds no
-    function. An argument left out is `undefined`.
+    function. An argument left out is `undefined`. A generic fn's type
+    parameters are the JavaScript function's, inferred from what it is given:
+    a function given for `ref x: T` is the accessor, so `T` is what it answers.
   - *Owner.* What the call makes is the caller's owner's, as a Solid
     primitive's is. The call makes no equation over the whole, so a part that
     waits holds no other. A part handed on from a fn called inside is that
