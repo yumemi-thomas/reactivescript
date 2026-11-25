@@ -53,7 +53,7 @@ const steps = [
   { id: "lib", dir: ".", run: "node compiler/test/lib.mjs", after: ["node-build"], uses: ["binding-read"], quick: true },
   { id: "bench-install", dir: ".", run: 'mkdir -p bench/.out/ws && cd bench/.out/ws && if cmp -s ../../package-lock.json node_modules/.installed-from-lock && cmp -s ../../package.json package.json; then echo installed; else cp ../../package.json ../../package-lock.json . && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock; fi', uses: ["ws"], quick: true },
   { id: "confined", dir: ".", run: "node compiler/test/confined.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws"], quick: true },
-  { id: "runtime-resolve", dir: ".", run: "node compiler/test/runtime-resolve.mjs", after: ["node-build", "runtime"], uses: ["binding-read"] },
+  { id: "runtime-resolve", dir: ".", run: "node compiler/test/runtime-resolve.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"] },
   { id: "leaks", dir: ".", run: "node compiler/test/leaks.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"] },
   { id: "js-host", dir: ".", run: "node compiler/test/js-host.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"] },
   { id: "measure", dir: ".", run: "node bench/measure.test.mjs", after: ["wasm", "npm-language-server"], quick: true },
