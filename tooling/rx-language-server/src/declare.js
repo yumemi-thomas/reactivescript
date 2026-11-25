@@ -731,6 +731,14 @@ function readsOf(ts, checker, p, at) {
 }
 /** The records `heldComponents` wrote whole, by their text: the same with the component fields alone. */
 const HELD_ONLY = new Map();
+/** A parameter's text with the `null` (and, where nothing says it may be left out, the `undefined`) its type takes: a row
+ *  without it would refuse the call that gives one. */
+function nullable(ts, t, opt, s) {
+  const F = ts.TypeFlags, has = f => t.flags & f || (t.flags & F.Union && t.types.some(x => x.flags & f));
+  const more = [has(F.Null) && !/\bnull\b/.test(s.replace(/\(.*\)|\{.*\}|<.*>/gs, "")) && "null", !opt && has(F.Undefined) && !/\bundefined\b/.test(s.replace(/\(.*\)|\{.*\}|<.*>/gs, "")) && "undefined"].filter(Boolean);
+  if (!more.length || /^NonNullable<|^Parameters<|^ReturnType</.test(s)) return s;
+  return `${/=>/.test(s) && !/^\(.*\)$/.test(s) || /^\(.*\) =>/.test(s) ? `(${s})` : s} | ${more.join(" | ")}`;
+}
 function paramText(ts, checker, p, at, generic = false, here) {
   const t = checker.getTypeOfSymbolAtLocation(p, at);
   const node = annotation(ts, p);   // MO-8o: the parameter as the library declares it
@@ -771,7 +779,7 @@ function paramText(ts, checker, p, at, generic = false, here) {
         if (k && oneType(k[2])) return `${name}${opt}: Component<${k[2]}>`; }
       // the last reading (`whole`): a callback with no name is its place as it stands — taken apart
       // (`(...args: Parameters<P>) => ReturnType<P>`) it is the function at its bounds, which TypeScript may not hold
-      return `${name}${opt}: ${CTX.whole && here && (byPlace(c) || introduced(c)) ? present(checker, t, here) : c}`;
+      return `${name}${opt}: ${nullable(ts, t, opt, CTX.whole && here && (byPlace(c) || introduced(c)) ? present(checker, t, here) : c)}`;
     }
     // a predicate is no `=> boolean` (a function that answers a boolean is not one): as the library declares it, else by its place
     const said = declared(ts, checker, node, t, true);
@@ -786,9 +794,13 @@ function paramText(ts, checker, p, at, generic = false, here) {
     // the last reading: options with a field said by its place (a method generic in itself, taken apart, is the function
     // at its bounds, which TypeScript may not hold) are the library's own, whole, at their place
     if (!whole_ && CTX.whole && here && (byPlace(rec) || introduced(rec))) return `${name}${opt}: ${opt ? present(checker, t, here) : here}`;
-    return whole_ ? `${name}${opt}: ${whole_}` : rec;
+    return whole_ ? `${name}${opt}: ${whole_}` : rec.replace(/^([^:]*: )([^]*)$/, (_, h, r) => h + nullable(ts, t, opt, r));
   }
-  return `${name}${opt}: ${text(ts, checker, opt ? checker.getNonNullableType(t) : t, opt ? present(checker, t, here) : here, node)}`;   // `?` already says it may be absent
+  // `?` already says it may be absent; a type that is nothing but absent, or that is not known, is written as it is
+  const bare = checker.getNonNullableType(t), F = ts.TypeFlags;
+  if (t.flags & F.Unknown) return `${name}${opt}: unknown`;
+  if (opt && bare.flags & F.Never && t.flags & (F.Null | F.Union)) return `${name}${opt}: null`;
+  return `${name}${opt}: ${opt ? nullable(ts, t, opt, text(ts, checker, bare, present(checker, t, here), node)) : text(ts, checker, t, here, node)}`;
 }
 
 /** What a type may also be: ` | undefined`, ` | null`, from its union members. */

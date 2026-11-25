@@ -51,7 +51,7 @@ function audit(spec, from, rowsIn) {
     if (f.unread) { for (const n of w.all) say(n, "unproven", `not read: ${f.unread}`); continue; }
     const why = f.pure?.why;
     if (w.pure) say("pure", f.pure?.ok ? "proven" : /^it changes (?:what it was given|in place a list that is not its own)/.test(why?.why ?? "") ? "contradicted" : "unproven", `${why?.why ?? "not read"}${at(why)}`);
-    for (const h of w.handlers) { const v = f.handlers?.[h.field === undefined ? String(h.index) : `${h.index}.${h.field}`]; say(`handler(${h.label})`, v?.ok ? "proven" : /^called (?:while the call runs|as the module loads)/.test(v?.why ?? "") ? "contradicted" : "unproven", `${v?.why ?? f.unplaced ?? "not read"}${at(v)}`); }
+    for (const h of w.handlers) { const v = f.handlers?.[h.field === undefined ? String(h.index) : `${h.index}.${h.field}`]; say(`handler(${h.label})`, v?.ok ? "proven" : /^called (?:while the call runs|in a computation|as the module loads)/.test(v?.why ?? "") ? "contradicted" : "unproven", `${v?.why ?? f.unplaced ?? "not read"}${at(v)}`); }
     for (const d of w.drafts) { const v = f.draft?.[d.index]; say(`draft(${d.name})`, v ? "proven" : "unproven", v ? `${v.why}${at(v)}` : "a write that not every path makes, a part of it read, or a use that may keep it"); }
     if (w.rejects) {
       const names = w.rejects, got = f.rejects, word = `rejects(${names.join(" | ")})`;

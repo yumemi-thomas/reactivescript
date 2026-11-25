@@ -274,7 +274,10 @@ impl<'a, 'r> Modules<'a, 'r> {
             Found::File(p) => {
                 if h.node && p.ends_with(".js") {
                     let t = self.res.borrow_mut().package_of(dirname(p)).map(|(_, pj)| pj["type"].as_str().map(String::from));
-                    if t.flatten().as_deref() == Some("commonjs") { return Err(Origin::Unknown(format!("{p} is a CommonJS module"))); }
+                    if t.flatten().as_deref() == Some("commonjs") {
+                    // (one that is written as an ES module fails to load there: no program runs it)
+                    return Err(if self.load(p).is_some() { Origin::Never } else { Origin::Unknown(format!("{p} is a CommonJS module")) });
+                    }
                 }
                 self.load(p).ok_or_else(|| Origin::Unknown(format!("{p} is no ES module that can be read")))
             }

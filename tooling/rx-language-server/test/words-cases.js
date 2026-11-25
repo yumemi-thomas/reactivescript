@@ -1,5 +1,6 @@
 // MO-8v, the adversarial half: code a word must not be written over, and what must not be written.
 //   words/cases.json        functions that do one thing a word must not cover, hidden as code hides it, and their honest twins
+//                           (`lost`: honest, and no form the reading lists: no word, and why)
 //   words/adversarial.json  packages whose fact was established by RUNNING them (`fact`): the row that `rx-declare` drafts may
 //                           not match `not`. Two reviews wrote them against the reading that was here before, and 757 were
 //                           written against this one (compiler/src/words)
@@ -11,6 +12,7 @@ const arg = process.argv.indexOf("--shard"), [si, sn] = arg > 0 ? process.argv[a
 const repo = path.resolve(__dirname, "../../.."), ws = path.join(__dirname, `../.test/words-cases-${si}`);
 fs.rmSync(ws, { recursive: true, force: true }); fs.mkdirSync(path.join(ws, "node_modules/kit"), { recursive: true });
 for (const d of fs.readdirSync(path.join(repo, "ref/node_modules"))) if (!d.startsWith(".")) fs.symlinkSync(path.join(repo, "ref/node_modules", d), path.join(ws, "node_modules", d), "dir");
+fs.writeFileSync(path.join(ws, "package.json"), '{"type":"module"}');
 fs.writeFileSync(path.join(ws, "node_modules/kit/package.json"), '{"name":"kit","version":"1.0.0","type":"module","exports":{".":{"default":"./index.cjs"}}}');
 fs.writeFileSync(path.join(ws, "node_modules/kit/index.cjs"), "exports.mystery = x => x;");
 let pass = 0, fail = 0;
@@ -20,20 +22,19 @@ const cases = JSON.parse(fs.readFileSync(path.join(__dirname, "words/cases.json"
 const has = (x, w) => w === "pure" ? !!x.pure?.ok : w === "handler" ? !!Object.values(x.handlers ?? {})[0]?.ok : w === "draft" ? !!x.draft?.[0] : w === "rejects" ? x.rejects?.length > 0 : w === "uses" ? x.uses?.length > 0 : w === "provides" ? !!x.provides?.ok : !!x.instantiates?.ok;
 cases.forEach((c, i) => {
   if (i % sn !== si - 1) return;
-  const id = c.id.split("/")[2], name = new RegExp(`export (?:const|(?:async )?function\\*?|class) ${id}\\b`).test(c.code) ? id : [...c.code.matchAll(/export (?:const|(?:async )?function\*?) (\w+)/g)].pop()[1];
+  const id = c.id.split("/")[2], name = new RegExp(`export (?:const|(?:async )?function\\*?|class) ${id}\\b`).test(c.code) ? id : [...c.code.matchAll(/export (?:const|(?:async )?function\*?) (\w+)/g)].pop()?.[1] ?? "default";
   const f = c.id.replace(/\W/g, "_") + (c.jsx ? ".jsx" : ".js"); fs.writeFileSync(path.join(ws, f), c.code);
   const any = { k: "any" };
   const r = ask("words", { spec: `./${f}`, from: fs.realpathSync(ws), exports: [{ name, kind: c.component ? "component" : "fn", handlers: c.word === "handler" ? [[c.index, c.field ?? null]] : [], refs: [], prims: c.prims ?? [], plain: [], params: c.types ?? [any, any, any] }] });
   const x = r.exports?.[name] ?? {};
   ok(`${c.id}: read`, r.exports && !x.unread, r.unread ?? x.unread);
-  ok(`${c.id}: ${c.ok ? "" : "no "}${c.word}`, has(x, c.word) === c.ok, JSON.stringify(x).slice(0, 300));
+  ok(`${c.id}: ${c.ok && !c.lost ? "" : "no "}${c.word}`, has(x, c.word) === (c.ok && !c.lost), JSON.stringify(x).slice(0, 300));
 });
 
-const T = "const tick=()=>{globalThis.__t=(globalThis.__t??0)+1;return globalThis.__t};\n"; void T;
 JSON.parse(fs.readFileSync(path.join(__dirname, "words/adversarial.json"), "utf8")).forEach((c, i) => {
   if (i % sn !== si - 1) return;
   const name = `zz-${c.id.replace("/", "-")}`, dir = path.join(ws, "node_modules", name); fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version: "1.0.0", type: "module", exports: { ".": { types: "./index.d.ts", default: "./index.js" } }, ...c.pkg }));
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(Object.fromEntries(Object.entries({ name, version: "1.0.0", type: "module", exports: { ".": { types: "./index.d.ts", default: "./index.js" } }, ...c.pkg }).filter(([, v]) => v !== null))));
   for (const [f, text] of Object.entries({ "index.js": c.js, "index.d.ts": c.d, ...c.files })) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), text); }
   let rows; try { rows = declare(name, ws, {}, { infer: true, written: true }).split("\n").filter(l => l.startsWith("export ")).join("\n"); } catch (e) { rows = `error: ${e.message}`; }
   ok(`${c.id}: not /${c.not}/ (${c.fact})`, !new RegExp(c.not, "m").test(rows) && !rows.startsWith("error:"), rows);

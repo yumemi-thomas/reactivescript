@@ -56,7 +56,7 @@ function shared() {
   if (process.env.RX_SHARED_KEYS) return (shared_ = JSON.parse(process.env.RX_SHARED_KEYS));
   const at = (...p) => path.join(repo, ...p), nm = path.join(ws, "node_modules");
   shared_ = {
-    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), ...["cache.mjs", "tools.mjs", "tool-worker.cjs", "ts-shared.cjs", "bundle.mjs"].map(f => at("scripts/lib", f))),
+    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), ...["cache.mjs", "tools.mjs", "tool-worker.cjs", "bundle.mjs"].map(f => at("scripts/lib", f))),
     tools: cache.inputs(...["bin", "src", "package.json", "package-lock.json", "node_modules"].map(f => at("tooling/rx-language-server", f))),
     installed: [cache.treeHash(nm, { skip: (r, n) => r === "@reactivescript" || r === "@rx-types" || n === ".package-lock.json" }), cache.treeHash(path.join(nm, "@rx-types"))],
     // (the copies a program runs with, not what they were copied from: `workspace()` makes them again, a task run alone does not)

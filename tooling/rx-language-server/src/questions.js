@@ -26,7 +26,7 @@ const asHandler = (x, label) => ({ callbacks: x.callbacks.map(c => c.name === la
 /** Whether the code shows a fn not to be `pure`: what stopped the reading is something the fn does. */
 const refuted = f => /^it (?:writes (?!a list)|changes what it was given|changes in place (?:a list that is not|what it was)|reads [\w$]+: the environment|asks for a random|calls a function that answers nothing)/.test(f.pure?.why?.why ?? "");
 /** Whether the code shows a callback to be called while its fn runs, or never. */
-const settled = h => !h || /^(?:called while the call runs|never called|called as the module loads)/.test(h.why ?? "");
+const settled = h => !h || /^(?:called while the call runs|called in a computation|never called|called as the module loads)/.test(h.why ?? "");
 
 /** Whether a callback answers nothing — called for what it does, as a handler is: its type, or a record's field's. */
 function acts(type, field) {
@@ -84,7 +84,7 @@ function ask(lines, factsOf, more = {}) {
       const given = (said("draft")?.params ?? []).map(n => [n, x.params.findIndex(p => p.name === n || p.name === `${n}_`)]).filter(([, i]) => i >= 0 && !x.params[i].draft && (!f || (/^it changes (?:what it was given|in place)/.test(f.pure?.why?.why ?? "") && !f.draft?.[i])));
       if (given.length) q.push(`${list(given.map(g => g[0]))}: a store's draft is refused there. \`draft ${given[0][0]}\` if the fn changes it in place${because(f && { why: "a write that may reach it" })}`);
       // ---- renders, nests: where a component it is given is placed
-      const r = comps && x.shape !== "comp" && !x.renders && (said("renders")?.params ?? []).map(n => [n, x.params.findIndex(p => p.name === n || p.name === `${n}_`)]).filter(([, i]) => i < 0 || !f || !/^called while the call runs/.test(f.handlers?.[i]?.why ?? ""));
+      const r = comps && x.shape !== "comp" && !x.renders && (said("renders")?.params ?? []).map(n => [n, x.params.findIndex(p => p.name === n || p.name === `${n}_`)]).filter(([, i]) => i < 0 || !f || !/^called (?:while the call runs|in a computation)/.test(f.handlers?.[i]?.why ?? ""));
       if (r && r.length) q.push(`${list(r.map(g => g[0]))}: a component given there is checked under a root of its own. \`renders(<Component>)\` names the component of this module it is rendered beneath${because(f && (f.handlers?.[r[0][1]]?.why ? f.handlers[r[0][1]] : { why: "where it goes is not followed" }))}`);
       if (x.shape === "comp" && !x.nests && couldNest(x)) q.push("the components it is given are checked each alone. `nests(<kids> in <component>)` if the component it makes nests them");
     }

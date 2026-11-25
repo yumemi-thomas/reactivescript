@@ -452,6 +452,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
             }
             _ => {}
         }
+        if let Some(n) = self.solid(mi, &k.callee) { if i == 0 && matches!(n.as_str(), "createMemo" | "createEffect" | "createRenderEffect" | "createProjection") { return bad("called in a computation"); } }
         // a function of the code: its parameter
         if let Some(g) = self.called(mi, &k.callee) {
             if k.arguments.iter().take(i).any(|a| a.is_spread()) { return bad("after a spread"); }
@@ -544,7 +545,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
             if !span.contains_inclusive(k.span()) || k.span() == span { continue; }
             let ok = match k {
                 AstKind::CallExpression(c) => match unwrap(&c.callee) {
-                    Expression::Identifier(i) => ["setTimeout", "setInterval", "clearTimeout", "clearInterval", "queueMicrotask", "requestAnimationFrame", "cancelAnimationFrame", "addEventListener", "removeEventListener"].iter().any(|g| m.is_global(i, g)) || matches!(self.solid(mi, &c.callee).as_deref(), Some("onCleanup")) || self.param_of(f, mi, i),
+                    Expression::Identifier(i) => ["setTimeout", "setInterval", "clearTimeout", "clearInterval", "queueMicrotask", "requestAnimationFrame", "cancelAnimationFrame", "addEventListener", "removeEventListener"].iter().any(|g| m.is_global(i, g)) || matches!(self.solid(mi, &c.callee).as_deref(), Some("onCleanup" | "useContext" | "createSignal" | "createContext" | "omit" | "merge" | "getOwner" | "createUniqueId")) || self.param_of(f, mi, i),
                     Expression::StaticMemberExpression(p) => matches!(unwrap(&p.object), Expression::Identifier(o) if ["window", "document", "globalThis"].iter().any(|g| m.is_global(o, g)) && matches!(p.property.name.as_str(), "addEventListener" | "removeEventListener")),
                     _ => false,
                 },

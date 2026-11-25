@@ -97,7 +97,9 @@ function apply(spec, from, lines, why, more = {}) {
   lines.forEach((l, i) => {
     const row = rows[i]; if (!row || /\bserver\b/.test(row.words) || ask.some(a => a.name === row.name)) return;
     const refs = []; if (row.kind === "fn" && more.unshaped) more.unshaped(l, row.name, at => { refs.push(at); return true; });
-    ask.push({ name: row.name, kind: row.kind, handlers: asks(l, row).map(h => [h.index, h.field]), refs });
+    // (a view or a function that gives one, `(() => View)`, is no callback of the row's: how it is called is a question's)
+    const views = row.params.flatMap((part, i) => row.kind === "fn" && /^\(\(/.test(l.slice(named(l, part)?.type ?? l.length)) ? [[i, null]] : []);
+    ask.push({ name: row.name, kind: row.kind, handlers: [...asks(l, row).map(h => [h.index, h.field]), ...views], refs });
   });
   let r; try { r = require("./words.js").words(spec, from, ask, more.contexts ?? []); } catch (e) { r = { unread: `the code could not be read (${String(e?.message ?? e).slice(0, 160)})`, exports: {}, contexts: {} }; }
   const facts = name => r.unread ? { unread: r.unread } : r.exports[name] ?? { unread: "no code of that name" };

@@ -23,10 +23,7 @@ const require_ = createRequire(import.meta.url);
 const { reading } = require_("../tooling/rx-language-server/src/questions.js");
 const { rowsOf } = require_("../tooling/rx-language-server/src/rows.js");
 const { ensureDeclarations, packageImportSites } = require_("../tooling/rx-language-server/src/generate.js");
-const ts = require_("../tooling/rx-language-server/node_modules/typescript");
 const args = process.argv.slice(2);
-// (what drafts several packages parses the install's declarations once: scripts/lib/ts-shared.cjs)
-require_("../scripts/lib/ts-shared.cjs").share(createRequire(path.join(ws, "package.json")).resolve("typescript"));
 if (args[0] === "--draft") { process.on("disconnect", () => process.exit(1)); await new Promise(res => { process.on("message", m => { if (m === null) return process.send(cache.stats, res); generate(...m); process.send("done"); }); process.send("ready"); }); process.exit(0); }   // (a process of `draftAll`'s)
 if (!args.length) given(await heavy("generated", { want: Number(process.env.BENCH_JOBS) || undefined }));
 /** The declarations of what `entries` import, drafted by several processes: each package as the first module that imports it
@@ -148,10 +145,8 @@ function readings(at) {
 }
 if (args.includes("--package")) {
   const [spec, dir] = args.slice(args.indexOf("--package") + 1), at = path.resolve(dir, "use"); rmSync(at, { recursive: true, force: true }); mkdirSync(at, { recursive: true });
-  const f = path.join(at, "x.ts"); writeFileSync(f, `import * as N from "${spec}"; N;`);
-  const p = ts.createProgram([f], { module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, target: ts.ScriptTarget.ES2022, skipLibCheck: true, types: [] }), c = p.getTypeChecker();
-  const sf = p.getSourceFile(ts.resolveModuleName(spec, f, p.getCompilerOptions(), ts.sys).resolvedModule.resolvedFileName); rmSync(f);
-  const names = c.getExportsOfModule(c.getSymbolAtLocation(sf)).filter(e => (e.flags & ts.SymbolFlags.Alias ? c.getAliasedSymbol(e) : e).flags & ts.SymbolFlags.Value).map(e => String(e.escapedName)).filter(n => /^[A-Za-z]\w*$/.test(n));
+  const { checker, mod, ts, dispose } = require_("../tooling/rx-language-server/src/ts-api.js").open(spec, at);
+  const names = checker.getExportsOfModule(mod).filter(e => (e.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(e) : e).flags & ts.SymbolFlags.Value).map(e => e.name).filter(n => /^[A-Za-z]\w*$/.test(n)); dispose();
   const step = Math.ceil(names.length / 40);
   kinds(spec, names.filter((n, i) => i % step === 0), at);
 } else {
