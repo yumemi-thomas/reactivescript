@@ -6,7 +6,6 @@ use super::constant::{static_key, unwrap};
 use super::eval::FnAt;
 use super::graph::{self, Origin};
 use super::place::{Calls, Place, Why};
-use super::target::MADE;
 use oxc_ast::{ast::*, AstKind};
 use oxc_semantic::NodeId;
 use oxc_span::{GetSpan, Span};
@@ -85,7 +84,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         }
         // every method name some code here calls
         let mut methods = BTreeSet::new();
-        for i in &done { for n in self.m(*i).nodes.iter() { if let AstKind::CallExpression(c) = n.kind() { if let Expression::StaticMemberExpression(p) = unwrap(&c.callee) { methods.insert(p.property.name.as_str()); } } } }
+        for i in &done { for n in self.m(*i).nodes.iter() { if let AstKind::CallExpression(c) = n.kind() { match unwrap(&c.callee) { Expression::StaticMemberExpression(p) => { methods.insert(p.property.name.as_str()); } Expression::ComputedMemberExpression(p) => if let Expression::StringLiteral(k) = unwrap(&p.expression) { methods.insert(k.value.as_str()); }, _ => {} } } else if let AstKind::TaggedTemplateExpression(t) = n.kind() { if let Expression::StaticMemberExpression(p) = unwrap(&t.tag) { methods.insert(p.property.name.as_str()); } } } }
         for i in &done { self.module_senders(*i, &self.unused(*i, &used), &methods, loose, &mut out); }
         out
     }
@@ -159,6 +158,9 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
                             }
                         }
                         if matches!(name, "assign" | "setPrototypeOf") && matches!(unwrap(&p.object), Expression::Identifier(i) if i.name == "Object") && !c.arguments.first().and_then(|a| a.as_expression()).is_some_and(|a| self.own_object(mi, a)) { add(id, format!("Object.{name}() to an object that is not its own"), Sends::Any, false); }
+                        // a list's method that calls what it is given on another `this`
+                        if loose && (matches!(name, "forEach" | "map" | "filter" | "some" | "every" | "find" | "findIndex" | "findLast" | "findLastIndex" | "flatMap") && c.arguments.len() > 1 || name == "from" && c.arguments.len() > 2 || c.arguments.iter().any(|a| a.is_spread()) && matches!(name, "forEach" | "map" | "filter" | "some" | "every" | "find")) { add(id, format!(".{name}() with a `this`"), Sends::Any, true); }
+                        if name == "getPrototypeOf" && !matches!(m.nodes.parent_kind(m.outer(id)), AstKind::BinaryExpression(_)) { add(id, "getPrototypeOf()".into(), Sends::Any, false); }
                         if matches!(name, "__defineGetter__" | "__defineSetter__") { add(id, format!(".{name}()"), Sends::Any, false); }
                         if name == "constructor" || name == "createContextualFragment" { add(id, format!(".{name}()"), Sends::Any, true); }
                         if name == "createElement" && matches!(c.arguments.first().and_then(|a| a.as_expression()).map(unwrap), Some(Expression::StringLiteral(s)) if s.value.eq_ignore_ascii_case("script") || s.value.eq_ignore_ascii_case("iframe")) { add(id, "a script element, or a frame".into(), Sends::Any, true); }
@@ -198,13 +200,15 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
                         let _ = o;
                         if !self.called_or_tested(mi, id) && !COMMON.contains(&name) && !self.plain_receiver(mi, &p.object, name) { add(id, format!(".{name}, taken"), s, false); }
                     }
+                    // the platform's methods, as a table of them
+                    if name == "prototype" && !matches!(unwrap(&p.object), Expression::Identifier(g) if matches!(g.name.as_str(), "Object" | "Array" | "Function" | "String" | "Number" | "Map" | "Set" | "Promise" | "Symbol" | "Date" | "RegExp" | "Error")) && !matches!(m.nodes.parent_kind(o), AstKind::StaticMemberExpression(q) if sends(&q.property.name).is_none() && !matches!(q.property.name.as_str(), "constructor" | "__proto__")) && !matches!(m.nodes.parent_kind(o), AstKind::BinaryExpression(_)) { add(id, "it takes a `prototype`".into(), Sends::Any, false); }
                     if (name == "constructor" && !matches!(m.nodes.parent_kind(o), AstKind::BinaryExpression(_) | AstKind::StaticMemberExpression(_))) || matches!(name, "eval" | "Function" | "Reflect" | "customElements" | "__proto__") { add(id, format!("it reads .{name}"), Sends::Any, false); }
                     if event_handler(name) && !matches!(m.nodes.parent_kind(o), AstKind::UnaryExpression(_) | AstKind::IfStatement(_) | AstKind::BinaryExpression(_)) { add(id, format!("it reads .{name}"), Sends::Any, false); }
                 }
                 // a function under a computed name: `el["add" + "EventListener"] = …`
                 AstKind::ComputedMemberExpression(p) if m.is_written(id) && !known_key(p) => if !self.own_object(mi, &p.object) && match m.nodes.parent_kind(m.outer(id)) { AstKind::AssignmentExpression(a) => self.may_be_method(mi, &a.right), AstKind::UpdateExpression(_) | AstKind::UnaryExpression(_) => false, _ => true } { add(id, "it writes a function under a computed name".into(), Sends::Any, false); },
                 AstKind::ComputedMemberExpression(p) => {
-                    if let Expression::StringLiteral(k) = unwrap(&p.expression) { if PATCH.contains(&k.value.as_str()) || (m.is_written(id) && TREE_WRITES.contains(&k.value.as_str())) { add(id, format!("[\"{}\"]", k.value), Sends::Any, false); } }
+                    if let Expression::StringLiteral(k) = unwrap(&p.expression) { if loose && m.is_written(id) && methods.contains(k.value.as_str()) && !self.own_object(mi, &p.object) && match m.nodes.parent_kind(m.outer(id)) { AstKind::AssignmentExpression(a) => self.may_be_taken(mi, &a.right), AstKind::UpdateExpression(_) | AstKind::UnaryExpression(_) => false, _ => true } { add(id, format!("it writes [\"{}\"], which is called", k.value), Sends::Any, false); } if PATCH.contains(&k.value.as_str()) || (m.is_written(id) && TREE_WRITES.contains(&k.value.as_str())) { add(id, format!("[\"{}\"]", k.value), Sends::Any, false); } }
                     // a method under a computed name, put where it has a name of its own
                     else if !known_key(p) && matches!(m.nodes.parent_kind(m.outer(id)), AstKind::AssignmentExpression(a) if a.right.span() == m.nodes.kind(m.outer(id)).span() && match &a.left { AssignmentTarget::StaticMemberExpression(l) => methods.contains(l.property.name.as_str()), AssignmentTarget::ComputedMemberExpression(_) => true, _ => false }) { add(id, "a method under a computed name".into(), Sends::Any, true); }
                 }
@@ -212,7 +216,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
                 AstKind::BindingProperty(p) if static_key(&p.key, p.computed).is_none() => add(id, "a computed name, taken off something".into(), Sends::Any, false),
                 AstKind::AssignmentTargetPropertyProperty(p) => match static_key(&p.name, p.computed) { None => add(id, "a computed name, taken off something".into(), Sends::Any, false), Some(k) => if sends(&k).is_some() || event_handler(&k) { add(id, format!("{k}, taken off something"), Sends::Any, false); } },
                 AstKind::AssignmentTargetPropertyIdentifier(p) => if sends(&p.binding.name).is_some() || event_handler(&p.binding.name) { add(id, format!("{}, taken off something", p.binding.name), Sends::Any, false); },
-                AstKind::BindingProperty(p) => if let Some(k) = static_key(&p.key, p.computed) { if PATCH.contains(&k.as_str()) || event_handler(&k) || (sends(&k).is_some() && !COMMON.contains(&k.as_str())) { add(id, format!("{k}, taken off something"), sends(&k).unwrap_or(Sends::Any), false); } },
+                AstKind::BindingProperty(p) => if let Some(k) = static_key(&p.key, p.computed) { if PATCH.contains(&k.as_str()) || matches!(k.as_str(), "prototype" | "__proto__" | "constructor") || event_handler(&k) || (sends(&k).is_some() && !COMMON.contains(&k.as_str())) { add(id, format!("{k}, taken off something"), sends(&k).unwrap_or(Sends::Any), false); } },
                 AstKind::ObjectProperty(p) => if let Some(k) = static_key(&p.key, p.computed) { if PATCH.contains(&k.as_str()) { add(id, format!("a {k} of its own"), Sends::Any, false); } },
                 AstKind::MethodDefinition(p) => if static_key(&p.key, p.computed).is_none_or(|k| PATCH.contains(&k.as_str()) || k == "attributeChangedCallback") { if !matches!(&p.key, PropertyKey::StaticMemberExpression(_) | PropertyKey::PrivateIdentifier(_)) { add(id, "a method of its own that may be a target's".into(), Sends::Any, false); } },
                 AstKind::PropertyDefinition(p) => if static_key(&p.key, p.computed).is_some_and(|k| PATCH.contains(&k.as_str())) { add(id, "a method of its own that may be a target's".into(), Sends::Any, false); },
@@ -254,10 +258,10 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         let m = self.m(mi);
         match unwrap(e) {
             Expression::StaticMemberExpression(p) => matches!(p.property.name.as_str(), "classList" | "relList" | "searchParams" | "headers") && name == "remove" || matches!(p.property.name.as_str(), "searchParams" | "headers") && name == "append",
-            Expression::NewExpression(n) => plain_new(m, n),
+            Expression::NewExpression(n) => plain_new(m, n, name),
             Expression::Identifier(i) => {
                 let Some(s) = m.symbol(i).filter(|s| m.known_symbol(*s)) else { return matches!(i.name.as_str(), "console" | "Math" | "JSON") && m.symbol(i).is_none() };
-                matches!(m.nodes.kind(m.scoping.symbol_declaration(s)), AstKind::VariableDeclarator(v) if matches!(v.id, BindingPattern::BindingIdentifier(_)) && matches!(v.init.as_ref().map(unwrap), Some(Expression::NewExpression(n)) if plain_new(m, n)))
+                matches!(m.nodes.kind(m.scoping.symbol_declaration(s)), AstKind::VariableDeclarator(v) if matches!(v.id, BindingPattern::BindingIdentifier(_)) && matches!(v.init.as_ref().map(unwrap), Some(Expression::NewExpression(n)) if plain_new(m, n, name)))
             }
             _ => false,
         }
@@ -282,18 +286,15 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         let same = match m.nodes.kind(f) { AstKind::ArrowFunctionExpression(_) | AstKind::Function(_) => m.nodes.iter().filter(|n| m.function_of(n.id()) == Some(f)).all(|n| !matches!(n.kind(), AstKind::ReturnStatement(r) if !matches!(r.argument.as_ref().map(unwrap), Some(Expression::Identifier(x)) if m.symbol(x) == Some(s)))), _ => false };
         same && matches!(m.nodes.parent_kind(o), AstKind::CallExpression(c) if c.arguments.len() == 2 && c.arguments[0].span() == at && matches!(c.arguments[1].as_expression().map(unwrap), Some(Expression::ObjectExpression(_) | Expression::ArrayExpression(_))) && matches!(unwrap(&c.callee), Expression::StaticMemberExpression(p) if p.property.name == "reduce")) && matches!(self.parts(FnAt { module: mi, node: f }), Some((_, Ok(_), ..)))
     }
-    /// Something read under a computed name, or a name or a member that may hold it.
+    /// Anything but what cannot be a method of the platform's: a literal, a function of the code's, an operator's answer.
     fn may_be_taken(&self, mi: usize, e: &'m Expression<'a>) -> bool {
         let m = self.m(mi);
         match unwrap(e) {
-            Expression::ComputedMemberExpression(p) => !known_key(p),
-            Expression::ChainExpression(_) => true,
-            Expression::StaticMemberExpression(p) => matches!(unwrap(&p.object), Expression::ComputedMemberExpression(_)) || sends(&p.property.name).is_some(),
-            Expression::Identifier(i) => m.symbol(i).is_some_and(|s| match m.nodes.kind(m.scoping.symbol_declaration(s)) { AstKind::VariableDeclarator(v) => !m.known_symbol(s) || v.init.as_ref().is_none_or(|e| matches!(unwrap(e), Expression::ComputedMemberExpression(_) | Expression::StaticMemberExpression(_) | Expression::ChainExpression(_))), AstKind::FormalParameter(_) => true, _ => false }),
+            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) | Expression::ClassExpression(_) | Expression::StringLiteral(_) | Expression::NumericLiteral(_) | Expression::BooleanLiteral(_) | Expression::NullLiteral(_) | Expression::TemplateLiteral(_) | Expression::BinaryExpression(_) | Expression::UnaryExpression(_) | Expression::UpdateExpression(_) | Expression::ObjectExpression(_) | Expression::ArrayExpression(_) | Expression::NewExpression(_) | Expression::RegExpLiteral(_) => false,
+            Expression::Identifier(i) => match m.symbol(i) { None => i.name != "undefined", Some(_) if self.called(mi, e).is_some() || self.solid(mi, e).is_some() => false, Some(s) => !matches!(m.nodes.kind(m.scoping.symbol_declaration(s)), AstKind::VariableDeclarator(v) if m.known_symbol(s) && matches!(v.id, BindingPattern::BindingIdentifier(_)) && v.init.as_ref().is_some_and(|e| !matches!(unwrap(e), Expression::Identifier(_)) && !self.may_be_taken(mi, e))) },
             Expression::ConditionalExpression(c) => self.may_be_taken(mi, &c.consequent) || self.may_be_taken(mi, &c.alternate),
             Expression::LogicalExpression(l) => self.may_be_taken(mi, &l.left) || self.may_be_taken(mi, &l.right),
-            Expression::SequenceExpression(_) | Expression::AssignmentExpression(_) => true,
-            _ => false,
+            _ => true,
         }
     }
     /// A function written out, or a name that is one.
@@ -321,7 +322,13 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         }
     }
 }
-fn plain_new(m: &graph::Module, n: &NewExpression) -> bool { matches!(unwrap(&n.callee), Expression::Identifier(i) if m.symbol(i).is_none() && (MADE.contains(&i.name.as_str()) && i.name != "Image" && i.name != "Audio" && i.name != "OffscreenCanvas" || matches!(i.name.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet" | "FormData" | "URLSearchParams" | "Headers" | "AudioContext" | "ResizeObserver" | "IntersectionObserver"))) }
+fn plain_new(m: &graph::Module, n: &NewExpression, name: &str) -> bool {
+    let Expression::Identifier(i) = unwrap(&n.callee) else { return false };
+    if m.symbol(i).is_some() { return false; }
+    if matches!(i.name.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet" | "FormData" | "URLSearchParams" | "Headers" | "ResizeObserver" | "IntersectionObserver") { return true; }
+    // (what these close or send, they say later)
+    matches!(name, "close" | "open" | "send") && matches!(i.name.as_str(), "EventSource" | "WebSocket" | "BroadcastChannel" | "Notification" | "AudioContext" | "RTCPeerConnection")
+}
 /// A key that is written there.
 fn known_key(p: &ComputedMemberExpression) -> bool { match unwrap(&p.expression) { Expression::StringLiteral(_) | Expression::NumericLiteral(_) => true, Expression::StaticMemberExpression(s) => matches!(unwrap(&s.object), Expression::Identifier(i) if i.name == "Symbol"), _ => false } }
 /// `location`, `window.location`, `history`.

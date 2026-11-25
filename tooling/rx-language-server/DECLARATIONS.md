@@ -426,14 +426,14 @@ proves, it is a defect of `rx-declare`.
 everything but a list of shapes known unsafe, and the list was found incomplete twice: of 671 packages written to break it,
 about 190 drafts had a false word. The new one has none on those 671, nor on the 757 written against it. Over the 193
 modules of the coverage suite (rows with the word, before → after): `pure` 421 → 296, `instantiates` 376 → 226, `handler`
-984 → 10, `uses` 25 → 1, `provides` 37 → 1, `draft` 1 → 0, `rejects` 0, `ref` parts 435 → 438. What was lost and was true:
-DOM event maps (a listener on an element the fn is given: `dispatchEvent` may call it in a computation), makers of signals
+984 → 971, `uses` 25 → 1, `provides` 37 → 1, `draft` 1 → 0, `rejects` 0, `ref` parts 435 → 438. `handler` was 10 until a listener given to the platform had the
+standing of a JSX handler (compiler/words/DESIGN.md, *A listener*); the two false ones (`toEffect`, `workerScope`) stay out. What was lost and was true: makers of signals
 alone or on one path (no owner is needed there), `pure` fns that read `getOwner`, register `onSettled`, make a class in the
 call, or read a module object that something else can write.
 
 Executable: `test/words.js` (the rows, the questions, `--why`, both checkers, `rx-verify` over rows that claim what their
 code does not do), `test/words-audit.js`, and `test/words-cases.js` over `test/words/cases.json` (the 576 functions the old
-reading's four tests had, refused and proven) and `test/words/adversarial.json` (1,278 facts, each found by running).
+reading's four tests had, refused and proven) and `test/words/adversarial.json` (1,753 packages, 475 of them about a listener; facts found by running where a run can show them).
 `bench/tasks/primitives-state` and `bench/coverage/primitives/sortable` hold a word that was false (`createSorted`, declared
 `pure` by hand) as a variant `rx-verify` must report.
 

@@ -1,8 +1,8 @@
 The tasks' declarations, every behaviour word (pure, handler, draft, rejects, uses, provides, nests, renders) held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
 
-34 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
+38 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
 0 contradicted: a run shows the word false (rx-verify).
-80 the code does not show: a person's word, with the first thing the reading stops at — what to check.
+76 the code does not show: a person's word, with the first thing the reading stops at — what to check.
   file-routes/rx-types/@solidjs/router.d.rx: useParams: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
   file-routes/src/people.d.rx: getPerson: pure — a node made as the module loads [@solidjs/router/dist/index.js:2005]
   file-routes/src/people.d.rx: getPerson: rejects(NotFound) — what it throws is not shown to be of a class of the module's
@@ -17,12 +17,8 @@ The tasks' declarations, every behaviour word (pure, handler, draft, rejects, us
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: Toast.Region: provides(toastRegion) — not read: a method of an object the module exports: any importer may change it
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: Toast.Title: uses(toast) — not read: a method of an object the module exports: any importer may change it
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: toaster.show: renders(Toast.List) — not read: a method of an object the module exports: any importer may change it
-  primitives-listeners/rx-types/@solid-primitives/focus.d.rx: makeFocusListener: handler(callback) — it goes where it is not followed [@solid-primitives/focus/dist/focusSignal.js:22]
-  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: handler(callback) — it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:7]
+  primitives-listeners/rx-types/@solid-primitives/focus.d.rx: makeFocusListener: handler(callback) — it listens, and what the import loads may send what it listens to while a call runs: .focus() [@solid-primitives/focus/dist/focusGroup.js:155]
   primitives-state/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
-  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: createEventListener: handler(handler) — it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:22]
-  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: makeEventListener: handler(handler) — it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:7]
-  primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: makeResizeObserver: handler(callback) — it goes where it is not followed [@solid-primitives/resize-observer/dist/index.js:22]
   query-forward/query.d.rx: useQuery: uses(queryClient) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
   query-forward/rx-types/@tanstack/solid-query.d.rx: QueryClientProvider: provides(queryClient) — what it answers is no provider whose children are read [@tanstack/solid-query/build/index.js:1]
   query-mutation/api.d.rx: fetchTodo: pure — it reads globalThis: the environment [api.js:6]

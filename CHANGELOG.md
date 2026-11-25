@@ -7,7 +7,8 @@
 - **Fixed: `rx-declare` wrote false words**, about 190 over 671 packages written to break it (`pure` 152, `instantiates` 30, `handler` 27), some in real
   packages (`toEffect`, `workerScope`, `createCallback`), and `instantiates` refused correct calls of `until`, `debounce`, `createEmitter`,
   `createEventBus`, `makeSpring`. The reading is a crate of its own; what it does not model gives no word. Drafts have fewer words: a library's author
-  writes more of them (DECLARATIONS.md counts them).
+  writes more of them (DECLARATIONS.md counts them). A callback given to the platform as a listener is a `handler`, as a JSX handler is, where the library
+  never sends the event itself while a call runs.
 - **Changed: `rx-declare --audit` proves a word or does not**; it no longer says that one is false. `rx-verify` holds every `pure` fn to what it is given,
   and a `handler` to have no owner.
 - **Changed: a draft's types are read through tsrs**, as they are checked. A parameter that takes `null` is drafted with it.

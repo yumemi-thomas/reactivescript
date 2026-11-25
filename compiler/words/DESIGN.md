@@ -42,9 +42,26 @@ call's alone. An operator that converts takes primitives alone. Iteration takes 
 | `instantiates` | a statement of the body that no path can return without passing calls what Solid's development build reports without an owner: an effect, `onCleanup`, a boundary, `useContext` — itself, or through a known function's body the same way; in the browser's builds | MO-8l: "the call has no owner in a handler, an action, an effect's block or a server fn" |
 | `uses(c)` | the same, of `useContext(C)`: `C` a context of the package made with no default, or with `null` and the next statements throw on it; and a `provides(c)` of the same draft | — |
 | `provides(c)` | every return is `C`'s provider; the props are named only as `props.x`, and one that may hold a view only among that provider's children, in elements, fragments and providers | — |
-| `handler` | every reference to the callback is called, or handed on, where Solid's owner and observer are none whoever runs the code: a timer, a microtask, a promise of the language's, after an `await` no path passes by (an effect's second function is not one: `flush()` in an owned scope runs it there); or a listener of `window`, `document` or an element written in JSX, in a function that calls nothing that could dispatch. One such call at least | MO-10g: "as the DOM calls an event handler" |
+| `handler` | every reference to the callback is called, or handed on, where Solid's owner and observer are none whoever runs the code: a timer, a microtask, a promise of the language's, after an `await` no path passes by (an effect's second function is not one: `flush()` in an owned scope runs it there), an observer; or it is handed to the platform as a listener (next section). One such call at least | MO-10g: "as the DOM calls an event handler" |
 | `draft` | a write of the parameter that no path returns without; every reference to it is such a write (of primitives) or a read of a primitive | — |
 | `ref` (a part) | every return hands out, there, what `createMemo` answers or a signal's getter, under a name never written | — |
+
+## A listener (`target.rs`, `dispatch.rs`)
+SC-4: "an event attribute in a view takes an imperative function". `<button onClick={() => { n := 1 }}>` is accepted by both checkers though
+some code may call `el.click()` in a computation. Solid runs that handler there, and a library's `addEventListener` listener the same way:
+with the owner and the observer of whoever dispatched; the development build refuses the write, the production build makes it (run 2026-11-26, solid-js 2.0.3, happy-dom and
+Chromium, delegated or not). So a callback given to the platform as a listener has the standing of a JSX handler, **unless the library sends the event
+itself while a call of it runs**. That is two proofs:
+- **The receiver is the platform's** (`target.rs`): `window`, `document`, what the platform's accessors and finders answer from them, what its constructors
+  make (not `XMLHttpRequest`, `AbortController`, `EventTarget`: those send while a call runs), or the caller's, where the row's type is lib's own
+  interface (`t` in row-types.js; a `Pick`, an `Omit`, a type of the library's is none). A name is followed through calls by
+  name, an effect's second function, a list's methods; a list or a record under a name is only ever read. (`el.onclick = cb` and an attribute `on…` of an intrinsic element are listeners; a spread, an
+  element with a hyphen, a component are not.) What the caller's own target does when it is listened to is the caller's, as a getter's is (MO-8j).
+- **Nothing the import loads sends it** (`dispatch.rs`): every function that the import's exports and the loading code reach by name, in every module it loads but
+  Solid's. The methods of lib.dom that send an event before they answer are listed (the rest were read: they queue, or send none), with what sends only focus's events and what
+  moves elements; a place is none where it only runs later (a timer, a listener, after an `await`), or cannot send the events listened to, where
+  their names are known. Whatever could reach such a method under no name of its own counts as one: a computed call, a method taken off its object and
+  called with another `this`, `Reflect`, a prototype as a table, code made of text, a module that is not read. So does a method named `addEventListener`, or the platform's own replaced.
 
 What only computes is what the ECMAScript text says of its own built-ins, unchanged: a program that replaces them
 (`Array.prototype.map = …`) is every tool's to give up on. No other assumption is made.
@@ -53,5 +70,5 @@ What only computes is what the ECMAScript text says of its own built-ins, unchan
 `this` outside a class's own code; `arguments`; generators; `Date`; `Symbol()`; a getter, a setter, a spread of an object
 that has one; `__proto__`, `prototype`, `constructor`; `.call`/`.apply`/`.bind`; tags; `import()`; `import.meta`; a class with
 statics, accessors, decorators or a base but `Error`; enums and namespaces; a method row of an object the module exports
-(any importer may change it); JSX in a `pure` fn; a component's props through a spread, a proxy, or a component that is not
+(any importer may change it); JSX in a `pure` fn; an object with a `handleEvent`; a component's props through a spread, a proxy, or a component that is not
 Solid's provider; an object made when the module loads and changed later, whoever changes it.

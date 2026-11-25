@@ -31,8 +31,8 @@ export pure fn sortedBy<T>(ref list: T[], comparator: (a: T, b: T) => number): r
   `fetch`, no call into code it cannot read. (So a loader that really fetches is not *proven* pure, though it is
   `pure`: that word is still yours to write.)
 - `handler`: every call of the callback is later and outside any owner and computation: a timer, a promise, a
-  microtask, after an `await` nothing passes by, or a listener of `window`, `document` or an element written in JSX
-  in a function that could not dispatch the event. A listener on an element the function is given gets no word.
+  microtask, an observer, after an `await` nothing passes by; or the platform calls it as a listener (`addEventListener`, `onclick =`, an element's
+  attribute, on an element the function is given too) and the library itself never sends that event while a call of it runs (`el.click()`, `el.focus()`, `dispatchEvent`).
 - `draft`: the function changes that argument in place during the call and keeps nothing.
 - `rejects(E)`: every `throw` it reaches is of a class the module exports.
 - `handler` on a component's prop: the prop is an element's event, `onClick={props.onPress}` or a closure written there.

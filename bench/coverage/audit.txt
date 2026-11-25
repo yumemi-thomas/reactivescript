@@ -1,28 +1,25 @@
 The coverage entries' declarations, every behaviour word held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
 
-21 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
+24 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
 0 contradicted: a run shows the word false (rx-verify).
-44 the code does not show: a person's word, with the first thing the reading stops at — what to check.
+41 the code does not show: a person's word, with the first thing the reading stops at — what to check.
   primitives/context/counter.d.rx: CounterProvider: provides(counter) — which context the name stands for is not shown
   primitives/context/counter.d.rx: useCounter: uses(counter) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
   primitives/controlled-props/control.d.rx: TextControl: handler(onChange) — it is handed to code that is not followed [control.js:5]
   primitives/controlled-signal/rx-types/@solid-primitives/controlled-signal.d.rx: createControllableSignal: handler(props.onChange) — it is handed to code that is not followed [@solid-primitives/controlled-signal/dist/index.js:23]
   primitives/deep/rx-types/@solid-primitives/deep.d.rx: trackDeep: pure — it converts a value that may run code (`toString`, `valueOf`) [@solid-primitives/deep/dist/track-deep.js:29]
-  primitives/event-listener/rx-types/@solid-primitives/event-listener.d.rx: createEventListener: handler(handler) — it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:22]
   primitives/filesystem/rx-types/@solid-primitives/filesystem.d.rx: makeVirtualFileSystem: pure — it calls .getItem() of a primitive [@solid-primitives/filesystem/dist/adapter-vfs.js:14]
-  primitives/focus/rx-types/@solid-primitives/focus.d.rx: makeFocusListener: handler(callback) — it goes where it is not followed [@solid-primitives/focus/dist/focusSignal.js:22]
+  primitives/focus/rx-types/@solid-primitives/focus.d.rx: makeFocusListener: handler(callback) — it listens, and what the import loads may send what it listens to while a call runs: .focus() [@solid-primitives/focus/dist/focusGroup.js:155]
   primitives/gestures/rx-types/@solid-primitives/gestures.d.rx: tap: handler(props.callback) — it is handed to code that is not followed [@solid-primitives/gestures/dist/core.js:31]
   primitives/history/history.d.rx: createUndoHistory: handler(restore) — it is handed back [history.js:3]
-  primitives/idle/rx-types/@solid-primitives/idle.d.rx: createIdleTimer: handler(__0.onActive) — a default, or `arguments`, may call it [@solid-primitives/idle/dist/createIdleTimer.js:50]
-  primitives/interaction/rx-types/@solid-primitives/interaction.d.rx: createInteractOutside: handler(options.onInteractOutside) — the record it is in goes where it is not followed [@solid-primitives/interaction/dist/index.js:395]
-  primitives/keyboard/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: handler(callback) — it is handed to code that is not followed [@solid-primitives/event-listener/dist/eventListener.js:7]
-  primitives/mutation-observer/rx-types/@solid-primitives/mutation-observer.d.rx: createMutationObserver: handler(callback) — it goes where it is not followed [@solid-primitives/mutation-observer/dist/index.js:11]
+  primitives/interaction/rx-types/@solid-primitives/interaction.d.rx: createInteractOutside: handler(options.onInteractOutside) — it goes where it is not followed [@solid-primitives/interaction/dist/index.js:295]
+  primitives/mutation-observer/rx-types/@solid-primitives/mutation-observer.d.rx: createMutationObserver: handler(callback) — it is kept where it is not followed [@solid-primitives/mutation-observer/dist/index.js:11]
   primitives/props/button.d.rx: Button: handler(onPress) — it goes where it is not followed [button.js:4]
   primitives/refs/rx-types/@solid-primitives/refs.d.rx: Refs: handler(ref) — it is handed to code that is not followed [@solid-primitives/refs/dist/index.js:104]
-  primitives/script-loader/rx-types/@solid-primitives/script-loader.d.rx: createScriptLoader: handler(props.onLoad) — the record it is in goes where it is not followed [@solid-primitives/script-loader/dist/index.js:25]
+  primitives/script-loader/rx-types/@solid-primitives/script-loader.d.rx: createScriptLoader: handler(props.onLoad) — it is kept where it is not followed [@solid-primitives/script-loader/dist/index.js:28]
   primitives/static-store/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
-  primitives/transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: handler(options.onEnter) — it is taken apart, or has a default [@solid-primitives/transition-group/dist/index.js:44]
-  primitives/transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: handler(options.onExit) — it is taken apart, or has a default [@solid-primitives/transition-group/dist/index.js:44]
+  primitives/transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: handler(options.onEnter) — it is handed to code that is not followed [@solid-primitives/transition-group/dist/index.js:74]
+  primitives/transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: handler(options.onExit) — it is handed to code that is not followed [@solid-primitives/transition-group/dist/index.js:74]
   solid-sonner/toaster/rx-types/solid-sonner.d.rx: toast: renders(Toaster) — where the library renders what it is given is not read: a value kept in the module's state is followed no further
   solid-use/props/rx-types/solid-use/props.d.rx: pickProps: pure — it calls Object.defineProperty [solid-use/dist/props.js:23]
   ui-sdk/disclosure/rx-types/@ui-sdk/solid/tabs.d.rx: Tabs: handler(onValueChange) — it is no function written out in the module, under a name nothing writes
