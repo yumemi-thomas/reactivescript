@@ -15,7 +15,10 @@ const dir = path.join(ws, "js-host"); rmSync(dir, { recursive: true, force: true
 const rxc = process.env.RXC ?? path.join(repo, "compiler/target/release/rxc"), req = createRequire(path.join(ws, "package.json"));
 writeFileSync(path.join(dir, "types.js"), "export {};\n");
 writeFileSync(path.join(dir, "types.d.ts"), "export type T = { a: number };\nexport type N = { children: number };\n");
+writeFileSync(path.join(dir, "mid.js"), "export const Mid = p => globalThis.MID(p);\n");
+writeFileSync(path.join(dir, "mid.d.rx"), "export component Mid(props: { children?: View })\n");
 writeFileSync(path.join(dir, "kit.rx"), `import { T } from "./types.js"
+import { Mid } from "./mid.js"
 export component View1(props: { children: (s: { on: boolean }) => View }) {
   source lit := false
   <p onClick={() => { lit := !lit }}><props.children on={lit} /></p>
@@ -46,6 +49,18 @@ export component Some(props: { children?: View }) {
 }
 export component Count(p: import("./types.js").N) {
   <b>{p.children ? "yes" : "no"}</b>
+}
+export component Field(p: { label?: View }) {
+  <label>{if p.label { <i>Y</i> } else { <i>N</i> }}{p.label ?? "D"}</label>
+}
+export component Inner(p: { children: View }) {
+  <u>{p.children}</u>
+}
+export component Card(p: { t?: string }) {
+  <Inner><s>{p.t ?? "hi"}</s></Inner>
+}
+export component Gives() {
+  <Mid><s>given</s></Mid>
 }
 export component Ref(props: { f: (e: Element) => void }) {
   <p ref={(e: Element) => { props.f(e) }}>x</p>
@@ -92,14 +107,14 @@ check("a `ref` closure's read of a prop is a snapshot", got[2] === 1 && !said.so
 // RG-4c: whether a view was given, asked of what JavaScript gives. A value answers as JavaScript does (Solid's
 // `props.children ? … : …`): undefined, null, false, 0, "" are nothing given, [] is; `!= undefined` asks only that. A getter
 // (JSX content) is read, as Solid reads it, and what it answers is asked (so it is made once to answer: `made`); a host
-// that would rather not offers `slot`, which is not made, with its own answer if it has one. Children whose type says a
-// number are a number: ordinary truth, read.
+// that would rather not offers `slot`, which is not made. Children whose type says a number are a number: ordinary truth,
+// read.
 const ASKED = `const count = () => { window.made = (window.made ?? 0) + 1; };
 const G = () => ({ get children() { count(); return "g"; } });
-const S = when => ({ get children() { return slot(() => { count(); return "s"; }, when); } });
-const GIVEN = [["none", {}], ["undefined", { children: undefined }], ["null", { children: null }], ["false", { children: false }], ["0", { children: 0 }], ["empty text", { children: "" }], ["[]", { children: [] }], ["text", { children: "t" }], ["a getter", G()], ["a slot", S()], ["a slot that says yes", S(() => true)], ["a slot that says no", S(() => false)], ["a slot handed on", merge({ n: 1 }, S())]];
+const S = () => ({ get children() { return slot(() => { count(); return "s"; }); } });
+const GIVEN = [["none", {}], ["undefined", { children: undefined }], ["null", { children: null }], ["false", { children: false }], ["0", { children: 0 }], ["empty text", { children: "" }], ["[]", { children: [] }], ["text", { children: "t" }], ["a getter", G()], ["a slot", S()], ["a slot handed on", merge({ n: 1 }, S())]];
 export const asked = (lib, text) => [["Asked", "Some"].map(C => GIVEN.map(([, p]) => text(() => createComponent(lib[C], p))).join(" ")), [{ children: 0 }, { children: 1 }, { get children() { return 0; } }].map(p => text(() => createComponent(lib.Count, p))).join(" ")];`;
-const wantAsked = [["no no no no no no yes yes yes yes yes no yes", "no no no yes yes yes yes yes yes yes yes no yes"], "no yes no"];
+const wantAsked = [["no no no no no no yes yes yes yes yes", "no no no yes yes yes yes yes yes yes yes"], "no yes no"];
 writeFileSync(path.join(dir, "asked.mjs"), `import { createComponent, merge } from "solid-js";\nimport { slot } from "@reactivescript/runtime";\nglobalThis.window ??= globalThis;\n${ASKED}\n`);
 {
   const b = await build({ stdin: { resolveDir: dir, contents: `import kit from "./kit.dom.mjs"; import { asked } from "./asked.mjs"; import { library } from "@reactivescript/runtime"; import { render } from "@solidjs/web";
@@ -116,6 +131,45 @@ const lib = library(kit, "kit/kit"); console.log(JSON.stringify([asked(lib, v =>
   const s = spawnSync(process.execPath, ["asked-server.mjs"], { cwd: dir, encoding: "utf8", timeout: 60000 });
   const got = s.status === 0 ? JSON.parse(s.stdout.trim().split("\n").pop()) : [];
   check("whether a view was given, asked of a JavaScript host (RG-4c): on the server", JSON.stringify(got) === JSON.stringify([wantAsked, 2]), [got, s.stderr.slice(-600)]);
+}
+// RG-4c: what JavaScript keeps of what it read while it was asked. A view that is asked for is not made, and JavaScript
+// between the one that gives and the one that asks may keep what it read then (`cached ??= props.children`, a getter that
+// makes once): what it holds is the view's maker — a function, which Solid shows as it shows any child that is one — so
+// what it shows later is the view, not the nothing an answer was made of. In the browser (both builds), on the server,
+// and where the browser takes over what the server made.
+const KEPT = `const C = createComponent, once = f => { let c, d = false; return () => d ? c : (d = true, c = f()); };
+const giv = (L, f) => () => { globalThis.MID = f; return C(L.Gives, {}); };
+export const kept = L => ({
+  "a getter that makes a component once": () => { const o = once(() => C(L.Card, {})); return C(L.Field, { get label() { return o(); } }); },
+  "icon ??= <Card />": () => { let icon; return C(L.Field, { get label() { return icon ??= C(L.Card, { t: "hi" }); } }); },
+  "this.k ??= props.children": giv(L, p => C(L.Field, { k: undefined, get label() { return this.k ??= p.children; } })),
+  "children read once": giv(L, p => { const o = once(() => p.children); return C(L.Field, { get label() { return o(); } }); }),
+  "a component with them, made once": giv(L, p => { const o = once(() => C(L.Inner, { get children() { return p.children; } })); return C(L.Field, { get label() { return o(); } }); }),
+  "children whose length is read": giv(L, p => C(L.Field, { get label() { const c = p.children; return Array.isArray(c) && c.length === 0 ? undefined : c; } })),
+  "children in a memo": giv(L, p => { const m = createMemo(() => p.children); return C(L.Field, { get label() { return m(); } }); }),
+  "children handed on": giv(L, p => C(L.Field, { get label() { return p.children; } })),
+});`;
+const wantKept = ["Yhi", "Yhi", "Ygiven", "Ygiven", "Ygiven", "Ygiven", "Ygiven", "Ygiven"];
+writeFileSync(path.join(dir, "kept.mjs"), `import { createComponent, createMemo } from "solid-js";\nglobalThis.window ??= globalThis;\n${KEPT}\n`);
+{
+  writeFileSync(path.join(dir, "kept-server.mjs"), `import kit from "./kit.ssr.mjs"; import { kept } from "./kept.mjs"; import { library } from "@reactivescript/runtime"; import { renderToString, generateHydrationScript } from "@solidjs/web";
+const lib = library(kit, "kit/kit"); console.log(JSON.stringify([generateHydrationScript(), Object.values(kept(lib)).map(v => renderToString(v))]));`);
+  const out = spawnSync(process.execPath, ["kept-server.mjs"], { cwd: dir, encoding: "utf8", timeout: 60000 });
+  const [script, html] = out.status === 0 ? JSON.parse(out.stdout.trim().split("\n").pop()) : ["", []];
+  check("what JavaScript kept of a view it read while asked (RG-4c): on the server", JSON.stringify(html.map(h => h.replace(/<!--.*?-->|<[^>]*>/g, ""))) === JSON.stringify(wantKept), [html, out.stderr.slice(-600)]);
+  const browser = await req("playwright").chromium.launch();
+  for (const mode of ["development", "production"]) {
+    const r = await build({ stdin: { resolveDir: dir, contents: `import kit from "./kit.dom.mjs"; import { kept } from "./kept.mjs"; import { library } from "@reactivescript/runtime"; import { flush } from "solid-js"; import { render, hydrate } from "@solidjs/web";
+const lib = library(kit, "kit/kit"); window.kept = Object.values(kept(lib)).map(v => { const at = document.createElement("div"); render(v, at); flush(); return at.textContent; });
+const i = Number(document.body.dataset.i); if (i >= 0) { const at = document.getElementById("app"), was = at.querySelector("s"); hydrate(Object.values(kept(lib))[i], at); flush(); window.hydrated = [at.textContent, was === at.querySelector("s")]; }` }, bundle: true, write: false, format: "esm", conditions: ["browser", mode], define: { "process.env.NODE_ENV": JSON.stringify(mode) }, minify: mode === "production", logLevel: "error" });
+    const open = async body => { const page = await browser.newPage(); const said = []; page.on("console", m => { if (m.type() !== "log") said.push(m.text().split("\n")[0]); }); page.on("pageerror", e => said.push(e.message)); await page.setContent(body); await page.addScriptTag({ type: "module", content: r.outputFiles[0].text }); await page.waitForTimeout(100); const got = await page.evaluate(() => [window.kept, window.hydrated]); await page.close(); return [got, said]; };
+    const [[shown], said] = await open(`<body data-i="-1"><p></p></body>`);
+    check(`what JavaScript kept of a view it read while asked (RG-4c): ${mode}, in the browser`, JSON.stringify(shown) === JSON.stringify(wantKept) && !said.length, [shown, said]);
+    const taken = [], notes = [];
+    for (let i = 0; i < wantKept.length; i++) { const [[, h], said] = await open(`<head>${script}</head><body data-i="${i}"><div id="app">${html[i]}</div></body>`); taken.push(h); notes.push(...said); }
+    check(`what JavaScript kept of a view it read while asked (RG-4c): ${mode}, taken over from the server`, JSON.stringify(taken) === JSON.stringify(wantKept.map(w => [w, true])) && !notes.length, [taken, notes]);
+  }
+  await browser.close();
 }
 writeFileSync(path.join(dir, "server.mjs"), `import kit from "./kit.ssr.mjs"; import { views } from "./cases.mjs"; import { library } from "@reactivescript/runtime"; import { createComponent } from "solid-js"; import { renderToString } from "@solidjs/web";
 const lib = library(kit, "kit/kit"); const text = v => renderToString(v).replace(/<!--.*?-->|<[^>]*>/g, "");

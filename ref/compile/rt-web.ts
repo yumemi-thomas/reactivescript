@@ -240,15 +240,15 @@ function noApi(name: string) {
 let OVER: { c: unknown; o: unknown; up: any } | null = null;   // RG-7b: the provision being computed
 /** RG-4c: the question "was a view given" being asked, if one is: shared by every copy of the runtime on the page. */
 const ASK: { on: { owner: unknown } | null } = ((globalThis as any)[Symbol.for("rx.ask")] ??= { on: null });
-const GIVEN: readonly unknown[] = ((globalThis as any)[Symbol.for("rx.given")] ??= Object.freeze([]));
-/** A view that is written: made where it is read, and while it is only asked for (by the computation that asks:
- *  a memo of a JavaScript host in between holds what it reads, so there it is made), the nothing-to-show that says it
- *  was given. A JavaScript host that gives an .rx component a view it would rather not have made to answer offers it
- *  so: `get icon() { return slot(() => <Icon />, () => shown()) }`; `when`, if it has one, answers. */
-export function slot<T>(make: () => T, when?: () => unknown): T {
+/** A view that is written: made where it is read. While it is only asked for (by the computation that asks: a memo of
+ *  a JavaScript host in between holds what it reads, so there it is made) it answers its own maker, which says that it
+ *  was given and makes nothing — and which JavaScript that keeps what it read (`cached ??= props.children`) can show
+ *  later: a function is a child, made where it is shown. A JavaScript host that gives an .rx component a view it would
+ *  rather not have made to answer offers it so: `get icon() { return slot(() => <Icon />) }`. */
+export function slot<T>(make: () => T): T {
   const a = ASK.on; if (!a) return make();
   ASK.on = null;
-  try { return getOwner() !== a.owner ? make() : (!when || when() ? GIVEN : undefined) as T; } finally { ASK.on = a; }
+  try { return getOwner() !== a.owner ? make() : make as T; } finally { ASK.on = a; }
 }
 function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknown>; conformance?: boolean }) {
   const flights = new Map<string, Flight>();

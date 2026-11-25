@@ -86,7 +86,7 @@ moved on hydration: the content model now follows a named view where it is shown
      | any other expression: a literal, a source, a call, `x ? "ok" : undefined` | the value's own answer, as JavaScript has it and as before this rule: `0`, `""`, `false`, `undefined` are nothing under `if`, `!`, `&&`; `undefined` alone under `??` and `!= undefined` |
      | content that is one `{e}` asking nothing of its place (no `use`, no `await`) | `e`, as an argument; shown, a value is its text (`{0}` is the text `0`) |
      | given by JavaScript: data | its value's answer, as Solid's `props.children ? … : …` |
-     | given by JavaScript: a getter (JSX content) | it is read, as Solid reads it, and its value answers: the host's own making, once more. A host that would rather not offers the answer, `slot(make, when?)` of the runtime, which is not made to answer |
+     | given by JavaScript: a getter (JSX content) | it is read, as Solid reads it, and its value answers: the host's own making, once more. A host that would rather not offers `slot(make)` of the runtime, which is not made to answer. What is read while asked is the view's own maker (a function, which Solid shows as a child), so JavaScript that keeps its first read (`icon ??= props.children`) shows the view later, on the server and in the browser |
 
      So an explicit argument, a spread and a rest answer alike, and `if p.label` agrees with `p.label ?? x`.
 

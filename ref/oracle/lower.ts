@@ -851,8 +851,7 @@ export function resetScopes() { Scope.all = []; }
 
 /** RG-4c: the question "was a view given" being asked (the compiled module's `__rt.ask`, `__rt.slot`). */
 const ASK: { on: { owner: unknown } | null } = ((globalThis as any)[Symbol.for("rx.ask")] ??= { on: null });
-const GIVEN: readonly unknown[] = ((globalThis as any)[Symbol.for("rx.given")] ??= Object.freeze([]));
-function slot(make: () => unknown): unknown { const a = ASK.on; if (!a) return make(); if (getOwner() === a.owner) return GIVEN; ASK.on = null; try { return make(); } finally { ASK.on = a; } }
+function slot(make: () => unknown): unknown { const a = ASK.on; if (!a) return make(); if (getOwner() === a.owner) return make; ASK.on = null; try { return make(); } finally { ASK.on = a; } }
 /** Whether an expression asks something of the place it is evaluated at: a `use`, an `await` (not in a closure, which is a value). */
 function placed(e: unknown): boolean {
   if (!e || typeof e !== "object") return false;

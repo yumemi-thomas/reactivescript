@@ -331,7 +331,10 @@ read.
 
 JavaScript hosts (decided): data answers by its value. A getter is **read**, as Solid reads it and as before the rule
 (the first prototype answered "given" without reading, which is wrong for `{cond && <X />}` and could not be kept through
-a spread); it is made once more to answer. A host that minds offers `slot(make, when?)`, exported by the runtime.
+a spread); it is made once more to answer. A host that minds offers `slot(make)`, exported by the runtime. (Third review: while a view is asked for, `slot` answers its own
+maker, not a token. The token was `[]`, and JavaScript that kept its first read — a getter that makes once, `k ??= props.children`
+— showed nothing for ever, on the server and after hydration. A maker is a child Solid shows. `slot`'s second argument, `when`,
+is gone: a host that has an answer of its own writes it, `get icon() { return on() ? slot(() => <Icon />) : undefined }`.)
 
 ### Each finding of the second review
 

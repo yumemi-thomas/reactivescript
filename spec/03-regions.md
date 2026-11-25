@@ -164,8 +164,9 @@ A component is a function from a props value to a region whose tail is a view.
   `if p.label` agrees with `p.label ?? x`. What JavaScript gives as a value
   answers so too, as Solid's `props.children ? … : …`; its getter (JSX
   content) is read, as Solid reads it, unless the host offers the answer
-  (`slot(make, when?)` of the runtime), which is then not made
-  (S-context-7).
+  (`slot(make)` of the runtime), which is then not made (S-context-7).
+  What is read of a view while it is asked for is its maker, a function:
+  JavaScript that keeps it shows the view where it shows it.
   An argument's expression is a value of the caller (`title={use c}`
   reads what is provided where it is written); only content, and a
   `view name (…) { … }`, is a block of the place that shows it. Read as a
