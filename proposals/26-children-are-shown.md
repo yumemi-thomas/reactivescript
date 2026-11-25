@@ -61,7 +61,7 @@ in 64 differ only in that a view slot holding `undefined` shows nothing where it
 answers otherwise. The 263 that changed are the classes above: asked, content is not made (61); the word `undefined` (65);
 children that were not written are not given (33); a spread or a rest hands the children on (58); content that is a
 choice of the children follows its branch, where content was always given (46). All 1,642 agree in the four runners (89
-did not before); SSR_P6
+did not before); served and hydrated, in both emitters: 1,642 of 1,642, 378 of them with a click before the client takes over.
 
 What is newly **refused** though every runner agreed before: 233 of the 1,147 (a view through a context 66, a snapshot
 78, an effect 30, a handler 31, a closure 14, a record 14; none real, see "Against"), 13 of the 979 (`pre` of a view, a
@@ -153,7 +153,7 @@ export default component App() { <P>{use c}</P> }
 | --- | --- | --- |
 | 1,147 generated (37 ways to show children × 15 forms of content × a default or a provision above) | 375 refused, 592 agree, 175 accepted and different, 5 on which all throw alike | 346 refused, 800 agree, 1 on which all throw alike (`provide c = use c` with nothing above: the check does not look above a provision, as before) |
 | … served and hydrated | not run | 800 of 800, in both emitters |
-| 1,642 of "was it given" (second review) | 1,553 agree, 89 different | 1,642 agree; both checkers accept all; SSR_P6B |
+| 1,642 of "was it given" (second review) | 1,553 agree, 89 different | 1,642 agree; both checkers accept all; served and hydrated 1,642 of 1,642 in both emitters (378 with a click before hydration) |
 | 979 written for the review's findings (100 of bindings and types; 495 of "was it given": 15 ways to ask × 17 ways to give × the children or a named view; 384 of a view given on: 6 things content asks of its place × 8 ways to give it on × 6 places that show it) | 143 refused, 709 agree, 115 different, 12 alike in error | 157 refused, 822 agree, none different; both checkers say the same of all 979 and the emitters lower them alike; served and hydrated 822 of 822, in both emitters |
 | 635 of the earlier reviews | 308 refused, 234 agree, 85 different or not compiled, 8 alike in error | 267 refused, 328 agree, 30 different or not compiled, 2 that differ on the server only (a portal, a hidden row: the same on 54571c1d and on PR #1), 8 alike |
 | 3,802 of the independent review (three runners before) | 1,590 refused, 1,629 agree, 583 different or not compiled | 2,163 refused, 1,532 agree, 62 different or not compiled, 45 alike in error; 716 that agreed are refused, each `VIEW_NOT_SHOWN` |

@@ -2,7 +2,7 @@
 
 [26](26-children-are-shown.md) leaves one shape with no form that keeps the caller's program: a view given to one component and shown by a part that the *caller* places. Kobalte's `Select`, `Combobox` and `Pagination` are that shape: the root takes `itemComponent`, and `<Select.Listbox />`, written among the children, shows it. In 26 a context does not carry a view (`VIEW_NOT_SHOWN`), because nothing checked the places that show it. This proposal checks them. Prototyped on a local branch (`proto-children-rule`, not published), on top of 26.
 
-<!-- frames branch=pass -->
+<!-- frames branch=pass upstream=fail -->
 ```rx
 type Opt = { value: string; label: string }
 context item: (props: { item: Opt }) => View
@@ -34,7 +34,7 @@ export default component App() {
 ## Proposal
 
 1. **A context whose declared type is `View`, or a function giving one, holds a view.** `context slot: View`; `context item: (row: T) => View`, of one parameter or none. (A context's type may be a function's: the parser stopped at `=>`.)
-2. **It is given a view the component was given.** `provide slot = props.children` (any form 26 accepts of a view: a name, a choice, a default; a value is text); `provide item = props.item` for one with a parameter, of a prop declared with the context's type, as it is.
+2. **It is given a view the component was given.** `provide slot = props.children` (any form 26 accepts of a view: a name, a choice, a default; a value is text); `provide item = props.item` for one with a parameter, of a prop declared with the context's type, as it is. (For one with a parameter the prop is named through the props, `props.item`: a destructured name is refused, with that form in the message.)
 3. **It is shown, and nothing else.** `{use slot}` in a view; `<use.item row={r} />` for one with a parameter, with what the context's type says. Read as a value, asked, kept, given on, provided again, read by an effect, a handler or a fn: `VIEW_NOT_SHOWN`.
 4. **It is not exported.** It is provided and shown in the module that declares it. The components that provide and show it are exported, and what they say of it is in their printed signatures.
 5. **Each place that shows it has its own** (26's rule 1): made there, owned there, disposed with it. What it reads from contexts, what it waits on and fails with are that place's, then the provider's.
@@ -62,9 +62,8 @@ Interpreter, oracle, both emitters; both checkers; then the server and hydration
 
 | programs | result |
 | --- | --- |
-| 465 generated (`w/mkc.py`): a `View` or a view with a parameter × what the view needs (nothing, a context, a boundary, a loading) × where that is (the provider's block, the part, the caller, nowhere) × where the part is (the provider's view, the caller's content, a portal, another component, a keyed loop, twice) × from a library module × HTML (5 roots × 7 places × 4 placements) | each name says what the checkers must say: **327 accepted and 138 refused, all as said**; the four runners agree on all 327; the crate says what the reference says of all 465 and lowers them alike |
-| 38 of providers and misuse: a default, none, nested, side by side, optional, a choice, a value, instances in a keyed loop, rows by a second context, a tree; 19 ways to read the context as a value | 14 accepted and 24 refused, as said; one of the 14 differs in the oracle alone, which remakes a kept row of a keyed loop for any applied view (`<props.item … />` too, on 54571c1d as well) |
-| served and hydrated | SSR_C6 |
+| 505 with the verdict the checkers must give in each name (`w/mkc.py`, `ckc.py`). 465: a `View` or a view with a parameter × what the view needs (nothing, a context, a boundary, a loading) × where that is (the provider's block, the part, the caller, nowhere) × where the part is (the provider's view, the caller's content, a portal, another component, a keyed loop, twice) × from a library module × HTML (5 roots × 7 places × 4 placements, the expected verdict being what the content model says of that element at that place). 40: providers (a default, none, nested, side by side, optional, a choice, a value, instances in a keyed loop, rows by a second context, a tree, what the caller provides around the root or around the part) and 19 ways to read the context as a value | **334 accepted and 171 refused, each as its name says**. The four runners agree on 333 of the 334; one differs in the oracle alone, which remakes a kept row of a keyed loop for any applied view (`<props.item … />` too, on 54571c1d as well). The crate says what the reference says of all 505, lowers and projects them alike |
+| served and hydrated, both emitters | 315 of 315 (57 with a click before the client takes over). Not served: 18 in which the view waits or fails inside a portal — a portal is made by the client alone, so the served page differs from the mount, with or without a context (`w/c10`, on 54571c1d) |
 | Kobalte's `Select`, `Combobox`, `Pagination` in their shape (S-context-8, each a library module and a caller) | run alike in every runner, served and hydrated; types check |
 
 **Kobalte's shape, and where it is not exact.** The caller writes what Kobalte's caller writes: the root with `options` and `itemComponent`, the trigger, the value with a view of the selected option, a portal, the content, the listbox, and in the item's view `SelectItem`, `SelectItemLabel`, `SelectItemIndicator`. Two differences, neither of this proposal: the parts are `SelectItem`, not `Select.Item` (a record of components is not a value in `.rx`: `COMPONENT_AS_VALUE`); a render prop is written `{view itemComponent (props) { … }}`, the form of 25, where TSX writes an arrow.
@@ -76,16 +75,20 @@ Interpreter, oracle, both emitters; both checkers; then the server and hydration
 | rules | RG-4c gains the two forms; no diagnostic added (`VIEW_NOT_SHOWN`, `VIEW_FN_MISPLACED`, `CONTENT_MODEL`, `CONTEXT_NOT_FOUND` say it) |
 | syntax | `<use.name … />` (a tag, as `<props.f … />` is); a function type after `context name:` |
 | signatures | no word; a shape's `…-at` chain may end `use:<context>`, and a shape may say `use:<context>-at …` |
-| code | LINES_27 |
+| code | crate +598 −35, `ref/` +211 −38 on top of 26: the two checkers' link of each place the context is shown to what is given for it, a tag in both emitters, the interpreter, the oracle and the type projection |
 | runtime | none: `provide` and `use` as they are, `__rt.view` and `__rt.opt` of 25 and 26 |
 
 ## Against
 
 - Module-local is a real limit: a design system that splits a root and its parts over files cannot carry a view between them by a context. Lifting it needs the view's requirements in a context's printed contract (what it uses and fails with), which a context of values does not have.
 - The flow skips what the caller writes between the provider and the part: sound, and it refuses the program above.
-- Every provision of the context in the module is taken to be the one shown at every place that shows it: two providers with different needs are checked against each other's places. Sound; none of the 503 programs is refused by it that should run.
+- Every provision of the context in the module is taken to be the one shown at every place that shows it: two providers with different needs are checked against each other's places. Sound; none of the 505 programs is refused by it that should run.
 - A consumer that needs to know whether a view was provided cannot ask (rule 3).
 
 ## What upstream must accept
 
 That a context may hold a view under 26's rule, with the limit of rule 4; and the tag `<use.name … />`.
+
+## Found on the way
+
+The content model let `<li>`, `<dd>`, `<dt>` and `<summary>` inside a `<p>`, which the browser's parser closes for each: found by the HTML programs above (accepted, and the element moved on hydration), on 54571c1d as well; fixed in both checkers (SV-7d).

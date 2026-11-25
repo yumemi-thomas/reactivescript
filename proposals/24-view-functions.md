@@ -24,7 +24,7 @@ A `use` in children's own place bound to the owner that reads them, in the crate
 
 **A context that forwards children.** Nothing is wrong with this program today, and no text says which it is:
 
-<!-- frames branch=refused upstream=pass -->
+<!-- frames branch=fail upstream=pass -->
 ```rx
 context c: string = "out"
 context child: View
@@ -43,7 +43,7 @@ export default component App() { <P>{use c}</P> }
 | --- | --- | --- |
 | 0 | mount | `out` |
 
-`out` on every runner today, the server and hydration included. With the fix, `q` compiled, in the oracle and served; `out` in the interpreter. *Placed* by Q, but *read* by the provision in P.
+`out` on every runner today, the server and hydration included. (On `proto-children-rule` with [27](27-a-context-that-holds-a-view.md), a context declared `View` holds a view, which is made where it is shown: `q` on every runner, so the frame above fails there. With 26 alone the program was refused.) With the fix, `q` compiled, in the oracle and served; `out` in the interpreter. *Placed* by Q, but *read* by the provision in P.
 
 **A read that nothing owns, or that is taken once.** P provides `c = "in"`, the caller has `out`, the children are `{use c}`:
 

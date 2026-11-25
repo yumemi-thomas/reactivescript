@@ -367,7 +367,8 @@ runner; the two answer alike on all 1,642) and now, in the interpreter, the orac
   (65); children that were not written are not given (33); a spread or a rest hands the children on (58); content that is
   a choice of the children follows its branch (46). The class that cost something is gone: the 72 programs of the 979
   that it had changed answer as before the rule again.
-- SSR_P6
+- served and hydrated, in both emitters: 1,642 of 1,642; 378 of them with a click on the served page before the
+  client takes over, replayed after.
 
 The earlier sets on the new code: 1,147: 800 agree, 346 refused, 1 alike in error (as in the first round; 63 changed, the
 same). 979: 822 agree, 157 refused; against before the rule 182 changed (188 in the first round), none of them "not
@@ -390,13 +391,26 @@ and nothing else; not exported. Decided on the way:
 - **`<use.item … />`** for a view with a parameter (a tag, as `<props.f … />`); a context's type may be a function's
   (the parser stopped at `=>`).
 
-Proof: 505 programs with the expected verdict in each name (`../w/mkc.py`, `ckc.py`): PART2_NUMBERS. Kobalte's Select,
+Proof: 505 programs with the expected verdict in each name (`../w/mkc.py`, `ckc.py`): 334 accepted and 171 refused, each as its name says; of the 334 the four runners agree on 333 (one differs in the
+oracle alone, which remakes a kept row of a keyed loop for any applied view, on 54571c1d too); the crate says what the
+reference says of all 505, lowers and projects them alike; served and hydrated in both emitters, 315 of 315 (18 in
+which the view waits or fails inside a portal are not served: a portal is made by the client alone, `../w/c10`). Kobalte's Select,
 Combobox and Pagination in their shape, each a library module and a caller, in every runner; the parts are `SelectItem`,
 not `Select.Item` (a record of components is not a value in `.rx`).
 
+Found by these programs, and fixed in both checkers: the content model let `<li>`, `<dd>`, `<dt>`, `<summary>` inside a
+`<p>` (the parser closes it; so on 54571c1d).
+
 ### Lines
 
-LINES_ALL
+| | c2e34162 | presence redesigned (d2d4f550) | with the widening |
+| --- | --- | --- | --- |
+| crate `compiler/src` | 27,352 | 27,302 (+49 −99) | 27,876 (+598 −35) |
+| `ref/` (src, compile, oracle) | 12,307 | 12,323 (+169 −153, the three runtimes' `ask`, `slot`, `over` with their comments among them) | 12,496 (+211 −38, the type projection included) |
+
+The redesign of the question removed code in both emitters (the arm-by-arm predicate, the wrapper of value arguments)
+and in the interpreter (the side table). The widening is mostly the two checkers: the link of each place a context is
+shown to what is given for it.
 
 ### Suites on the final code
 
