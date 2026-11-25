@@ -1,4 +1,4 @@
-//! What the place of a call shows (DESIGN.md): `instantiates`, `uses`, `provides`, `handler`, `draft`, and the `ref` of a
+//! What the place of a call shows (DESIGN.md): `instantiates`, `uses`, `provides`, `handler`, and the `ref` of a
 //! part. Each is a list of the forms that show it; a form that is not listed shows nothing.
 use super::constant::{static_key, unwrap};
 use super::eval::{FnAt, Types};

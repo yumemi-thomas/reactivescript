@@ -12,16 +12,14 @@ where an answer only you have changes what the checker does: what the row does n
 code does not prove it, with its place.
 
 **Words read from the code.** Seven words are in no type: `pure`, `handler` on a callback, `draft` on a parameter a
-function changes in place, `rejects(E)`, `instantiates`, and a context's `uses(c)` and `provides(c)`. `rx-declare` reads the
+function changes in place, `rejects(E)`, `instantiates`, and a context's `uses(c)` and `provides(c)`. `draft` and `rejects(E)` are yours to write; for the others `rx-declare` reads the
 JavaScript your import resolves to — your own module, a package's shipped ES module (its JSX source where it has a
 `solid` build), as Node and Vite load it — and writes a word **only where the code proves it**:
 
 ```rx
-// Read from the code that runs (MO-8v): 2 pure, 2 handler, 1 rejects, 1 draft, 1 uses, 1 provides — read, not guessed. …
+// Read from the code that runs (MO-8v): 1 pure, 2 handler, 1 uses, 1 provides — read, not guessed. …
 export context tabs
-export pure fn fetchPerson(id: string): Promise<Person> rejects(NotFound)
 export fn onShortcut(key: string, run: handler () => void): () => void
-export fn moveItem<T>(draft list: T[], from: number, to: number): void
 export component Tabs(props: { initial: string; children?: View }) provides(tabs)
 export component Tab(props: { onSelect?: handler (e: MouseEvent) => void; children?: View }) uses(tabs)
 export pure fn sortedBy<T>(ref list: T[], comparator: (a: T, b: T) => number): ref T[]
@@ -32,9 +30,7 @@ export pure fn sortedBy<T>(ref list: T[], comparator: (a: T, b: T) => number): r
   `pure`: that word is still yours to write.)
 - `handler`: every call of the callback is later and outside any owner and computation: a timer, a promise, a
   microtask, an observer, after an `await` nothing passes by; or the platform calls it as a listener (`addEventListener`, `onclick =`, an element's
-  attribute, on an element the function is given too) and the library itself never sends that event while a call of it runs (`el.click()`, `el.focus()`, `dispatchEvent`).
-- `draft`: the function changes that argument in place during the call and keeps nothing.
-- `rejects(E)`: every `throw` it reaches is of a class the module exports.
+  attribute, on an element the function is given too) and no file of the package sends that event (`el.click()`, `el.focus()`, `dispatchEvent`).
 - `handler` on a component's prop: the prop is an element's event, `onClick={props.onPress}` or a closure written there.
   Called while the component renders, or handed to another component, it gets no word.
 - `instantiates`: every path makes what needs an owner (an effect, a cleanup, a context read). Signals and memos alone

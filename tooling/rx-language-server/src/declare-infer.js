@@ -87,7 +87,14 @@ const pkgRoot = f => { for (let d = path.dirname(f); ; d = path.dirname(d)) { if
 
 const notMade = (result, name) => /^(?:Promise\b|\(\s*\)\s*=>\s*(?:void|undefined)\s*$|VoidFunction\s*$)/.test(result) ? "it hands back a promise, or what undoes the call: called in a handler or an effect as well" : /^[A-Z]/.test(name) ? "a component's name" : undefined;
 /** Whether the row's call is an instantiation (MO-10a): a `ref`, or the word itself, written or about to be. */
-const instantiating = (line, row, f) => /\bref\b/.test(line) || /\b(instantiates|uses\()/.test(line.slice(row.close + 1)) || (f.instantiates?.ok && !notMade(/^\s*:\s*(.*)$/s.exec(line.slice(row.close + 1))?.[1] ?? "", row.name));
+const instantiating = (line, row, f) => {
+  const tail = line.slice(row.close + 1), result = /^\s*:\s*(.*)$/s.exec(tail)?.[1] ?? "";
+  if (/\s(?:instantiates$|uses\([^()]*\)$)/.test(tail) || (f.instantiates?.ok && !notMade(result, row.name))) return true;
+  if (row.params.some(part => /\bref\s/.test(named(line, part)?.words ?? ""))) return true;
+  const t = result.trim().replace(/^readonly\s+/, "");
+  const reads = x => /^ref\s/.test(x.replace(/^(?:readonly\s+)?[\w$]+\??:\s*/, ""));
+  return /^ref\s/.test(t) || (t[0] === "[" && split(t, 1, t.lastIndexOf("]"), ",").some(x => reads(x.text))) || (t[0] === "{" && split(t, 1, t.lastIndexOf("}"), ";").some(x => /^(?:readonly\s+)?[\w$]+\??:/.test(x.text) && reads(x.text)));
+};
 /** Whether the part of a result at `path` (the whole, a tuple's item, a record's field) is written a function that answers
  *  nothing, or a promise: one a view may not call. */
 function acts(result, path) {

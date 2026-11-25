@@ -363,13 +363,17 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   } from "solid-marked/component"`, and that name is a component's by its
   capital (07 §4).
 - **MO-8n**, **MO-8v**, **MO-8w (Words a tool writes).** `rx-declare` writes
-  `pure`, `handler`, `draft`, `rejects(E)`, `uses(c)` and `provides(c)` into a
-  draft only where the code an import resolves to proves them, and holds the
+  `pure`, `handler`, `uses(c)` and `provides(c)` into a
+  draft only where the code an import resolves to proves them (`draft` and
+  `rejects(E)` were two more until 2026-11-26), and holds the
   words a file already has against the same reading (`--audit`: proven,
   unproven). No word is written off a name, a shape, a run or a
   list of libraries (ruled 2026-11-24): `ref` is the types' own `Accessor`, or
   proven by the code, as `instantiates` is (the call makes what its owner keeps on every path that returns). Nothing in a checker knows where a word came from.
   What proves each is in DECLARATIONS.md and compiler/words/DESIGN.md.
+  A `pure` fn's answer may hold functions: each is proven to only compute, or
+  the row is an instantiation and the part is one MO-10b refuses in a view. A row TypeScript does
+  not hold (13 TY-6) is left out of a draft.
   Another name of the object is the object (2026-11-24): `t = toast`,
   `{ success } = t` and a field of a record written here call the same
   method, by its row. An alias another module exports is not followed.

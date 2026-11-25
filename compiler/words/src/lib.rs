@@ -89,12 +89,6 @@ pub fn request(params: &Value, read: &Read) -> Value {
     let (spec, from) = (params["spec"].as_str().unwrap_or(""), params["from"].as_str().unwrap_or(""));
     mods.relative.set(spec.starts_with('.') || spec.starts_with('/'));
     let loaded = match hosts(&mods, spec, from) { Ok(l) => l, Err(w) => return json!({ "unread": w }) };
-    if params["stat"] == true {
-        let l = &loaded[loaded.len().min(2) - 1];
-        let ty = Types::new();
-        let p = Place::new(&mods, l.host, l.hi, l.entry, &ty);
-        return json!({ "files": l.files.len(), "patch": p.patches(&l.files).map(|(m, a, w)| format!("{w} {}:{}", mods.get(m).path, mods.get(m).line(a))) });
-    }
     if params["names"] == true {
         let mut all = BTreeSet::new();
         for l in &loaded { match mods.every_name(l.host, l.hi, l.entry) { Some(n) => all.extend(n), None => return json!({ "names": null }) } }

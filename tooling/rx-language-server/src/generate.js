@@ -26,8 +26,8 @@ const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, unde
 // a record that may be absent, MO-10b. 12: no word off a name or a shape — `ref` and `instantiates` are the types' `Accessor` or
 // proven by the code, MO-8v. 13: `instantiates` where the code makes what its owner keeps on every path. 14: that word beside a `ref`, MO-8l.
 // 15: a field typed `Accessor` is `ref` whatever its name; no question, which is for the draft a person keeps. 16: what
-// ECMAScript's own constructors run, by one table: a proxy made and handed back is `pure`)
-const FORMAT = 16;
+// ECMAScript's own constructors run, by one table: a proxy made and handed back is `pure`. 17: no `draft` and no `rejects(E)`; the functions a `pure` fn answers; a row TypeScript does not hold is left out)
+const FORMAT = 17;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
@@ -140,7 +140,7 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
       if (head && head[1] === pkg && head[2] === version && Number(head[3]) === FORMAT && (head[4] ?? "") === stamp) { out.push({ spec, file, status: "current" }); continue; }
     }
     let text;
-    // MO-8v: with the words the package's code proves (`pure`, `handler`, `draft`, `rejects(E)`), each marked: they are
+    // MO-8v: with the words the package's code proves (`pure`, `handler`, `instantiates`, `uses(c)`, `provides(c)`): they are
     // read, not guessed, so an import nothing reviewed still makes the checker accept nothing the code does not show
     try { text = declare(spec, dir, {}, { infer: process.env.RX_DECLARE_INFER !== "0", written: true }); }
     catch (e) {

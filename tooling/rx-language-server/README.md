@@ -93,7 +93,7 @@ npx rx-declare @tanstack/solid-query --out rx-types/@tanstack/solid-query.d.rx
 
 **Words read from the code** (spec/09 MO-8v, `compiler/words`, `src/words.js`, `src/declare-infer.js`). Beside the types,
 the draft reads the JavaScript the import resolves to, under each host that loads it (Node, Vite's client and server), and
-writes a word only where the code proves it: `pure`, `handler`, `draft`, `rejects(A | B)`, `instantiates`, `uses(c)`,
+writes a word only where the code proves it: `pure`, `handler`, `instantiates`, `uses(c)`,
 `provides(c)`, and `ref` on a part that is an accessor. What proves each is in `compiler/words/DESIGN.md`, a line a word;
 what is not listed there gives no word. The draft's second line counts the words it read; no row is marked: `rx-declare
 --audit <file.d.rx>` and `rx-verify` read the code again and say, of every word a declaration has, whether the code proves
@@ -103,8 +103,7 @@ alone.
 
 ```sh
 npx rx-declare ./api.js --why
-# rx-declare: fetchPerson: pure proven — its own code only computes
-# rx-declare: fetchPerson: rejects proven — every throw the code reaches is of NotFound
+# rx-declare: total: pure proven — its own code only computes
 # rx-declare: savePerson: pure not proven — it assigns saves, a variable of the module [api.js:5]
 # rx-declare: onKey: handler(run) proven — called later [api.js:6]
 ```

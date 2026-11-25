@@ -44,7 +44,7 @@ not call a component it is given with no owner at all, and that a `pure`
 fn answers alike with a window and without one (10 SV-7c).
 A word a tool writes into a row is held to a harder bar than one a person
 writes: it is written only where the code proves it (tooling/rx-language-server/DECLARATIONS.md, MO-8v: `pure`,
-`handler`, `draft`, `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)` — read by `rx-declare`
+`handler`, `instantiates`, `uses(c)`, `provides(c)` — read by `rx-declare`
 from the JavaScript an import resolves to), and "probably" is a refusal.
 A change to that reading (`compiler/words`, DESIGN.md there: a list of what is safe)
 comes with the function that shows it in `tooling/rx-language-server/test/words/`:

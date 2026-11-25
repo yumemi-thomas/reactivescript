@@ -364,8 +364,8 @@ reading, or the row is the one it was.
 
 ## Words read from the code that runs (MO-8v, MO-8w)
 
-`pure`, `handler`, `draft`, `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)` and the `ref` of a part only shaped as
-an accessor are in no type. `rx-declare` writes one where the code an import resolves to proves it, and nowhere else.
+`pure`, `handler`, `instantiates`, `uses(c)`, `provides(c)` and the `ref` of a part only shaped as
+an accessor are in no type (nor are `draft` and `rejects(E)`, which are asked: a person's). `rx-declare` writes one where the code an import resolves to proves it, and nowhere else.
 The proof is a crate's, `compiler/words`; **what it reads, what each word proves and what is assumed is in
 `compiler/words/DESIGN.md`**, a line a word. It is a list of what is safe: whatever is not on it gives no word. A missing
 word costs a question; a wrong one accepts a wrong program or refuses a correct one.
@@ -376,6 +376,10 @@ say of each parameter, read through tsrs in batches. `src/declare-infer.js` writ
 **What is written off the types, and what is not.** No word comes off a name (`create…`, `use…`), a shape or a list of
 libraries. `ref` on a result or a parameter is the type's own `Accessor<T>` (`SourceAccessor<T>`, a union with one, an
 alias of one); of a part only shaped as one, the code's. `Component`, `error` and `View` are the types' own.
+
+**A row is held to the types.** Every row a draft has is checked against the module as `rx-tsc` checks it (TY-6); one TypeScript refuses is left
+out, with a comment, and its export is as an undeclared import's. A result's part that may be absent, or be another value, is no `ref` and no
+bare function: it is its type's own text.
 
 **A context's row, and its name.** A word names a context the draft declares itself (`export context tabs`): one the
 module exports by its export's name (`RouterContext` → `router`), any other by the name the code binds it to, or by the
@@ -413,27 +417,31 @@ It never says that a word is false (until 2026-11-26 it did): the reading follow
 argument may be on one no call takes. What shows a word false is a run.
 
 **`rx-verify` runs each.** A `pure` fn is called (with a probe's arguments, or none) and must change nothing it was given —
-its data, and what the accessors among its arguments answer; one the code proves must also leave no new global and ask
-neither `Date.now()`, `performance.now()` nor `Math.random()`. A `handler` is called by the probe's act: not while the call
+its data, and what the accessors among its arguments answer; it must also (a primitive's aside) leave no new global, ask
+neither `Date.now()`, `performance.now()` nor `Math.random()`, leave the page as it is, answer the same after the other fns the probe has arguments for, and what it answers must not be
+changed by a timer it left to run. `instantiates`: called with no owner under Solid's development build, which must report it (a mismatch where the word was read from the code). A `handler` is called by the probe's act: not while the call
 runs, not in a computation, and with no owner (one called under an owner is a mismatch). A `rejects(E)` is run with the
 probe's arguments and its failing ones, and what it rejects with must be a class of the row. `uses(c)`: the hook with no
-provider must throw. `provides(c)`: a part mounted alone must fail and inside its provider must not. A `draft` must change
-during the call and not after. `held` is said of a claim the code proves, or of one a run of that kind could have refuted;
-anything else is `unverified`. One observation the other way is a mismatch, whoever wrote the word; against a word the code
+provider must throw. `provides(c)`: a part mounted alone must fail and inside its provider must not, in its children and in every other view it is given. A `draft` must change
+during the call and not after, and not be kept. `held` is said of a claim a run of that kind could have refuted; `read`, of a `pure` the code proves;
+anything else is `unverified`, a word the code proves and nothing ran among it. One observation the other way is a mismatch, whoever wrote the word; against a word the code
 proves, it is a defect of `rx-declare`.
 
 **What changed on 2026-11-26.** The reading was `src/infer.js`, 2,283 lines over TypeScript's parser. It followed
 everything but a list of shapes known unsafe, and the list was found incomplete twice: of 671 packages written to break it,
 about 190 drafts had a false word. The new one has none on those 671, nor on the 757 written against it. Over the 193
 modules of the coverage suite (rows with the word, before → after): `pure` 421 → 296, `instantiates` 376 → 226, `handler`
-984 → 971, `uses` 25 → 1, `provides` 37 → 1, `draft` 1 → 0, `rejects` 0, `ref` parts 435 → 438. `handler` was 10 until a listener given to the platform had the
+984 → 971, `uses` 25 → 1, `provides` 37 → 1, `draft` 1 → 0, `rejects` 0, `ref` parts 435 → 438. (A third review, the same day, found 13 false `pure`, 47 `handler`,
+23 `draft`, 16 `provides`, 9 `instantiates`, 4 `uses` and 5 `rejects` in 1,275 packages, and a hole: a view may call a function of a `pure` fn's answer. `draft` and `rejects` are no longer written, and over the same 193
+modules `pure` is 126, `instantiates` 218, `handler` 943, `uses` and `provides` 0: of the 170 `pure` rows lost, 96 are controllers, made of functions that keep state. None is false over those 1,275, the 1,900 before and 900 written around each fix.) `handler` was 10 until a listener given to the platform had the
 standing of a JSX handler (compiler/words/DESIGN.md, *A listener*); the two false ones (`toEffect`, `workerScope`) stay out. What was lost and was true: makers of signals
 alone or on one path (no owner is needed there), `pure` fns that read `getOwner`, register `onSettled`, make a class in the
 call, or read a module object that something else can write.
 
 Executable: `test/words.js` (the rows, the questions, `--why`, both checkers, `rx-verify` over rows that claim what their
-code does not do), `test/words-audit.js`, and `test/words-cases.js` over `test/words/cases.json` (the 576 functions the old
-reading's four tests had, refused and proven) and `test/words/adversarial.json` (1,753 packages, 475 of them about a listener; facts found by running where a run can show them).
+code does not do), `test/words-audit.js`, and `test/words-cases.js` over `test/words/cases.json` (516 functions the old
+reading's four tests had, refused and proven), `test/words/adversarial.json` (1,661 packages, 475 of them about a listener; facts found by running where a run can show them)
+and `test/words/review.json` (1,750 more: the third review's, and those around each fix of it).
 `bench/tasks/primitives-state` and `bench/coverage/primitives/sortable` hold a word that was false (`createSorted`, declared
 `pure` by hand) as a variant `rx-verify` must report.
 
