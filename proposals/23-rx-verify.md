@@ -4,7 +4,7 @@ Needs whatever words are taken. Proposed: the tool that refutes. **Not proposed:
 
 A row is an assertion (CN-5). Nothing says that it is false. `rx-verify kit.d.rx` runs each claim against the module:
 
-<!-- tool branch=failed upstream=- tool=verify args=kit.d.rx says-branch="pure is contradicted by the code" -->
+<!-- tool branch=failed upstream=- tool=verify args=kit.d.rx says-branch="sorted: declared pure, but when it is called it changes what it is given" -->
 ```text
 export default component App() { <p>a</p> }
 -- file: ./kit.js
@@ -13,10 +13,12 @@ export function twice(n) { return n * 2; }
 -- file: ./kit.d.rx
 export pure fn sorted(xs: number[]): number[]
 export pure fn twice(n: number): number
+-- file: ./kit.probe.mjs
+export const probes = { sorted: { args: () => [[2, 1]] } };
 ```
 
 ```text
-kit.d.rx:1 MISMATCH   sorted: pure is contradicted by the code: it changes its argument `xs` in place (.sort()) [kit.js:1]
+kit.d.rx:1 MISMATCH   sorted: declared pure, but when it is called it changes what it is given ([2,1] to [1,2])
 kit.d.rx:2 read       twice: pure is read from the code (its own code only computes: what a getter or a callback among its arguments does is the caller's), which was not run
 ```
 
