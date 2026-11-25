@@ -1,3 +1,4 @@
 // atom.js: solid-use's atom is the module's default export, and one function that reads and writes; here it is a reader
-// and a setter (09 MO-8r: a module of the app's own). Read from the code by rx-declare (09 MO-8v; it was by hand): every word.
-export pure fn createAtom<T>(init: T): [ref T, (value: T) => void]
+// and a setter (09 MO-8r: a module of the app's own). Read from the code by rx-declare (09 MO-8v): its reader.
+// No `pure`: solid-use's atom runs a first value that is a function, which `T` does not rule out; no program here needs it.
+export fn createAtom<T>(init: T): [ref T, (value: T) => void]

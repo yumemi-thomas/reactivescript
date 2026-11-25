@@ -257,7 +257,12 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     can refute and not establish, is never held: it is `read` where the fn's
     own code only computes and no run refutes it. The word is an assertion
     (CN-5) of the fn's own code; what a getter, a proxy or a callback among
-    its arguments does is the caller's. `rejects` is run under failing arguments. A `ref` part answers
+    its arguments does is the caller's. A callback is a function where the
+    row shows one that answers something (MO-10g: a parameter, a field of a
+    record parameter, a rest parameter's item): the caller is told what it
+    gives. A function the fn *finds* in what it is given (`x.items.forEach(g
+    => g())`) and runs, and one that answers nothing, is run by the fn, and
+    `pure` is not read off such code (2026-11-25). `rejects` is run under failing arguments. A `ref` part answers
     alike when read twice, and one that is `pending` is seen to wait. `provides:c`
     holds for what is made under the component later, too. What a run holds is
     run again over the module changed so that the claim is false, and must not

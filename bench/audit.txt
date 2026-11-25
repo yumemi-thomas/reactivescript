@@ -1,14 +1,15 @@
 The tasks' declarations, every behaviour word (pure, handler, draft, rejects, uses, provides, nests, renders) held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
 
-77 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
+74 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
 0 contradicted: the code shows the opposite.
-56 the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.
+57 the code neither shows nor refutes: a person's word, with the first thing the reading stops at — what to check.
   file-routes/rx-types/@solidjs/router.d.rx: useParams: uses(router) — it reads RouterContextObj on some path only, or when what it hands back is called [@solidjs/router/dist/routing.js:37]
   file-routes/src/people.d.rx: getPerson: pure — it calls getCache, which is not proven: it reads cacheMap, a value of the module that is changed in place (.delete()) [query.js:81]: state that changes [@solidjs/router/dist/data/query.js:88]
   file-routes/src/people.d.rx: getPerson: rejects(NotFound) — a call, a callback or a thrown value whose class the code does not show adds `Error`
   file-routes/src/router.d.rx: Router: provides(router) — children is read outside the provider: children is read [@solidjs/router/dist/routers/factory.jsx:254] — check that children holds no view, or (a function) is called only among the provider's children
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: Toast: provides(toast) — onKeyDown is read outside the provider: onKeyDown is read [@kobalte/core/dist/toast/BZZ7jdbA.jsx:293] — check that onKeyDown holds no view, or (a function) is called only among the provider's children
   kobalte-toast/rx-types/@kobalte/core/toast.d.rx: toaster.show: renders(Toast.List) — where the library renders what it is given is not read: a value kept in the module's state is followed no further
+  primitives-state/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — it calls a call through a computed member [@solid-primitives/static-store/dist/index.js:38]
   query-forward/query.d.rx: useQuery: uses(queryClient) — it calls useLibraryQuery, of @tanstack/solid-query: code that is not read [query.js:6]
   query-forward/rx-types/@tanstack/solid-query.d.rx: QueryClientProvider: provides(queryClient) — it renders a component that is not read, or its props go where they are not followed
   query-mutation/api.d.rx: fetchTodo: pure — it reads seen, a value made by code that runs when the module loads: not known to be a constant [api.js:8]

@@ -220,7 +220,8 @@ const reason = f => f.unread ?? f.why.map(w => w.why).join(" | ");
 console.log("pure: each of these does one thing the word must not cover, and is refused");
 for (const [name, [code, says]] of Object.entries(PURE_BAD)) { const f = facts(name, code); ok(`${name}: not pure`, !f.unread && f.pure === false && says.test(reason(f)), f.unread ?? (f.pure ? "PROVEN PURE" : reason(f))); }
 console.log("pure: the honest twins are proven");
-for (const [name, code] of Object.entries(PURE_GOOD)) { const f = facts(name, code); ok(`${name}: pure`, f.pure === true, reason(f)); }
+// (a first value whose type is data: a signal given a function runs it)
+for (const [name, code] of Object.entries(PURE_GOOD)) { const f = facts(name, code, /^(primitive|guarded)$/.test(name) ? { shape: () => "data" } : undefined); ok(`${name}: pure`, f.pure === true, reason(f)); }
 
 console.log("handler: one call that is not later, or one place the callback goes that is not followed, and there is no word");
 { // …what the row's type says a parameter is; and the other words a proxy must not be taken for a plain value by
@@ -337,14 +338,14 @@ ok("…with no line above it (MO-8w): which words were read is said once, at the
 ok("…and neither question is asked", !/TODO fetchPerson/.test(draft));
 ok("one that writes and fetches is io, and its question stays", rowOf("savePerson") === "export fn savePerson(id: string, name: string): Promise<Response>" && /TODO savePerson: io as drafted, .*\n\/\/ TODO savePerson: its promise rejects with Error as far as/.test(draft), rowOf("savePerson"));
 ok("a callback given to a listener: `handler`", rowOf("onKey") === "export fn onKey(key: string, run: handler () => void): () => void", rowOf("onKey"));
-ok("a callback called while the call runs: no `handler` — and the fn is `pure`, as a fn that only calls the pure function it is given is", rowOf("each") === "export pure fn each(list: number[], visit: (n: number) => void): void", rowOf("each"));
+ok("a callback called while the call runs: no `handler`; one that answers nothing is run for what it does: no `pure`", rowOf("each") === "export fn each(list: number[], visit: (n: number) => void): void", rowOf("each"));
 ok("a record's callbacks, each by what the code does with it", rowOf("watch") === "export fn watch(opts: { onStart: () => void; onChange: handler (n: number) => void }): void", rowOf("watch"));
 ok("…and the question about them is not asked: one is a handler, the other is called while the call runs", !/TODO watch/.test(draft), draft.split("\n").filter(l => /TODO watch/.test(l)).join("\n"));
 ok("a parameter changed in place: `draft`, and no question", rowOf("moveItem") === "export fn moveItem<T>(draft list: T[], from: number, to: number): void" && !/TODO moveItem/.test(draft), rowOf("moveItem"));
 ok("a parameter only read: `pure`, no `draft`", rowOf("total") === "export pure fn total(list: number[]): number", rowOf("total"));
 ok("a parameter never changed, in a fn that answers nothing: the question is not asked", rowOf("log") === "export fn log(list: number[]): void" && !/TODO log/.test(draft), draft.split("\n").filter(l => /TODO log/.test(l)).join("\n"));
 ok("a primitive by its name that only computes: `pure`, and the name's question is not asked", /^export pure fn createCounter\(/.test(rowOf("createCounter")) && !/TODO createCounter/.test(draft), rowOf("createCounter"));
-ok("the draft says how many words were read from the code", /^\/\/ Read from the code that runs \(MO-8v\): 5 pure, 2 handler, 1 rejects, 1 draft/m.test(draft), draft.split("\n")[1]);
+ok("the draft says how many words were read from the code", /^\/\/ Read from the code that runs \(MO-8v\): 4 pure, 2 handler, 1 rejects, 1 draft/m.test(draft), draft.split("\n")[1]);
 ok("several signatures that are one row to the checker: a note for --explain, not a question", !/TODO fmt/.test(draft) && /rx-declare: fmt: 2 signatures in the library's types/.test(r.stderr), draft + r.stderr);
 ok("…and a question where they differ in what the checker reads (a callback first in one, second in the other)", /TODO sub: one of 2 signatures/.test(draft), draft);
 ok("--why: each word proven with what shows it", /fetchPerson: pure proven/.test(r.stderr) && /onKey: handler\(run\) proven — .*\[api\.js:6\]/.test(r.stderr), r.stderr);

@@ -1,2 +1,3 @@
-// Read from the code by rx-declare (09 MO-8v; it was by hand): every word (the module is the app's own).
-export pure fn createAtom<T>(init: T): [ref T, (value: T) => void]
+// Read from the code by rx-declare (09 MO-8v; it was by hand): its readers. No `pure`: solid-use's atom runs a first value that is
+// a function, which `T` does not rule out; no program here needs it.
+export fn createAtom<T>(init: T): [ref T, (value: T) => void]

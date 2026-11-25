@@ -114,7 +114,31 @@ function paramTypes(ts, checker, mod, imp, name) {
     if (ts_.some(x => x && methods(x))) objects.add(i);
     if (ts_.some(x => x && own(x))) opaque.set(i, "self"); else if (ts_.some(x => x === null || (x && parts(x)))) opaque.set(i, "parts");
   }
-  return { plain, lists, opaque, objects };
+  /** What the type at a place of a parameter (`path`: the fields to it) says of functions: "void" — one that answers
+   *  nothing; "fn" — one; "data" — none, in it or in what it holds; "param" — a type parameter's; "any" — nothing. */
+  const shapeOf = (x, depth = 0, seen = new Set()) => {
+    if (x.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return "any";
+    if (isPrim(x) || x.flags & ts.TypeFlags.Never) return "data";
+    const worst = ks => ["void", "any", "fn", "param"].find(k => ks.includes(k)) ?? "data";
+    if (x.isUnionOrIntersection()) return worst(x.types.map(y => shapeOf(y, depth, seen)));
+    if (x.flags & ts.TypeFlags.TypeParameter) { const c = checker.getBaseConstraintOfType(x); const k = c && c !== x && !(c.flags & ts.TypeFlags.Unknown) ? shapeOf(c, depth + 1, seen) : "param"; return k === "data" && !(c && isPrim(c)) ? "param" : k; }
+    const calls = x.getCallSignatures();
+    if (calls.length) { const gone = t => t.isUnion() ? t.types.some(y => y.flags & ts.TypeFlags.Void) || t.types.every(gone) : !!(t.flags & (ts.TypeFlags.Void | ts.TypeFlags.Undefined | ts.TypeFlags.Never)) || (t.symbol?.name === "Promise" && checker.getTypeArguments(t).some(gone)); return calls.some(g => gone(checker.getReturnTypeOfSignature(g))) ? "void" : "fn"; }
+    if (x.getConstructSignatures().length) return "fn";
+    if (seen.has(x)) return "data"; seen.add(x);
+    if (depth > 4) return "any";
+    if (checker.isArrayType(x) || checker.isTupleType(x)) return worst(checker.getTypeArguments(x).map(y => shapeOf(y, depth + 1, seen)));
+    if (!(x.flags & ts.TypeFlags.Object)) return "any";
+    if ((x.symbol?.declarations ?? []).length && x.symbol.declarations.every(lib)) return worst(["data", ...(checker.getTypeArguments(x) ?? []).map(y => shapeOf(y, depth + 1, seen))]);
+    const ps = x.getProperties(); if (ps.length > 60) return "any";
+    const k = worst([...ps.map(p => shapeOf(checker.getTypeOfSymbolAtLocation(p, imp), depth + 1, seen)), ...checker.getIndexInfosOfType(x).map(j => shapeOf(j.type, depth + 1, seen))]);
+    return k === "void" ? "fn" : k;
+  };
+  const shape = (i, path) => {
+    const ks = sigs.map(g => { const ps = g.getParameters(); const last = ps[ps.length - 1]; const rest = last?.valueDeclaration && ts.isParameter(last.valueDeclaration) && last.valueDeclaration.dotDotDotToken; const p = ps[i] ?? (rest ? last : undefined); if (!p) return undefined; let t = checker.getTypeOfSymbolAtLocation(p, imp); for (const f of path) { t = checker.getNonNullableType(t); const q = checker.getPropertyOfType(t, f); if (!q) return "any"; t = checker.getTypeOfSymbolAtLocation(q, imp); } return shapeOf(t); }).filter(Boolean);
+    return ["void", "any", "fn", "param"].find(k => ks.includes(k)) ?? (ks.length ? "data" : "any");
+  };
+  return { plain, lists, opaque, objects, shape };
 }
 
 /** The props of the component `name` that may hold a view — an element, a component, a function that gives one, a list
