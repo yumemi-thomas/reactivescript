@@ -451,3 +451,43 @@ vite-types, wardic, formisch, ssr-router, start, proposals. 2 fail in a second f
 
 Not run: the UI SDK's unit tests (vitest) and toolbar specs; the twelve packages' own suites; Windows and Linux; nothing
 on GitHub. The 3,802 and the 635 were not served again (their accepted programs were in the first round).
+
+## After the third independent review (2026-11-26, `../review-opus2/REVIEW.md`: 2,452 programs)
+
+Its verdict: the rule (a view is shown only) is ready; presence, a provision of itself and a context that holds a view
+each needed fixes first. Each finding was reproduced with the review's own programs, then fixed or decided.
+
+| finding | what was done | where it is held |
+| --- | --- | --- |
+| 1. while a view is asked for, `slot` answered a frozen `[]`: JavaScript that keeps its first read (a getter that makes once, `icon ??= <Card />`, `k ??= props.children`) showed nothing for ever, on the server and after hydration | **fixed**: it answers its own maker, a function, which Solid shows as a child. `GIVEN` and `slot`'s `when` are gone | `compiler/test/js-host.mjs`: eight shapes, the server, both builds, hydration |
+| 2. `provide c = f(use c)` by a switch of the runtime (`__rt.over`): wrong through a name (froze on the first update, on main and PR #1 too), with two contexts of one block (one answer when made, another after an update), in a closure (overflow), for a `use` written before the `provide` | **redesigned**, the switch is gone. *Decided:* a `use c` written in what `provide c` is given is what is above that provision, in a closure there too — the text's, compiled as a read made before the block provides. A block's provision is the block's wherever it is written (the emitters and the oracle make it first; the interpreter always did). Through a name, a second context of the block, or a default of itself: `CYCLE`, with the rewrite in its message. Nothing above and no default: `CONTEXT_NOT_FOUND`. PR #1 refused the direct form (`CYCLE`, bug 40) and accepted the one through a name, which froze: here the direct form is the way to write a merging provider (`provide theme = { ...(use theme), fg: props.fg }`), and the frozen one is refused | S-context-9; `compiler/tests/cli.rs`; the review's 188 programs: none differs |
+| 3. a context that holds a view: a recursive type refused ("another type") | **fixed**: the checkers ask that both are a view with a parameter; whether the types are one is the type pass's (recursive, fields in another order, `Array<T>`, a view that asks for less) | S-context-10 |
+| 4. `provide body = c ? p.a : p.b` (and `??`, `\|\|`, `: undefined`) shown in a `<tbody>`: `CONTENT_MODEL` | **fixed**: a choice of the component's views holds no text. `flag && p.a` and `: null` stay refused, rightly: `false` and `null` are shown as text | S-context-10; 28 of the review's 42 accepted and served alike, 14 rightly refused |
+| 5. an optional view given to a context: the type pass refused it, so Kobalte's `itemComponent?.()` could not be written | **fixed**: provided as it is; where it was not given nothing is shown | S-context-10, `test/tsc.js` |
+| 6. the checkers' time: providers of one view context nested (6: more than 20 s) | **fixed**: what was placed once under the same ancestors and providers is placed (14: 0.02 s) | `compiler/tests/cli.rs` |
+| 7. `<use.item />` without a required argument: said by no tool but the types runner | **fixed**: reported at its tag | `test/tsc.js` |
+| A. `if p.l ?? p.r`, `if c ? p.l : p.r`: refused, accepted through a name | **fixed**: a choice or a default of views is asked as one is | S-context-10; 36 of the review's programs |
+| spec 03 and proposals/26 on content: "any other expression is a value and answers as JavaScript has it" is false of content | **corrected**: a value written as content is its text and was given; `{""}` alone is nothing. In one sentence, in spec 03 | S-context-10 |
+| found here: `p.l != undefined` of a view given `null` — not given in compiled code and the oracle, given in the interpreter | **fixed**: the language's `!=` is strict, and so is the question | S-context-10 |
+| found here: `context item: ((row: T) => View)`, the type in parentheses, was no context that holds a view | **fixed** | S-context-10 |
+| `renderItem={use item}`, the view given on as an argument (Kobalte's own line) | **refused still** (decided: not simple — it is a rewrite of the program every runner reads, in two implementations). Written `{view renderItem (q) { <use.item item={q.item} /> }}` | proposals/27 |
+| the root and the part that shows the view in two modules | **refused still** (decided: not simple — an exported context would need its view in its printed contract). The two live in one module; the other parts anywhere | proposals/27 |
+| a provision the caller writes between the provider and the part | refused still, as stated in 27; Kobalte itself has none (the review's census) | proposals/27 |
+| old, on main too: `<Q l="o" {...(s ? { l: undefined } : {})} />` — the interpreter keeps `o`, compiled code takes the spread's `undefined` | **not fixed** | the review's `p2-spr-over` |
+
+### Measured on the final code (`scripts/matrix.mjs` of the speed branch; interpreter, oracle, both emitters, both checkers alike, lowered alike)
+
+| set | before these fixes (538b0392) | after | what moved |
+| --- | --- | --- | --- |
+| the review's presence sets: p1 506, p2 474, p3 408 | 483 / 352 / 344 agree | 483 / 388 / 344 agree | p2: 36 from refused to alike (finding A). No output changed |
+| the review's row-state and explicit-view sets: s1 149, e1 98 | 98 / 74 agree | the same | nothing (s1's 51 are the oracle alone, which remakes kept rows of an applied view, as said above; 3 are older than the branch) |
+| the review's view-context sets: v1 265, m1 168, t1 96, y1 26, k1 15 | 256 / 113 / 42 / 17 / 11 agree | 258 / 113 / 70 / 22 / 11 agree | v1: 2 (a recursive type); t1: 28 (a choice in a table; 14 stay refused: `false` is text); y1: 5 (types by the type pass); k1: the 4 refused are the three limits of 27 and one of 26 |
+| the review's provisions of themselves: o1 167, o2 13, o3 8 | 129 agree, 25 differ, 6 stopped; 4 agree, 5 differ, 4 stopped; 4 agree, 1 differ, 1 stopped | 149 agree, 8 refused, 5 error text (the review's own syntax), 5 refused whose oracle run does not end (it runs what the checkers refuse); 7 agree, 6 refused; 5 agree, 3 refused | no runner differs on any accepted program |
+| 1,642 (presence) | 1,642 agree | 1,642 agree | nothing |
+| 1,147 | 800 agree, 346 refused, 1 threw alike | 800 agree, 347 refused | the one that threw (*no provision*) is `CONTEXT_NOT_FOUND` |
+| 979 | 822 agree, 157 refused | the same | nothing |
+| 505 (a context that holds a view) | 333 agree, 170 refused | 334 agree, 169 refused | one more accepted; the one "differ" is the oracle's kept rows |
+
+What is weaker than before: nothing is accepted that was refused for a reason that still holds, by the sets above.
+What changed its answer on purpose: a closure written in a provision reads what is above it (it read the provision);
+`x = use c; provide c = x` is `CYCLE` (it froze); `slot` has no `when`.
