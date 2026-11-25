@@ -39,7 +39,7 @@ export component StringProp(props: Field) {
 
 export type Option = { key: string; value: any }
 /** The rows of a select: a list of values, an object, or an enum (whose reverse entries are dropped). */
-fn optionsOf(o: any): Option[] => isArray(o) ? o.map((v) => ({ key: `${v}`, value: v })) : (isEnum(o) ? names(o).map((k) => [k, o[k]]) : entries(o)).map((e) => ({ key: e[0], value: e[1] }))
+fn optionsOf(o: any): Option[] => isArray(o) ? o.map((v: any) => ({ key: `${v}`, value: v })) : (isEnum(o) ? names(o).map((k) => [k, o[k]]) : entries(o)).map((e) => ({ key: e[0], value: e[1] }))
 fn isEnum(o: any): boolean => keys(o).every((k) => k === o[o[k]]?.toString())
 fn names(o: any): any[] => entries(o).reduce((items: any[], e) => items.includes(e[0]) ? items : [...items, e[1]], [])
 export component SelectProp(props: { name: string; value: () => any; setValue: (v: any) => void; options: any }) {

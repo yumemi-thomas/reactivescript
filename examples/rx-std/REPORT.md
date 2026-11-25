@@ -49,3 +49,4 @@ Facade, 203: result's shape 63, imports and re-exports 41, options and optional 
 5. A type imported from a module with no `.d.rx` (`./types.js`, types alone) stays a value import: `rx-lib` refuses the package.
 6. `x != null` is true of `undefined` (`==` is by value): a helper moved from JavaScript changes in silence. Two tests caught it here.
 7. A record written as an equation is handed to JavaScript part by part; written as a fn's result it is one value. One test suite caught it.
+8. The tree-sitter grammar has no type predicate as a result (`x is any[]`), which the crate reads: `is` answers `boolean`.
