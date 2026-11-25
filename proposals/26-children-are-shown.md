@@ -41,7 +41,7 @@ RG-4c's first sentence is replaced; 08's stands.
 
 Shown twice is made twice, and what is hidden is disposed:
 
-<!-- frames branch=pass upstream=fail -->
+<!-- frames branch=pass -->
 ```rx
 context c: string = "out"
 component Seen() { source n := 0
@@ -60,9 +60,9 @@ export default component App() { <Twice><Seen />{use c}</Twice> }
 | 1 | handler `on := false` | `in0in` | |
 | 2 | handler `on := true` | `in0indeep0deep` | log(made) |
 
-Asked for, content is not made (on upstream the `if` makes it, and makes it again to show it: a hydration key miss with an element in it):
+Asked for, content is not made (the independent review found that on upstream the `if` makes it, and makes it again to show it: a hydration key miss with an element in it; not run on upstream here):
 
-<!-- frames branch=pass upstream=fail runner=ssr -->
+<!-- frames branch=pass runner=ssr -->
 ```rx
 component Opt(p: { children?: View }) { {if p.children { <div>{p.children}</div> } else { <i>none</i> }} }
 component Made() { effect () { log("made") }
@@ -74,7 +74,7 @@ export default component App() { <Opt><Made /></Opt><Opt /> }
 | --- | --- | --- | --- |
 | 0 | mount | `xnone` | log(made) |
 
-<!-- check branch=VIEW_NOT_SHOWN upstream=ok -->
+<!-- check branch=VIEW_NOT_SHOWN -->
 ```rx
 context c: string = "out"
 component P(p: { children: View }) { provide c = "in"
@@ -92,14 +92,19 @@ export default component App() { <P>{use c}</P> }
 | programs | before (54571c1d) | with this |
 | --- | --- | --- |
 | 1,147 generated (37 ways to show children × 15 forms of content × a default or a provision above; the 1,116 of bugs/33 and one receiver added since) | 375 refused, 592 agree, 180 accepted and different | 346 refused, 800 agree, 1 on which all throw alike (`provide c = use c` with nothing above: the check does not look above a provision, as before) |
-| … served and hydrated | not run | 800 of 800 |
+| … served and hydrated | not run | 800 of 800, in both emitters |
 | 635 of the earlier reviews | 308 refused, 234 agree, 85 different or not compiled, 8 on which all fail alike | 267 refused, 328 agree, 31 different or not compiled, 9 alike; none that agreed is now different |
+| 3,802 of the independent review (three runners before) | 1,590 refused, 1,629 agree, 583 different or not compiled | 2,163 refused, 1,529 agree, 110 different or not compiled; none that agreed is now different; 1,099 newly refused, each `VIEW_NOT_SHOWN` |
 
 Of the 346 refused, 106 were accepted and different before, 7 were refused already (5 a `CONTEXT_NOT_FOUND`), and **233 showed the same in every runner before**: a view through a context (66), a snapshot (78), an effect (30), a handler (31), a closure (14), a record (14). They agreed on the caller's reading of a single mount; shown twice, or hidden and shown, a record and a list are made once compiled and at each place in the interpreter (6 of 134 probes written for it).
 
 What is still different is older and not of children: the oracle prints a portal's and a list's items as `[null]`; the interpreter does not wait for a pending attribute; a closure as children that is also shown ([34](bugs/34-closure-as-a-child.md)).
 
-No program of this tree, of upstream's, of the benchmark or of the guide changes verdict but the two scenarios that held the old reading (S-context-4, S-context-5, rewritten).
+No program of this tree, of the benchmark or of the guide changes verdict but the two scenarios that held the old reading (S-context-4, S-context-5, rewritten). Of the twelve packages and the UI SDK rewrite (47 files), two lines of the UI SDK's dialog change: `viewOf(props.children)` of children declared `View`, written `{props.children}`; its suite (44), its leak gates (5) and its table of mistakes (12) are as before.
+
+**The rule is of a prop declared `View` where the checker reads the type** (written out, a type of the module, one imported from `.rx`). What a type of JavaScript hides is as it was, as in 25: the UI SDK's `import("./bridge.js").ToggleProps` and its `viewOf(props.children, now)` are untouched, and a snapshot there is still accepted.
+
+**Cost at run time**: 1,000 rows with content, mount / reverse / change all: 1.4 / 0.8 / 0.6 ms before and after; rows that ask `if props.children`: 2.9 / 1.0 / 1.4 before, 2.2 / 0.9 / 0.8 after. The module: 23 bytes more of 1,492.
 
 ## What is refused, and what is written instead
 
@@ -144,8 +149,8 @@ In the prototype the two rules still have their own code (`otherMention`, `viewU
 | | |
 | --- | --- |
 | rules | RG-4c's sentence replaced; one diagnostic in, one out (`AMBIGUOUS_CONTEXT`) |
-| code removed | the crate's gate on awaits (92 lines); the ambiguity check is dead in both checkers (with `apart(…)` in a printed signature, about 150 lines, not yet deleted) |
-| code added | the walk that finds a view read as a value, twice (about 110 lines of `ref/`, 290 of the crate); content emitted as a block, and "was it given" (about 60 lines in each emitter, 25 in the oracle, 15 in the interpreter, 6 in each runtime) |
+| code removed | the crate's gate on awaits (92 lines), the ambiguity check (33); `apart(…)` in a printed signature and what computes it are dead (about 150 lines), not yet deleted |
+| code | crate +411 −141, `ref/` +222 −44: the walk that finds a view read as a value, with its messages (309 lines of the crate, 100 of `ref/`); content emitted as a block, and "was it given" |
 | a reader learns | a view is shown; each place has its own |
 
 ## Against

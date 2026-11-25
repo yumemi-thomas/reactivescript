@@ -1291,7 +1291,7 @@ pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], vie
     }
     let text = props_type.map(|t| expand_type(t, types, 0));
     let ct = text.as_deref().and_then(|t| field_type(t, "children"));
-    let child_view = !skip.iter().any(|f| f == "children") && ct.as_ref().is_none_or(|(t, _)| is_view_type(t));
+    let child_view = !skip.iter().any(|f| f == "children") && ct.as_ref().is_some_and(|(t, _)| is_view_type(t)); // declared `View` where the type is read
     let mut views = HashSet::new();
     if let Some(t) = &text {
         view_fields(t, &[], 0, &mut views);

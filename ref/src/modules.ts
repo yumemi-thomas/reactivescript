@@ -560,7 +560,7 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
   const kids = new Set<unknown>(), bad: { field: string; line: number; how: string }[] = [];
   const text = d.propsType === undefined ? undefined : expandType(d.propsType, types);
   const ct = text === undefined ? undefined : fieldType(text, "children");
-  const childView = !skip.has("children") && (!ct || isViewType(ct.type));   // children typed as a function are a function (bug 34): called, as they were
+  const childView = !skip.has("children") && !!ct && isViewType(ct.type);   // declared `View` where the type is read: children typed as a function are a function (bug 34), and what a type of JavaScript hides is as it was
   const views = new Set([...viewFields(text, [])].filter(f => !skip.has(f)));
   const names = new Map<string, Given>([[d.props, { props: { less: [], views } }]]);
   const look = (n: string) => names.get(n);

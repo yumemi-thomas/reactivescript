@@ -142,3 +142,5 @@ A view is a block, so what is hard for plain children is right by what exists: a
 ## What upstream must accept
 
 That RG-4c's function prop makes markup, by `view`, and is applied. If it is to be called instead, this is not it. MO-11k's `view` for JavaScript components stands alone either way.
+
+**With [26](26-children-are-shown.md)** (`proto-children-rule`): rule 3 is of all content, not of children declared `View | ((s: T) => View)` alone; "named nowhere else" is 26's list; and `if props.children` of such children could be accepted, since asking makes nothing there. What 26 does not give is a view carried by a context to a part the caller places (Kobalte's `Select`): with a parameter it needs an application through what a context gives, and its placement in both checkers.

@@ -88,6 +88,7 @@ Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bug
 | [21](21-locals-in-fns.md) locals in fns | a question; prototyped (`proto-locals` a1c93632, not published) | – | – |
 | **children** | | | |
 | [25](25-views.md) views | a component shows what it is given with what it knows; prototyped (`proto-children`, not published) | medium: three libraries, one rewritten | – |
+| [26](26-children-are-shown.md) children are shown | a view a component is given is only shown, and is made where it is shown: RG-4c's sentence against 08's; prototyped (`proto-children-rule`, not published) | high: 180 of 1,147 generated programs accepted and different today, none with it | – |
 | [24](24-view-functions.md) where a `use` in children reads | a question; a fix tried and held back (`proto-view-fn` a05f579a, not published) | – | – |
 | **tooling** | | | |
 | [22](22-generated-drafts.md) drafts | for a person to review | medium | 03 |
