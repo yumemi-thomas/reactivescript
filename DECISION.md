@@ -372,7 +372,17 @@ runner; the two answer alike on all 1,642) and now, in the interpreter, the orac
 
 The earlier sets on the new code: 1,147: 800 agree, 346 refused, 1 alike in error (as in the first round; 63 changed, the
 same). 979: 822 agree, 157 refused; against before the rule 182 changed (188 in the first round), none of them "not
-given → given". 635 and 3,802: no output differs from the first round. SSR_OLD
+given → given". 635 and 3,802: no output differs from the first round.
+
+On the final code with the widening (894db2d7; `../w/tool/*.json`, the speed run's `scripts/matrix.mjs`): 1,642: 1,642
+agree, served and hydrated 1,642 of 1,642. 1,147: 800 agree, 346 refused, 1 alike in error; served 800 of 800. 979: 822
+agree, 157 refused; served 822 of 822. 635: 340 agree (328), 261 refused (267), 23 differ (27), 8 alike in error, 3 not
+compiled. 3,802: 1,549 agree (1,532), 2,158 refused (2,163), 50 differ (58), 42 alike in error, 3 not compiled. No
+program that agreed in the first round shows something else; the 13 newly accepted carry a view by a context declared
+`View` and agree in the four runners; the others that moved to "agree" are the oracle's two fixes. Both checkers say the
+same of every program of the five sets but two of the 3,802, a diagnostic's wording (`kids` in the reference, `children`
+in the crate), and the emitters lower all alike but one of the 635 (a CSS error's position in the message): the three
+are the same on 54571c1d.
 
 ### The widening: a context that holds a view (done; proposals/27, S-context-8)
 
@@ -413,5 +423,19 @@ and in the interpreter (the side table). The widening is mostly the two checkers
 shown to what is given for it.
 
 ### Suites on the final code
+
+Run on the final code before the one full suite:
+
+- `compiler/test/js-host.mjs`: 12 of 12 (data by value; a getter read, once, to answer; a host's `slot` not made, with
+  its own answer, and handed on through `merge`; production and the server).
+- S-context-7 and S-context-8 in every runner, served and hydrated, both checkers, both emitters, the type pass.
+- proposals/check.mjs with `--upstream` (e650b851): the marks of 24 and 27 corrected, then all as stated.
+- The UI SDK copy built with this compiler and runtime: its suite 44 of 44; its `.rx` app in the browser and hydrated;
+  its table of mistakes as it was; the project's Playwright specs (toggle, tabs, dialog, item-icon; client and
+  server-rendered) 552 of 553, 6 skipped, 1 flaky, the one failure Solid's development diagnostic as on `rx-ui-sdk`.
+- 1,000 rows, production, Chromium, median of 30, three rounds, twice, alternating with 54571c1d in one session (ratios
+  after / before; the machine was under other load): rows with content, mount 1.0 to 1.08, reverse 1.0, change all 1.0;
+  rows under a provision 1.0; rows that ask `if props.children`, mount 0.78, change all 0.55. The module minified 1,492
+  to 1,520 bytes, the bundle 151,392 to 151,941.
 
 SUITES
