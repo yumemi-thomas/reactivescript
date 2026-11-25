@@ -1,8 +1,8 @@
 # 19 — A trailing optional value parameter of an `.rx` fn
 
-The prototype is not in this tree, and it is **not published**: a local branch, `proto-optional` at 3a4847ec, on 9b765d9 (with the other two: `proto-all` at b29fa898). What is said of it was run there; the rule, the scenario and the `prototype=` verdicts are that branch's.
+On `rx-best` the prototype is merged (E-9a, S-optional-1; the `branch=` verdicts below are of this tree), and it is **not published**: a local branch, `proto-optional` at 3a4847ec, on 9b765d9 (with the other two: `proto-all` at b29fa898). What is said of it was run there; the rule, the scenario and the `prototype=` verdicts are that branch's.
 
-<!-- check prototype=ok branch=PARSE upstream=PARSE -->
+<!-- check prototype=ok branch=ok upstream=PARSE -->
 ```rx
 fn add(a: number, b?: number): number => a + (b ?? 3)
 export default component App() { source a := 1
@@ -54,7 +54,7 @@ In the twelve rewrites: **no facade line goes away** (198 before and after). Eac
 1. An optional `ref`: 31 of the 192 want one, as many as the proposal helps. An absent accessor, or an accessor of `undefined`?
 2. A fn given by name to `map` gets the index too. Adding `b?: number` to a fn that is used so changes what it answers, and nothing says so. TypeScript has the same hole.
 
-<!-- frames prototype=pass branch=fail upstream=fail -->
+<!-- frames prototype=pass branch=pass upstream=fail -->
 ```rx
 fn add(a: number, b?: number): number => a + (b ?? 100)
 export default component App() { <p>{map([1, 2], add).join(",")}</p> }

@@ -1,10 +1,10 @@
 # 20 — Generic `.rx` fns, with inferred calls
 
-The prototype is not in this tree, and it is **not published**: a local branch, `proto-generic` at b36ab25d, on 9b765d9 (with the other two: `proto-all` at b29fa898). What is said of it was run there; the rule, the scenario and the `prototype=` verdicts are that branch's.
+On `rx-best` the prototype is merged (07 §2, S-generic-1; the `branch=` verdicts below are of this tree), and it is **not published**: a local branch, `proto-generic` at b36ab25d, on 9b765d9 (with the other two: `proto-all` at b29fa898). What is said of it was run there; the rule, the scenario and the `prototype=` verdicts are that branch's.
 
 Type parameters at the declaration, and no type arguments at a call.
 
-<!-- check prototype=ok branch=PARSE upstream=PARSE says-upstream="near '<T>(xs: T[]): T" -->
+<!-- check prototype=ok branch=ok upstream=PARSE says-upstream="near '<T>(xs: T[]): T" -->
 ```rx
 fn first<T>(xs: T[]): T => xs[0]
 export default component App() { <p>{first([1])}</p> }
@@ -45,7 +45,7 @@ export default component App() { <p>{str(test(1, 2, 0))}</p> }
 
 **One thing the projection had to change.** `R-1` (no promise without `await`) is a type, and TypeScript could not decide it for an equation of a bare `T`: `fn f<T>(ref x: T): T { now = x … }` was refused (TS2345). The check now reads a tuple's length, which TypeScript takes for an undecided `T`; every verdict on a known type is the same, and the **caller's** equation is held:
 
-<!-- check prototype=ok branch=PARSE upstream=PARSE -->
+<!-- check prototype=ok branch=ok upstream=PARSE -->
 ```rx
 fn createHeld<T>(ref x: T): T { now = x
   now }

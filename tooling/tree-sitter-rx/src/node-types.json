@@ -6858,6 +6858,10 @@
         {
           "type": "signature_takes",
           "named": true
+        },
+        {
+          "type": "signature_view",
+          "named": true
         }
       ]
     }
@@ -7106,6 +7110,32 @@
       "types": [
         {
           "type": "context_key",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "signature_view",
+    "named": true,
+    "fields": {
+      "type": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "type",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "part_path",
           "named": true
         }
       ]
@@ -8393,6 +8423,10 @@
   },
   {
     "type": "@",
+    "named": false
+  },
+  {
+    "type": "View",
     "named": false
   },
   {

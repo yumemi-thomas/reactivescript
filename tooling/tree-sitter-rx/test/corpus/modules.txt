@@ -1842,3 +1842,44 @@ export pure fn f<T>(ref a: T) instantiates
         (identifier)
         (type_identifier))
       (row_word))))
+
+================================================================================
+A printed signature's view rows
+================================================================================
+
+//@ signature a.rx
+export component T(props: { element: view? { attrs: any; state: S } provides(./t.rx#root); children: view | View; row: view { v: string } value(v) })
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier)
+        (signature_view
+          (object_type
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (predefined_type)))
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (type_identifier)))))
+        (signature_provides
+          (context_key)))
+      (signature_prop
+        (property_identifier)
+        (signature_view))
+      (signature_prop
+        (property_identifier)
+        (signature_view
+          (object_type
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (predefined_type))))
+          (part_path))))))

@@ -176,7 +176,12 @@ export function installCompiler(at) {
 /** This repository's packages in a node_modules, as an app installs them: the compiler and the language server linked,
  *  the runtime copied (its peers are then that install's Solid, one copy), the shipped declaration of solid-js copied. */
 function linkOwn(nm) {
-  const rx = path.join(nm, "@reactivescript"); rmSync(rx, { recursive: true, force: true }); mkdirSync(path.join(rx, "runtime"), { recursive: true });
+  const rx = path.join(nm, "@reactivescript");
+  // what Vite's dev server pre-bundled is a copy of the runtime it found then: with another runtime it is out of date,
+  // and a task's dev server would run the old one (`__rt.slot is not a function` under a runtime that has it)
+  const built = f => { try { return readFileSync(path.join(f, "dist/web.js"), "utf8"); } catch { return ""; } };
+  if (built(path.join(rx, "runtime")) !== built(path.join(repo, "runtime"))) rmSync(path.join(nm, ".vite"), { recursive: true, force: true });
+  rmSync(rx, { recursive: true, force: true }); mkdirSync(path.join(rx, "runtime"), { recursive: true });
   installCompiler(path.join(rx, "compiler"));
   symlinkSync(path.join(repo, "tooling/rx-language-server"), path.join(rx, "language-server"));
   for (const f of ["package.json", "dist", "rx-lib.d.ts"]) cpSync(path.join(repo, "runtime", f), path.join(rx, "runtime", f), { recursive: true });

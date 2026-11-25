@@ -133,11 +133,19 @@ module.exports = grammar(tsx, {
       optional(seq(':', repeat1(choice(
         alias('unrendered', $.row_word),
         $.signature_takes,
+        $.signature_view,
         $.signature_catches,
         $.signature_provides,
         seq('action', field('action', $.identifier), $.signature_catches),
       )))),
     ),
+    // RG-4c: a view the component shows — `view`, `view?` (it may not be given), `view | View` (plain content as well),
+    // with its parameter's type where it has one, and `value(a, b)` for what it is shown with that holds no closure
+    signature_view: $ => prec.right(seq(
+      'view', optional('?'), optional(seq('|', 'View')),
+      optional(field('type', $.type)),
+      optional(seq('value', '(', commaSep1(alias(/[\w$.]+/, $.part_path)), ')')),
+    )),
     signature_catches: $ => seq('catches', '(', choice('*', $._error_classes), ')'),
     signature_provides: $ => seq('provides', '(', choice('*', commaSep1($.context_key)), ')'),
     signature_takes: $ => seq('takes', '(', commaSep1(seq(field('path', $.signature_path), optional('pending'), optional($.fails_row))), ')'),
