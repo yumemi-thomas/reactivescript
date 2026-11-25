@@ -17,7 +17,7 @@ import {
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failure.ts";
-import { singleModule, given, defaulted, bindGiven, viewsAll, shownAll, shownIn, type Given, type ModuleSet } from "../src/modules.ts";
+import { singleModule, given, defaulted, bindGiven, viewsAll, viewCtxAll, shownAll, shownIn, usedIn, type Given, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { unwrapServer } from "../src/check.ts";
 import { primsSolid, isPrims } from "../src/prims.ts";
@@ -232,13 +232,13 @@ export class Oracle {
   scanHandlers: Stmt[][] | undefined;
 
   /** 09 MO-1: each imported module's scope, declared once, dependencies first. */
-  moduleScopes = new Map<string, Scope>(); private typeDecls: Decl[] = []; private shown: ReturnType<typeof shownAll> = new Map(); private views: ReturnType<typeof viewsAll> = new Map();   // RG-4c
+  moduleScopes = new Map<string, Scope>(); private typeDecls: Decl[] = []; private shown: ReturnType<typeof shownAll> = new Map(); private views: ReturnType<typeof viewsAll> = new Map(); private viewCtxs = new Set<unknown>(); private viewCtxNames = new WeakSet<object>();   // RG-4c
   declarations?: ModuleSet["declarations"];
   private instances = new WeakMap<Binding, { r: any; shape: Shape }>();   // MO-10: a primitive's raw result, under the binding of its instance
   constructor(input: Program | ModuleSet, handlers?: Stmt[][]) {
     const set = "programs" in input ? input : singleModule(input);
     this.declarations = set.declarations;
-    this.shown = shownAll(set); this.views = viewsAll(set);
+    this.shown = shownAll(set); this.views = viewsAll(set); this.viewCtxs = viewCtxAll(set);
     this.typeDecls = [...set.programs.values()].flatMap(p => p.decls.filter(d => d.k === "typedecl"));
     const program = set.programs.get(set.entry)!;
     this.program = program; this.scanHandlers = handlers;
@@ -345,7 +345,7 @@ export class Oracle {
       if (d.k === "import") for (const { name, alias } of d.names) { const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : inPrelude(d, name) ? this.langFn(name) : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined; if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
       if (d.k === "server") scope.vars.set(d.name, { k: "const", value: this.serverFn(d, scope) });
       if (d.k === "error") { const msg = d.msg; scope.vars.set(d.name, { k: "const", value: makeErrorClass(d.name, d.params, args => msg ? String(untrack(() => this.ev(msg, scope, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
-      if (d.k === "context") scope.vars.set(d.name, { k: "ctx", ctx: createContext<Binding | undefined>(NO_PROVISION as any, d.name), dflt: d.dflt ?? null, home: scope, dv: null });   // a sentinel default: absence is ours to decide (the default, or RG-7b)
+      if (d.k === "context") { const b: Binding = { k: "ctx", ctx: createContext<Binding | undefined>(NO_PROVISION as any, d.name), dflt: d.dflt ?? null, home: scope, dv: null }; scope.vars.set(d.name, b); if (this.viewCtxs.has(d)) this.viewCtxNames.add(b); }   // a sentinel default: absence is ours to decide (the default, or RG-7b)
       if (d.k === "fn") scope.vars.set(d.name, { k: "fn", decl: d, home: scope });
       if (d.k === "component") scope.vars.set(d.name, { k: "comp", decl: d, home: scope });
       if (d.k === "action") scope.vars.set(d.name, { k: "action", run: this.lowerAction(d.params, d.body, scope) });
@@ -762,9 +762,10 @@ export class Oracle {
     switch (m.k) {
       case "text": return R.createTextNode(m.s);
       case "style": return "";                                                            // CSS-4: removed from the view
-      case "read": { const view = !!given(m.e, scope.given)?.held; const g = () => { const v = this.ev(m.e, scope); return isView(v) || (view && v === undefined) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; }   // RG-4c: a view that was not given shows nothing;   // a view value (children) is inserted as structure
+      case "read": { const view = !!given(m.e, scope.given)?.held || (m.e.k === "use" && this.viewCtxNames.has(scope.lookup(m.e.name) as object)); const kids = given(m.e, scope.given)?.held === "children"; const g = () => { const v = this.ev(m.e, scope); return isView(v) || (view && v === undefined) || (kids && (v == null || typeof v === "boolean" || Array.isArray(v))) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; }   // RG-4c: a view that was not given shows nothing; a component's children are a view whoever gave them (the compiled module's `kids`: a list that holds nothing, a portal's place, is one);   // a view value (children) is inserted as structure
       case "el": {
         if (m.tag === "") return this.fragment(m.children, scope, inEl);     // `<>…</>`
+        { const u = usedIn(m.tag); if (u !== undefined) { const g = () => { const b = this.provision(u, scope), v = b.k === "const" ? b.value : (b as { get: () => unknown }).get(); return typeof v === "function" ? R.createComponent(v as never, this.props(m, scope)) : v == null ? "" : isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; } }   // RG-4c: `<use.item … />`, the view a context holds, applied
         const n = shownIn(m.tag), given = n && scope.lookup(n[0]);
         if (given?.k === "const" && typeof given.value === "object" && given.value) {   // RG-4c: the view it was given, applied; plain content, as it is
           const g = () => { const v = (given.value as Record<string, any>)[n![1]]; return typeof v === "function" ? R.createComponent(v, this.props(m, scope)) : v == null ? "" : isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g;
