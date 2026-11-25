@@ -46,6 +46,8 @@ forecast = city == "" ? null : city.length < 3 ? throw TooShort(city) : await fe
   show the fallback again each time a key changes (a new selection, not a refinement), use `loading on(selected)`.
 - An answer read outside the region that loads it (elsewhere on the page, a count, a button's `disabled`) needs a
   value before it lands, or every one of those readers waits with it, and so does every reader of a store over it.
+  That includes another answer's region: a pane that borrows other lists (for a limit, a count, or to find where a row
+  is) shows its `loading` until every list it borrows has answered, though its own landed long ago.
   Give the answer its value where it's declared, and lay the store over it:
 
   ```rx
@@ -54,6 +56,8 @@ forecast = city == "" ? null : city.length < 3 ? throw TooShort(city) : await fe
   ```
 
   Its own `loading` region shows while `folderAns == null`; every other reader reads `messages` and never waits.
+  The `[]` is a stand-in, not an answer. A click that works something out from the list (where a row goes, whether
+  the list is full) would compute it from an empty list, so keep that control `disabled` while `folderAns == null`.
 
 ## 2. Failures: a region where they're read
 
@@ -130,7 +134,9 @@ guesses on them, as the server will make them:
 1. **Guess on every store the write shows in.** An edit is a path guess on its row (`guess issues[i].title := t`), at
    an index the handler works out from the screen and passes in. An add, a removal or a move is a function guess on
    each list it changes (`guess open := rs => moved(rs, m)`). A title shown in a list row and in a detail heading is
-   two guesses, one on each answer.
+   two guesses, one on each answer. A count that the write changes is guessed as a change (`done: c.done + 1`), not
+   set to a number worked out from what the screen showed: another write's guess may be in that number, and the
+   count stays wrong once that write ends.
 2. **Accepted: re-ask the answers it changed** (`refresh issues`). Its guesses stay until the new answers land (D-34),
    so the change never blinks out and never shows twice. On a decline re-ask nothing: the guesses revert with the
    message, in one frame (AC-7).
@@ -256,6 +262,12 @@ local state: typing, toggles, selection.
 
 A run never sees its own writes: after `x := v`, reading `x` in the same run gives the old value (W-4), and the
 compiler refuses it (`STALE_OWN_READ`). Keep the value in a local: `let n = count + 1; count := n; log(n)`.
+That local fixes this run only. A handler that calls an action joins its change, so its plain writes wait with the
+action, and until it settles the next click reads the old value too: a counter that mints ids gives the same id twice.
+Read the value the next run builds on with `latest`, which sees a write still waiting (not this run's own):
+`let n = latest seq + 1; seq := n; add(n)`. If the run doesn't need the value, a functional write does the same
+(`seq := v => v + 1`). If the write should show now instead (a reset), give it its own instant with `onFlush`. The
+compiler flags the plain read (`STALE_NEXT_READ`).
 
 ## 6. Effects: acting on a value as it changes
 

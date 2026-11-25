@@ -85,12 +85,14 @@ export function guessFacts(stmts: Stmt[], hook: (n: string) => boolean): GuessFa
   go(stmts, new Map(), hook);
   return { ...(!starts && first ? { holdless: first } : {}), ...(late ? { late } : {}) };
 }
+/** AC-1h: whether an action's change can outlast its call — its body (not a closure's) awaits, re-asks, or declares `affects`. */
+export const actionWaits = (ss: Stmt[]): boolean => ss.some(s => stmtAwait(s) || s.k === "refresh" || s.k === "affects" || (s.k === "sif" && (actionWaits(s.t) || actionWaits(s.f))) || (s.k === "try" && (actionWaits(s.body) || actionWaits(s.handler ?? []) || actionWaits(s.fin ?? []))));
 export const triggerText = (t: Trigger): string => t === "write+await" ? "it writes and awaits" : `it has \`${t === "optimistic" ? "guess" : t}\``;
 
-export type Finding = { code: "HELD_WRITE" | "STALE_OWN_READ" | "STALE_WRITE_BACK" | "STALE_CAPTURE"; name: string; via?: string };
+export type Finding = { code: "HELD_WRITE" | "STALE_OWN_READ" | "STALE_WRITE_BACK" | "STALE_CAPTURE" | "STALE_NEXT_READ"; name: string; via?: string };
 /** A parameter type that names a plain value (an id, a title, a position), not a row: `number`, `string`, `boolean`, literals, `null`. */
 export const scalarType = (t?: string): boolean => !!t && t.split("|").every(m => /^\s*(number|string|boolean|null|undefined|"[^"]*"|'[^']*'|-?\d+(\.\d+)?)\s*$/.test(m));
-export type RunOpts = { ptypes?: (string | undefined)[]; answered?: (name: string) => boolean; stateful?: (name: string) => boolean };
+export type RunOpts = { ptypes?: (string | undefined)[]; answered?: (name: string) => boolean; stateful?: (name: string) => boolean; isAction?: (name: string) => boolean };
 type Path = string[];                                                   // keys from the source; "*" a computed key
 type Dep = { k: string; path: Path; epoch: number };                    // AC-1e: a source read, and the awaits passed when it was read
 // taint: the source reads each local's value was computed from; epoch: the awaits passed on this path (the most, after a merge)
@@ -121,6 +123,11 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
   const out: Finding[] = []; const said = new Set<string>();
   const report = (code: Finding["code"], name: string, via?: string) => { const k = code + name; if (!said.has(k)) { said.add(k); out.push({ code, name, ...(via ? { via } : {}) }); } };
   const key = (name: string, ctx?: boolean) => (ctx ? "use " : "") + name;
+  // AC-1h: plain writes computed from their own source, in a change that is held — a declared action's body before an
+  // `await`, or a plain run's stretch that calls an action by name (it joins that action's change, AC-1). An inferred
+  // action's are HELD_WRITE already.
+  let next: string[] = []; let joins: string | null = null; let seen = new Set<string>(); const localActions = new Set<string>();   // seen: sources this change read plainly (a functional write beside one still leaves that read stale)
+  const flushNext = (held: boolean) => { if (held && !inferred) next.forEach(n => report("STALE_NEXT_READ", n, joins ?? undefined)); next = []; joins = null; seen = new Set(); };
   const walk = (ss: Stmt[], st: State, shadow: Set<string>, cl: Closures, depth: Set<Fn>): State => {
     const sh = new Set(shadow); const local = new Map(cl);
     const read = (e: Expr): void => {
@@ -129,6 +136,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
       if ((x.k === "id" && !sh.has(x.name)) || x.k === "use") {
         const k = key(x.name, x.k === "use"); const ws = st.written.get(k);
         if (ws?.some(w => overlaps(w, path))) report("STALE_OWN_READ", k);
+        seen.add(k);
         return;
       }
       if (x !== e) { read(x); return; }
@@ -136,6 +144,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
         case "fn": case "serverfn": case "draft": case "pending": case "latest": case "lit": case "pre": case "peek": case "stylemap": return;
         case "call": {
           const c = calledClosure(x, local);
+          if (!action && !c && x.f.k === "id" && !joins && ((!sh.has(x.f.name) && opts.isAction?.(x.f.name)) || localActions.has(x.f.name))) joins = x.f.name;
           x.args.forEach(read);
           if (c) { if (!depth.has(c)) { const inner = new Set(sh); c.params.forEach(p => inner.add(p)); const after = walk(c.stmts!, { ...clone(st), dead: false }, inner, local, new Set([...depth, c])); st.written = after.written; st.held = after.held; st.epoch = after.epoch; } return; }
           read(x.f); return;
@@ -168,7 +177,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
     // AC-1g: the locals and parameters a write's value names, closures included (a functional write's closure runs at the
     // write, but a local it names was fixed before it) — with each one's taint.
     const caps = (e: Expr): { via: string; d: Dep }[] => { const ns = new Set<string>(); freeNames(e, new Set(), ns); return [...ns].filter(n => sh.has(n)).flatMap(n => (st.taint.get(n) ?? []).map(d => ({ via: n, d }))); };
-    const onAwait = () => { if (action) { st.held.forEach(h => report("HELD_WRITE", h)); st.held.clear(); } else st.written.clear(); };
+    const onAwait = () => { if (action) { st.held.forEach(h => report("HELD_WRITE", h)); st.held.clear(); flushNext(true); } else { st.written.clear(); flushNext(!!joins); } };
     for (const s of ss) {
       if (st.dead) break;
       switch (s.k) {
@@ -176,7 +185,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
           read(s.e);
           const d = stmtAwait(s) ? [] : deps(s.e);
           if (stmtAwait(s)) { st.epoch++; onAwait(); }
-          if (s.k === "let") { const c = closureOf(s); sh.add(s.name); st.taint.set(s.name, d); if (c) local.set(s.name, c); else local.delete(s.name); }
+          if (s.k === "let") { const c = closureOf(s); sh.add(s.name); st.taint.set(s.name, d); if (c) local.set(s.name, c); else local.delete(s.name); if (s.e.k === "fn" && s.e.stmts && inferredAction(s.e.stmts)) localActions.add(s.name); else localActions.delete(s.name); }
           break;
         }
         case "write": case "optimistic": {
@@ -186,6 +195,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
           const wpath = s.target.path.map(p => typeof p === "string" ? p : p.k === "lit" && typeof p.v === "string" ? p.v : "*");
           const back = s.k === "write" && s.e.k !== "fn" && deps(s.e).some(d => d.k === k && d.epoch < st.epoch && overlaps(d.path, wpath));
           if (back) report("STALE_WRITE_BACK", k);
+          else if (s.k === "write" && (s.e.k === "fn" ? seen.has(k) : deps(s.e).some(d => d.k === k && (action || d.epoch === st.epoch) && overlaps(d.path, wpath)))) next.push(k);
           else if (s.k === "write" && st.epoch > 0 && !s.target.ctx && opts.answered?.(s.target.name)) {
             // the answer takes the server's answer, plain arguments and its own value at the write (the closure's argument):
             // a row parameter, a local read from any source (before the `await` or after it), or another source read here is not the server's
@@ -218,6 +228,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
   };
   const taint0 = new Map<string, Dep[]>(); bound.forEach((p, i) => { const t = opts.ptypes?.[i]; if (t && !scalarType(t)) taint0.set(p, [{ k: "param " + p, path: [], epoch: 0 }]); });
   walk(stmts, { written: new Map(), held: new Set(), dead: false, taint: taint0, epoch: 0 }, new Set(bound), new Map(), new Set());
-  return out;
+  flushNext(!action && !!joins);                                       // a declared action's writes after its last `await` land as it ends
+  return out.filter(f => f.code !== "STALE_NEXT_READ" || !said.has("HELD_WRITE" + f.name));
 }
 

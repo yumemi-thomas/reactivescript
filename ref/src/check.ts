@@ -11,7 +11,7 @@ import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type S
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
 import { scopeFacts, scoped } from "./scope.ts";
-import { guessFacts, inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
+import { actionWaits, guessFacts, inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 /** MO-10i (closed 2026-11-22): what is called on a draft is a method of plain data, by name — an Array's, a Map's, a Set's,
  *  a string's or a number's. `DRAFT_CALLBACKS` are the ones that call a function they are given, now, with parts of the data. */
@@ -118,6 +118,7 @@ type Sym = {
   instantiating?: boolean;             // fn with ref params or declarations (E-9)
   params?: { name: string; ref: boolean }[];
   arity?: number;                      // an action declared here: how many arguments a call passes (AC-1f)
+  outlasts?: boolean;                     // an action declared here: whether its change can outlast the call (an `await`, `refresh`, `affects`; AC-1h)
   captures?: Sym[];                    // a value holding a closure: the reactive names it captured (O-3)
   retCaptures?: Sym[];                 // what calling that value can return holding (O-3)
   propOf?: { comp: Region; field: string };   // O-3: not a name but a prop's argument, stored — its captures are the caller's ("*": all of props)
@@ -999,7 +1000,7 @@ class Checker {
       if (d.k === "server") sym.params = d.params.map(name => ({ name, ref: false }));
       if (d.k === "source") sym.question = !!d.question;
       if ((d.k === "source" || d.k === "eq") && d.key !== undefined) sym.rowKey = d.key;   // ST-4d: what its rows are keyed by
-      if (d.k === "action") { sym.io = true; sym.arity = d.params.length; }                 // R-io-2: an action is io; AC-1f: its parameters
+      if (d.k === "action") { sym.io = true; sym.arity = d.params.length; sym.outlasts = actionWaits(d.body); }                 // R-io-2: an action is io; AC-1f: its parameters
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = instantiates(d); sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); sym.compRegion.key = `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${sym.compRegion.id}` : ""}`; }   // E-5a
       if (d.k === "eq") sym.eqDecl = d;
@@ -2475,7 +2476,7 @@ class Checker {
           const why = ctx.server ? null : inferredAction(e.stmts);                          // AC-1b: an arrow that guesses, or writes and awaits, is an action
           this.stmts(e.stmts, inner, { scope: "imperative", server: ctx.server, inAction: !!why });
           if (why) this.actions.push({ name: `inferred here (AC-1b: ${triggerText(why)})`, body: e.stmts, env: inner, line: this.line });
-          if (!ctx.server) this.runChecks(e.stmts, inner, !!why, e.params, !!why);
+          if (!ctx.server) this.runChecks(e.stmts, inner, !!why, e.params, !!why, { isAction: n => { const t = inner.lookup(n); return t?.kind === "action" && t.outlasts !== false; } });
           return;
         }
         this.expr(e.body, inner, { scope: ctx.scope, inFn: ctx.inFn, server: ctx.server }); return;
@@ -2499,6 +2500,7 @@ class Checker {
     for (const f of runFindings(stmts, action, bound, inferred, opts)) {
       if (f.code === "STALE_CAPTURE") { this.err("STALE_CAPTURE", "AC-1g", `${f.name} := … after an \`await\` writes ${f.via}, which is not the server's: ${f.name} is the server's answer, and after the \`await\` it takes only what the server answered, plain arguments (an id, a title, an index) and its own value at the write (\`${f.name} := rs => …\`, finding rows there by id). A row passed in, or read from a source before the \`await\` or after it, is what the screen showed, and may be stale by now (a rename accepted, a reload, an earlier write declined, a write another action holds) — when the answer alone doesn't say where a row is now, re-ask the answers it left and joined (\`refresh\`)`); continue; }
       if (f.code === "HELD_WRITE") this.err("HELD_WRITE", "AC-1c", `${f.name} := … comes before an \`await\` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, \`guess ${f.name} := …\` (a source with a question, ST-5c); for a reset that lands now, \`onFlush(() => { ${f.name} := … })\` (EF-8); to hold it on purpose, declare the action (\`action name() { … }\`); or write it after the \`await\``);
+      else if (f.code === "STALE_NEXT_READ") this.err("STALE_NEXT_READ", "AC-1h", `${f.name} := … is computed from ${f.name}, and it is held: ${f.via ? `this run calls ${f.via}, so its writes join that action's change` : "an action holds its writes"} until the change settles (AC-1). Until then the next run reads the committed ${f.name}, not this write, and computes the same value again (a counter mints one id twice). For the next run to build on the held value while the screen waits, read it with \`latest ${f.name}\` (R-9), or write functionally (\`${f.name} := v => …\`, W-6) when this run doesn't need the value; for the write to show now, give it its own instant, \`onFlush(() => { ${f.name} := … })\` (EF-8)`);
       else if (f.code === "STALE_WRITE_BACK") this.err("STALE_WRITE_BACK", "AC-1e", `${f.name} := … after an \`await\` is computed from ${f.name} as it was read before that \`await\`: whatever changed ${f.name} in between (another action, a reload) is overwritten — write functionally (\`${f.name} := v => …\`, W-6), which applies to ${f.name} as it stands at the write, or guess it (\`guess\`, AC-3) and let the answer replace the guess`);
       else this.err("STALE_OWN_READ", "AC-1d", `${f.name} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (\`let v = …; ${f.name} := v\`) and read that, or write functionally (\`${f.name} := v => …\`, W-6)`);
     }

@@ -23,8 +23,9 @@ async function either(app, held, check, what) {
     throw new Error(`${what}: TEAR — neither expected (${e.message}) nor held.\n    before: ${held}\n    now:    ${now}`);
   }
 }
-/** answer the column re-asks still out, a few rounds (an app may ask again once an answer lands) */
-async function reloads(app, todo, doing, done) {
+/** answer the column re-asks still out, a few rounds (an app may ask again once an answer lands); a column not given
+ * answers as it first loaded (an app may re-ask every column after a write) */
+async function reloads(app, todo, doing = DOING, done = DONE) {
   for (let i = 0; i < 3; i++) {
     if (todo) await app.landIfAsked("fetchCards:todo", todo);
     if (doing) await app.landIfAsked("fetchCards:doing", doing);

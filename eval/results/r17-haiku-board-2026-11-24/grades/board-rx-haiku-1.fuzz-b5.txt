@@ -1,0 +1,17 @@
+board-rx-haiku-1: 8/20 seeds found a hole
+  seed 4 step 30: detail column: #3 shows in Doing, the detail says "loading card"
+    add Alpha 1 ; land fetchCards:todo ; land fetchCards:done ; tab archive ; land fetchArchived: ; tab board ; add Delta 2 ; tab archive ; tab board ; add Delta 3 ; add Bravo 4 ; land fetchCards:todo ; add Delta 5 ; add Bravo 6 ; land fetchCards:done ; add Delta 7 ; tab archive ; land fetchCards:doing ; tab board ; tab archive ; land fetchCards:todo ; tab board ; add Delta 8 ; land fetchCards:doi
+  seed 6 step 27: two views: card "#1 Write spec · 0/2", detail "#1 Fix loginin To dorenamearchiveloading checklist"
+    add Bravo 1 ; fail fetchCards:doing ; land fetchCards:done ; land fetchCards:doing ; land fetchCards:todo ; add Bravo 2 ; left #5 ; tab archive ; land fetchArchived: ; tab board ; tab archive ; tab board ; add Alpha 3 ; land fetchCards:done ; add Delta 4 ; tab archive ; tab board ; land fetchCards:done ; land fetchCards:todo ; add Alpha 5 ; land moveCard:5,doing,2 ; fail fetchCards:doing ; lan
+  seed 8 step 3: detail column: #4 shows in Doing, the detail says "loading card"
+    land fetchCards:doing ; right #3 ; select #4
+  seed 11 step 9: detail column: #4 shows in Doing, the detail says "loading card"
+    add Bravo 1 ; tab archive ; tab board ; add Bravo 2 ; tab archive ; tab board ; add Alpha 3 ; land fetchCards:doing ; select #4
+  seed 15 step 2: detail column: #4 shows in Doing, the detail says "loading card"
+    land fetchCards:doing ; select #4
+  seed 18 step 3: detail column: #3 shows in Doing, the detail says "loading card"
+    land fetchCards:doing ; land fetchCards:done ; select #3
+  seed 19 step 30: page error: declined
+    land fetchCards:todo ; tab archive ; land fetchCards:done ; tab board ; land fetchArchived: ; fail fetchCards:todo ; land fetchCards:done ; add Alpha 1 ; land fetchCards:doing ; left #4 ; add Alpha 2 ; tab archive ; tab board ; land fetchCards:todo ; add Alpha 3 ; tab archive ; tab board ; land fetchCards:doing ; land fetchCards:done ; tab archive ; tab board ; land fetchCards:doing ; add Alph
+  seed 20 step 4: detail column: #3 shows in Doing, the detail says "loading card"
+    add Bravo 1 ; land fetchCards:doing ; add Bravo 2 ; select #3

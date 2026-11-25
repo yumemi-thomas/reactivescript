@@ -254,6 +254,7 @@ pub enum Code {
     StaleOwnRead,
     StaleWriteBack,
     StaleCapture,
+    StaleNextRead,
 }
 pub struct Finding {
     pub code: Code,
@@ -285,6 +286,21 @@ pub struct RunOpts<'o> {
     pub answered: Option<&'o dyn Fn(&str) -> bool>,
     /// names of sources and equations in scope
     pub stateful: Option<&'o dyn Fn(&str) -> bool>,
+    /// AC-1h: names of actions in scope whose change can outlast the call
+    pub is_action: Option<&'o dyn Fn(&str) -> bool>,
+}
+
+/// AC-1h: whether an action's change can outlast its call — its body (not a closure's) awaits, re-asks, or declares `affects`.
+pub fn action_waits(ss: &[Stmt]) -> bool {
+    ss.iter().any(|s| {
+        stmt_await(s)
+            || matches!(s.k, StmtKind::Refresh(_) | StmtKind::Affects(_))
+            || match &s.k {
+                StmtKind::Sif { t, f, .. } => action_waits(t) || action_waits(f),
+                StmtKind::Try { body, handler, fin, .. } => action_waits(body) || handler.as_deref().is_some_and(action_waits) || fin.as_deref().is_some_and(action_waits),
+                _ => false,
+            }
+    })
 }
 
 /// keys from the source; "*" a computed key
@@ -348,8 +364,27 @@ struct Walker<'o> {
     inferred: bool,
     answered: Option<&'o dyn Fn(&str) -> bool>,
     stateful: Option<&'o dyn Fn(&str) -> bool>,
+    is_action: Option<&'o dyn Fn(&str) -> bool>,
+    /// AC-1h: plain writes computed from their own source in this change, and the action a plain run's stretch calls
+    next: Vec<String>,
+    joins: Option<String>,
+    local_actions: HashSet<String>,
+    /// AC-1h: sources this change read plainly (a functional write beside one still leaves that read stale)
+    seen: HashSet<String>,
 }
 impl<'o> Walker<'o> {
+    /// AC-1h: a declared action's body before an `await`, or a plain run's stretch that calls an action by name, is held;
+    /// an inferred action's are HELD_WRITE already.
+    fn flush_next(&mut self, held: bool) {
+        let next = std::mem::take(&mut self.next);
+        let via = self.joins.take();
+        self.seen.clear();
+        if held && !self.inferred {
+            for n in next {
+                self.report_via(Code::StaleNextRead, n, via.clone());
+            }
+        }
+    }
     fn report(&mut self, code: Code, name: String) {
         self.report_via(code, name, None);
     }
@@ -382,8 +417,9 @@ impl<'o> Walker<'o> {
         };
         if let Some(k) = root {
             if st.written.get(&k).is_some_and(|ws| ws.iter().any(|w| overlaps(w, &path))) {
-                self.report(Code::StaleOwnRead, k);
+                self.report(Code::StaleOwnRead, k.clone());
             }
+            self.seen.insert(k);
             return;
         }
         if !std::ptr::eq(x, e) {
@@ -394,6 +430,13 @@ impl<'o> Walker<'o> {
             ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Draft { .. } | ExprKind::Pending(_) | ExprKind::Latest(_) | ExprKind::Lit(_) | ExprKind::Pre { .. } | ExprKind::Peek(_) | ExprKind::StyleMap { .. } => {}
             ExprKind::Call { f, args, .. } => {
                 let c = called_closure(x, local);
+                if !self.action && c.is_none() && self.joins.is_none() {
+                    if let ExprKind::Id(n) = &f.k {
+                        if (!sh.contains(n) && self.is_action.is_some_and(|a| a(n))) || self.local_actions.contains(n) {
+                            self.joins = Some(n.clone());
+                        }
+                    }
+                }
                 for a in args {
                     self.read(a, st, sh, local, depth);
                 }
@@ -563,13 +606,24 @@ impl<'o> Walker<'o> {
                             for h in std::mem::take(&mut st.held) {
                                 self.report(Code::HeldWrite, h);
                             }
+                            self.flush_next(true);
                         } else {
                             st.written.clear();
+                            let held = self.joins.is_some();
+                            self.flush_next(held);
                         }
                     }
                     if let StmtKind::Let { name, .. } = &s.k {
                         sh.insert(name.clone());
                         st.taint.insert(name.clone(), d);
+                        match &e.k {
+                            ExprKind::Fn { stmts: Some(ss), .. } if inferred_action(ss).is_some() => {
+                                self.local_actions.insert(name.clone());
+                            }
+                            _ => {
+                                self.local_actions.remove(name);
+                            }
+                        }
                         match closure_of(s) {
                             Some(c) => {
                                 local.insert(name.clone(), c);
@@ -598,7 +652,11 @@ impl<'o> Walker<'o> {
                         if d.iter().any(|(dk, dp, ep)| *dk == k && *ep < st.epoch && overlaps(dp, &path)) {
                             self.report(Code::StaleWriteBack, k.clone());
                             back = true;
+                        } else if d.iter().any(|(dk, dp, ep)| *dk == k && (self.action || *ep == st.epoch) && overlaps(dp, &path)) {
+                            self.next.push(k.clone());
                         }
+                    } else if matches!(s.k, StmtKind::Write { .. }) && self.seen.contains(&k) {
+                        self.next.push(k.clone()); // AC-1h: a functional write beside a plain read of its source
                     }
                     // AC-1g: the answer takes the server's answer, plain arguments and its own value at the write (the closure's
                     // argument): a row parameter, a local read from any source (before the `await` or after it), or a source
@@ -676,7 +734,7 @@ impl<'o> Walker<'o> {
 /// its awaits (AC-1); a plain run's change ends at each `await`. `inferred`: an action by AC-1b, the only kind HELD_WRITE
 /// applies to. `bound`: the run's parameters. Each finding once per name, in source order.
 pub fn run_findings(stmts: &[Stmt], action: bool, bound: &[String], inferred: bool, opts: &RunOpts) -> Vec<Finding> {
-    let mut w = Walker { out: vec![], said: HashSet::new(), action, inferred, answered: opts.answered, stateful: opts.stateful };
+    let mut w = Walker { out: vec![], said: HashSet::new(), action, inferred, answered: opts.answered, stateful: opts.stateful, is_action: opts.is_action, next: vec![], joins: None, local_actions: HashSet::new(), seen: HashSet::new() };
     let sh: IndexSet<String> = bound.iter().cloned().collect();
     let mut taint: IndexMap<String, Vec<Dep>> = IndexMap::new();
     for (i, p) in bound.iter().enumerate() {
@@ -687,5 +745,9 @@ pub fn run_findings(stmts: &[Stmt], action: bool, bound: &[String], inferred: bo
         }
     }
     w.walk(stmts, State { written: IndexMap::new(), held: IndexSet::new(), dead: false, taint, epoch: 0 }, &sh, &IndexMap::new(), &[]);
+    let held = !action && w.joins.is_some(); // a declared action's writes after its last `await` land as it ends
+    w.flush_next(held);
+    let held_writes: HashSet<String> = w.out.iter().filter(|f| f.code == Code::HeldWrite).map(|f| f.name.clone()).collect();
+    w.out.retain(|f| f.code != Code::StaleNextRead || !held_writes.contains(&f.name));
     w.out
 }

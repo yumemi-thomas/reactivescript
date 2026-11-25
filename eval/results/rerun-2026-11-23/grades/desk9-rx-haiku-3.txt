@@ -1,0 +1,18 @@
+== hidden
+✗ base: help: selecting after a failure shows loading…, not the old failure
+✗ base: help: retry asks again and its answer replaces the failure
+✗ base: settings: retrying a failed load shows the settings
+✗ base: tabs: the settings page loads again when reopened, with a fresh draft
+✗ related help landing out of order shows the selected issue's
+✗ a related item that fails can be retried on the help page
+71/77 passed
+== overlap
+✗ base: a declined assignment keeps a rename in flight on the same issue
+✗ base: a declined rename keeps an assignment in flight on the same issue
+✗ base: two posts at once: a declined one does not take the other with it
+✗ base: comments that load while a post is out keep the post
+✗ base: help: a retry's answer landing after another selection is ignored
+✗ base: tabs: a save that answers after the page was left shows the reloaded settings
+32/38 passed
+== fuzz
+desk9-rx-haiku-3: 0/20 seeds found a hole

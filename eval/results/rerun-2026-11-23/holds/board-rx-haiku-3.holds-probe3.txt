@@ -1,0 +1,6 @@
+✗ HOLD an add accepted while To do reloads shows the card once
+    page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at http://127.0.0.1:34903/
+✗ HOLD two renames, the later declined after the earlier was accepted: the earlier title stays
+    page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at http://127.0.0.1:34903/
+
+0/2 passed

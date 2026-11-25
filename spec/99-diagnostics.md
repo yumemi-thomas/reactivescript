@@ -112,6 +112,7 @@ named.
 | `STALE_OWN_READ`                  | S   | AC-1d | S-infer-5 |
 | `STALE_WRITE_BACK`                | S   | AC-1e | S-infer-6 |
 | `STALE_CAPTURE`                   | S   | AC-1g | S-infer-7 |
+| `STALE_NEXT_READ`                 | S   | AC-1h | S-infer-8 |
 | `GUESS_ON_DEFERRED`          | S   | AC-3 / ST-5c (a deferred equation lags its truth, V-16) | S-guess-equation |
 | `GUESS_WHILE_LOADING`        | S   | AC-3a (Solid's `OPTIMISTIC_WRITE_WHILE_LOADING`, at compile time) | S-guess-equation, check.rs unit test |
 | `INVALID_REFRESH_TARGET`, `INVALID_AFFECTS_TARGET` | S | AC-4, AC-5 | S-check-1 |

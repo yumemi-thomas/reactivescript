@@ -658,7 +658,7 @@ export class Runtime {
     for (const s of this.subs.get(m)?.get("") ?? []) this.markDirty(s, "check");
   }
   pull(n: Node): unknown {
-    if (n.kind === "source") { n.taint = n.heldBy !== null ? new Set([n.heldBy]) : new Set(); return this.demandMode ? n.value : (n.hasCommitted ? n.committed : n.value); }   // H-10: snapshots see σ
+    if (n.kind === "source") { n.taint = n.heldBy !== null ? new Set([n.heldBy]) : new Set(); return this.demandMode || this.probing ? n.value : (n.hasCommitted ? n.committed : n.value); }   // H-10: snapshots see σ; R-9: `latest` in imperative scope reads the value a held write moves it toward (σ′)
     if (!this.demandMode) return this.transient(n);
     n.demanded = true;
     if (n.evaluated) return n.value;

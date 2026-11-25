@@ -1,0 +1,8 @@
+  move declined: HELD (screen as before: todo ["#1 Write spec · 0/2"] doing ["#3 Review PR · 2/2","#4 Deploy · 0/1","#2 Fix signup · 1/3"] done ["#5 Kickoff · 3/3"] | To do (1) Doing (3) Done (1) | null)
+  settled: todo ["#1 Write spec · 0/2","#2 Fix signup · 1/3"] doing ["#3 Review PR · 2/2","#4 Deploy · 0/1"] done ["#5 Kickoff · 3/3"] | To do (2) Doing (2) Done (1) | null
+  archive declined: HELD (screen as before: todo ["#1 Write spec · 0/2"] doing ["#3 Review PR · 2/2","#4 Deploy · 0/1"] done ["#5 Kickoff · 3/3"] | To do (1) Doing (2) Done (1) | null)
+  settled: todo ["#1 Write spec · 0/2","#2 Fix signup · 1/3"] doing ["#3 Review PR · 2/2","#4 Deploy · 0/1"] done ["#5 Kickoff · 3/3"] | To do (2) Doing (2) Done (1) | null
+✓ HOLD a rename and a move out together, the move declined: the card goes back with its new title
+✓ HOLD a declined archive of a card whose rename is out brings it back with the new title
+
+2/2 passed

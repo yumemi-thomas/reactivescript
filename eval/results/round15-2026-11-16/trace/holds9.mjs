@@ -1,5 +1,5 @@
 // desk9 hold probes (round 15 tracing, not a grader): as holds.mjs, for the shared-list cases of the desk9 graders
-import { OPEN, selected, rename } from "../../../tasks/rename/fixtures.mjs";
+import { OPEN, D3, selected, rename } from "../../../tasks/rename/fixtures.mjs";
 import { rowClose } from "../../../tasks/rows/fixtures.mjs";
 const snap = async app => `list ${JSON.stringify(await app.items("issue"))}`;
 async function either(app, held, check, what) {
@@ -10,7 +10,8 @@ async function either(app, held, check, what) {
     throw new Error(`${what}: TEAR — neither expected (${e.message}) nor held.\n    before: ${held}\n    now:    ${now}`);
   }
 }
-const reask = async (app, list) => { for (let i = 0; i < 3; i++) await app.landIfAsked("fetchIssues:open", list); };
+// answer the list re-asks still out, and the selected issue's detail re-ask (an app may re-ask both after a rename)
+const reask = async (app, list) => { for (let i = 0; i < 3; i++) { await app.landIfAsked("fetchIssues:open", list); const r3 = list.find(i => i.id === 3); if (r3) await app.landIfAsked("fetchIssue:3", { ...D3, title: r3.title }); } };
 export default [
   { name: "HOLD base: a declined assignment keeps a rename in flight on the same issue", async run(app) {
     await selected(app);

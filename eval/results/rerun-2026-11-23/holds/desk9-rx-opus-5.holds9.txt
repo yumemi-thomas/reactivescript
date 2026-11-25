@@ -1,0 +1,11 @@
+  assign declined: expected screen
+  settled: list ["#1 Login fails (unassigned)","#3 Crash at boot (unassigned)","#4 Typo in footer (dana)"]
+  rename declined: expected screen
+  settled: list ["#1 Login fails (unassigned)","#3 Crash on save (ann)","#4 Typo in footer (dana)"]
+  close declined: expected screen
+  settled: list ["#1 Login fails (unassigned)","#3 Crash at boot (unassigned)","#4 Typo in footer (dana)"]
+✓ HOLD base: a declined assignment keeps a rename in flight on the same issue
+✓ HOLD base: a declined rename keeps an assignment in flight on the same issue
+✓ HOLD rows: a declined row close leaves a rename out on another issue
+
+3/3 passed

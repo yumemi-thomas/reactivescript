@@ -114,6 +114,7 @@ async function session(browser, url, seed, steps, log, others = false) {
   const moment = () => { const m = JSON.stringify(COLS.map(col => srv.cols[col].map(c => `${c.id}:${c.title}`).sort())); if (moments[moments.length - 1] !== m) moments.push(m); };
   moment();
   const ui = { page: "board", selected: null, visit: 0 };
+  const failedCols = new Set();   // B5: columns whose last answer was a failure, until one lands (a retry re-asks, the error still stands)
   const writeVisit = new Map();          // write key -> the visit (board or archive) it was made on
   const settledCount = new Map();
   let lateVisit = false;                 // B1
@@ -202,8 +203,10 @@ async function session(browser, url, seed, steps, log, others = false) {
       const x = col && b[col].rows.find(y => y.id === target);
       if (x) {
         // B5 (Ryan, 2026-11-19): the detail finds its card in every column, so while one of them has failed it may show
-        // its errored fallback (that it can't show the card now) instead; it must still never name a wrong column or title
-        const failed = (await Promise.all(COLS.map(cl => exists(`retry-${cl}`)))).some(Boolean);
+        // its errored fallback (that it can't show the card now) instead; it must still never name a wrong column or title.
+        // Derived from an error is errored (Ryan, 2026-11-24): that holds until the failed column answers again, also while
+        // its retry is out
+        const failed = failedCols.size > 0 || (await Promise.all(COLS.map(cl => exists(`retry-${cl}`)))).some(Boolean);
         const wrongCol = COLS.some(cl => cl !== col && detail.includes(`in ${NAME[cl]}`));
         if (failed ? wrongCol : !detail.includes(`in ${NAME[col]}`)) note("detail column", `#${x.id} shows in ${NAME[col]}, the detail says "${detail.slice(0, 80)}"`);
         if (!detail.includes(`#${x.id} ${x.title}`) && (!failed || detail.includes(`#${x.id} `))) note("two views", `card "${x.text}", detail "${detail.slice(0, 80)}"`);
@@ -250,6 +253,7 @@ async function session(browser, url, seed, steps, log, others = false) {
     if (!a.fail && name === "toggleItem") heldTwice.push(key);                              // B4
     writeVisit.delete(key);
     trail.push(`${a.fail ? "fail" : "land"} ${key}`);
+    { const fc = key.match(/^fetchCards:(\w+)$/)?.[1]; if (fc) { if (a.fail) failedCols.add(fc); else failedCols.delete(fc); } }
     await page.evaluate(([k, a]) => a.fail ? globalThis.__flights.fail(k, "declined") : globalThis.__flights.land(k, a.value), [key, a]);
     await settle();
   }

@@ -1,0 +1,4 @@
+  HELD (rows as before the add's answer: ["[x] repro","[x] patch","[ ] test","[ ] ship (adding…)"]); out: ["fetchCards:doing","fetchCards:done"]
+✓ HOLD an item added while the checklist reloads shows once
+
+1/1 passed

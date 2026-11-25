@@ -239,8 +239,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   except a local closure the run calls, whose reads are the run's;
   `pending?` and `latest` are probes, not snapshots. Every other read is
   the committed snapshot it always was, with no error. The fix is the local
-  the value came from (`let n = seq + 1; seq := n; … n`) or a functional
-  write (S-infer-5).
+  the value came from (`let n = count + 1; count := n; … n`) or a functional
+  write (S-infer-5). The local fixes this run only: when the change is held
+  (an action, or a run that calls one), the next run still reads the old
+  value until the change settles, which is AC-1h.
 - **AC-1e (Stale write-back).** [taken by default 2026-10-28] In any
   imperative run, a plain value write `x := e` after an `await`, where `e`
   is computed from a read of `x` taken before that `await` — directly, or
@@ -302,6 +304,46 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   fires on 9 of the 12 round 15 board apps, each time on the traced defect,
   and on 3 October apps that write `x := x.map(…)` after an `await`
   (S-infer-7).
+- **AC-1h (A held write the next run computes from).** [taken by default
+  2026-11-24] A plain value write `x := e`, where `e` is computed from a
+  read of `x` in the same change (directly, or through locals bound from
+  it), is a compile error (`STALE_NEXT_READ`) when the change is held past
+  the run: in a declared action, a write that some path of the body
+  carries to an `await`; in a plain run (a handler), a write in a stretch
+  that calls, by name, an action whose body awaits, re-asks or declares
+  `affects` (the run joins that action's change, AC-1). Until the change
+  settles, every other run reads the committed `x` (W-4, H-10), so the
+  next click computes the same value again: a counter mints one id twice,
+  a toggle flips back, a page goes forward once for two clicks. The check
+  is about the read, not about when the write lands, so it does not ask
+  which the author meant (that is intent, 2026-11-08): both fixes keep
+  the read off the stale value. When the write should wait with the action
+  but the next run should build on it, read it with `latest x` (R-9: the
+  value the held write moves `x` toward; `let n = latest seq + 1; seq := n;
+  add(n)`, S-infer-9), or, when the run does not need the value, write
+  functionally (`x := v => …`, W-6, Solid's setter function form). When it
+  should show now (a reset), give it its own instant, `onFlush(() => { x :=
+  n })` (02 EF-8, S-infer-8). `latest` does not see this run's own write
+  (W-4, AC-1d). Keys count as in AC-1d. Not checked: an inferred action's writes (HELD_WRITE, AC-1c,
+  already reports them), a functional write (`x := v => …`, W-6; it reads
+  `x` as it stands at the write) unless the same change also reads `x`
+  plainly (that read is the stale one: `let n = seq + 1; seq := v => v +
+  1; add(n)` still mints one id twice), a guess, a write not computed from its
+  own source (a draft cleared, a flag set), a write after a declared
+  action's last `await` (it lands as the action ends), a call of an action
+  passed as a prop or parameter (the checker can't see it is one), and a
+  call of an action that never waits (it settles as it returns). Principle:
+  a write must not read stale state. Found by the .rx rerun of 2026-11-23
+  (eval/results/rerun-2026-11-23): 4 of 6 Haiku board apps minted
+  temporary card ids from a counter beside the add action, in the shape
+  AC-1d's fix showed (`let n = seq + 1; seq := n`), and in 3 of them two
+  quick adds showed two cards with one id. On the 263 app folders of every
+  round (October apps read with `optimistic` as `guess`), the references
+  and the examples it fires on those 4 apps, the same counter in 2 round
+  15 Haiku board apps and 1 rerun desk9 Haiku app (a comment key), and on
+  2 counters that 2 Opus probe apps bump to restart a page or a retry,
+  where a second click before the first settles does nothing. It fires on
+  no reference, no example and no declared action (S-infer-8, S-infer-9).
 - **AC-2 (Not special).** An action is only a way to tie writes to async
   work; the hold is the thing (H-2). `refresh`, `affects` and probes behave
   the same inside and outside one.

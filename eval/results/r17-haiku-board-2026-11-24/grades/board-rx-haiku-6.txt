@@ -1,0 +1,16 @@
+== hidden
+✗ the new-card input starts empty when the board opens again
+44/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ a move into a column that is still loading shows once it loads, or waits for it
+✗ an add accepted while To do reloads shows the card once
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a move into Doing that fills it while a move out is pending disables the rest
+19/26 passed
+== fuzz
+board-rx-haiku-6: 1/20 seeds found a hole
+  seed 13 step 35: page error: declined
+    add Alpha 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; fail fetchCards:todo ; land fetchCards:doing ; up #4 ; land fetchCards:done ; land moveCard:4,doing,0 ; land fetchCards:doing ; left #4 ; left #3 ; fail fetchCards:todo ; land moveCard:3,todo,1 ; left #5 ; fail fetchCards:todo ; select #5 ; select #5 ; land fetchChecklist:5 ; land fetchCards:doing ; land fetchCards:done ; ar

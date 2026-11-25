@@ -131,6 +131,23 @@ and where they may not go.
     applies it. (Found by the desk9 reference's fuzz seed 11, eval/results/desk9-reference-2026-11-13:
     `add-label` sat in a region of its own reading only `pending? shown`.)
 
+  **Through components** [taken by default 2026-11-25]. A callback prop
+  (`<Column onMove={(c, i) => { … }} />`) is a handler: it runs on the
+  child's click. It is covered where it is written, as above, or when the
+  element hands the component the value by another prop that the component
+  reads in an `errored` region's content (or, for the absent half, a
+  `loading` region's, or a `disabled`), since that region goes when the
+  value fails. A handler inside a component that reads `props.f` is covered
+  when, at every site, the value bound to `f` is covered there, or the
+  component's region around the element (or the element's `disabled`) reads
+  a prop that site binds to the same value. A value that takes its failure
+  from another (`n = rows.length`) is covered wherever that one is. A
+  component from another module is trusted to show what it is handed.
+  (Found by the r17 board apps 1 and 6, eval/results/rerun-2026-11-23: a
+  column's `onMove` written in the board read the other columns' lists, and
+  a lane's handler read `props.lens`, a memo over all three; with a column
+  failed, the click threw the failure out of the page.)
+
   Neither is `UNGUARDED_SNAPSHOT` (static). The check adds nothing at run
   time and Solid has no equivalent: `untrack` of a pending node throws there
   too, but nothing says so before it runs. A handler that needs "the value

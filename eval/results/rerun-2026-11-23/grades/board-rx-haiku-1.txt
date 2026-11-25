@@ -1,0 +1,18 @@
+== hidden
+45/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ an add accepted while To do reloads shows the card once
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a move into Doing that fills it while a move out is pending disables the rest
+20/26 passed
+== fuzz
+board-rx-haiku-1: 3/20 seeds found a hole
+  seed 2 step 16: detail column: #5 shows in Done, the detail says "card unavailable"
+    add Alpha 1 ; tab archive ; tab board ; fail addCard:todo,Alpha 1 ; add Bravo 2 ; add Alpha 3 ; add Delta 4 ; fail addCard:todo,Delta 4 ; fail fetchCards:doing ; add Bravo 5 ; add Bravo 6 ; land fetchCards:todo ; land fetchCards:done ; select #5 ; land fetchChecklist:5 ; fail fetchCards:doing
+  seed 10 step 27: detail column: #2 shows in To do, the detail says "#undefined undefinedin Donerenamearchiveloading checklist"
+    tab archive ; tab board ; add Alpha 1 ; land fetchCards:todo ; add Bravo 2 ; land fetchArchived: ; land addCard:todo,Bravo 2 ; land fetchCards:done ; land addCard:todo,Alpha 1 ; select #5 ; land fetchCards:doing ; land fetchCards:todo ; right #3 ; rename Alpha ; rename Alpha ; add Alpha 3 ; rename Bravo ; land addCard:todo,Alpha 3 ; rename Bravo ; land moveCard:3,done,1 ; fail renameCard:5,Bra
+  seed 15 step 21: limit: Doing shows 3 cards and a To do card's right is enabled
+    land fetchCards:doing ; select #4 ; up #4 ; land fetchCards:done ; fail moveCard:4,doing,0 ; land fetchCards:todo ; rename Bravo ; fail fetchChecklist:4 ; select #4 ; land renameCard:4,Bravo ; add Alpha 1 ; add Alpha 2 ; land fetchCards:todo ; add Bravo 3 ; select #5 ; land fetchCards:doing ; down #1 ; right #2 ; rename Alpha ; land renameCard:5,Alpha ; land addCard:todo,Alpha 2

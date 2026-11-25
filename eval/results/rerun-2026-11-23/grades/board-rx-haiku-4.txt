@@ -1,0 +1,60 @@
+== hidden
+✗ left moves a Doing card to the bottom of To do
+✗ right moves a Doing card to the bottom of Done
+✗ down swaps a card with the one below it
+✗ a declined reorder puts the cards back in their order
+✗ a declined move from Done puts the card back in Done
+✗ a moved card's buttons follow its new place
+✗ the move error is cleared when the next move starts
+✗ a move error stays when another move is accepted
+✗ a move into Doing that brings it to three disables To do's right at once
+✗ a declined move into Doing enables the right buttons again
+✗ a move out of a full Doing enables the right buttons at once
+✗ Doing's own buttons are not limited
+✗ the add error is cleared when the next add starts
+✗ two adds show both, each taking its own id
+✗ an added card can be moved once it has its id
+✗ a declined move puts the detail's column back
+✗ the rename error is cleared when the next rename starts
+✗ a renamed card keeps its new title when it moves
+✗ archiving a card from a full Doing enables To do's right at once
+✗ toggling a done item un-does it
+✗ an accepted toggle keeps the item, the progress and the card's count
+✗ the item error is cleared when another card is selected
+✗ the item error is cleared when the next item action starts
+✗ an added item can be toggled once it has its id
+✗ an accepted restore keeps the row off, and the board shows the card when it opens again
+20/45 passed
+== overlap
+✗ two moves of one card answered in order leave it where the second put it
+✗ a card moved right twice ends in Done
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ a later move declined after an earlier one was accepted puts the card where the earlier one put it
+✗ one of two moves declined puts back only its card
+✗ a move into To do while a card is being added there keeps both
+✗ a column that reloads while a move into it is out keeps the moved card
+✗ a move into a column that is still loading shows once it loads, or waits for it
+✗ an add accepted while To do reloads shows the card once
+✗ toggles keep showing while the checklist reloads
+✗ an item added while the checklist reloads shows once
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle accepted after another card was selected keeps the first card's count
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ a rename and a move out together, the move declined: the card goes back with its new title
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a declined archive of a card whose rename is out brings it back with the new title
+✗ a declined move out of a full Doing disables To do's right again
+✗ a move into Doing that fills it while a move out is pending disables the rest
+✗ a move accepted after the board was left shows nothing extra on the next visit
+✗ a move declined after the board was left shows no move error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+✗ a restore declined after another was accepted brings back only its row
+3/26 passed
+== fuzz
+board-rx-haiku-4: 3/20 seeds found a hole
+  seed 7 step 26: duplicate card: #11 shows in todo and todo
+    land fetchCards:todo ; land fetchCards:done ; land fetchCards:doing ; select #2 ; land fetchChecklist:2 ; add-item ship 1 ; fail addItem:2,ship 1 ; add Delta 2 ; land addCard:todo,Delta 2 ; rename Delta ; add-item qa 3 ; land fetchCards:todo ; select #1 ; rename Delta ; fail addItem:2,qa 3 ; land fetchChecklist:1 ; land renameCard:2,Delta ; land fetchCards:done ; rename Bravo ; select #3 ; add
+  seed 8 step 7: detail column: #4 shows in Doing, the detail says "the card cannot be shown right now: declined"
+    land fetchCards:doing ; add Alpha 1 ; select #4 ; land fetchCards:done ; land fetchChecklist:4 ; fail fetchCards:todo ; retry-todo
+  seed 20 step 28: duplicate card: #10 shows in todo and todo
+    add Bravo 1 ; land fetchCards:doing ; add Bravo 2 ; select #3 ; land fetchCards:done ; land fetchChecklist:3 ; land fetchCards:todo ; add-item qa 3 ; add-item ship 4 ; fail addItem:3,qa 3 ; fail addItem:3,ship 4 ; select #5 ; rename Delta ; add Bravo 5 ; land renameCard:5,Delta ; land fetchCards:todo ; add-item qa 6 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; add Delta 7 ; fail 

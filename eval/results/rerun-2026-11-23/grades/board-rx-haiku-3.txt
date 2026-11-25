@@ -1,0 +1,57 @@
+== hidden
+✗ the new-card input starts empty when the board opens again
+✗ a column's retry shows loading, then the cards
+✗ a move error stays when another move is accepted
+✗ two adds show both, each taking its own id
+41/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ a rename and a move out together, the move declined: the card goes back with its new title
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a declined archive of a card whose rename is out brings it back with the new title
+✗ a move into Doing that fills it while a move out is pending disables the rest
+19/26 passed
+== fuzz
+board-rx-haiku-3: 20/20 seeds found a hole
+  seed 1 step 40: page error: NotReadyError
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; land fetchCards:done ; tab board ; add Alpha 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Bravo 4 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Alpha 5 ; (move failed: locator.fill: Timeout 2000ms exceeded.)
+  seed 2 step 24: heading: head-done counts 1, the column shows 0 cards
+    add Alpha 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; land fetchArchived: ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Delta 4 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; fail fetchCards:done ; fail fetchCards:todo ; retry-done ; tab archi
+  seed 3 step 3: heading: head-done counts 1, the column shows 0 cards
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:done
+  seed 4 step 3: heading: head-todo counts 2, the column shows 0 cards
+    add Alpha 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo
+  seed 5 step 9: heading: head-done counts 1, the column shows 0 cards
+    tab archive ; fail fetchCards:done ; tab board ; tab archive ; land fetchCards:done ; tab board ; add Delta 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:done
+  seed 6 step 30: heading: head-todo counts 2, the column shows 0 cards
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; fail fetchCards:doing ; land fetchCards:done ; land fetchCards:todo ; select #1 ; retry-doing ; select #5 ; add Delta 2 ; tab archive ; tab board ; fail addCard:todo,Delta 2 ; land fetchCards:doing ; right #4 ; down #3 ; left #3 ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; right #3 ; land fetchChec
+  seed 7 step 1: heading: head-todo counts 2, the column shows 0 cards
+    land fetchCards:todo
+  seed 8 step 13: detail column: #5 shows in Done, the detail says "board unavailable: declined"
+    land fetchCards:doing ; right #3 ; select #4 ; fail fetchCards:done ; left #3 ; retry-done ; fail fetchCards:todo ; up #4 ; select #4 ; land fetchCards:done ; select #5 ; land fetchChecklist:5 ; retry-todo
+  seed 9 step 1: heading: head-done counts 1, the column shows 0 cards
+    land fetchCards:done
+  seed 10 step 5: heading: head-todo counts 2, the column shows 0 cards
+    tab archive ; tab board ; add Alpha 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo
+  seed 11 step 28: heading: head-todo counts 2, the column shows 0 cards
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:doing ; select #4 ; down #3 ; add Alpha 4 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; left #4 ; tab arch
+  seed 12 step 1: heading: head-todo counts 2, the column shows 0 cards
+    land fetchCards:todo
+  seed 13 step 36: heading: head-done counts 1, the column shows 0 cards
+    add Alpha 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; fail fetchCards:todo ; land fetchCards:doing ; retry-todo ; left #3 ; right #4 ; select #4 ; right #3 ; land fetchChecklist:4 ; fail fetchCards:done ; land fetchCards:todo ; up #4 ; fail moveCard:4,doing,0 ; select #3 ; land fetchCards:done ; land fetchChecklist:3 ; add-item ship 2 ; fail addItem:3,ship 2 ; select #2 ; archi
+  seed 14 step 3: heading: head-todo counts 2, the column shows 0 cards
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo
+  seed 15 step 23: heading: head-done counts 1, the column shows 0 cards
+    land fetchCards:doing ; select #4 ; left #3 ; land fetchCards:done ; land fetchChecklist:4 ; land fetchCards:todo ; add-item qa 1 ; land addItem:4,qa 1 ; land fetchCards:todo ; select #3 ; land fetchCards:done ; land fetchChecklist:3 ; fail fetchChecklist:4 ; archive #3 ; tab archive ; tab board ; add Alpha 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; land fetchCar
+  seed 16 step 20: heading: head-done counts 1, the column shows 0 cards
+    add Delta 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; fail fetchCards:doing ; add Alpha 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo ; add Alpha 4 ; retry-doing ; add Alpha 5 ; fail addCard:todo,Alpha 5 ; add Delta 6 ; select #1 ; add Alpha 7 ; land addCard:todo,Alpha 4 ; s
+  seed 17 step 3: heading: head-todo counts 2, the column shows 0 cards
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo
+  seed 18 step 48: page error: NotReadyError
+    land fetchCards:doing ; land fetchCards:done ; select #3 ; right #3 ; land fetchChecklist:3 ; land moveCard:3,done,1 ; left #4 ; select #3 ; land fetchCards:doing ; land fetchCards:done ; land fetchCards:todo ; down #1 ; rename Delta ; land renameCard:3,Delta ; land fetchCards:todo ; left #3 ; add-item ship 1 ; rename Bravo ; land fetchCards:doing ; left #4 ; right #2 ; up #2 ; archive #3 ; ad
+  seed 19 step 1: heading: head-todo counts 2, the column shows 0 cards
+    land fetchCards:todo
+  seed 20 step 38: heading: head-done counts 1, the column shows 0 cards
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:doing ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; select #3 ; land fetchCards:done ; land fetchChecklist:3 ; land fetchCards:todo ; right #2 ; add-item qa 3 ; left #4 ; left #5 ; select #1 ; land fetchChecklist:1 ; toggle 1 ; rename Delta ; land moveCard:2,doing,2 ; tab archive ; l
