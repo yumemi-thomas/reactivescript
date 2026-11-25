@@ -596,6 +596,7 @@ export class Oracle {
         if (e.f.k === "member") { self = this.ev(e.f.o, scope, env); f = self == null ? undefined : self[e.f.p]; } else f = this.ev(e.f, scope, env);
         const args = e.args.map(a => this.ev(a, scope, env));
         if (f === BUILTINS.fetch) { const fl = this.flight(String(args[0])); return process.env.ORACLE_PROMISES ? fl.first : fl; }
+        while (Array.isArray(f) && f.length === 1 && isView(f) && typeof f[0] === "function") f = f[0]();   // RG-4c, a function prop: the children are one closure, as JSX passes it
         if (typeof f !== "function") throw new Error("call of non-function");
         return f.apply(self, args);
       }

@@ -959,6 +959,8 @@ export class Runtime {
         else f = this.ev(e.f, region, env);
         const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
         if (bad && this.demandMode) return bad;                        // absence propagates in reactive scope; in imperative scope an error is a value (E-12)
+        // RG-4c, a function prop: `props.children(…)` where the children are one closure, as JSX passes it
+        while (f instanceof ViewValue && f.items.length === 1 && f.items[0].k === "read") { f = this.readNode(f.items[0].node); if (isAbsent(f)) return f; }
         if (typeof f !== "function") throw new RuleError("TYPE", "call of non-function");
         if ((f as { io?: boolean }).io && this.demandMode) throw new RuleError("IO-2", "io function called in reactive scope");
         if (f === BUILTINS.fetch) return this.flight(String(args[0]));
