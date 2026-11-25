@@ -152,16 +152,24 @@ A component is a function from a props value to a region whose tail is a view.
   of the props (RG-4b); or asks whether it was given (`if props.children`,
   `!props.children`, `props.children != undefined`). That question makes
   nothing, and is asked of the argument as it was *written*: it is read with
-  each view in it standing for itself. Content between the tags was given; a
-  view given on (an argument, content that is one `{e}` asking nothing of its
-  place, a spread, a rest, a default, a name, through any number of
+  each view in it standing for itself. In one sentence: *a view was given
+  where something was written for it — content between the tags, or an
+  argument whose value is something — and a view given on answers as its
+  giver's does.* Content between the tags was given; a
+  view given on (an argument, content that is one `{e}` of a view the giver
+  was given, a spread, a rest, a default, a name, through any number of
   components) asks its giver; a choice (`c ? a : b`, `a ?? b`, `a && b`)
   follows its branch, whose condition is read where the question is asked,
-  and tracked; any other expression is a value and answers as JavaScript has
-  it (`0`, `""`, `false`, `undefined` under `if`, `!`, `&&`; `undefined`
-  alone under `??` and `!= undefined`), which is what it answered before this
-  rule. So an explicit argument, a spread and a rest answer alike, and
-  `if p.label` agrees with `p.label ?? x`. What JavaScript gives as a value
+  and tracked; any other expression *given as an argument* is a value and
+  answers as JavaScript has it (`0`, `""`, `false`, `undefined`, `null`
+  under `if`, `!`, `&&`; `undefined` and `null` under `??`; `!= undefined`
+  asks that alone, as the language's `!=` does), which is what it answered
+  before this rule. A value
+  written *as content* is its text, as it is shown (`<Q>{0}</Q>`,
+  `<Q>{false}</Q>`, `<Q>{undefined}</Q>` show the words, and were given);
+  the text that is empty, `<Q>{""}</Q>`, is nothing given, and
+  `<Q><>{""}</></Q>` is content. So an explicit argument, a spread and a
+  rest answer alike, and `if p.label` agrees with `p.label ?? x`. What JavaScript gives as a value
   answers so too, as Solid's `props.children ? … : …`; its getter (JSX
   content) is read, as Solid reads it, unless the host offers the answer
   (`slot(make)` of the runtime), which is then not made (S-context-7).

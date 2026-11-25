@@ -88,6 +88,21 @@ export default component App() { source n := "A"
 | 0 | mount | `tN` |  |
 | 1 | handler `n := "B"` | `tY` |  |
 
+## Variant: an argument is its value; a value written as content is its text
+
+`!= undefined` asks that alone (`null` is not `undefined`); `??` takes both for nothing. Content that is a value is
+shown as its text and was given, but for the empty text.
+
+```rx
+component A(p: { l?: View }) { <b>{p.l != undefined ? "Y" : "N"}{if p.l { <i>y</i> } else { <i>n</i> }}[{p.l ?? "D"}]</b> }
+component C(p: { children?: View }) { <b>{if p.children { <i>y</i> } else { <i>n</i> }}[{p.children}]</b> }
+export default component App() { <A l={undefined} /><A l={null} /><A l={0} /><A l={""} /><C>{undefined}</C><C>{0}</C><C>{""}</C><C><>{""}</></C><C></C> }
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | `Nn[D]Yn[D]Yn[0]Yn[]y[undefined]y[0]n[]y[]n[]` |  |
+
 ## Variant: a view the root may not have been given: the context then holds none, and nothing is shown
 
 ```rx

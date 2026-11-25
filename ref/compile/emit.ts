@@ -418,16 +418,16 @@ class Gen {
    *  with each view in it standing for itself (`__rt.ask`: content, a view given on, a choice or a default of them);
    *  a value in it answers as JavaScript has it. `some`: whether it is not `undefined` (`??`, `!= undefined`). Of a
    *  prop that is not declared `View`, the question is its value's, and nothing is emitted here. */
-  private asked(e: Expr, env: Env, some = false): string | undefined {
+  private asked(e: Expr, env: Env, not?: "undefined" | "null"): string | undefined {   // not: whether it is not that (`!= undefined`, `!= null`: the language's `!=` is JavaScript's `!==`)
     const g = given(e, n => env.lookup(n)?.given); if (!g?.held || !g.view) return undefined;
     const v = `__rt.ask(() => ${this.expr(e, env, { imp: false })})`;
-    return some ? `(${v} != null)` : v;
+    return not ? `(${v} !== ${not})` : v;
   }
   /** … and a condition that asks it: the view itself or a choice of views (`bare`: an `if`, a `?:`, the left of `&&`), `!v`, `v == undefined`, `a && b`, `a || b`. */
   private asks(c: Expr, env: Env, bare: boolean): string | undefined {
     if (bare) { const a = this.asked(c, env); if (a) return a; }
     if (c.k === "un" && c.op === "!") { const a = this.asks(c.e, env, true); return a && `(!${a})`; }
-    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null) { const a = this.asked(c.l, env, true); return a && (c.op === "==" ? `(!${a})` : a); }
+    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null) { const a = this.asked(c.l, env, c.r.v === null ? "null" : "undefined"); return a && (c.op === "==" ? `(!${a})` : a); }
     if (bare && c.k === "bin" && (c.op === "&&" || c.op === "||")) { const l = this.asks(c.l, env, true), r = this.asks(c.r, env, true); return l || r ? `(${l ?? this.expr(c.l, env, { imp: false })} ${c.op} ${r ?? this.expr(c.r, env, { imp: false })})` : undefined; }
     return undefined;
   }

@@ -1497,24 +1497,24 @@ impl<'p> Gen<'p> {
     /// with each view in it standing for itself (`__rt.ask`: content, a view given on, a choice or a default of them);
     /// a value in it answers as JavaScript has it. `some`: whether it is not `undefined` (`??`, `!= undefined`). Of a
     /// prop that is not declared `View`, the question is its value's, and nothing is emitted here.
-    fn asked(&mut self, e: &Expr, env: Env, some: bool) -> R<Option<E>> {
+    fn asked(&mut self, e: &Expr, env: Env, not_lit: Option<E>) -> R<Option<E>> {
         if !self.given(e, env).is_some_and(|g| g.held() && g.view()) {
             return Ok(None);
         }
         let v = rtc("ask", vec![thunk(self.expr(e, env, &reactive())?)]);
-        Ok(Some(if some { bin("!=", v, E::Null) } else { v }))
+        Ok(Some(match not_lit { Some(x) => bin("!==", v, x), None => v }))
     }
     /// … and a condition that asks it: the view itself or a choice of views (`bare`: an `if`, a `?:`, the left of
     /// `&&`), `!v`, `v == undefined`, `a && b`, `a || b`.
     fn asks(&mut self, c: &Expr, env: Env, bare: bool) -> R<Option<E>> {
         if bare {
-            if let Some(a) = self.asked(c, env, false)? {
+            if let Some(a) = self.asked(c, env, None)? {
                 return Ok(Some(a));
             }
         }
         Ok(match &c.k {
             ExprKind::Un { op, e } if op == "!" => self.asks(e, env, true)?.map(not),
-            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "==" | "!=") && matches!(r.k, ExprKind::Lit(Lit::Undefined | Lit::Null)) => self.asked(l, env, true)?.map(|a| if op == "==" { not(a) } else { a }),
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "==" | "!=") && matches!(r.k, ExprKind::Lit(Lit::Undefined | Lit::Null)) => self.asked(l, env, Some(if matches!(r.k, ExprKind::Lit(Lit::Null)) { E::Null } else { undef() }))?.map(|a| if op == "==" { not(a) } else { a }),
             ExprKind::Bin { op, l, r } if bare && matches!(op.as_str(), "&&" | "||") => {
                 let (a, b) = (self.asks(l, env, true)?, self.asks(r, env, true)?);
                 if a.is_none() && b.is_none() {

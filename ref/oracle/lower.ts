@@ -320,17 +320,17 @@ export class Oracle {
   /** RG-4c: a view the component was given, made where it is read (as the compiled module's). */
   /** RG-4c: whether a view was given, asked without making it: the argument is read as it was written, and while it
    *  is, content stands for itself (`slot`). A value in it answers as JavaScript has it. `some`: whether it is not `undefined`. */
-  private asked(e: Expr, scope: Scope, some = false): boolean | undefined {
+  private asked(e: Expr, scope: Scope, not?: "undefined" | "null"): boolean | undefined {   // not: whether it is not that (`!= undefined`, `!= null`: the language's `!=` is JavaScript's `!==`)
     const g = given(e, scope.given); if (!g?.held || !g.view) return undefined;   // a prop declared `View`: of anything else, the question is its value's
     const was = ASK.on; ASK.on = { owner: getOwner() }; let v: unknown;
     try { v = this.ev(e, scope); } finally { ASK.on = was; }
-    return some ? v != null : !!v;
+    return not === "undefined" ? v !== undefined : not === "null" ? v !== null : !!v;
   }
   /** … and a condition that asks it. `bare`: the view itself is one. */
   private asks(c: Expr, scope: Scope, bare: boolean): boolean | undefined {
     if (bare) { const a = this.asked(c, scope); if (a !== undefined) return a; }
     if (c.k === "un" && c.op === "!") { const a = this.asks(c.e, scope, true); return a === undefined ? undefined : !a; }
-    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null) { const a = this.asked(c.l, scope, true); return a === undefined ? undefined : c.op === "==" ? !a : a; }
+    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null) { const a = this.asked(c.l, scope, c.r.v === null ? "null" : "undefined"); return a === undefined ? undefined : c.op === "==" ? !a : a; }
     if (bare && c.k === "bin" && (c.op === "&&" || c.op === "||")) { const l = this.asks(c.l, scope, true), r = this.asks(c.r, scope, true); if (l === undefined && r === undefined) return undefined; const L = l ?? !!this.ev(c.l, scope); return c.op === "&&" ? L && (r ?? !!this.ev(c.r, scope)) : L || (r ?? !!this.ev(c.r, scope)); }
     return undefined;
   }
