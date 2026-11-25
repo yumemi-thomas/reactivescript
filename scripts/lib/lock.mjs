@@ -3,7 +3,7 @@
 // A lock is a file that says who holds it — pid and when that process started, so that a number used again by another
 // process holds nothing — and a holder that is gone loses it. Off in CI (CI is set) and under RX_LOCK=0; a process started
 // by a holder runs under its lock (RX_LOCK_HELD). A holder that hangs does not keep the others: one whose processes (it and
-// those under it) used no CPU for RX_LOCK_IDLE seconds (180), or that has held it for RX_LOCK_HOLD (2400), loses it to the
+// those under it) used no CPU for RX_LOCK_IDLE seconds (600), or that has held it for RX_LOCK_HOLD (7200), loses it to the
 // next. Waiting is bounded (RX_LOCK_WAIT seconds, 3600): past it the run goes on
 // without the lock, and says so: an agent that waits for ever is worse than two suites at once.
 import { execFileSync } from "node:child_process";
@@ -18,7 +18,7 @@ export function startOf(pid) {
 }
 const read = f => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return null; } };
 const alive = h => !!h && startOf(h.pid) === h.start;
-const HOLD = () => (Number(process.env.RX_LOCK_HOLD) || 2400) * 1000, IDLE = () => (Number(process.env.RX_LOCK_IDLE) || 180) * 1000;
+const HOLD = () => (Number(process.env.RX_LOCK_HOLD) || 7200) * 1000, IDLE = () => (Number(process.env.RX_LOCK_IDLE) || 600) * 1000;
 /** The CPU a process and those under it have used, in seconds, and which they are. (What has ended is not counted: the sum may
  *  fall — that is work, too.) */
 function cpuOf(pid) {

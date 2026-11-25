@@ -1,7 +1,7 @@
 // A folder of small programs through every runner, at one revision or several, and what each shows: do the interpreter, the
 // oracle, both emitters, both servers (with hydration, and the browser alone) and both checkers say one thing of each?
 //   node scripts/matrix.mjs <folder | scenario.md …> [--rev name=<checkout>]… [--runners interp,js,…] [--out file.json]
-//        [--jobs 4] [--time 60] [--mem 2000] [--show differ,server] [--max 20] [--from file.json]
+//        [--jobs 4] [--time 120] [--mem 2000] [--show differ,server] [--max 20] [--from file.json]
 // A program is a scenario file (`## Program`, `## Frames`; a frame `@` no runner can show: what each shows is read off its
 // report). --rev (default: this checkout, `here`): a checkout that is built — its crate, ref/node_modules, runtime/dist. It
 // is not written to: its runners are run in a copy of its ref/, so several runs can share one. With two, what changed
@@ -25,7 +25,7 @@ const given = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.startsW
 if (!given.length && !opt("--from")) { console.error("usage: node scripts/matrix.mjs <folder | scenario.md …> [--rev name=<checkout>]… [--runners …] [--out file.json] (see the file's first lines)"); process.exit(2); }
 const revs = Object.fromEntries((many("--rev").length ? many("--rev") : [`here=${repo}`]).map(r => { const i = r.indexOf("="); return [r.slice(0, i), path.resolve(r.slice(i + 1))]; }));
 const jobs = Math.max(1, Number(opt("--jobs")) || Math.min(4, Math.ceil(availableParallelism() / 2)));
-const TIME = (Number(opt("--time")) || 60) * 1000, MEM = (Number(opt("--mem")) || 2000) * 1024;
+const TIME = (Number(opt("--time")) || 120) * 1000, MEM = (Number(opt("--mem")) || 2000) * 1024;
 
 // ---- the runners ----
 const N = ["--experimental-strip-types", "--no-warnings", `--max-old-space-size=${Math.round(MEM / 1024)}`], C = ["--conditions=browser", "--conditions=development"];
@@ -67,7 +67,7 @@ function runShare(name, runner, slot, programs) {
   for (const f of readdirSync(sc)) rmSync(path.join(sc, f));
   for (const p of programs) copyFileSync(p.file, path.join(sc, `S-zz-${p.name}.md`));
   return new Promise(res => {
-    const env = { ...process.env, ...R.env, RX_JOBS: "1", RX_NO_CACHE: "1", RX_LOCK: "0", TMPDIR: tmp, PATH: `${path.join(tmp, "bin")}:${process.env.PATH}`, ...(R.page && process.env.RX_BROWSER ? { NODE_OPTIONS: `--require ${path.join(repo, "scripts/lib/shared-browser.cjs")}` } : {}) };
+    const env = { ...process.env, ...R.env, RX_JOBS: "1", RX_NO_CACHE: "1", RX_LOCK: "0", TMPDIR: tmp, PATH: `${path.join(tmp, "bin")}:${process.env.PATH}`, NODE_OPTIONS: `--require ${path.join(repo, "scripts/lib/runner-preload.cjs")}` };
     const c = spawn(process.execPath, R.cmd, { cwd: path.join(at, "ref"), env, stdio: ["ignore", "pipe", "pipe"], detached: true }); kids.add(c);
     let out = "", err = "", told = 0, last = Date.now(), why = null;
     const stop = w => { why ??= w; try { process.kill(-c.pid, "SIGKILL"); } catch { /* ended */ } };

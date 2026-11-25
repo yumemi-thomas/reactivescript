@@ -220,7 +220,7 @@ node scripts/heavy.mjs <name> -- <command…>       # any command under the mach
   `scripts/ci`'s steps with several browsers take a lock of the machine's
   (`scripts/lib/lock.mjs`) and wait for it at most `RX_LOCK_WAIT` seconds
   (3600), then go on. A holder that is gone holds nothing; one whose
-  processes do nothing for 180 s (`RX_LOCK_IDLE`), or that has held it 2400 s
+  processes do nothing for 600 s (`RX_LOCK_IDLE`), or that has held it 7200 s
   (`RX_LOCK_HOLD`), loses it to the next. Off in CI and
   under `RX_LOCK=0`; a run of one task does not take it.
 - A new suite that keeps results says in its key everything it reads: a

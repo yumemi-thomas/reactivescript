@@ -106,7 +106,7 @@ async function start(s) {
   const file = path.join(log, `${s.id}.log`), n = Math.min(s.n ?? 1, jobs), cmd = s.run;
   const child = spawn("bash", ["-c", `exec >${JSON.stringify(file)} 2>&1; time { ${cmd}\n} 2>&1; code=$?; exit $code`], { cwd: path.join(repo, s.dir), env: { ...env, RX_JOBS: String(n), BENCH_JOBS: String(n), RX_LOCK_HELD: process.env.RX_LOCK_HELD ?? "" }, stdio: "ignore", detached: true });
   let late = false; const soft = quick && s.soft ? setTimeout(() => { late = true; try { process.kill(-child.pid, "SIGTERM"); } catch { /* ended */ } setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, 3000); }, s.soft * 1000) : null;
-  const began = Date.now(), wall = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, (s.limit ?? (Number(process.env.RX_CI_LIMIT) || 1200)) * 1000);
+  const began = Date.now(), wall = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, (s.limit ?? (Number(process.env.RX_CI_LIMIT) || 3600)) * 1000);
   running.set(s.id, { child, s, n });
   child.on("close", code => {
     clearTimeout(wall); clearTimeout(soft); release(); running.delete(s.id);

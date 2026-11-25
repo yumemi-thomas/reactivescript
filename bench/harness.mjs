@@ -57,7 +57,8 @@ function shared() {
     harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), at("scripts/lib/cache.mjs")),
     tools: cache.inputs(...["bin", "src", "package.json", "package-lock.json", "node_modules"].map(f => at("tooling/rx-language-server", f))),
     installed: [cache.treeHash(nm, { skip: (r, n) => r === "@reactivescript" || r === "@rx-types" || n === ".package-lock.json" }), cache.treeHash(path.join(nm, "@rx-types"))],
-    runtime: cache.inputs(...["package.json", "dist", "rx-lib.d.ts"].map(f => at("runtime", f))),
+    // (the copies a program runs with, not what they were copied from: `workspace()` makes them again, a task run alone does not)
+    runtime: cache.treeHash(path.join(nm, "@reactivescript/runtime")),
     // what a task that runs a build, or a process of its own, may reach: the compiler as it is built, and ref/
     builds: cache.inputs(rxc, ...["index.js", "vite.mjs", "lib.mjs", "package.json", "scripts", "target/wasm32-unknown-unknown/release/reactivescript.wasm"].map(f => at("compiler", f)), ...(existsSync(at("compiler")) ? readdirSync(at("compiler")).filter(f => f.endsWith(".node")).map(f => at("compiler", f)) : []), ...["src", "compile", "check.ts", "disk.ts", "types"].map(f => at("ref", f))),
     browser: cache.browser(pw()),
@@ -70,7 +71,7 @@ export const shareKeys = () => { if (cache.enabled) process.env.RX_SHARED_KEYS =
 /** A folder a task is staged in, its edits included. (What the crate's answers were written to is not its own: `compile`.) */
 const folder = dir => cache.treeHash(dir, { skip: (r, n) => n === "node_modules" || /\.rx\.\d+\.(dom|ssr)\.mjs(\.entry\.mjs)?$/.test(n) });
 /** A task's own install, where it has one. */
-const deps = dir => { const l = path.join(dir, "node_modules"); return existsSync(l) ? cache.treeHash(l, { follow: true, skip: (r, n) => r === "@reactivescript" || n === ".package-lock.json" }) : null; };
+const deps = dir => { const l = path.join(dir, "node_modules"); return existsSync(l) ? cache.treeHash(l, { follow: true, skip: (r, n) => r === "@reactivescript/compiler" || r === "@reactivescript/language-server" || n === ".package-lock.json" }) : null; };
 /** The crate's answers now, for questions an operation asked: the program compiled, or a tool's request of it, by the
  *  same build the tool asks (the WebAssembly one, unless RXC names a binary). */
 let asked_;
