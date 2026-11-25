@@ -1,4 +1,4 @@
-# S-view-1 — a view an `.rx` component shows with what it knows
+# S-view-3 — a view an `.rx` component shows with what it knows
 
 Rules: RG-4c, RG-4b, RG-7b, R-f-5, O-3, W-1, SV-3, SV-7d.
 

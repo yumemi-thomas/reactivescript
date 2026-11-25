@@ -1,4 +1,4 @@
-# S-view-2 — a view shown by another module's component
+# S-view-4 — a view shown by another module's component
 
 Rules: RG-4c, MO-3, MO-9, MO-11c, O-3, CN-4b.
 
@@ -38,7 +38,7 @@ export component Arr(props: { children: (s: { xs: number[], f: (a: { b: 1 }) => 
 export component Panel(props: { as: Component; children?: View })
 export component List(props: { items: any[]; children: (x: any) => View })
 export fn mk(x: any): Component
-export pure fn useQ(): { data: ref pending fails(Error) string; label: string }
+export pure fn useQ(): { data: pending fails(Error) ref string; label: string }
 ```
 
 ```rx
@@ -254,11 +254,11 @@ export default component App() {
 ```
 
 ```rx
--- reject: HELD_VALUE_ESCAPES
+-- reject: RESULT_AS_VALUE
 import { useQ } from "./j.js"
 component T(props: { children: (s: { q: any }) => View }) {
   q = useQ()
-  {errored fallback(e) { <i>x</i> } { {loading fallback { <i>w</i> } { <props.children q={q} /> }} }}
+  <props.children q={q} />
 }
 export default component App() {
   <T>{view (s) { <b>{s.q.data}</b> }}</T>

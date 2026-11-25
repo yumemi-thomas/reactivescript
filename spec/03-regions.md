@@ -155,7 +155,7 @@ A component is a function from a props value to a region whose tail is a view.
     checked as read where the view is shown. What the view stores where it
     outlives it (O-3) is none of what the component's closures hold. A component
     so typed that never shows them this way is as it was: it reads and calls
-    them. (`VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED`; S-view-1, S-view-2.)
+    them. (`VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED`; S-view-3, S-view-4.)
 - **RG-4d (No return channel).** A component body evaluates to its view and
   nothing else. To expose a value upward, the caller passes a handler (or an
   action) the child calls: a source passed as a prop is read-only in the child
