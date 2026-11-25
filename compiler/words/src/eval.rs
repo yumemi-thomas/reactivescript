@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 pub enum Ty {
     Num, Prim, Any, Param,
     /// A function: whether it answers something, and what.
-    Fn { answers: bool, ret: u32 },
+    Fn { answers: bool, ret: u32, params: Vec<u32> },
     Arr(u32), Tuple(Vec<u32>), Rest(u32), Map(u32, u32), Set(u32), Promise(u32),
     Rec(BTreeMap<String, u32>),
     Union(Vec<u32>),
@@ -36,7 +36,7 @@ impl Types {
             "num" => Ty::Num,
             "prim" => Ty::Prim,
             "param" => Ty::Param,
-            "fn" => { let ret = self.read(&v["r"]); Ty::Fn { answers: v["answers"] == true, ret } }
+            "fn" => { let ret = self.read(&v["r"]); let params = v["p"].as_array().into_iter().flatten().map(|x| self.read(x)).collect(); Ty::Fn { answers: v["answers"] == true, ret, params } }
             "arr" => Ty::Arr(self.read(&v["e"])),
             "rest" => Ty::Rest(self.read(&v["e"])),
             "tuple" => Ty::Tuple(v["e"].as_array().into_iter().flatten().map(|x| self.read(x)).collect()),
@@ -78,7 +78,13 @@ fn prims(v: &Val) -> bool { v.iter().all(|a| flat(*a)) }
 enum Kind { Plain, Array, Map, Set, Weak, Iter, Promise, Error, RegExp, Accessor, Setter, Resolve(u32), Reject, Store }
 struct Obj {
     kind: Kind,
+    /// Its own properties, by their names.
     fields: BTreeMap<String, Val>,
+    /// Its private names (`#x`): no property, so nothing but the class reads, spreads or lists them.
+    private: BTreeMap<String, Val>,
+    /// A list written out: what stands where, until it is changed (`moved`).
+    places: BTreeMap<usize, Val>,
+    moved: bool,
     /// An array's items, a map's values, what is under a name that is computed; what a promise answers.
     items: Val,
     keys: Val,
@@ -92,7 +98,7 @@ struct Obj {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FnAt { pub module: usize, pub node: NodeId }
 struct Fun { at: FnAt, env: u32 }
-struct Act { module: usize, scope: Option<ScopeId>, parent: Option<u32>, vars: HashMap<SymbolId, Val>, ret: Val, init: bool, running: bool, this: Option<Val>, later: bool, is_async: bool }
+struct Act { module: usize, scope: Option<ScopeId>, parent: Option<u32>, vars: HashMap<SymbolId, Val>, ret: Val, init: bool, running: bool, this: Option<Val>, later: bool, waits: bool, is_async: bool }
 struct Cls { at: FnAt, env: u32 }
 struct ConstObj { shape: constant::Shape, values: BTreeMap<String, Val>, all: Val, keys: Val }
 
@@ -108,12 +114,13 @@ pub struct Facts {
     pub owned: bool,
     /// It asked where it runs, so an answer that is data may differ.
     pub env: bool,
-    pub throws: BTreeSet<String>,
-    pub tries: bool,
-    pub is_async: bool,
     pub answers_data: bool,
     pub answers_timer: bool,
-    pub promise: bool,
+    /// The function parts of what it answers that are not shown to only compute and read: where (the fields and places down to
+    /// it), and why.
+    pub parts: Vec<(Vec<String>, bool, Stop)>,
+    /// An object of what it answers may be changed after the call.
+    pub later: Option<Stop>,
     pub files: BTreeSet<String>,
 }
 
@@ -142,8 +149,22 @@ pub struct Eval<'m, 'a, 'r> {
     cur: u32,
     changed: bool,
     fuel: u32,
+    /// The call is over and a function it answered is read: what the call made (`.0` activations, `.1` objects) is as it was left.
+    post: Option<(u32, u32)>,
+    /// The objects of the call's that a function it answered reads, and those something may change after the call.
+    reads: BTreeSet<u32>,
+    written: BTreeMap<u32, Stop>,
+    /// The same, by an async function's own code after it waited: before its promise answers.
+    waited: BTreeMap<u32, Stop>,
+    /// In a computation, which runs again.
+    again: u32,
+    /// What an effect or a cleanup of the call's runs, later.
+    kept: Val,
     pub facts: Facts,
 }
+enum Found { Read(BTreeSet<u32>), Not(Stop) }
+/// A function among what a call answered.
+struct Part { path: Vec<String>, fun: Option<u32>, what: Found, told: bool, /** a function, and nothing more */ callable: bool }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Narrow { Num, Prim, Fn, NotFn, List, NotList }
 
@@ -152,12 +173,10 @@ const ERRORS: &[&str] = &["Error", "TypeError", "RangeError", "SyntaxError", "Re
 const OBJECT_PROTO: &[&str] = &["toString", "valueOf", "toLocaleString", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable"];
 const STR_METHODS: &[&str] = &["charAt", "charCodeAt", "codePointAt", "at", "endsWith", "startsWith", "includes", "indexOf", "lastIndexOf", "normalize", "padEnd", "padStart", "repeat", "slice", "substring", "substr", "toLowerCase", "toUpperCase", "trim", "trimStart", "trimEnd", "toString", "valueOf", "toFixed", "toPrecision", "toExponential", "concat", "search"];
 const NUM_ANSWER: &[&str] = &["indexOf", "lastIndexOf", "charCodeAt", "search", "codePointAt"];
-/// What throws as a matter of course on what it is given.
-const THROWING: &[&str] = &["normalize", "repeat", "toFixed", "toPrecision", "toExponential", "toString", "replaceAll", "matchAll"];
 
 impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
     pub fn new(mods: &'m Modules<'a, 'r>, h: Host, hi: usize, types: &'m Types) -> Self {
-        Eval { mods, h, hi, types, funs: vec![], fun_ids: HashMap::new(), classes: vec![], class_ids: HashMap::new(), objs: vec![], obj_ids: HashMap::new(), consts: vec![], natives: vec![], solids: vec![], acts: vec![], act_ids: HashMap::new(), cells: HashMap::new(), module_acts: HashMap::new(), module_values: HashMap::new(), narrow: vec![], stack: vec![], ctor_class: vec![], cur: 0, changed: false, fuel: 400_000, facts: Facts::default() }
+        Eval { mods, h, hi, types, funs: vec![], fun_ids: HashMap::new(), classes: vec![], class_ids: HashMap::new(), objs: vec![], obj_ids: HashMap::new(), consts: vec![], natives: vec![], solids: vec![], acts: vec![], act_ids: HashMap::new(), cells: HashMap::new(), module_acts: HashMap::new(), module_values: HashMap::new(), narrow: vec![], stack: vec![], ctor_class: vec![], cur: 0, changed: false, fuel: 400_000, post: None, reads: BTreeSet::new(), written: BTreeMap::new(), waited: BTreeMap::new(), again: 0, kept: vec![], facts: Facts::default() }
     }
     fn m(&self) -> &'m Module<'a> { self.mods.get(self.acts[self.cur as usize].module) }
     fn mi(&self) -> usize { self.acts[self.cur as usize].module }
@@ -177,7 +196,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
     }
 
     fn act(&mut self, module: usize, scope: Option<ScopeId>, parent: Option<u32>, init: bool) -> u32 {
-        self.acts.push(Act { module, scope, parent, vars: HashMap::new(), ret: vec![], init, running: false, this: None, later: false, is_async: false });
+        self.acts.push(Act { module, scope, parent, vars: HashMap::new(), ret: vec![], init, running: false, this: None, later: false, waits: false, is_async: false });
         self.acts.len() as u32 - 1
     }
     fn module_act(&mut self, mi: usize) -> u32 {
@@ -199,29 +218,40 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         let k = (self.cur, at.start, at.end, tag);
         if let Some(o) = self.obj_ids.get(&k) { return *o; }
         let module = self.acts[self.cur as usize].init;
-        self.objs.push(Obj { kind, fields: BTreeMap::new(), items: vec![], keys: vec![], module, getters: BTreeSet::new(), wild: false, class: None });
+        self.objs.push(Obj { kind, fields: BTreeMap::new(), private: BTreeMap::new(), places: BTreeMap::new(), moved: false, items: vec![], keys: vec![], module, getters: BTreeSet::new(), wild: false, class: None });
         let i = self.objs.len() as u32 - 1;
         self.obj_ids.insert(k, i);
         i
     }
     fn new_array(&mut self, at: Span, tag: u8, items: Val) -> Val { let o = self.made(at, tag, Kind::Array); self.put_items(o, &items); one(Atom::Obj(o)) }
     fn put_items(&mut self, o: u32, v: &Val) { if join(&mut self.objs[o as usize].items, v) { self.changed = true; } }
+    fn put_private(&mut self, o: u32, k: &str, v: &Val) { if join(self.objs[o as usize].private.entry(k.to_string()).or_default(), v) { self.changed = true; } }
     fn put_field(&mut self, o: u32, k: &str, v: &Val) { if join(self.objs[o as usize].fields.entry(k.to_string()).or_default(), v) { self.changed = true; } }
     /// An object of the call's: one it may read and change.
-    fn own(&self, o: u32, at: Span) -> R<()> {
+    fn own(&mut self, o: u32, at: Span) -> R<()> {
         if self.objs[o as usize].module && !self.acts[self.cur as usize].init { return self.stop(at, "it reads an object the module made as it loaded"); }
+        if self.post.is_some_and(|(_, n)| o < n) { self.reads.insert(o); }
+        Ok(())
+    }
+    /// An object is changed: not by a function the call answered, and noted where it is changed after the call.
+    fn wrote(&mut self, o: u32, at: Span) -> R<()> {
+        if self.post.is_some_and(|(_, n)| o < n) { return self.stop(at, "it changes what the call made"); }
+        let (again, later) = (self.is_again(), self.is_later());
+        if again || later {
+            let s = self.stop::<()>(at, "what it answers may be changed later, by what the call left to run").unwrap_err();
+            if again { &mut self.written } else { &mut self.waited }.entry(o).or_insert(s);
+        }
         Ok(())
     }
 
     // ---- an export's call ----
     /// The call of an export, with its arguments' types (`params`; the last may be a rest parameter's).
-    pub fn export(&mut self, o: &Origin<'a>, params: &[u32]) -> R<Val> {
+    pub fn export(&mut self, o: &Origin<'a>, params: &[u32], answers: u32) -> R<Val> {
         let f = self.origin(o, Span::new(0, 0), 0)?;
         let [Atom::Fun(f)] = f[..] else { return Err(Stop { why: "it is no function of the module's, or may be changed".into(), module: 0, at: 0 }) };
         let at = self.funs[f as usize].at;
-        let (gen, isasync, n) = { let m = self.mods.get(at.module); match m.nodes.kind(at.node) { AstKind::Function(x) => (x.generator, x.r#async, x.params.items.len()), AstKind::ArrowFunctionExpression(x) => (false, x.r#async, x.params.items.len()), _ => (true, false, 0) } };
+        let (gen, n) = { let m = self.mods.get(at.module); match m.nodes.kind(at.node) { AstKind::Function(x) => (x.generator, x.params.items.len()), AstKind::ArrowFunctionExpression(x) => (false, x.params.items.len()), _ => (true, 0) } };
         if gen { return Err(Stop { why: "it is a generator".into(), module: at.module, at: 0 }); }
-        self.facts.is_async = isasync;
         let mut args: Vec<Val> = vec![];
         let mut rest = None;
         for t in params { if let Ty::Rest(e) = self.ty(*t) { rest = Some(*e); } else { args.push(self.of_type(*t, 0)); } }
@@ -240,12 +270,170 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         }
         if self.changed { return Err(Stop { why: "the reading of it does not end".into(), module: at.module, at: 0 }); }
         self.cur = root;
-        self.facts.promise = !ret.is_empty() && ret.iter().all(|a| matches!(a, Atom::Obj(o) if self.objs[*o as usize].kind == Kind::Promise));
         let mut seen = BTreeSet::new();
         let (d, t) = self.reaches(&ret, &mut seen);
         self.facts.answers_data = d;
         self.facts.answers_timer = t;
+        self.parts(&ret, answers);
         Ok(ret)
+    }
+    /// What a store holds is changed where the store is.
+    fn under_store(&mut self, v: &Val, s: &Stop, seen: &mut BTreeSet<u32>) {
+        for a in v { if let Atom::Obj(o) = a { if seen.insert(*o) { self.written.entry(*o).or_insert_with(|| s.clone()); let x = &self.objs[*o as usize]; let all: Vec<Val> = x.fields.values().cloned().chain([x.items.clone()]).collect(); for w in all { self.under_store(&w, s, seen); } } } }
+    }
+    // ---- what the call answered, after it
+    /// The functions among what it answered, each read as a call of its own over what the call left; and the objects among it
+    /// that something left to run may change.
+    fn parts(&mut self, ret: &Val, t: u32) {
+        let mut found = vec![];
+        self.part(ret, t, &mut vec![], &mut BTreeSet::new(), &mut found, 0);
+        let kept: Vec<Atom> = self.kept.clone();
+        for a in kept { if let Atom::Fun(f) = a { self.may_write(f, "what it answers may be changed by an effect or a cleanup of the call's"); } else if !matches!(a, Atom::Param(..)) { self.facts.later.get_or_insert(Stop { why: "an effect's function that is not known".into(), module: 0, at: 0 }); } }
+        // a function that is not shown to compute may change what the call made, so one that reads that is not shown either
+        loop {
+            let mut more = vec![];
+            for x in &mut found {
+                let Found::Read(reads) = &x.what else { continue };
+                if let Some(o) = reads.iter().find(|o| self.written.contains_key(o) || self.waited.contains_key(o)) { let mut s = self.written.get(o).or_else(|| self.waited.get(o)).unwrap().clone(); s.why = "it reads what may be changed after the call".into(); x.what = Found::Not(s); if let Some(f) = x.fun { more.push(f); } }
+            }
+            for x in &mut found { if let (Found::Not(_), Some(f), false) = (&x.what, x.fun, x.told) { x.told = true; more.push(f); } }
+            if more.is_empty() { break; }
+            for f in more { self.may_write(f, "what it answers may be changed by a function beside it"); }
+        }
+        let mut seen = BTreeSet::new();
+        if let Some(s) = self.changes(ret, &mut seen, 0, false) { self.facts.later.get_or_insert(s); }
+        self.facts.parts = found.into_iter().filter_map(|x| match x.what { Found::Not(s) => Some((x.path, x.callable, s)), _ => None }).collect();
+    }
+    /// The first object of a value that something may change after the call (a store's and a promise's are told when they do).
+    fn changes(&self, v: &Val, seen: &mut BTreeSet<u32>, d: u32, settled: bool) -> Option<Stop> {
+        for a in v {
+            let Atom::Obj(o) = a else { continue };
+            if !seen.insert(*o) || d > 40 { continue; }
+            let x = &self.objs[*o as usize];
+            if matches!(x.kind, Kind::Accessor | Kind::Setter | Kind::Resolve(_) | Kind::Reject) { continue; }
+            if let Some(s) = self.written.get(o).or_else(|| if settled { None } else { self.waited.get(o) }) { if x.kind != Kind::Store && x.kind != Kind::Promise { return Some(s.clone()); } }
+            if x.kind == Kind::Store { continue; }
+            for w in x.fields.values().chain(x.private.values()).chain([&x.items, &x.keys]) { if let Some(s) = self.changes(w, seen, d + 1, settled || x.kind == Kind::Promise) { return Some(s); } }
+        }
+        None
+    }
+    /// Everything a closure names may be changed by it.
+    fn may_write(&mut self, f: u32, why: &str) {
+        let at = self.funs[f as usize].at;
+        let m = self.mods.get(at.module);
+        let stop = Stop { why: why.into(), module: at.module, at: m.nodes.kind(at.node).span().start };
+        let mut todo: Vec<Atom> = vec![Atom::Fun(f)];
+        let (mut funs, mut objs, mut acts) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
+        while let Some(a) = todo.pop() {
+            match a {
+                Atom::Fun(f) if funs.insert(f) => {
+                    let mut e = Some(self.funs[f as usize].env);
+                    while let Some(i) = e { let x = &self.acts[i as usize]; if !acts.insert(i) { break; } todo.extend(x.vars.values().flatten()); if let Some(t) = &x.this { todo.extend(t); } e = x.parent; }
+                }
+                Atom::Obj(o) if objs.insert(o) => { let x = &self.objs[o as usize]; todo.extend(x.fields.values().chain(x.private.values()).flatten()); todo.extend(&x.items); todo.extend(&x.keys); }
+                _ => {}
+            }
+        }
+        for o in objs { self.written.entry(o).or_insert_with(|| stop.clone()); }
+    }
+    fn part(&mut self, v: &Val, t: u32, path: &mut Vec<String>, seen: &mut BTreeSet<u32>, out: &mut Vec<Part>, d: u32) {
+        let here = |me: &Self| Stop { why: String::new(), module: me.mi(), at: 0 };
+        let not = |me: &Self, w: &str| Found::Not(Stop { why: w.into(), ..here(me) });
+        if v.is_empty() { return; }
+        if d > 8 { let w = not(self, "what it answers goes too deep to be followed"); out.push(Part { path: path.clone(), fun: None, what: w, told: false, callable: false }); return; }
+        for a in v.clone() {
+            let bad: &str = match a {
+                a if flat(a) => continue,
+                // the caller's own: one that answers something is called for what it answers (MO-8j)
+                Atom::Param(p, _) => if matches!(self.ty(p), Ty::Fn { answers: false, .. }) { "a function it was given, which answers nothing" } else { continue },
+                Atom::Timer => continue,   // (told apart)
+                Atom::Fun(f) => { let what = self.prove(f, t, path, seen, out, d); out.push(Part { path: path.clone(), fun: Some(f), what, told: false, callable: true }); continue }
+                Atom::Native(n) => { let n = &self.natives[n as usize]; if (n.starts_with("Math.") && n != "Math.random") || (n.starts_with("Number.") && native_fn(n)) || matches!(n.as_str(), "String" | "Number" | "Boolean" | "parseInt" | "parseFloat" | "isNaN" | "isFinite" | "Array.isArray" | "Object.is" | "String.fromCharCode" | "encodeURIComponent" | "encodeURI" | "decodeURIComponent" | "decodeURI") { continue } "a built-in of the language's" }
+                Atom::Const(c) => {
+                    let key = u32::MAX - c;
+                    if !seen.insert(key) { continue; }
+                    let c = &self.consts[c as usize];
+                    if matches!(c.shape.kind, CKind::RegExp { .. }) { "a pattern, whose `test` may change it" }
+                    else { let (vs, all, keys) = (c.values.clone(), c.all.clone(), c.keys.clone()); if vs.is_empty() { self.part(&all, ANY, path, seen, out, d + 1); } for (k, v) in vs { let t = self.field_ty(t, &k); path.push(k); self.part(&v, t, path, seen, out, d + 1); path.pop(); } self.part(&keys, ANY, path, seen, out, d + 1); continue }
+                }
+                Atom::Class(_) => "a class",
+                Atom::Solid(_) => "a function of Solid's",
+                Atom::Opaque => "a value that is not known (a proxy, what Solid gave)",
+                Atom::Obj(o) => {
+                    let x = &self.objs[o as usize];
+                    match x.kind {
+                        Kind::Accessor => continue,
+                        Kind::Setter => "a setter",
+                        Kind::Resolve(_) | Kind::Reject => "what settles a promise",
+                        Kind::Iter => "an iterator",
+                        Kind::RegExp => "a pattern, whose `test` may change it",
+                        _ => {
+                            if x.class.is_some_and(|c| self.has_methods(c)) { "an instance, whose methods are not read" }
+                            else {
+                                if !seen.insert(o) { continue; }
+                                let (fields, getters, items, keys, places, kind) = (x.fields.clone(), x.getters.clone(), x.items.clone(), x.keys.clone(), x.places.clone(), x.kind.clone());
+                                for (k, v) in fields { let g = getters.contains(&k); let t = if g { ANY } else { self.field_ty(t, &k) }; path.push(k); if g { path.push("get".into()); } self.part(&v, t, path, seen, out, d + 1); if g { path.pop(); } path.pop(); }
+                                let it = match (&kind, self.ty(t)) { (Kind::Array, Ty::Arr(e)) | (Kind::Promise, Ty::Promise(e)) | (Kind::Map, Ty::Map(_, e)) => *e, (Kind::Promise, _) => ANY, (Kind::Array, _) => ANY, _ => ANY };
+                                if kind == Kind::Array && !places.is_empty() { for (i, v) in places { let t = match self.ty(t) { Ty::Tuple(es) => es.get(i).copied().unwrap_or(ANY), Ty::Arr(e) => *e, _ => ANY }; path.push(i.to_string()); self.part(&v, t, path, seen, out, d + 1); path.pop(); } }
+                                else { path.push("*".into()); self.part(&items, it, path, seen, out, d + 1); path.pop(); }
+                                path.push("*".into()); self.part(&keys, ANY, path, seen, out, d + 1); path.pop();
+                                continue
+                            }
+                        }
+                    }
+                }
+                _ => "a value that is not known",
+            };
+            let what = not(self, bad);
+            out.push(Part { path: path.clone(), fun: None, what, told: false, callable: matches!(a, Atom::Param(..)) || matches!(a, Atom::Obj(o) if self.objs[o as usize].kind == Kind::Setter) });
+        }
+    }
+    fn field_ty(&self, t: u32, k: &str) -> u32 { match self.ty(t) { Ty::Rec(f) => f.get(k).copied().unwrap_or(ANY), _ => ANY } }
+    /// Whether an instance has more than its fields: a method, a getter, of its class's or one it extends.
+    fn has_methods(&self, c: u32) -> bool {
+        let x = &self.classes[c as usize];
+        let m = self.mods.get(x.at.module);
+        let AstKind::Class(k) = m.nodes.kind(x.at.node) else { return true };
+        if k.body.body.iter().any(|e| matches!(e, ClassElement::MethodDefinition(d) if d.kind != MethodDefinitionKind::Constructor)) { return true; }
+        match &k.heritage { None => false, Some(h) => match unwrap(&h.expression) { Expression::Identifier(i) if ERRORS.iter().any(|e| m.is_global(i, e)) => false, _ => true } }
+    }
+    /// A function the call answered: read as a call of its own, with what its type in the row gives it.
+    fn prove(&mut self, f: u32, t: u32, path: &mut Vec<String>, seen: &mut BTreeSet<u32>, out: &mut Vec<Part>, d: u32) -> Found {
+        let at = self.funs[f as usize].at;
+        let m = self.mods.get(at.module);
+        let span = m.nodes.kind(at.node).span();
+        let (args, ret) = match self.ty(t) { Ty::Fn { params, ret, .. } => (params.clone(), *ret), _ => (vec![], ANY) };
+        let mut vals = vec![];
+        let mut more = one(Atom::Param(ANY, 3));
+        for a in &args { if let Ty::Rest(e) = self.ty(*a) { more = self.of_type(*e, 2); add(&mut more, Atom::Undef); } else { let mut v = self.of_type(*a, 2); add(&mut v, Atom::Undef); vals.push(v); } }
+        let was = (self.post, self.cur, std::mem::take(&mut self.stack), std::mem::take(&mut self.narrow), self.changed, self.facts.env, std::mem::take(&mut self.reads), self.kept.clone());
+        // what is made by this call is frozen for what it answers in turn
+        self.post = Some((self.acts.len() as u32, self.objs.len() as u32));
+        let root = self.act(at.module, None, None, false);
+        self.facts.env = false;
+        let r = (|| -> R<Val> {
+            for _ in 0..40 {
+                self.changed = false;
+                self.cur = root;
+                let v = self.call_fun(f, &vals, Some(&more), span, None)?;
+                if !self.changed { return Ok(v); }
+            }
+            self.stop(span, "the reading of it does not end")
+        })();
+        let env = self.facts.env;
+        let reads = std::mem::replace(&mut self.reads, was.6);
+        self.cur = root;
+        let what = match r {
+            Err(s) => Found::Not(s),
+            Ok(_) if env => Found::Not(Stop { why: "it asks where it runs".into(), module: at.module, at: span.start }),
+            Ok(v) => {
+                let (_, timer) = self.reaches(&v, &mut BTreeSet::new());
+                if timer { Found::Not(Stop { why: "it answers a timer".into(), module: at.module, at: span.start }) }
+                else { path.push("()".into()); self.part(&v, ret, path, seen, out, d + 1); path.pop(); Found::Read(reads) }
+            }
+        };
+        self.post = was.0; self.cur = was.1; self.stack = was.2; self.narrow = was.3; self.changed = was.4; self.facts.env = was.5; self.kept = was.7;
+        what
     }
     /// Whether a value holds data, and whether it holds a timer.
     fn reaches(&self, v: &Val, seen: &mut BTreeSet<u32>) -> (bool, bool) {
@@ -267,10 +455,19 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
     }
 
     // ---- names ----
+    /// What Solid exports: the functions that are called below, in every build the same; what a build decides (`isServer`,
+    /// `DEV`), which is a question of where it runs; and nothing else.
+    fn solid_value(&mut self, n: &str, at: Span) -> R<Val> {
+        match n {
+            "isServer" | "isDev" | "DEV" | "OBSERVE" => { self.facts.env = true; Ok(prim()) }
+            "createSignal" | "createStore" | "createMemo" | "createEffect" | "onCleanup" | "untrack" => Ok(one(self.solid(n))),
+            _ => self.stop(at, format!("it uses Solid's {n}")),
+        }
+    }
     fn origin(&mut self, o: &Origin<'a>, at: Span, depth: u32) -> R<Val> {
         match o {
             Origin::Symbol(mi, s) => self.module_value(*mi, *s),
-            Origin::Solid(n) => Ok(one(self.solid(n))),
+            Origin::Solid(n) => self.solid_value(n, at),
             Origin::Default(mi, d) => {
                 let env = self.module_act(*mi);
                 let m = self.mods.get(*mi);
@@ -367,6 +564,8 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         }
         // a value that is an object by another way than a literal of this one is not known
         if all.iter().chain(&keys).any(|a| !(flat(*a) || matches!(a, Atom::Fun(_) | Atom::Native(_) | Atom::Solid(_) | Atom::Const(_) | Atom::Class(_)))) { return self.stop(e.span(), "an object of the module that holds one"); }
+        // (a method's `this` is the object, wherever the function is written: a write of it that no reference shows)
+        for a in &all { if let Atom::Fun(f) = a { let at = self.funs[*f as usize].at; if constant::has_this(self.mods.get(at.module), at.node) { return self.stop(e.span(), "an object of the module, a method of which uses `this`"); } } }
         self.consts.push(ConstObj { shape, values, all, keys });
         Ok(Atom::Const(self.consts.len() as u32 - 1))
     }
@@ -409,12 +608,12 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             if !v.iter().all(|a| flat(*a) || matches!(a, Atom::Fun(_) | Atom::Native(_) | Atom::Solid(_) | Atom::Class(_))) { return self.stop(i.span, format!("{} is an object kept between calls", i.name)); }
             return Ok(v);
         }
+        if self.post.is_some_and(|(n, _)| a < n) && !m.known_symbol(s) { return self.stop(i.span, format!("{} is kept between calls of it and written: state", i.name)); }
         let mut v = self.acts[a as usize].vars.get(&s).cloned().unwrap_or_else(undef);
         if m.known_symbol(s) { for (nm, ns, n) in self.narrow.iter().filter(|(nm, ns, _)| *nm == mi && *ns == s).cloned().collect::<Vec<_>>() { let _ = (nm, ns); v = self.narrowed(&v, n); } }
         Ok(v)
     }
     fn imported(&mut self, o: &Origin<'a>, i: &IdentifierReference<'a>) -> R<Val> {
-        if let Origin::Solid("isServer" | "isDev" | "DEV") = o { if matches!(o, Origin::Solid("DEV")) { return Ok(one(Atom::Opaque)); } self.facts.env = true; return Ok(prim()); }
         self.origin(o, i.span, 0)
     }
     fn read_global(&mut self, i: &IdentifierReference<'a>) -> R<Val> {
@@ -438,6 +637,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         let a = if m.at_top(s) || m.imports.contains_key(&s) { None } else { self.owner(s) };
         let Some(a) = a else { return self.stop(at, format!("it writes {name}, a variable of the module")) };
         if self.acts[a as usize].init && !self.acts[self.cur as usize].init { return self.stop(at, format!("it writes {name}, which is kept between calls")); }
+        if self.post.is_some_and(|(n, _)| a < n) { return self.stop(at, format!("it writes {name}, which is kept between calls of it")); }
         if join(self.acts[a as usize].vars.entry(s).or_default(), v) { self.changed = true; }
         Ok(())
     }
@@ -514,11 +714,11 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             Expression::ArrayExpression(a) => {
                 let o = self.made(a.span, 0, Kind::Array);
                 for (i, x) in a.elements.iter().enumerate() {
-                    let v = match x { ArrayExpressionElement::SpreadElement(s) => { let v = self.expr(&s.argument)?; self.iterated(&v, s.span)? } ArrayExpressionElement::Elision(_) => undef(), x => { let v = self.expr(x.to_expression())?; if !self.objs[o as usize].fields.contains_key("#changed") { self.put_field(o, &format!("#{i}"), &v); } v } };
+                    let v = match x { ArrayExpressionElement::SpreadElement(s) => { let v = self.expr(&s.argument)?; self.iterated(&v, s.span)? } ArrayExpressionElement::Elision(_) => undef(), x => { let v = self.expr(x.to_expression())?; self.put_place(o, i, &v); v } };
                     self.put_items(o, &v);
                 }
                 // (an array written with no spread knows what stands where, until it is changed)
-                if a.elements.iter().any(|x| x.is_spread()) { self.objs[o as usize].fields.clear(); self.objs[o as usize].fields.insert("#changed".into(), vec![]); }
+                if a.elements.iter().any(|x| x.is_spread()) { self.drop_places(o); }
                 Ok(one(Atom::Obj(o)))
             }
             Expression::ObjectExpression(x) => self.object(x),
@@ -526,7 +726,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             Expression::ArrowFunctionExpression(f) => self.closure(f.scope_id.get(), f.span),
             Expression::ClassExpression(c) => self.stop(c.span, "a class made in the call"),
             Expression::AssignmentExpression(a) => self.assign(a),
-            Expression::AwaitExpression(a) => { let v = self.expr(&a.argument)?; if !self.acts[self.cur as usize].later { self.acts[self.cur as usize].later = true; self.changed = true; } self.awaited(&v, a.span) }
+            Expression::AwaitExpression(a) => { let v = self.expr(&a.argument)?; if !self.acts[self.cur as usize].waits { self.acts[self.cur as usize].waits = true; self.changed = true; } self.awaited(&v, a.span) }
             Expression::BinaryExpression(b) => self.binary(b),
             Expression::ChainExpression(c) => {
                 let mut v = match &c.expression { ChainElement::CallExpression(c) => self.call(c)?, ChainElement::TSNonNullExpression(x) => self.expr(&x.expression)?, x => self.member(x.to_member_expression())? };
@@ -601,7 +801,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                                 let src = &self.objs[p as usize];
                                 if !matches!(src.kind, Kind::Plain | Kind::Array | Kind::Error) || !src.getters.is_empty() || src.wild { return self.stop(s.span, "it spreads an object that runs code, or is not known"); }
                                 let (fs, it) = (src.fields.clone(), src.items.clone());
-                                for (k, v) in fs { if !k.starts_with('#') { self.put_field(o, &k, &v); } }
+                                for (k, v) in fs { self.put_field(o, &k, &v); }
                                 self.put_items(o, &it);
                             }
                             // (a built-in's function has nothing of its own to spread)
@@ -757,7 +957,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
     }
     /// One item of what a pattern takes apart.
     fn item(&self, v: &Val, i: usize, items: &Val) -> Val {
-        if let [Atom::Obj(o)] = v[..] { let x = &self.objs[o as usize]; if let Some(w) = x.fields.get(&format!("#{i}")) { return w.clone(); } }
+        if let [Atom::Obj(o)] = v[..] { let x = &self.objs[o as usize]; if let Some(w) = x.places.get(&i) { return w.clone(); } }
         if let [Atom::Param(t, d)] = v[..] { if let Ty::Tuple(es) = self.ty(t) { return es.get(i).map_or_else(undef, |e| { let mut v = self.of_type(*e, (d + 1).max(2)); add(&mut v, Atom::Undef); v }); } }
         let mut w = items.clone();
         add(&mut w, Atom::Undef);
@@ -797,7 +997,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                 let lit = if let Expression::NumericLiteral(n) = unwrap(&p.expression) { Some(n.value as usize) } else { None };
                 self.index(&o, &k, lit, p.span)
             }
-            MemberExpression::PrivateFieldExpression(p) => { let o = self.expr(&p.object)?; self.prop(&o, &format!("#{}", p.field.name), p.span) }
+            MemberExpression::PrivateFieldExpression(p) => { let o = self.expr(&p.object)?; self.private(&o, &p.field.name, p.span) }
         }
     }
     fn ns_member(&mut self, i: &IdentifierReference<'a>, name: &str, at: Span) -> R<Option<Val>> {
@@ -807,7 +1007,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         if im.name.is_some() { return Ok(None); }
         let mi = self.mi();
         let o = match self.mods.symbol(self.h, self.hi, mi, s, &mut vec![]) {
-            Origin::SolidNs => { let n = self.solid(name); if matches!(name, "isServer" | "isDev") { self.facts.env = true; return Ok(Some(prim())); } return Ok(Some(one(n))); }
+            Origin::SolidNs => return self.solid_value(name, at).map(Some),
             Origin::Ns(i) => self.mods.exported(self.h, self.hi, i, name, &mut vec![]),
             o => return self.origin(&o, at, 0).map(Some),
         };
@@ -824,7 +1024,6 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                     else { add(&mut out, Atom::Undef); add(&mut out, Atom::Prim); }
                 }
                 Atom::Param(t, d) => {
-                    if name.starts_with('#') { return self.stop(at, "a private name of what it was given"); }
                     if reserved(name) { return self.stop(at, format!("it reads .{name} of an argument")); }
                     let w = match self.ty(t) {
                         Ty::Any | Ty::Param => one(Atom::Param(ANY, 3)),
@@ -902,7 +1101,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                     if x.wild || !x.getters.is_empty() { return self.stop(at, "it reads a part of an object where that may run code"); }
                     match x.kind {
                         Kind::Array => {
-                            match lit.and_then(|l| x.fields.get(&format!("#{l}"))) { Some(w) => { let w = w.clone(); join(&mut out, &w); } None => { let w = x.items.clone(); join(&mut out, &w); add(&mut out, Atom::Undef); } }
+                            match lit.and_then(|l| x.places.get(&l)) { Some(w) => { let w = w.clone(); join(&mut out, &w); } None => { let w = x.items.clone(); join(&mut out, &w); add(&mut out, Atom::Undef); } }
                             if !number { add(&mut out, member); }
                         }
                         Kind::Plain => { let mut w = x.items.clone(); for f in x.fields.values() { join(&mut w, f); } join(&mut out, &w); add(&mut out, if number { Atom::Undef } else { member }); }
@@ -918,7 +1117,11 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
     fn write_member(&mut self, e: &MemberExpression<'a>, w: &Val) -> R<()> {
         let (obj, key, at): (&Expression<'a>, Result<String, (Val, Option<usize>)>, Span) = match e {
             MemberExpression::StaticMemberExpression(p) => (&p.object, Ok(p.property.name.to_string()), p.span),
-            MemberExpression::PrivateFieldExpression(p) => (&p.object, Ok(format!("#{}", p.field.name)), p.span),
+            MemberExpression::PrivateFieldExpression(p) => {
+                let o = self.expr(&p.object)?;
+                for a in o { let Atom::Obj(i) = a else { return self.stop(p.span, "a private name of what is not its own") }; if self.objs[i as usize].module && !self.acts[self.cur as usize].init { return self.stop(p.span, "it may change an object the module made as it loaded"); } if !self.objs[i as usize].private.contains_key(p.field.name.as_str()) { return self.stop(p.span, "a private name that is not a field"); } self.wrote(i, p.span)?; self.put_private(i, &p.field.name, w); }
+                return Ok(());
+            }
             MemberExpression::ComputedMemberExpression(p) => match unwrap(&p.expression) {
                 Expression::StringLiteral(s) => (&p.object, Ok(s.value.to_string()), p.span),
                 x => { let k = self.expr(x)?; self.converted(&k, p.span)?; (&p.object, Err((k, None)), p.span) }
@@ -931,14 +1134,15 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                 Atom::Obj(i) => {
                     if self.objs[i as usize].module && !self.acts[self.cur as usize].init { return self.stop(at, "it may change an object the module made as it loaded"); }
                     match (&key, &self.objs[i as usize].kind) {
-                        (Ok(k), Kind::Plain | Kind::Error) => { if reserved(k) || self.objs[i as usize].getters.contains(k) || self.objs[i as usize].wild { return self.stop(at, format!("it writes .{k}")); } let k = k.clone(); self.put_field(i, &k, w); }
-                        (Ok(k), Kind::Array) if k == "length" => {}
+                        (Ok(k), Kind::Plain | Kind::Error) => { if reserved(k) || self.objs[i as usize].getters.contains(k) || self.objs[i as usize].wild { return self.stop(at, format!("it writes .{k}")); } let k = k.clone(); self.wrote(i, at)?; self.put_field(i, &k, w); }
+                        (Ok(k), Kind::Array) if k == "length" => { self.converted(w, at)?; self.drop_places(i); self.wrote(i, at)?; }
                         (Err((k, _)), Kind::Array) => {
                             if *k != num() && !prims(w) { return self.stop(at, "it writes a list under a name that is computed"); }
+                            self.wrote(i, at)?;
                             self.drop_places(i);
                             self.put_items(i, w);
                         }
-                        (Err((k, _)), Kind::Plain) => { if *k != num() && !prims(w) && !self.objs[i as usize].wild { self.objs[i as usize].wild = true; self.changed = true; } self.put_items(i, w); }
+                        (Err((k, _)), Kind::Plain) => { self.wrote(i, at)?; if *k != num() && !prims(w) && !self.objs[i as usize].wild { self.objs[i as usize].wild = true; self.changed = true; } self.put_items(i, w); }
                         _ => return self.stop(at, "it may change a value that is not followed there"),
                     }
                 }
@@ -950,7 +1154,13 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         Ok(())
     }
     /// A list that is changed no longer knows what stands where.
-    fn drop_places(&mut self, o: u32) { let x = &mut self.objs[o as usize]; if x.kind == Kind::Array && !x.fields.contains_key("#changed") { let mut all = vec![]; for f in x.fields.values() { join(&mut all, f); } x.fields.clear(); x.fields.insert("#changed".into(), vec![]); join(&mut x.items, &all); self.changed = true; } }
+    fn drop_places(&mut self, o: u32) { let x = &mut self.objs[o as usize]; if x.kind == Kind::Array && !x.moved { let all = std::mem::take(&mut x.places); for f in all.values() { join(&mut x.items, f); } x.moved = true; self.changed = true; } }
+    fn put_place(&mut self, o: u32, i: usize, v: &Val) { let x = &mut self.objs[o as usize]; if !x.moved && join(x.places.entry(i).or_default(), v) { self.changed = true; } }
+    fn private(&mut self, v: &Val, name: &str, at: Span) -> R<Val> {
+        let mut out = vec![];
+        for a in v.clone() { let Atom::Obj(o) = a else { return self.stop(at, "a private name of what is not its own") }; self.own(o, at)?; match self.objs[o as usize].private.get(name) { Some(w) => { join(&mut out, &w.clone()); } None => return self.stop(at, "a private name that is not a field") } }
+        Ok(out)
+    }
 
     /// What an iteration gives: of a list, a set, a map, a string.
     fn iterated(&mut self, v: &Val, at: Span) -> R<Val> {
@@ -986,7 +1196,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         for a in v.clone() {
             match a {
                 a if flat(a) => { add(&mut out, a); }
-                Atom::Param(t, _) => match self.ty(t) { Ty::Promise(e) => { let w = self.of_type(*e, 3); join(&mut out, &w); self.facts.throws.insert("Error".into()); } Ty::Arr(_) | Ty::Tuple(_) | Ty::Rest(_) | Ty::Map(..) | Ty::Set(_) => { add(&mut out, a); } _ => return self.stop(at, "it waits for a value whose `then` may be anyone's") },
+                Atom::Param(t, _) => match self.ty(t) { Ty::Promise(e) => { let w = self.of_type(*e, 3); join(&mut out, &w); } Ty::Arr(_) | Ty::Tuple(_) | Ty::Rest(_) | Ty::Map(..) | Ty::Set(_) => { add(&mut out, a); } _ => return self.stop(at, "it waits for a value whose `then` may be anyone's") },
                 Atom::Obj(o) => {
                     let x = &self.objs[o as usize];
                     match x.kind {
@@ -1041,15 +1251,15 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                 Atom::Native(n) => { let n = self.natives[n as usize].clone(); self.native_call(&n, args, rest, at)? }
                 Atom::Solid(n) => { let n = self.solids[n as usize].clone(); self.solid_call(&n, args, rest, at)? }
                 Atom::Param(t, d) => match self.ty(t) {
-                    Ty::Fn { answers, ret } => { if !*answers || d > 1 { return self.stop(at, if d > 1 { "it calls a function it finds in what it is given" } else { "it calls a function that answers nothing: it is run for what it does" }); } self.callers(args, rest, at)?; self.of_type(*ret, 3) }
+                    Ty::Fn { answers, ret, .. } => { if !*answers || d > 1 { return self.stop(at, if d > 1 { "it calls a function it finds in what it is given" } else { "it calls a function that answers nothing: it is run for what it does" }); } self.callers(args, rest, at)?; self.of_type(*ret, 3) }
                     Ty::Param if shown && d <= 1 => vec![],
                     _ => return self.stop(at, "it calls a value the row does not show to be a function"),
                 },
                 Atom::Obj(o) => match self.objs[o as usize].kind.clone() {
-                    Kind::Accessor => { if self.objs[o as usize].module && !self.acts[self.cur as usize].init { return self.stop(at, "it reads a signal of the module's"); } self.facts.throws.insert("Error".into()); one(Atom::Opaque) }
+                    Kind::Accessor => { if self.objs[o as usize].module && !self.acts[self.cur as usize].init { return self.stop(at, "it reads a signal of the module's"); } one(Atom::Opaque) }
                     Kind::Setter => return self.stop(at, "it writes a signal while it is called"),
                     Kind::Resolve(p) => { let v = args.first().cloned().unwrap_or_else(undef); let v = self.awaited(&v, at)?; self.put_items(p, &v); undef() }
-                    Kind::Reject => { let v = args.first().cloned().unwrap_or_else(undef); self.thrown(&v); undef() }
+                    Kind::Reject => undef(),
                     _ => return self.stop(at, "it calls a value that is not followed"),
                 },
                 _ => return self.stop(at, "it calls a value that is not known"),
@@ -1061,8 +1271,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
     /// A function of the caller's is called at once, on primitives, the caller's own values and data the call made.
     fn callers(&mut self, args: &[Val], rest: Option<&Val>, at: Span) -> R<()> {
         if self.is_later() { return self.stop(at, "it calls a function it was given after the call"); }
-        self.facts.throws.insert("Error".into());
-        for v in args.iter().chain(rest) {
+                for v in args.iter().chain(rest) {
             let mut seen = BTreeSet::new();
             if !self.data(v, &mut seen) { return self.stop(at, "it hands a function, or a value that is not known, to a function it was given"); }
             for o in seen { if join(&mut self.objs[o as usize].items, &one(Atom::Param(ANY, 3))) { self.drop_places(o); self.changed = true; } if matches!(self.objs[o as usize].kind, Kind::Plain) && !self.objs[o as usize].wild { self.objs[o as usize].wild = true; self.changed = true; } }
@@ -1077,7 +1286,9 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             _ => false,
         })
     }
-    fn is_later(&self) -> bool { self.acts[self.cur as usize].later || self.stack.iter().any(|a| self.acts[*a as usize].later) }
+    fn is_later(&self) -> bool { let on = |a: u32| self.acts[a as usize].later || self.acts[a as usize].waits; on(self.cur) || self.stack.iter().any(|a| on(*a)) }
+    /// Run again, or after the call: by a timer, a promise, a computation (not a function's own code after an `await`).
+    fn is_again(&self) -> bool { self.again > 0 || self.acts[self.cur as usize].later || self.stack.iter().any(|a| self.acts[*a as usize].later) }
 
     fn call_fun(&mut self, f: u32, args: &[Val], more: Option<&Val>, at: Span, this: Option<Val>) -> R<Val> {
         if self.fuel == 0 { return self.stop(at, "the reading of it is too long"); }
@@ -1174,7 +1385,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                 Ty::Tuple(es) => { let mut items = vec![]; for e in es { join(&mut items, &self.of_type(e, (d + 1).max(2))); } self.array_method(recv, &items, false, name, args, rest, at) }
                 Ty::Map(k, e) => { let (k, v) = (self.of_type(k, 3), self.of_type(e, 3)); self.keyed_method(recv, true, &k, &v, false, name, args, at) }
                 Ty::Set(e) => { let v = self.of_type(e, 3); self.keyed_method(recv, false, &v, &v, false, name, args, at) }
-                Ty::Promise(e) => { let v = self.of_type(e, 3); self.facts.throws.insert("Error".into()); self.promise_method(&v, name, args, at) }
+                Ty::Promise(e) => { let v = self.of_type(e, 3); self.promise_method(&v, name, args, at) }
                 Ty::Rec(f) if d == 0 => match f.get(name) { Some(x) => { let f = self.of_type(*x, 1); self.call_value(&f, args, rest, at) } None => self.stop(at, format!("it calls .{name}() of an argument")) },
                 _ => self.stop(at, format!("it calls .{name}() of an argument: a method that is not the language's")),
             },
@@ -1185,7 +1396,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                     Kind::Array => self.array_method(recv, &items, true, name, args, rest, at),
                     Kind::Map => self.keyed_method(recv, true, &keys, &items, true, name, args, at),
                     Kind::Set => self.keyed_method(recv, false, &items, &items, true, name, args, at),
-                    Kind::Weak => match name { "get" => { let mut v = items; add(&mut v, Atom::Undef); Ok(v) } "has" | "delete" => Ok(prim()), "set" | "add" => { if let Some(v) = args.last() { self.put_items(o, v); } Ok(one(recv)) } _ => self.stop(at, format!("it calls .{name}()")) },
+                    Kind::Weak => match name { "get" => { let mut v = items; add(&mut v, Atom::Undef); Ok(v) } "has" => Ok(prim()), "delete" => { self.wrote(o, at)?; Ok(prim()) } "set" | "add" => { self.wrote(o, at)?; if let Some(v) = args.last() { self.put_items(o, v); } Ok(one(recv)) } _ => self.stop(at, format!("it calls .{name}()")) },
                     Kind::Promise => self.promise_method(&items, name, args, at),
                     Kind::RegExp => match name { "test" if args.iter().all(prims) => Ok(prim()), "exec" if args.iter().all(prims) => { let mut v = self.new_array(at, 6, prim()); add(&mut v, Atom::Prim); Ok(v) } _ => self.stop(at, format!("it calls a pattern's .{name}()")) },
                     Kind::Plain => { let f = self.prop(&one(recv), name, at)?; self.call_value(&f, args, rest, at) }
@@ -1210,8 +1421,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
     }
     fn string_method(&mut self, name: &str, args: &[Val], rest: Option<&Val>, at: Span) -> R<Val> {
         if rest.is_some_and(|r| !prims(r)) { return self.stop(at, "a string's method with arguments that are not known"); }
-        if THROWING.contains(&name) { self.facts.throws.insert("Error".into()); }
-        let regex = |me: &Self, v: &Val| v.iter().all(|a| flat(*a) || matches!(a, Atom::Obj(o) if me.objs[*o as usize].kind == Kind::RegExp && !me.objs[*o as usize].module) || matches!(a, Atom::Const(c) if matches!(me.consts[*c as usize].shape.kind, CKind::RegExp { sticky: false, .. })));
+                let regex = |me: &Self, v: &Val| v.iter().all(|a| flat(*a) || matches!(a, Atom::Obj(o) if me.objs[*o as usize].kind == Kind::RegExp && !me.objs[*o as usize].module) || matches!(a, Atom::Const(c) if matches!(me.consts[*c as usize].shape.kind, CKind::RegExp { sticky: false, .. })));
         if REGEXP_IN_STRING.contains(&name) {
             if !args.first().is_none_or(|v| regex(self, v)) { return self.stop(at, format!(".{name}() with a pattern that is not known")); }
             match name {
@@ -1242,6 +1452,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         if mutates {
             if !own { return self.stop(at, format!("it may change in place a list that is not its own (.{name}())")); }
             let Atom::Obj(o) = recv else { return self.stop(at, "a list that is not followed") };
+            self.wrote(o, at)?;
             self.drop_places(o);
             let mut put = vec![];
             match name { "push" | "unshift" => { for a in args { join(&mut put, a); } } "splice" => { for a in args.iter().skip(2) { join(&mut put, a); } if !args.iter().take(2).all(prims) { return self.stop(at, "a splice that is not known"); } } "fill" => { join(&mut put, &arg(0)); if !nums(1) { return self.stop(at, "a fill that is not known"); } } _ => {} }
@@ -1326,6 +1537,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             "set" | "add" | "delete" | "clear" => {
                 if !own { return self.stop(at, format!("it may change in place what it was given, or the module's (.{name}())")); }
                 let Atom::Obj(o) = recv else { return self.stop(at, "a map that is not followed") };
+                self.wrote(o, at)?;
                 match name { "set" if map => { if join(&mut self.objs[o as usize].keys, &arg(0)) { self.changed = true; } self.put_items(o, &arg(1)); Ok(one(recv)) } "add" if !map => { self.put_items(o, &arg(0)); Ok(one(recv)) } "delete" => Ok(prim()), "clear" => Ok(undef()), _ => self.stop(at, format!("it calls .{name}()")) }
             }
             _ => self.stop(at, format!("it calls .{name}() of a map or a set")),
@@ -1336,7 +1548,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         let arg = |i: usize| args.get(i).cloned().unwrap_or_else(undef);
         match name {
             "then" => { let v = self.later(&arg(0), &[items.clone()], at)?; let v = self.awaited(&v, at)?; self.put_items(o, &v); if args.len() > 1 { let w = self.later(&arg(1), &[one(Atom::Opaque)], at)?; let w = self.awaited(&w, at)?; self.put_items(o, &w); } if prims(&arg(0)) { self.put_items(o, items); } }
-            "catch" => { let v = self.later(&arg(0), &[one(Atom::Opaque)], at)?; let v = self.awaited(&v, at)?; self.put_items(o, &v); self.put_items(o, items); self.facts.tries = true; }
+            "catch" => { let v = self.later(&arg(0), &[one(Atom::Opaque)], at)?; let v = self.awaited(&v, at)?; self.put_items(o, &v); self.put_items(o, items); }
             "finally" => { let v = self.later(&arg(0), &[], at)?; self.awaited(&v, at)?; self.put_items(o, items); }
             _ => return self.stop(at, format!("it calls a promise's .{name}()")),
         }
@@ -1353,12 +1565,12 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             _ if n.starts_with("Math.") && native_fn(n) => { if all_prim { Ok(num()) } else { self.stop(at, format!("{n} of a value it converts")) } }
             "Boolean" => Ok(prim()),
             "String" | "Number" | "parseFloat" | "isNaN" | "isFinite" if prims(&arg(0)) => Ok(if matches!(n, "Number" | "parseFloat") { num() } else { prim() }),
-            "String" | "BigInt" | "encodeURIComponent" | "encodeURI" | "decodeURIComponent" | "decodeURI" | "String.fromCharCode" | "String.fromCodePoint" => { if !matches!(n, "String" | "String.fromCharCode") { self.facts.throws.insert("Error".into()); } if all_prim { Ok(prim()) } else { self.stop(at, format!("{n} of a value it converts")) } }
+            "String" | "BigInt" | "encodeURIComponent" | "encodeURI" | "decodeURIComponent" | "decodeURI" | "String.fromCharCode" | "String.fromCodePoint" => { if all_prim { Ok(prim()) } else { self.stop(at, format!("{n} of a value it converts")) } }
             "Number" | "parseInt" | "parseFloat" | "Number.parseInt" | "Number.parseFloat" => if all_prim { Ok(num()) } else { self.stop(at, format!("{n} of a value it converts")) },
             "isNaN" | "isFinite" => if all_prim { Ok(prim()) } else { self.stop(at, format!("{n} of a value it converts")) },
             "Number.isNaN" | "Number.isFinite" | "Number.isInteger" | "Number.isSafeInteger" | "Array.isArray" | "Object.is" | "Promise.isPromise" => Ok(prim()),
-            "JSON.stringify" => { self.facts.throws.insert("Error".into()); let mut seen = BTreeSet::new(); if self.json(&arg(0), &mut seen) && args.iter().skip(1).all(prims) { Ok(prim()) } else { self.stop(at, "JSON.stringify of a value whose `toJSON` may run") } }
-            "JSON.parse" => { self.facts.throws.insert("Error".into()); if all_prim { Ok(one(Atom::Param(ANY, 3))) } else { self.stop(at, "JSON.parse with a function, or of a value it converts") } }
+            "JSON.stringify" => { let mut seen = BTreeSet::new(); if self.json(&arg(0), &mut seen) && args.iter().skip(1).all(prims) { Ok(prim()) } else { self.stop(at, "JSON.stringify of a value whose `toJSON` may run") } }
+            "JSON.parse" => { if all_prim { Ok(one(Atom::Param(ANY, 3))) } else { self.stop(at, "JSON.parse with a function, or of a value it converts") } }
             "Array" => if all_prim { Ok(self.new_array(at, 6, undef())) } else { self.stop(at, "Array of a value that is not known") },
             "Array.of" => { let mut v = vec![]; for a in args.iter().chain(rest) { join(&mut v, a); } Ok(self.new_array(at, 6, v)) }
             "Array.from" => {
@@ -1386,8 +1598,15 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             }
             "Object.fromEntries" => {
                 let pairs = self.iterated(&arg(0), at)?;
-                let vals = self.iterated(&pairs, at)?;
+                let mut vals = vec![];
+                for p in &pairs {
+                    let items = self.iterated(&one(*p), at)?;
+                    let (k, v) = (self.item(&one(*p), 0, &items), self.item(&one(*p), 1, &items));
+                    self.converted(&k, at)?;
+                    join(&mut vals, &v);
+                }
                 let o = self.made(at, 6, Kind::Plain);
+                if !prims(&vals) { self.objs[o as usize].wild = true; }
                 self.put_items(o, &vals);
                 Ok(one(Atom::Obj(o)))
             }
@@ -1395,7 +1614,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                 let target = arg(0);
                 // (a closure the call made: its properties are never read)
                 if let [Atom::Fun(f)] = target[..] { let env = self.funs[f as usize].env; if !self.acts[env as usize].init && args.iter().skip(1).all(|v| v.iter().all(|a| matches!(a, Atom::Obj(o) if { let x = &self.objs[*o as usize]; x.kind == Kind::Plain && !x.module && x.getters.is_empty() && !x.wild }))) && rest.is_none() { return Ok(target); } }
-                for t in &target { let Atom::Obj(o) = t else { return self.stop(at, "Object.assign to what is not its own") }; self.own(*o, at)?; let x = &self.objs[*o as usize]; if x.kind != Kind::Plain || !x.getters.is_empty() || x.wild { return self.stop(at, "Object.assign to an object that is not followed"); } }
+                for t in &target { let Atom::Obj(o) = t else { return self.stop(at, "Object.assign to what is not its own") }; self.own(*o, at)?; self.wrote(*o, at)?; let x = &self.objs[*o as usize]; if x.kind != Kind::Plain || !x.getters.is_empty() || x.wild { return self.stop(at, "Object.assign to an object that is not followed"); } }
                 for s in args.iter().skip(1).chain(rest) { for a in s.clone() { match a {
                     a if flat(a) => {}
                     Atom::Param(..) => { let f = self.spread_param(a); for t in &target { if let Atom::Obj(o) = t { for (k, v) in &f.0 { self.put_field(*o, k, v); } self.put_items(*o, &one(Atom::Param(ANY, 3))); if !self.objs[*o as usize].wild { self.objs[*o as usize].wild = true; self.changed = true; } } } }
@@ -1409,7 +1628,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             "Object.freeze" => { for a in arg(0) { match a { Atom::Obj(o) => self.own(o, at)?, a if flat(a) => {} _ => return self.stop(at, "it freezes what is not its own") } } Ok(arg(0)) }
             "Object.hasOwn" => { if prims(&arg(1)) && arg(0).iter().all(|a| matches!(a, Atom::Param(..) | Atom::Obj(_) | Atom::Const(_)) || flat(*a)) { Ok(prim()) } else { self.stop(at, "Object.hasOwn of a value that is not known") } }
             "Promise.resolve" => { let v = self.awaited(&arg(0), at)?; let o = self.made(at, 7, Kind::Promise); self.put_items(o, &v); Ok(one(Atom::Obj(o))) }
-            "Promise.reject" => { let t = arg(0); self.thrown(&t); let o = self.made(at, 7, Kind::Promise); Ok(one(Atom::Obj(o))) }
+            "Promise.reject" => { let o = self.made(at, 7, Kind::Promise); Ok(one(Atom::Obj(o))) }
             "Promise.all" | "Promise.allSettled" | "Promise.race" | "Promise.any" => {
                 let items = self.iterated(&arg(0), at)?;
                 let v = self.awaited(&items, at)?;
@@ -1462,8 +1681,8 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                             one(Atom::Obj(o))
                         }
                         "Set" | "WeakSet" => { let o = self.made(at, 0, if c == "Set" { Kind::Set } else { Kind::Weak }); if !arg(0).iter().all(|a| *a == Atom::Undef) { let v = self.iterated(&arg(0), at)?; self.put_items(o, &v); } one(Atom::Obj(o)) }
-                        "Array" => { if !args.iter().all(prims) { return self.stop(at, "new Array of a value that is not known"); } self.facts.throws.insert("Error".into()); self.new_array(at, 6, undef()) }
-                        "RegExp" => { if !args.iter().all(prims) { return self.stop(at, "new RegExp of a value it converts"); } self.facts.throws.insert("Error".into()); let o = self.made(at, 0, Kind::RegExp); one(Atom::Obj(o)) }
+                        "Array" => { if !args.iter().all(prims) { return self.stop(at, "new Array of a value that is not known"); } self.new_array(at, 6, undef()) }
+                        "RegExp" => { if !args.iter().all(prims) { return self.stop(at, "new RegExp of a value it converts"); } let o = self.made(at, 0, Kind::RegExp); one(Atom::Obj(o)) }
                         // (made, it runs nothing: every use of it does, and it has none)
                         "Proxy" => one(Atom::Opaque),
                         "Promise" => {
@@ -1517,6 +1736,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             }
         }
         let Some(id) = k.id.as_ref().and_then(|i| i.symbol_id.get()) else { return self.stop(at, "a class with no name") };
+        if m.handed_out.contains(&id) { return self.stop(at, "a class the module exports, which any importer may change"); }
         if !m.known_symbol(id) { return self.stop(at, "a class whose name is written again"); }
         // every use, here and in the modules that import it
         let n = self.mods.len();
@@ -1568,7 +1788,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
         self.stack.push(a);
         let r = (|| -> R<()> {
             for e in &k.body.body { if let ClassElement::PropertyDefinition(d) = e {
-                let name = match &d.key { PropertyKey::PrivateIdentifier(p) => format!("#{}", p.name), key => match static_key(key, d.computed) { Some(n) => n, None => return self.stop(at, "a field whose name is computed") } };
+                let name = match &d.key { PropertyKey::PrivateIdentifier(p) => { let v = match &d.value { Some(x) => self.expr(x)?, None => undef() }; self.put_private(o, &p.name, &v); continue; } key => match static_key(key, d.computed) { Some(n) => n, None => return self.stop(at, "a field whose name is computed") } };
                 if reserved(&name) { return self.stop(at, "a field that is not followed"); }
                 let v = match &d.value { Some(x) => self.expr(x)?, None => undef() };
                 self.put_field(o, &name, &v);
@@ -1629,6 +1849,7 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
     fn solid_call(&mut self, n: &str, args: &[Val], rest: Option<&Val>, at: Span) -> R<Val> {
         if rest.is_some() { return self.stop(at, format!("{n} with a spread")); }
         if self.acts[self.cur as usize].init { return self.stop(at, "a node made as the module loads"); }
+        if self.post.is_some() && n != "untrack" { return self.stop(at, format!("{n}, each time it is called")); }
         let arg = |i: usize| args.get(i).cloned().unwrap_or_else(undef);
         let not_fn = |me: &Self, v: &Val| v.iter().all(|a| flat(*a) || match a { Atom::Param(t, _) => matches!(me.ty(*t), Ty::Arr(_) | Ty::Tuple(_) | Ty::Rest(_) | Ty::Rec(_) | Ty::Map(..) | Ty::Set(_)), Atom::Obj(o) => matches!(me.objs[*o as usize].kind, Kind::Plain | Kind::Array | Kind::Map | Kind::Set) && me.objs[*o as usize].getters.is_empty(), _ => false });
         if self.is_later() && !matches!(n, "untrack") { return self.stop(at, format!("{n} after the call: no owner is there")); }
@@ -1638,11 +1859,11 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                 if args.len() > 1 && !self.options(&arg(1)) { return self.stop(at, format!("{n} with options that are not known")); }
                 if !not_fn(self, &arg(0)) { return self.stop(at, format!("{n} of a value that may be a function: it would be run")); }
                 self.facts.makes = true;
-                let first = if n == "createSignal" { accessor(self, 20) } else { let o = self.made(at, 21, Kind::Store); one(Atom::Obj(o)) };
+                let first = if n == "createSignal" { accessor(self, 20) } else { let o = self.made(at, 21, Kind::Store); let v = arg(0); self.put_items(o, &v); let s = self.stop::<()>(at, "what it answers may be changed through a store").unwrap_err(); let mut seen = BTreeSet::new(); self.under_store(&v, &s, &mut seen); one(Atom::Obj(o)) };
                 let set = self.made(at, 22, Kind::Setter);
                 let o = self.made(at, 23, Kind::Array);
-                self.put_field(o, "#0", &first);
-                self.put_field(o, "#1", &one(Atom::Obj(set)));
+                self.put_place(o, 0, &first);
+                self.put_place(o, 1, &one(Atom::Obj(set)));
                 let mut both = first;
                 add(&mut both, Atom::Obj(set));
                 self.put_items(o, &both);
@@ -1660,9 +1881,11 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
                 if !arg(1).iter().all(|a| matches!(a, Atom::Fun(_) | Atom::Param(..))) || args.len() > 2 { return self.stop(at, "createEffect with what is not known"); }
                 self.facts.makes = true;
                 self.facts.owned = true;
+                let v = arg(1);
+                join(&mut self.kept, &v);
                 Ok(undef())
             }
-            "onCleanup" => { if !arg(0).iter().all(|a| matches!(a, Atom::Fun(_) | Atom::Param(..))) { return self.stop(at, "onCleanup of what is not known"); } self.facts.makes = true; self.facts.owned = true; Ok(one(Atom::Opaque)) }
+            "onCleanup" => { if !arg(0).iter().all(|a| matches!(a, Atom::Fun(_) | Atom::Param(..))) { return self.stop(at, "onCleanup of what is not known"); } let v = arg(0); join(&mut self.kept, &v); self.facts.makes = true; self.facts.owned = true; Ok(one(Atom::Opaque)) }
             "untrack" => { if args.len() > 1 { return self.stop(at, "untrack with options"); } self.callback(&arg(0), &[], at) }
             "createContext" => self.stop(at, "it makes a context"),
             _ => self.stop(at, format!("it calls Solid's {n}")),
@@ -1670,7 +1893,10 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
     }
     fn computes(&mut self, f: &Val, at: Span) -> R<Val> {
         for a in f { match a { Atom::Fun(i) => { let at_ = self.funs[*i as usize].at; let m = self.mods.get(at_.module); let a = match m.nodes.kind(at_.node) { AstKind::Function(x) => x.r#async || x.generator, AstKind::ArrowFunctionExpression(x) => x.r#async, _ => true }; if a { return self.stop(at, "a computation that waits"); } } Atom::Param(t, d) if *d <= 1 && matches!(self.ty(*t), Ty::Fn { answers: true, .. }) => {} _ => return self.stop(at, "a computation that is not known") } }
-        self.callback(f, &[one(Atom::Opaque)], at)
+        self.again += 1;
+        let r = self.callback(f, &[one(Atom::Opaque)], at);
+        self.again -= 1;
+        r
     }
     /// A maker's options, written out with no function among them.
     fn options(&self, v: &Val) -> bool { v.iter().all(|a| flat(*a) || matches!(a, Atom::Obj(o) if self.objs[*o as usize].kind == Kind::Plain && !self.objs[*o as usize].wild && self.objs[*o as usize].getters.is_empty() && self.objs[*o as usize].items.is_empty() && self.objs[*o as usize].fields.values().all(prims))) }
@@ -1715,10 +1941,9 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
             Statement::WhileStatement(w) => { self.expr(&w.test)?; self.under(&w.test, true, |s| s.statement(&w.body))?; }
             Statement::DoWhileStatement(w) => { self.statement(&w.body)?; self.expr(&w.test)?; }
             Statement::SwitchStatement(x) => { self.expr(&x.discriminant)?; for c in &x.cases { if let Some(t) = &c.test { self.expr(t)?; } self.statements(&c.consequent)?; } }
-            Statement::ThrowStatement(t) => { let v = self.expr(&t.argument)?; self.thrown(&v); }
+            Statement::ThrowStatement(t) => { self.expr(&t.argument)?; }
             Statement::TryStatement(t) => {
-                self.facts.tries = true;
-                self.statements(&t.block.body)?;
+                                self.statements(&t.block.body)?;
                 if let Some(h) = &t.handler { if let Some(p) = &h.param { self.bind(&p.pattern, &one(Atom::Opaque))?; } self.statements(&h.body.body)?; }
                 if let Some(f) = &t.finalizer { self.statements(&f.body)?; }
             }
@@ -1740,15 +1965,6 @@ impl<'m, 'a, 'r> Eval<'m, 'a, 'r> {
     fn for_left(&mut self, l: &'m ForStatementLeft<'a>, v: &Val) -> R<()> {
         match l { ForStatementLeft::VariableDeclaration(d) => { if matches!(d.kind, VariableDeclarationKind::Using | VariableDeclarationKind::AwaitUsing) { return self.stop(d.span, "a `using`"); } for x in &d.declarations { self.bind(&x.id, v)?; } Ok(()) } t => self.write_target(t.to_assignment_target(), v) }
     }
-    fn thrown(&mut self, v: &Val) {
-        for a in v {
-            let n = match a { Atom::Obj(o) => self.objs[*o as usize].class.filter(|_| self.objs[*o as usize].kind == Kind::Error).and_then(|c| { let x = self.classes[c as usize].at; let m = self.mods.get(x.module); match m.nodes.kind(x.node) { AstKind::Class(k) => k.id.as_ref().and_then(|i| i.symbol_id.get()).map(|s| format!("{}:{}", x.module, s.index())), _ => None } }), _ => None };
-            self.facts.throws.insert(n.unwrap_or_else(|| "Error".into()));
-        }
-        if v.is_empty() { self.facts.throws.insert("Error".into()); }
-    }
-    /// A class's key in `Facts::throws`.
-    pub fn class_key(&self, o: &Origin<'a>) -> Option<String> { match o { Origin::Symbol(m, s) => Some(format!("{m}:{}", s.index())), _ => None } }
 }
 fn native_fn(n: &str) -> bool {
     matches!(n, "Math.abs" | "Math.acos" | "Math.acosh" | "Math.asin" | "Math.asinh" | "Math.atan" | "Math.atan2" | "Math.atanh" | "Math.cbrt" | "Math.ceil" | "Math.clz32" | "Math.cos" | "Math.cosh" | "Math.exp" | "Math.expm1" | "Math.floor" | "Math.fround" | "Math.hypot" | "Math.imul" | "Math.log" | "Math.log10" | "Math.log1p" | "Math.log2" | "Math.max" | "Math.min" | "Math.pow" | "Math.round" | "Math.sign" | "Math.sin" | "Math.sinh" | "Math.sqrt" | "Math.tan" | "Math.tanh" | "Math.trunc"

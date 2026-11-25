@@ -663,112 +663,6 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         })
     }
 
-    // ---- draft ----
-    /// Whether every path changes the parameter in place, and nothing keeps it.
-    pub fn draft(&self, f: FnAt, index: usize) -> Result<Why, Why> {
-        let (mi, m) = (f.module, self.m(f.module));
-        let at0 = m.nodes.kind(f.node).span();
-        let no = |at: Span, w: &str| Err(why(mi, at, w));
-        let Some((params, body, gen, isasync)) = self.parts(f) else { return no(at0, "it is not read") };
-        if gen || isasync || m.banned.is_some() || uses_arguments(m, f.node) { return no(at0, "it waits, is a generator, or uses `arguments`"); }
-        let Some(p) = params.items.get(index) else { return no(at0, "it has no such parameter") };
-        let (BindingPattern::BindingIdentifier(b), None) = (&p.pattern, &p.initializer) else { return no(p.span, "it is taken apart, or has a default") };
-        let Some(s) = b.symbol_id.get().filter(|s| m.known_symbol(*s)) else { return no(b.span, "its name is written again") };
-        let Ok(body) = body else { return no(at0, "its body is one expression: what it answers may be the list") };
-        let mut wrote: Vec<Span> = vec![];
-        for r in m.references(s) {
-            if m.function_of(r) != Some(f.node) { return no(m.nodes.kind(r).span(), "it is in a function that may run later"); }
-            let o = m.outer(r);
-            let (pid, span) = (m.nodes.parent_id(o), m.nodes.kind(o).span());
-            let AstKind::StaticMemberExpression(k) = m.nodes.kind(pid) else {
-                // `p[i] = primitive`
-                if let AstKind::ComputedMemberExpression(k) = m.nodes.kind(pid) { if k.object.span() == span { if let Some(w) = self.prim_write(mi, pid) { wrote.push(w); continue; } } }
-                return no(span, "it goes where it is not followed");
-            };
-            if k.object.span() != span { return no(span, "it goes where it is not followed"); }
-            if k.property.name == "length" && !m.is_written(pid) { continue; }
-            if let Some(w) = self.prim_write(mi, pid) { wrote.push(w); continue; }
-            // `p.push(1)`, `const [x] = p.splice(i, 1)`
-            let call = m.nodes.parent_id(m.outer(pid));
-            let AstKind::CallExpression(c) = m.nodes.kind(call) else { return no(span, "a part of it is read") };
-            if c.callee.span() != m.nodes.kind(m.outer(pid)).span() || !matches!(k.property.name.as_str(), "push" | "unshift" | "splice" | "reverse" | "sort" | "pop" | "shift" | "fill") { return no(span, "a method that is not known to keep nothing"); }
-            for (i, a) in c.arguments.iter().enumerate() {
-                let ok = match a.as_expression() { Some(e) => self.primitive(mi, f, e) || (k.property.name == "sort" && i == 0 && self.plain_order(mi, e)) || self.own_item(mi, e, s), None => false };
-                if !ok { return no(a.span(), "an argument that may keep something, or be kept"); }
-            }
-            if !self.dropped_or_put_back(mi, call, s) { return no(c.span, "what the method answers goes where it is not followed"); }
-            wrote.push(c.span);
-        }
-        for st in body {
-            if leaves(st) { break; }
-            let hit = match st { Statement::ExpressionStatement(x) => wrote.iter().find(|w| unwrap(&x.expression).span() == **w), Statement::VariableDeclaration(d) => wrote.iter().find(|w| d.declarations.iter().any(|x| x.init.as_ref().is_some_and(|i| unwrap(i).span() == **w))), _ => None };
-            if let Some(w) = hit { return Ok(why(mi, *w, "changed in place, on every path")); }
-        }
-        no(at0, "no change of it that every path makes")
-    }
-    /// `p.x = primitive` as a statement.
-    fn prim_write(&self, mi: usize, member: NodeId) -> Option<Span> {
-        let m = self.m(mi);
-        let o = m.outer(member);
-        let pid = m.nodes.parent_id(o);
-        let AstKind::AssignmentExpression(a) = m.nodes.kind(pid) else { return None };
-        if a.left.span() != m.nodes.kind(o).span() || a.operator != AssignmentOperator::Assign { return None; }
-        if !matches!(unwrap(&a.right), Expression::NumericLiteral(_) | Expression::StringLiteral(_) | Expression::BooleanLiteral(_) | Expression::NullLiteral(_)) { return None; }
-        if let AstKind::StaticMemberExpression(k) = m.nodes.kind(member) { if super::constant::reserved(&k.property.name) { return None; } }
-        if let AstKind::ComputedMemberExpression(k) = m.nodes.kind(member) { if !matches!(unwrap(&k.expression), Expression::NumericLiteral(_)) { return None; } }
-        matches!(m.nodes.parent_kind(m.outer(pid)), AstKind::ExpressionStatement(_)).then_some(a.span)
-    }
-    fn primitive(&self, mi: usize, f: FnAt, e: &Expression<'a>) -> bool {
-        match unwrap(e) {
-            Expression::NumericLiteral(_) | Expression::StringLiteral(_) | Expression::BooleanLiteral(_) | Expression::NullLiteral(_) => true,
-            Expression::UnaryExpression(u) => matches!(u.operator, UnaryOperator::UnaryNegation) && self.primitive(mi, f, &u.argument),
-            // another parameter is an index the method converts, and may be put in the list: the host says it is a primitive
-            Expression::Identifier(i) => { let Some((params, ..)) = self.parts(f) else { return false }; let m = self.m(mi); let Some(s) = m.symbol(i).filter(|s| m.known_symbol(*s)) else { return false }; params.items.iter().enumerate().any(|(n, p)| matches!(&p.pattern, BindingPattern::BindingIdentifier(b) if b.symbol_id.get() == Some(s)) && p.initializer.is_none() && self.prims_at(n)) }
-            _ => false,
-        }
-    }
-    fn prims_at(&self, n: usize) -> bool { PRIMS.with(|p| p.borrow().contains(&n)) }
-    /// A comparison of two items that calls nothing and assigns nothing.
-    fn plain_order(&self, mi: usize, e: &Expression<'a>) -> bool {
-        let Expression::ArrowFunctionExpression(f) = unwrap(e) else { return false };
-        let ArrowFunctionBody::FunctionBody(_) = &f.body else {
-            let m = self.m(mi);
-            let span = f.span;
-            return f.params.rest.is_none() && f.params.items.iter().all(|p| p.initializer.is_none() && matches!(p.pattern, BindingPattern::BindingIdentifier(_))) && m.nodes.iter().filter(|n| span.contains_inclusive(n.kind().span())).all(|n| !matches!(n.kind(), AstKind::CallExpression(_) | AstKind::NewExpression(_) | AstKind::AssignmentExpression(_) | AstKind::UpdateExpression(_) | AstKind::TaggedTemplateExpression(_) | AstKind::Function(_) | AstKind::ObjectExpression(_) | AstKind::ArrayExpression(_) | AstKind::AwaitExpression(_)) && (!matches!(n.kind(), AstKind::ArrowFunctionExpression(_)) || n.kind().span() == span));
-        };
-        false
-    }
-    /// A name that holds what was taken off the list.
-    fn own_item(&self, mi: usize, e: &Expression<'a>, s: SymbolId) -> bool {
-        let Expression::Identifier(i) = unwrap(e) else { return false };
-        let m = self.m(mi);
-        let Some(x) = m.symbol(i).filter(|x| m.known_symbol(*x)) else { return false };
-        let AstKind::VariableDeclarator(d) = m.nodes.kind(m.scoping.symbol_declaration(x)) else { return false };
-        d.init.as_ref().is_some_and(|e| self.takes_off(mi, e, s))
-    }
-    fn takes_off(&self, mi: usize, e: &Expression<'a>, s: SymbolId) -> bool {
-        let Expression::CallExpression(c) = unwrap(e) else { return false };
-        let Expression::StaticMemberExpression(p) = unwrap(&c.callee) else { return false };
-        matches!(unwrap(&p.object), Expression::Identifier(i) if self.m(mi).symbol(i) == Some(s)) && matches!(p.property.name.as_str(), "splice" | "pop" | "shift")
-    }
-    /// What a change answers is dropped, or a name only ever given back to the same list.
-    fn dropped_or_put_back(&self, mi: usize, call: NodeId, s: SymbolId) -> bool {
-        let m = self.m(mi);
-        let o = m.outer(call);
-        match m.nodes.parent_kind(o) {
-            AstKind::ExpressionStatement(_) => true,
-            AstKind::VariableDeclarator(d) => {
-                let names: Vec<&BindingIdentifier> = match &d.id { BindingPattern::BindingIdentifier(b) if !matches!(d.init.as_ref().map(unwrap), Some(Expression::CallExpression(c)) if matches!(unwrap(&c.callee), Expression::StaticMemberExpression(p) if matches!(p.property.name.as_str(), "splice" | "sort" | "reverse" | "fill"))) => vec![b], BindingPattern::ArrayPattern(a) if a.rest.is_none() => { let mut v = vec![]; for e in a.elements.iter().flatten() { match e { BindingPattern::BindingIdentifier(b) => v.push(&**b), _ => return false } } v } _ => return false };
-                names.iter().all(|b| b.symbol_id.get().is_some_and(|x| m.known_symbol(x) && m.references(x).iter().all(|r| {
-                    let o = m.outer(*r);
-                    let span = m.nodes.kind(o).span();
-                    matches!(m.nodes.parent_kind(o), AstKind::CallExpression(c) if c.arguments.iter().any(|a| a.span() == span) && matches!(unwrap(&c.callee), Expression::StaticMemberExpression(p) if matches!(unwrap(&p.object), Expression::Identifier(i) if m.symbol(i) == Some(s)) && matches!(p.property.name.as_str(), "splice" | "push" | "unshift")))
-                })))
-            }
-            _ => false,
-        }
-    }
-
     // ---- ref ----
     /// Whether what the function answers at `path` is a reader Solid made, under a name nothing writes.
     pub fn reader(&self, f: FnAt, path: &[&str], depth: u32) -> bool {
@@ -806,8 +700,6 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         }
     }
 }
-thread_local! { /** The parameters whose type is a primitive, of the fn `draft` is asked about. */ pub static PRIMS: std::cell::RefCell<BTreeSet<usize>> = const { std::cell::RefCell::new(BTreeSet::new()) }; }
-
 struct View { provided: Vec<(usize, SymbolId)>, values: Vec<Span>, views: Vec<Span> }
 /// What was found of a callback: where it is called, under which names of its parameters' values.
 pub struct Calls {
@@ -830,10 +722,8 @@ impl Calls {
 fn bound<'b, 'a>(p: &'b BindingPattern<'a>) -> Option<&'b BindingIdentifier<'a>> { match p { BindingPattern::BindingIdentifier(b) => Some(b), BindingPattern::AssignmentPattern(a) => bound(&a.left), _ => None } }
 
 fn nullish(e: &Expression) -> bool { matches!(unwrap(e), Expression::NullLiteral(_)) || matches!(unwrap(e), Expression::Identifier(i) if i.name == "undefined") }
-fn uses_arguments(m: &Module, f: NodeId) -> bool {
-    // (an arrow has none of its own: the function around it is the module's, or one that hands it out)
-    match m.nodes.kind(f) { AstKind::Function(_) => { let span = m.nodes.kind(f).span(); m.nodes.iter().any(|n| matches!(n.kind(), AstKind::IdentifierReference(i) if i.name == "arguments" && m.symbol(i).is_none() && span.contains_inclusive(i.span))) } _ => false }
-}
+/// (An arrow has none of its own: the function around it is the module's, or one that hands it out.)
+pub fn uses_arguments(m: &Module, f: NodeId) -> bool { m.with_arguments.contains(&f) }
 /// Whether a statement may leave the function by a return (a nested function's own is not it).
 fn leaves(s: &Statement) -> bool {
     match s {
@@ -855,8 +745,7 @@ fn leaves(s: &Statement) -> bool {
 fn throws(s: &Statement) -> bool {
     match s { Statement::ThrowStatement(_) => true, Statement::BlockStatement(b) => b.body.last().is_some_and(throws) && !b.body.iter().any(leaves), _ => false }
 }
-/// Whether a span has an `await` or a `yield` that may be the function's own: what is after it may be another turn.
-fn waits_in(span: Span, m: &Module) -> bool { m.nodes.iter().any(|n| matches!(n.kind(), AstKind::AwaitExpression(_) | AstKind::YieldExpression(_)) && span.contains_inclusive(n.kind().span())) }
+fn waits_in(span: Span, m: &Module) -> bool { m.waits_in(span) }
 /// Whether evaluating an expression always waits.
 fn always_waits(e: &Expression) -> bool {
     match unwrap(e) {

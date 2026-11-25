@@ -1,11 +1,12 @@
 //! The words `rx-declare` writes, proved from the code (DESIGN.md): `src/words.js` of the language server asks.
 //!   `{ spec, from, exports: [{ name, kind: "fn" | "component", params: [type], handlers: [[index, field?]], refs: [path],
-//!   prims: [index], plain: [prop] }] }`  →  `{ unread? , exports: { name: { … } }, contexts: { exportName: key } }`.
+//!   ret: type, plain: [prop] }] }`  →  `{ unread? , exports: { name: { … } }, contexts: { exportName: key } }`.
 //! A word holds under every host that can load the module (resolve.rs); one that loads what is not read leaves it unread.
 pub mod constant;
 pub mod dispatch;
 pub mod eval;
 pub mod graph;
+pub mod patch;
 pub mod place;
 pub mod resolve;
 pub mod target;
@@ -17,7 +18,7 @@ use graph::{Modules, Origin};
 use place::{Place, Why};
 use resolve::{Found, Host, Read, Resolver, HOSTS};
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashSet};
 
 struct Loaded { host: Host, hi: usize, entry: usize }
 
@@ -53,6 +54,15 @@ pub fn request(params: &Value, read: &Read) -> Value {
     let mods = Modules::new(&alloc, Resolver::new(read));
     let (spec, from) = (params["spec"].as_str().unwrap_or(""), params["from"].as_str().unwrap_or(""));
     let loaded = match hosts(&mods, spec, from) { Ok(l) => l, Err(w) => return json!({ "unread": w }) };
+    if params["stat"] == true {
+        let l = &loaded[loaded.len().min(2) - 1];
+        let ty = Types::new();
+        let p = Place::new(&mods, l.host, l.hi, l.entry, &ty);
+        let mut done = BTreeSet::new();
+        let mut todo = vec![l.entry];
+        while let Some(i) = todo.pop() { if !done.insert(i) { continue; } for s in mods.get(i).specs() { if !graph::is_solid(s) { if let Ok(j) = mods.open(l.host, &mods.find(l.host, l.hi, s, i)) { todo.push(j); } } } }
+        return json!({ "files": done.len(), "patch": p.patches(&done).map(|(m, a, w)| format!("{w} {}:{}", mods.get(m).path, mods.get(m).line(a))) });
+    }
     if params["names"] == true {
         let mut all = BTreeSet::new();
         for l in &loaded { match mods.every_name(l.host, l.hi, l.entry) { Some(n) => all.extend(n), None => return json!({ "names": null }) } }
@@ -80,52 +90,36 @@ fn export(mods: &Modules, loaded: &[Loaded], x: &Value, name: &str) -> Value {
     if name.contains('.') { return json!({ "unread": "a method of an object the module exports: any importer may change it" }); }
     let mut types = Types::new();
     let params: Vec<u32> = x["params"].as_array().into_iter().flatten().map(|t| types.read(t)).collect();
+    let ret = types.read(&x["ret"]);
     let is_fn = x["kind"] == "fn";
-    place::PRIMS.with(|p| *p.borrow_mut() = x["prims"].as_array().into_iter().flatten().filter_map(|n| n.as_u64().map(|n| n as usize)).collect());
     let origins: Vec<Origin> = loaded.iter().map(|l| mods.exported(l.host, l.hi, l.entry, name, &mut vec![])).collect();
     for o in &origins { if let Origin::Unknown(w) = o { return json!({ "unread": w }); } }
     let places: Vec<Place> = loaded.iter().map(|l| Place::new(mods, l.host, l.hi, l.entry, &types)).collect();
     let fns: Option<Vec<eval::FnAt>> = places.iter().zip(&origins).map(|(p, o)| p.function(o)).collect();
     let mut out = Map::new();
 
-    // ---- the reading of the call: pure, rejects
+    // ---- the reading of the call: pure
     let mut owned = false;
     if is_fn {
-        let mut facts: Vec<(Facts, BTreeMap<String, String>)> = vec![];
+        let mut facts: Vec<Facts> = vec![];
         let mut stop = None;
         for (l, o) in loaded.iter().zip(&origins) {
             let mut e = Eval::new(mods, l.host, l.hi, &types);
-            match e.export(o, &params) {
-                Ok(_) => {
-                    let mut classes = BTreeMap::new();
-                    if e.facts.throws.iter().any(|t| t != "Error") {
-                        for n in mods.every_name(l.host, l.hi, l.entry).unwrap_or_default() { let o = mods.exported(l.host, l.hi, l.entry, &n, &mut vec![]); if let Some(k) = e.class_key(&o) { classes.entry(k).or_insert(n); } }
-                    }
-                    facts.push((e.facts.clone(), classes));
-                }
-                Err(s) => { stop = Some(s); break; }
-            }
+            match e.export(o, &params, ret) { Ok(_) => facts.push(e.facts.clone()), Err(s) => { stop = Some(s); break; } }
         }
         if let Some(s) = &stop { out.insert("pure".into(), json!({ "ok": false, "why": stopped(mods, s) })); }
         else {
-            owned = facts.iter().any(|(f, _)| f.owned);
-            let makes = facts.iter().any(|(f, _)| f.makes);
-            let differs = facts.windows(2).any(|w| w[0].0.files != w[1].0.files);
-            let no = if facts.iter().any(|(f, _)| f.answers_timer) { Some("it answers a timer") }
-                else if facts.iter().any(|(f, _)| f.env && f.answers_data) { Some("it asks where it runs, and answers data") }
-                else if differs && facts.iter().any(|(f, _)| f.answers_data) { Some("its code is another under another host, and it answers data") }
+            owned = facts.iter().any(|f| f.owned);
+            let makes = facts.iter().any(|f| f.makes);
+            let differs = facts.windows(2).any(|w| w[0].files != w[1].files);
+            let no = if let Some(s) = facts.iter().find_map(|f| f.later.as_ref()) { Some(stopped(mods, s)) }
+                else if facts.iter().any(|f| f.answers_timer) { Some(json!({ "why": "it answers a timer" })) }
+                else if facts.iter().any(|f| f.env && f.answers_data) { Some(json!({ "why": "it asks where it runs, and answers data" })) }
+                else if differs && facts.iter().any(|f| f.answers_data) { Some(json!({ "why": "its code is another under another host, and it answers data" })) }
                 else { None };
-            out.insert("pure".into(), match no { Some(w) => json!({ "ok": false, "why": { "why": w } }), None => json!({ "ok": true, "makes": makes, "owned": owned, "why": { "why": if makes { "its own code only computes, and makes Solid nodes of its own" } else { "its own code only computes" } } }) });
-            // rejects
-            let mut names: Option<BTreeSet<String>> = Some(BTreeSet::new());
-            for (f, classes) in &facts {
-                if !(f.is_async || f.promise) || f.tries { names = None; break; }
-                for t in &f.throws { match (classes.get(t), &mut names) { (Some(n), Some(s)) => { s.insert(n.clone()); } _ => names = None } }
-                if names.is_none() { break; }
-            }
-            // (under every host the same)
-            if let Some(s) = &names { if facts.windows(2).any(|w| w[0].0.throws.len() != w[1].0.throws.len()) { let _ = s; names = None; } }
-            out.insert("rejects".into(), match names { Some(s) => json!(s), None => Value::Null });
+            // the functions it answers that are not shown to only compute: the row has to say each is one that does something (declare-infer.js)
+            let parts: Vec<Value> = facts.iter().flat_map(|f| &f.parts).map(|(p, callable, s)| { let mut v = stopped(mods, s); v["path"] = json!(p); v["callable"] = json!(callable); v }).collect();
+            out.insert("pure".into(), match no { Some(w) => json!({ "ok": false, "why": w }), None => json!({ "ok": true, "makes": makes, "owned": owned, "parts": parts, "why": { "why": if makes { "its own code only computes, and makes Solid nodes of its own" } else { "its own code only computes" } } }) });
         }
     }
     let Some(fns) = fns else { out.insert("unplaced".into(), json!("it is no function written out in the module, under a name nothing writes")); return Value::Object(out); };
@@ -162,15 +156,7 @@ fn export(mods: &Modules, loaded: &[Loaded], x: &Value, name: &str) -> Value {
         hs.insert(match field { Some(f) => format!("{i}.{f}"), None => i.to_string() }, v);
     }
     out.insert("handlers".into(), Value::Object(hs));
-    // ---- draft
     if is_fn {
-        let n = x["params"].as_array().map_or(0, |a| a.len());
-        let mut d = Map::new();
-        for i in 0..n {
-            let rs: Vec<Result<Why, Why>> = places.iter().zip(&fns).map(|(p, f)| p.draft(*f, i)).collect();
-            if let (true, Ok(w)) = (rs.iter().all(|r| r.is_ok()), &rs[0]) { d.insert(i.to_string(), said(mods, w)); }
-        }
-        out.insert("draft".into(), Value::Object(d));
         // ---- the parts that are readers
         let refs: Vec<&str> = x["refs"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).filter(|p| { let path: Vec<&str> = if p.is_empty() { vec![] } else { p.split('.').collect() }; places.iter().zip(&fns).all(|(pl, f)| pl.reader(*f, &path, 0)) }).collect();
         out.insert("refs".into(), json!(refs));

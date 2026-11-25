@@ -3,7 +3,7 @@
 //! parameter whose type in the row is one. A form that is not listed is not one.
 use super::constant::{static_key, unwrap};
 use super::eval::{FnAt, Ty, TARGET};
-use super::graph::{Module, Origin};
+use super::graph::Origin;
 use super::place::Place;
 use oxc_ast::{ast::*, AstKind};
 use oxc_semantic::NodeId;
@@ -156,9 +156,8 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
                 let m = self.m(f.module);
                 let mut out = Some(V::Target);
                 let mut first = true;
-                for n in m.nodes.iter() {
-                    let AstKind::ReturnStatement(r) = n.kind() else { continue };
-                    if m.function_of(n.id()) != Some(f.node) { continue; }
+                for n in m.returns_of(f.node) {
+                    let AstKind::ReturnStatement(r) = m.nodes.kind(*n) else { continue };
                     let Some(e) = &r.argument else { continue };
                     let v = self.project(f.module, e, path, &all, d + 1)?;
                     out = Some(if first { v } else { join(out?, v)? });
@@ -230,7 +229,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
                         }
                         e => self.called(mi, e).is_some_and(|g| {
                             let Some((params, ..)) = self.parts(g) else { return false };
-                            if params.rest.is_some() || uses_args(self.m(g.module), g.node) || c.arguments.iter().take(i).any(|a| a.is_spread()) { return false; }
+                            if params.rest.is_some() || super::place::uses_arguments(self.m(g.module), g.node) || c.arguments.iter().take(i).any(|a| a.is_spread()) { return false; }
                             let mut ok = true;
                             if let Some(p) = params.items.get(i) { super::graph::each_binding(&p.pattern, &mut |x| ok &= x.symbol_id.get().is_some_and(|x| self.kept(g.module, x, d + 1))); }
                             ok
@@ -289,7 +288,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
         let m = self.m(mi);
         let f = m.function_of(decl)?;
         let (params, _, gen, _) = self.parts(FnAt { module: mi, node: f })?;
-        if gen || uses_args(m, f) { return None; }
+        if gen || super::place::uses_arguments(m, f) { return None; }
         let (index, p) = params.items.iter().enumerate().find(|(_, p)| path_to(&p.pattern, s).is_some())?;
         let (path, mut defaults) = path_to(&p.pattern, s)?;
         if let Some(i) = &p.initializer { defaults.push(i); }
@@ -373,11 +372,6 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
     }
 }
 
-fn uses_args(m: &Module, f: NodeId) -> bool {
-    let AstKind::Function(_) = m.nodes.kind(f) else { return false };
-    let span = m.nodes.kind(f).span();
-    m.nodes.iter().any(|n| matches!(n.kind(), AstKind::IdentifierReference(i) if i.name == "arguments" && m.symbol(i).is_none() && span.contains_inclusive(i.span)))
-}
 /// Where a pattern takes a name from, and the defaults on the way.
 pub fn path_to<'b, 'a>(p: &'b BindingPattern<'a>, s: SymbolId) -> Option<(Vec<Step>, Vec<&'b Expression<'a>>)> {
     match p {

@@ -36,15 +36,7 @@ pub fn reserved(n: &str) -> bool { matches!(n, "__proto__" | "constructor" | "pr
 
 /// Whether a function's own code (and its arrows') has `this`, `super`, `arguments` or `new.target`.
 pub fn has_this(m: &Module, f: NodeId) -> bool {
-    let span = m.nodes.kind(f).span();
-    m.nodes.iter().any(|n| {
-        let hit = match n.kind() {
-            AstKind::ThisExpression(_) | AstKind::Super(_) | AstKind::NewTarget(_) => true,
-            AstKind::IdentifierReference(i) => i.name == "arguments" && m.symbol(i).is_none(),
-            _ => false,
-        };
-        hit && span.contains_inclusive(n.kind().span()) && m.nodes.ancestor_ids(n.id()).find(|a| matches!(m.nodes.kind(*a), AstKind::Function(_)) || *a == f).is_some_and(|a| a == f)
-    })
+    m.with_this.contains(&f)
 }
 
 /// The shape of a literal, where each value is a primitive written out, a function with no `this`, a name, or a literal.

@@ -3,10 +3,10 @@ use super::resolve::{dirname, Found, Host, Resolver};
 use oxc_allocator::Allocator;
 use oxc_ast::{ast::*, AstKind};
 use oxc_semantic::{AstNodes, NodeId, Scoping, SemanticBuilder};
-use oxc_span::{GetSpan, SourceType};
+use oxc_span::{GetSpan, SourceType, Span};
 use oxc_syntax::symbol::SymbolId;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Solid's own: what it exports is known by name (DESIGN.md), and its code is not read.
 pub fn is_solid(spec: &str) -> bool {
@@ -34,11 +34,17 @@ pub struct Module<'a> {
     pub handed_out: std::collections::HashSet<SymbolId>,
     /// Why no name of the module can be told: a direct `eval`, a built-in it replaces.
     pub banned: Option<&'static str>,
+    /// What it does with the built-ins as objects (patch.rs).
+    pub patch: super::patch::Patch,
+    /// Where an `await`, a `yield` or a `for await` begins, in order.
+    waits: Vec<u32>,
+    /// The functions whose own code (with its arrows') has `this`, `super`, `new.target` or `arguments`; the ones with `arguments`
+    /// anywhere in them.
+    pub with_this: HashSet<NodeId>,
+    pub with_arguments: HashSet<NodeId>,
+    returns: HashMap<NodeId, Vec<NodeId>>,
+    lines: Vec<u32>,
 }
-
-const BUILTINS: &[&str] = &["Array", "Object", "Function", "String", "Number", "Boolean", "BigInt", "Symbol", "Math", "JSON", "Reflect", "Proxy", "Promise", "Map", "Set", "WeakMap", "WeakSet", "WeakRef", "Error", "TypeError", "RangeError", "RegExp", "Date", "Iterator", "EventTarget", "Node", "Element", "HTMLElement", "Window"];
-const HOLDERS: &[&str] = &["globalThis", "window", "self", "global"];
-const TIMERS: &[&str] = &["setTimeout", "setInterval", "queueMicrotask", "requestAnimationFrame", "requestIdleCallback", "addEventListener", "isNaN", "isFinite", "parseInt", "parseFloat"];
 
 /// The name at the root of a chain of members, and the first property read off it.
 pub fn root_of<'b, 'a>(e: &'b Expression<'a>) -> Option<(&'b IdentifierReference<'a>, Option<&'b str>)> {
@@ -66,7 +72,7 @@ impl<'a> Module<'a> {
         let program: &'a Program<'a> = alloc.alloc(ret.program);
         let sem = SemanticBuilder::new().with_build_nodes(true).build(program).semantic;
         let (scoping, nodes) = sem.into_scoping_and_nodes();
-        let mut m = Module { path: path.to_string(), source, program, scoping, nodes, imports: HashMap::new(), exports: HashMap::new(), stars: vec![], handed_out: Default::default(), banned: None };
+        let mut m = Module { path: path.to_string(), source, program, scoping, nodes, imports: HashMap::new(), exports: HashMap::new(), stars: vec![], handed_out: Default::default(), banned: None, patch: Default::default(), waits: vec![], with_this: HashSet::new(), with_arguments: HashSet::new(), returns: HashMap::new(), lines: source.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| i as u32).collect() };
         let mut esm = false;
         for s in &program.body {
             match s {
@@ -128,42 +134,43 @@ impl<'a> Module<'a> {
         let out: Vec<SymbolId> = m.exports.values().filter_map(|e| if let Export::Local(s) = e { Some(*s) } else { None }).collect();
         m.handed_out.extend(out);
         if let Some(Export::Default(ExportDefaultDeclarationKind::Identifier(i))) = m.exports.get("default") { if let Some(s) = m.symbol(i) { m.handed_out.insert(s); } }
-        for n in m.nodes.iter() {
+        m.facts();
+        m.patch = super::patch::read(&m);
+        if let Some(w) = m.patch.done { m.banned = Some(w); }
+        Some(m)
+    }
+
+    fn facts(&mut self) {
+        let (mut marks, mut waits, mut returns): (_, _, HashMap<NodeId, Vec<NodeId>>) = (vec![], vec![], HashMap::new());
+        for n in self.nodes.iter() {
+            let id = n.id();
             match n.kind() {
-                AstKind::CallExpression(c) => {
-                    if let Expression::Identifier(i) = &c.callee { if i.name == "eval" && m.symbol(i).is_none() { m.banned = Some("it has a direct `eval`"); } }
-                    // `Object.defineProperty(Array.prototype, …)`, `Object.assign(globalThis, …)`
-                    if let Expression::StaticMemberExpression(k) = &c.callee { if let (Expression::Identifier(o), Some(a)) = (&k.object, c.arguments.first().and_then(|a| a.as_expression())) {
-                        if (o.name == "Object" || o.name == "Reflect") && m.symbol(o).is_none() && matches!(k.property.name.as_str(), "assign" | "defineProperty" | "defineProperties" | "setPrototypeOf" | "set") {
-                            if let Some((r, _)) = root_of(a) { if m.symbol(r).is_none() && (BUILTINS.contains(&r.name.as_str()) || HOLDERS.contains(&r.name.as_str())) { m.banned = Some("it replaces a part of a built-in"); } }
-                        }
-                    } }
-                }
-                AstKind::WithStatement(_) => m.banned = Some("it has a `with`"),
-                AstKind::StaticMemberExpression(_) | AstKind::ComputedMemberExpression(_) if m.is_written(n.id()) => {
-                    let (obj, prop) = match n.kind() {
-                        AstKind::StaticMemberExpression(x) => (&x.object, Some(x.property.name.as_str())),
-                        AstKind::ComputedMemberExpression(x) => (&x.object, match &x.expression {
-                            Expression::StringLiteral(s) => Some(s.value.as_str()),
-                            // (a symbol of its own names no built-in)
-                            Expression::CallExpression(c) if matches!(&c.callee, Expression::StaticMemberExpression(k) if k.property.name == "for" && matches!(&k.object, Expression::Identifier(i) if i.name == "Symbol" && m.symbol(i).is_none())) => Some("Symbol.for"),
-                            _ => None,
-                        }),
-                        _ => unreachable!(),
-                    };
-                    if let Some((r, first)) = root_of(obj) { if m.symbol(r).is_none() {
-                        let p = first.or(prop);
-                        if BUILTINS.contains(&r.name.as_str()) || (HOLDERS.contains(&r.name.as_str()) && p.map_or(true, |p| BUILTINS.contains(&p) || TIMERS.contains(&p))) { m.banned = Some("it replaces a part of a built-in"); }
-                    } }
-                }
-                AstKind::IdentifierReference(i) if m.symbol(i).is_none() => {
-                    if let Some(r) = i.reference_id.get() { if m.scoping.get_reference(r).is_write() && (BUILTINS.contains(&i.name.as_str()) || TIMERS.contains(&i.name.as_str())) { m.banned = Some("it replaces a built-in"); } }
-                }
+                AstKind::AwaitExpression(x) => waits.push(x.span.start),
+                AstKind::YieldExpression(x) => waits.push(x.span.start),
+                AstKind::ForOfStatement(x) if x.r#await => waits.push(x.span.start),
+                AstKind::ReturnStatement(_) => if let Some(f) = self.function_of(id) { returns.entry(f).or_default().push(id); },
+                AstKind::ThisExpression(_) | AstKind::Super(_) | AstKind::NewTarget(_) => marks.push((id, false)),
+                AstKind::IdentifierReference(i) if i.name == "arguments" && self.symbol(i).is_none() => marks.push((id, true)),
                 _ => {}
             }
         }
-        Some(m)
+        waits.sort_unstable();
+        (self.waits, self.returns) = (waits, returns);
+        for (id, arguments) in marks { self.mark_this(id, arguments); }
     }
+    fn mark_this(&mut self, id: NodeId, arguments: bool) {
+        let mut own = true;
+        for a in self.nodes.ancestor_ids(id).collect::<Vec<_>>() {
+            match self.nodes.kind(a) {
+                AstKind::ArrowFunctionExpression(_) if own => { self.with_this.insert(a); }
+                AstKind::Function(_) => { if own { self.with_this.insert(a); } own = false; if arguments { self.with_arguments.insert(a); } else { break; } }
+                _ => {}
+            }
+        }
+    }
+    /// Whether a span has an `await` or a `yield`, whoever's: what is after it may be another turn.
+    pub fn waits_in(&self, span: Span) -> bool { let i = self.waits.partition_point(|w| *w < span.start); self.waits.get(i).is_some_and(|w| *w < span.end) }
+    pub fn returns_of(&self, f: NodeId) -> &[NodeId] { self.returns.get(&f).map_or(&[], |v| v) }
 
     /// Every module this one names: imported, exported from.
     pub fn specs(&self) -> Vec<&'a str> {
@@ -184,7 +191,7 @@ impl<'a> Module<'a> {
     }
     /// A name of the global scope, declared nowhere in the module.
     pub fn is_global(&self, i: &IdentifierReference, name: &str) -> bool { i.name == name && self.symbol(i).is_none() && self.banned.is_none() }
-    pub fn line(&self, at: u32) -> usize { self.source.as_bytes()[..(at as usize).min(self.source.len())].iter().filter(|b| **b == b'\n').count() + 1 }
+    pub fn line(&self, at: u32) -> usize { self.lines.partition_point(|l| *l < at) + 1 }
     /// The node around, past parentheses and TypeScript's wrappers.
     pub fn outer(&self, mut id: NodeId) -> NodeId {
         loop {
@@ -213,6 +220,7 @@ impl<'a> Module<'a> {
             _ => false,
         }
     }
+    pub fn scoping_write(&self, id: NodeId) -> bool { matches!(self.nodes.kind(id), AstKind::IdentifierReference(i) if i.reference_id.get().is_some_and(|r| self.scoping.get_reference(r).is_write())) }
     pub fn references(&self, s: SymbolId) -> Vec<NodeId> { self.scoping.get_resolved_references(s).map(|r| r.node_id()).collect() }
     /// The function a node is in: the nearest that is, or None (the module's own code).
     pub fn function_of(&self, id: NodeId) -> Option<NodeId> {
