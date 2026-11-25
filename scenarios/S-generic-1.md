@@ -166,12 +166,6 @@ export default component App() {
 
 ```rx
 -- reject: PARSE
-component Box<T>(props: { v: T }) { <p>{str(props.v)}</p> }
-export default component App() { <Box v={1} /> }
-```
-
-```rx
--- reject: PARSE
 fn f<T(x: T) => x
 export default component App() { <p>{f(1)}</p> }
 ```

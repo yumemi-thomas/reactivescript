@@ -113,6 +113,7 @@ does for `.tsrx`. Nothing here is a second type system.
 | `x := v` | `v`, which is no function, or a function of the slot (W-6), checked against the target's type |
 | `x.a := v` | `v` (or a function of the slot, W-6) checked against the target's type: a path may be a draft's, where a function can be the value (ST-3a) |
 | in a generic fn, an equation whose type is a type parameter's | not held to R-1a: what `T` is, is the call's to say, and the caller's equation is held |
+| in a generic fn or component, a source of a type parameter's type written with a `T` (`value := v`) | taken: whether `T` is a function is the caller's to say, and there it is applied (W-6), as Solid's setter does. A source of a known type is held as above |
 | `await e` | the answer's type (`Awaited`); `await* e` the stream's element type; `-> v` adds `v`'s type |
 | `e catch (x: A \| B) => alt` | `e`'s type or `alt`'s; `x` is `A \| B` (untyped: `Error`) |
 | `pre x -> i`, `latest e`, `peek e` | the node's own type; `pending? e` is `boolean` |

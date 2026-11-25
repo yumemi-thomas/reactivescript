@@ -105,8 +105,22 @@ error NotFound(id: number) => `no user ${id}`   // R-f-1: an error class; `NotFo
 - A `fn` may have type parameters, `fn first<T>(xs: T[]): T | undefined`
   (proposed 2026-11-25): TypeScript's text, after the name. The checkers
   read none of it and the JavaScript has none. A call infers them; a call
-  has no type arguments of its own for them (`a<b>(c)` is §3's). A
-  component, an action and a server fn have none. S-generic-1.
+  has no type arguments of its own for them (`a<b>(c)` is §3's). An
+  action and a server fn have none. S-generic-1.
+- A component and a type alias may have them as well (proposed
+  2026-11-26, proposals/28): `component List<T>(props: { items: T[];
+  children: (r: { item: T }) => View })`, `type Item<T> = { v: T }`. A
+  tag infers them from what the component is given; no type argument
+  is written at a tag. The checkers read one thing of them: a generic
+  alias applied, `Slot<View>`, is read with each parameter's name
+  replaced by its argument (a default where none is written), so a
+  prop that is a view there is one (RG-4c); and a type parameter stands
+  for a value's type, never for a view — a view is not given on to a
+  prop declared `T`, and children are not declared one
+  (`VIEW_NOT_SHOWN`). Inside a generic declaration a parameter's name
+  is no type of the module. An alias that binds a parameter's name
+  again (`infer T`, a mapped type's key, a generic function type) is
+  not read, as a type of JavaScript is not. S-generic-2.
 - `source x = e` (not `:=`) is the only place `=` declares something that
   can be written.
 - `pre x -> init` is `pre x` with the value for the first instant (C-2a).

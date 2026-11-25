@@ -36,6 +36,8 @@ rows key id = items                        // a keyed collection (rows keep iden
 fn area(w: number, h: number): number => w * h       // a pure function
 fn cut(s: string, n?: number): string => s.slice(0, n ?? 80)   // `cut(s)`: n is undefined. Last, never `ref`, no default
 fn first<T>(xs: T[]): T | undefined => xs[0]         // generic; a call infers T
+type Render<T> = (r: { item: T }) => View            // a generic type
+component List<T>(props: { items: T[]; children: Render<T> }) { … }   // a generic component; the tag infers T, no <List<Row>>
 action save(n: string) { … }               // writes and awaits (async.md)
 component Row(props: { item: Item }) { … }
 error NotFound(id: number) => `no issue ${id}`       // an error class; `NotFound(3)` makes one
