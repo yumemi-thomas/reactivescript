@@ -1,0 +1,44 @@
+export type Instance = import("./types.js").Instance
+export type Scope = import("./types.js").Scope
+export type Named = import("./types.js").Named
+export type User = import("./types.js").User
+export type Part = import("./types.js").Part
+export type Attrs = import("./types.js").Attrs
+export pure fn create<I extends Instance>(primitive: (options: any) => I, ref options: object): I instantiates
+export pure fn uniqueId(): string instantiates
+export pure fn partOf(instance: Instance, slot: string, named: Named): Part
+export pure fn attrsOf(part: Part, named: Named, user: User, options: object, tick: number): Attrs
+export pure fn stateOf(ref part: Part, ref named: Named, ref options: object, ref tick: number): any instantiates
+export pure fn presentOf(part: Part, named: Named, options: object, tick: number): boolean
+export fn setOptions(instance: Instance, options: object): void
+export fn listen(part: Part, changed: handler (live: boolean) => void): () => void
+export pure fn binder(ref part: Part): (el: Element) => void instantiates
+export fn fire(part: Part, type: string, event: Event, user: any): void
+export fn give(user: any, el: Element): void
+export pure fn own(on: { ref: handler (el: any) => void; onClick?: handler (e: any) => void; onPointerEnter?: handler (e: any) => void; onPointerLeave?: handler (e: any) => void; onFocusIn?: handler (e: any) => void; onFocusOut?: handler (e: any) => void; onKeyDown?: handler (e: any) => void; onKeyUp?: handler (e: any) => void }): Attrs instantiates
+export pure fn styleOf(value: any, state: any, own: any): any
+export pure fn viewOf(value: any, state?: any): View
+export pure fn elementProps(ref rest: any, ref element: Attrs, props: any, state: any, other?: any): Attrs instantiates
+export pure fn register(ref controller: object | null | undefined, ref scope: Scope): boolean instantiates
+export pure fn entryOf(ref controller: object | null | undefined): ref Scope | undefined
+export pure fn portalTarget(container: Element | DocumentFragment | null | undefined): Element | DocumentFragment | null
+export type ToggleInstance = import("./types.js").ToggleInstance
+export type ToggleGroupInstance = import("./types.js").ToggleGroupInstance
+export type ToggleProps = import("./types.js").ToggleProps
+export type ToggleIconProps = import("./types.js").ToggleIconProps
+export type ToggleGroupProps = import("./types.js").ToggleGroupProps
+export type TabsProps = import("./types.js").TabsProps
+export type TabsListProps = import("./types.js").TabsListProps
+export type TabsTabProps = import("./types.js").TabsTabProps
+export type TabsTabIconProps = import("./types.js").TabsTabIconProps
+export type TabsIndicatorProps = import("./types.js").TabsIndicatorProps
+export type TabsPanelProps = import("./types.js").TabsPanelProps
+export type Container = import("./types.js").Container
+export type DialogProps = import("./types.js").DialogProps
+export type DialogTriggerProps = import("./types.js").DialogTriggerProps
+export type DialogBackdropProps = import("./types.js").DialogBackdropProps
+export type DialogContentProps = import("./types.js").DialogContentProps
+export type DialogTitleProps = import("./types.js").DialogTitleProps
+export type DialogDescriptionProps = import("./types.js").DialogDescriptionProps
+export type DialogCloseProps = import("./types.js").DialogCloseProps
+export type DialogShortcutProps = import("./types.js").DialogShortcutProps

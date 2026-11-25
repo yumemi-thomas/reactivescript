@@ -1,0 +1,5 @@
+import { T } from "./types.js"
+export default component App() {
+  x: T = { a: 1 }
+  <p>{x.a}</p>
+}

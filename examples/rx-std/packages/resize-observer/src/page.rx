@@ -1,0 +1,4 @@
+/** The page's own: one listener. */
+import { createWindowSize } from "./core.rx"
+
+export windowSize = createWindowSize()

@@ -1,0 +1,2 @@
+export pure fn idOf(props: any): ref string instantiates
+export pure fn registers(set: handler (id: string | undefined) => void): (id: string) => () => void instantiates

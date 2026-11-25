@@ -1,0 +1,5 @@
+export pure fn isArray(x: unknown): x is any[]
+export pure fn isFunction(x: unknown): x is (...args: any[]) => any
+export pure fn isNumber(x: unknown): x is number
+export pure fn isString(x: unknown): x is string
+export pure fn isObject(x: unknown): x is object

@@ -1,0 +1,57 @@
+// A field for each kind of value: components over a reader and a setter, as JavaScript hands them.
+import pure { entries, keys } from "@reactivescript/std/object"
+import pure { isArray } from "@reactivescript/std/is"
+export type Field = { name: string; value: () => any; setValue: (v: any) => void; min?: number; max?: number; step?: number }
+
+export component BoolProp(props: Field) {
+  <label>
+    <input type="checkbox" name={props.name} checked={props.value()} onChange={(ev) => { props.setValue(ev.currentTarget.checked) }} />{" "}
+    <span>{props.name}</span>{" "}
+  </label>
+}
+
+export component NumberProp(props: Field) {
+  <label>
+    <span>{props.name}</span>{" "}
+    <input type="number" name={props.name} min={props.min} max={props.max} step={props.step} value={props.value()}
+      onChange={(ev) => { props.setValue(ev.currentTarget.valueAsNumber) }} />{" "}
+  </label>
+}
+
+export component RangeProp(props: Field) {
+  <label>
+    <span>{props.name}</span>{" "}
+    <input type="range" name={props.name} min={props.min ?? 0} max={props.max ?? 100} step={props.step} value={props.value()}
+      onInput={(ev) => { props.setValue(ev.currentTarget.valueAsNumber) }}
+      onChange={(ev) => { props.setValue(ev.currentTarget.valueAsNumber) }} />{" "}
+    <span>{props.value()}</span>
+  </label>
+}
+
+export component StringProp(props: Field) {
+  <label>
+    <span>{props.name}</span>{" "}
+    <input type="text" name={props.name} value={props.value()}
+      onInput={(ev) => { props.setValue(ev.currentTarget.value) }}
+      onChange={(ev) => { props.setValue(ev.currentTarget.value) }} />{" "}
+  </label>
+}
+
+export type Option = { key: string; value: any }
+/** The rows of a select: a list of values, an object, or an enum (whose reverse entries are dropped). */
+fn optionsOf(o: any): Option[] => isArray(o) ? o.map((v) => ({ key: `${v}`, value: v })) : (isEnum(o) ? names(o).map((k) => [k, o[k]]) : entries(o)).map((e) => ({ key: e[0], value: e[1] }))
+fn isEnum(o: any): boolean => keys(o).every((k) => k === o[o[k]]?.toString())
+fn names(o: any): any[] => entries(o).reduce((items: any[], e) => items.includes(e[0]) ? items : [...items, e[1]], [])
+export component SelectProp(props: { name: string; value: () => any; setValue: (v: any) => void; options: any }) {
+  options: Option[] = optionsOf(props.options)
+  selected = options.findIndex(o => o.value === props.value())
+  <label>
+    <span>{props.name}</span>{" "}
+    <select name={props.name} value={`${selected}`}
+      onChange={(ev) => { let item = options[ev.currentTarget.selectedIndex]; if (item) { props.setValue(item.value) } }}>
+      {if options.length == 0 { <option>options missing</option> } else {
+        {for o in options { <option value={`${options.indexOf(o)}`}>{o.key}</option> }}
+      }}
+    </select>{" "}
+  </label>
+}

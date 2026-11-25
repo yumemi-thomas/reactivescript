@@ -1,0 +1,47 @@
+// A form control's names and ids: which label, description and error message it is wired to.
+import pure { isFunction } from "@reactivescript/std/is"
+import pure { idOf, registers } from "./aria.js"
+
+export type Id = string | undefined
+export type Register = (id: string) => (() => void) | void
+
+fn access(v: any): any => isFunction(v) ? v() : v
+fn join(list: Id[]): Id => list.filter((x) => x).join(" ") || undefined
+fn labelled(labelId: Id, field: Id, label: Id, by: Id): Id => join([by, labelId, (by ?? labelId ?? null) !== null && (label ?? null) !== null ? field : undefined])
+fn flag(on: any): Id => on ? "" : undefined
+fn dataset(validation: any, required: any, disabled: any, readOnly: any): Record<string, Id> => ({
+  "data-valid": flag(validation === "valid"), "data-invalid": flag(validation === "invalid"),
+  "data-required": flag(required), "data-disabled": flag(disabled), "data-readonly": flag(readOnly) })
+
+export fn createFormControl(props: any) {
+  id = idOf(props)
+  name = access(props.name) ?? id
+  source labelId: Id := undefined
+  source fieldId: Id := undefined
+  source descriptionId: Id := undefined
+  source errorMessageId: Id := undefined
+  action setLabel(v: Id) { labelId := v }
+  action setField(v: Id) { fieldId := v }
+  action setDescription(v: Id) { descriptionId := v }
+  action setErrorMessage(v: Id) { errorMessageId := v }
+  label = registers(setLabel)
+  field = registers(setField)
+  description = registers(setDescription)
+  errorMessage = registers(setErrorMessage)
+  {
+    name: name,
+    dataset: dataset(access(props.validationState), access(props.required), access(props.disabled), access(props.readOnly)),
+    validationState: access(props.validationState), isRequired: access(props.required), isDisabled: access(props.disabled), isReadOnly: access(props.readOnly),
+    labelId: labelId, fieldId: fieldId, descriptionId: descriptionId, errorMessageId: errorMessageId,
+    getAriaLabelledBy: (field: Id, label: Id, by: Id) => labelled(labelId, field, label, by),
+    getAriaDescribedBy: (by: Id) => join([descriptionId, errorMessageId, by]),
+    generateId: (p: string) => `${id}-${p}`,
+    registerLabel: label, registerField: field, registerDescription: description, registerErrorMessage: errorMessage
+  }
+}
+
+/** Keeps `id` registered with the control while the field is on the page. */
+export fn useField(ref id: string, register: Register) {
+  effect (id) { return register($0) }
+  null
+}

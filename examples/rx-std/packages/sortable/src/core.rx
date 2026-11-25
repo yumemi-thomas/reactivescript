@@ -1,0 +1,18 @@
+// A sorted view of a list. A `.rx` list's own `toSorted` is enough; the comparators' vocabulary is JavaScript's (it asks
+// `typeof`, and is curried and variadic).
+import pure { compare } from "./comparators.js"
+export type Row = any
+
+export fn createSorted(ref list: Row[], comparator: any): Row[] { list.toSorted(compare(comparator)) }
+
+/** Where each row is in the sorted list. */
+export fn createSortedIndex(ref list: Row[], comparator: any) {
+  sorted = createSorted(list, comparator)
+  (item: Row) => () => sorted.indexOf(item)
+}
+
+/** The sorted list as a keyed store: a row that moves keeps its identity. */
+export fn createSortedProjection(ref list: Row[], comparator: any): Row[] {
+  rows key id = list.toSorted(compare(comparator))
+  rows
+}

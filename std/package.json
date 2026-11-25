@@ -1,0 +1,28 @@
+{
+  "name": "@reactivescript/std",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "JavaScript's own calculations and the browser's calls, as modules an .rx program imports",
+  "license": "MIT",
+  "sideEffects": false,
+  "exports": {
+    "./math": "./src/math.js",
+    "./json": "./src/json.js",
+    "./object": "./src/object.js",
+    "./is": "./src/is.js",
+    "./browser": "./src/browser.js",
+    "./now": {
+      "types": "./src/now.d.ts",
+      "default": "./src/now.js"
+    },
+    "./time": "./src/time.js"
+  },
+  "files": [
+    "src"
+  ],
+  "peerDependencies": {
+    "solid-js": "^2.0.0",
+    "@solidjs/web": "^2.0.0"
+  }
+}

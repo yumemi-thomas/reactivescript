@@ -1,0 +1,4 @@
+// The page's own: one listener, made at the first reader.
+import { createMediaQuery } from "./core.rx"
+
+export dark = createMediaQuery("(prefers-color-scheme: dark)", false)

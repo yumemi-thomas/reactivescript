@@ -1,0 +1,9 @@
+export client fn on<E extends Event = Event>(target: EventTarget, type: string, f: handler (e: E) => void, options?: boolean | AddEventListenerOptions): () => void
+export client fn onWindow<K extends keyof WindowEventMap>(type: K, f: handler (e: WindowEventMap[K]) => void, options?: boolean | AddEventListenerOptions): () => void
+export client fn onDocument<K extends keyof DocumentEventMap>(type: K, f: handler (e: DocumentEventMap[K]) => void, options?: boolean | AddEventListenerOptions): () => void
+export client fn onMedia(query: string, f: handler (matches: boolean) => void): () => void
+export client fn onResize(element: Element, f: handler (entry: ResizeObserverEntry) => void, options?: ResizeObserverOptions): () => void
+export client fn onIntersect(element: Element, f: handler (entry: IntersectionObserverEntry) => void, options?: IntersectionObserverInit): () => void
+export client fn onMutation(element: Node, f: handler (records: MutationRecord[]) => void, options: MutationObserverInit): () => void
+export client fn onFrame(f: handler (time: number) => void): () => void
+export client fn onVisible(f: handler (visible: boolean) => void): () => void

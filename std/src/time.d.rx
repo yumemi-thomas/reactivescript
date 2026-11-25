@@ -1,0 +1,5 @@
+export fn after(ms: number, f: handler () => void): () => void
+export fn every(ms: number, f: handler () => void): () => void
+export fn soon(f: handler () => void): void
+export fn now(): number
+export fn elapsed(): number

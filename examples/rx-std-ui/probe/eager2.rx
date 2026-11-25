@@ -1,0 +1,18 @@
+context c: string = "none"
+component Seen(props: { label: string }) { <b>{props.label}:{use c}</b> }
+component Destructured(props: { children?: View }) {
+  { children } = props
+  provide c = "given"
+  <div>{children}</div>
+}
+component Direct(props: { children?: View }) {
+  provide c = "given"
+  <div>{props.children}</div>
+}
+export default component App() {
+  source n := 1
+  <Destructured><Seen label="destructured" /></Destructured>
+  <Direct><Seen label="direct" /></Direct>
+  <Destructured>text {n}</Destructured>
+  <Direct>text {n}</Direct>
+}

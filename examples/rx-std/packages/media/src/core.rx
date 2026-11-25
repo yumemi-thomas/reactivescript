@@ -1,0 +1,35 @@
+// A media query as a value.
+import { onMedia } from "@reactivescript/std/browser"
+import pure { first, matches } from "@reactivescript/std/now"
+import pure { entries, fromEntries } from "@reactivescript/std/object"
+
+export type Matches = Record<string, boolean>
+export type Queries = Record<string, string>
+
+/** `query`'s answer, kept; `fallback` on the server and while the page hydrates. */
+export fn createMediaQuery(query: string, fallback: boolean): boolean {
+  source state: boolean := first(() => matches(query) ?? fallback, fallback) ?? false
+  effect () {
+    state := matches(query) ?? fallback ?? false
+    return onMedia(query, (m) => { state := m })
+  }
+  state
+}
+
+fn now(queries: Queries, fallback: Matches): Matches => fromEntries(entries(queries).map((e) => [e[0], matches(e[1]) ?? fallback[e[0]]]))
+
+/** One answer per named query, each followed on its own. */
+export fn createBreakpoints(queries: Queries, fallback: Matches, watch: boolean): Matches {
+  source state: Matches := first(() => now(queries, fallback), { ...fallback })
+  effect () {
+    state := now(queries, fallback)
+    let stops = watch ? entries(queries).map((e) => onMedia(e[1], () => { state := now(queries, fallback) })) : []
+    return () => { stops.forEach((stop) => { stop() }) }
+  }
+  state
+}
+
+export fn createPrefersDark(fallback: boolean): boolean {
+  dark = createMediaQuery("(prefers-color-scheme: dark)", fallback)
+  dark
+}
