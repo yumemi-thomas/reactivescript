@@ -1,0 +1,3 @@
+//@ for terracotta ^2.0.0
+export component Switch<T extends import("@solidjs/web").ValidComponent = "button">(props: SwitchProps<T> & { onChange?: handler (checked: boolean) => void })
+export type SwitchProps<T extends import("@solidjs/web").ValidComponent = "button"> = import("terracotta/switch").SwitchProps<T>

@@ -2,7 +2,7 @@
 // should, the hook gets its TODO, and the draft is a declaration rx-tsc accepts against the same types (TY-6).
 //   node test/declare.js            VERBOSE=1 prints the draft
 // (MO-8v) The modules these tests draft are stand-ins for their types: a body of one line that does nothing. What the code
-// proves is test/infer.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
+// proves is test/words.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
 process.env.RX_DECLARE_INFER = "0";
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -362,7 +362,7 @@ check("the draft parses and passes rx-tsc against the module's own types (TY-6)"
   check("...and for each method of an exported function, after the function's; a member that is a component is no method, and an array's own are not the library's", JSON.stringify(rows.filter(l => /\btoast\b/.test(l) && !/toaster/.test(l))) === JSON.stringify(["export fn toast(message: string): number", "export fn toast.success(message: string, options?: { onDismiss?: () => void }): number"]) && !/sizes\./.test(text) && !/toaster\.words/.test(text), text);
   fs.writeFileSync(path.join(app, "kit.d.rx"), rows.join("\n") + "\n");
   const read = require("../src/rxc").rows(path.join(app, "kit.d.rx"));
-  check("...rows the crate reads back, each by its dotted name", !read.error && read.rows.filter(x => x.kind === "fn").map(x => x.name).join() === "toast,toast.success,toaster.show,toaster.dismiss,toaster.getCount", JSON.stringify(read).slice(0, 400));
+  check("...rows the crate reads back, each by its dotted name", !read.error && read.rows.filter(x => x.kind === "fn").map(x => x.name).join() === "toaster.show,toaster.dismiss,toaster.getCount,toast,toast.success", JSON.stringify(read).slice(0, 400));
   const decl = require("../src/rxc").declaration(path.join(app, "kit.d.rx"));
   check("...and projects to a `.d.ts`: a value's methods in its type, a fn's in the namespace merged with it (13 TY-4b)", /export declare const toaster: \(typeof import\("\.\/kit\.js"\)\.toaster\) & \{ show: \(toast: Component<\{ id: number; \}>\) => number; dismiss: \(id: number\) => void; getCount: \(\) => number; \};/.test(decl.code) && /export declare namespace toast \{ function success\(message: string, options\?: \{ onDismiss\?: \(\) => void \}\): number; \}/.test(decl.code), JSON.stringify(decl).slice(0, 600));
 }

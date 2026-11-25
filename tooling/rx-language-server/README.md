@@ -34,6 +34,7 @@ From the repository:
 
 ```sh
 cargo build --lib --release --target wasm32-unknown-unknown --manifest-path ../../compiler/Cargo.toml
+cargo build -p rx-words --release --target wasm32-unknown-unknown --manifest-path ../../compiler/Cargo.toml
 npm install
 node bin/server.js --stdio
 ```
@@ -58,11 +59,8 @@ API; a projection or a boundary check is given with the question and is no file 
   names a binary built by hand. (tsrs's WebAssembly build is a command line for WASI, without the API; it is not used.)
 - **The editor's extension** holds no binary: it takes the tsrs of the project's `@reactivescript/language-server`, and
   where there is none it says so once and the type errors are the editor's TypeScript's.
-- **What stays on TypeScript 6** (`typescript`, in process): reading a library's types for a draft (`src/declare.js`),
-  parsing JavaScript for what it proves (`src/infer.js`), hover and the rest of the editor. A draft of `@ui-sdk/solid`
-  makes 1.3 million calls of the checker, 1.1 million of which would each be a request to another process (some 17 s where the
-  reading takes 4). What TypeScript 6
-  reads, tsrs then holds: a row it does not hold is not written.
+- **What stays on TypeScript 6** (`typescript`, in process): hover and the rest of the editor. A draft reads a library's
+  types through the same API as the checks (`src/ts-api.js`, `src/row-types.js`), in batches.
 
 
 ## Type-checking from the command line
@@ -93,24 +91,19 @@ types, resolved from the current directory as an import there would be. A packag
 npx rx-declare @tanstack/solid-query --out rx-types/@tanstack/solid-query.d.rx
 ```
 
-**Words read from the code** (spec/09 MO-8v, `src/infer.js`, `src/declare-infer.js`). Beside the types, the draft
-reads the JavaScript the import resolves to — the module itself, a package's shipped ES module, every build its export
-map can hand an `import` — with TypeScript's parser, to a fixed point over the calls between its functions, and writes
-six words only where the code proves them: `pure` (the call only computes), `handler` on a callback (every call of
-it is behind a listener, a timer, an observer, a promise or an `await` — for a component's prop, an element's
-event, through spreads, `omit`, `merge` and the module's own components), `draft` on a parameter (changed in place
-during the call, kept nowhere), `rejects(A | B)` (every `throw` reached is of a class the module exports), `uses(c)`
-(`useContext(C)` on every path, no default to answer) and `provides(c)` (a provider around everything the component
-is given), with the `export context` rows they name (MO-8w). A value made by a call is read as the function its
-factory hands back. The draft's second line counts the words it read; no row is marked: `rx-declare --audit <file.d.rx>` and `rx-verify` read the code again and say, of every word a
-declaration has, whether the code proves it, contradicts it or neither (`src/declare-audit.js`). The question each
-word answers is not asked, and nor is one answered "no". `--why` prints, for every row, what proved each word or the first thing in the
-way with its file and line; `--no-infer` (or `RX_DECLARE_INFER=0`) drafts from the types alone.
+**Words read from the code** (spec/09 MO-8v, `compiler/words`, `src/words.js`, `src/declare-infer.js`). Beside the types,
+the draft reads the JavaScript the import resolves to, under each host that loads it (Node, Vite's client and server), and
+writes a word only where the code proves it: `pure`, `handler`, `instantiates`, `uses(c)`,
+`provides(c)`, and `ref` on a part that is an accessor. What proves each is in `compiler/words/DESIGN.md`, a line a word;
+what is not listed there gives no word. The draft's second line counts the words it read; no row is marked: `rx-declare
+--audit <file.d.rx>` and `rx-verify` read the code again and say, of every word a declaration has, whether the code proves
+it (`src/declare-audit.js`). The question each word answers is not asked. `--why` prints, for every row, what proved each
+word or the first thing in the way with its file and line; `--no-infer` (or `RX_DECLARE_INFER=0`) drafts from the types
+alone.
 
 ```sh
 npx rx-declare ./api.js --why
-# rx-declare: fetchPerson: pure proven — its own code only computes
-# rx-declare: fetchPerson: rejects proven — every throw the code reaches is of NotFound
+# rx-declare: total: pure proven — its own code only computes
 # rx-declare: savePerson: pure not proven — it assigns saves, a variable of the module [api.js:5]
 # rx-declare: onKey: handler(run) proven — called later [api.js:6]
 ```
@@ -185,13 +178,12 @@ not have). `rx-tsc` checks what types can (TY-6); this checks what running can.
 A parameter declared as a function (a callback, MO-10g) is wrapped in a spy: the row holds if the library calls it
 outside tracking, as a handler, and is a mismatch if it calls it inside a computation.
 
-`rx-verify` first holds every word of the file against what the code shows (MO-8w, the audit `rx-declare --audit`
-prints): a word the code contradicts is a mismatch as it stands, and the last line counts the words read from the
-code, contradicted, and neither. A word the code proves is then held to what that reading claims: a
-`pure` fn is called and must change nothing it was given, leave no new global and ask neither `Date.now()`,
-`performance.now()` nor `Math.random()` while it is called; a `handler` must not be called while the fn's own call
-is still running; a `rejects(E)`, under the probe's arguments and its failing ones, must reject with a class of its
-row. An observation the other way is a mismatch that says the reading is wrong, to report. A row that is mounted to
+`rx-verify` first asks which words of the file the code proves (MO-8w, the audit `rx-declare --audit` prints), and its last
+line counts them. Every `pure` fn is called and must change nothing it was given (its data, what the accessors among its
+arguments answer); one the code proves must also leave no new global and ask neither `Date.now()`, `performance.now()` nor
+`Math.random()`. A `handler` must not be called while the fn's own call is still running, in a computation or under an
+owner; a `rejects(E)`, under the probe's arguments and its failing ones, must reject with a class of its row. An
+observation the other way is a mismatch; where the word is one the code proves, the reading is wrong: report it. A row that is mounted to
 be read needs `@solidjs/universal` in the project; without it that row is not run, and the others are.
 
 Where a library renders the components it is given is run against a scene (spec/09 MO-11r): the probe exports
@@ -319,8 +311,9 @@ cargo build --release --manifest-path ../../compiler/Cargo.toml
 npm install && node test/run.js      # VERBOSE=1 prints each answer
 node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error, a .d.rx that disagrees with its types
 node test/declare.js                 # rx-declare: each kind of export drafted as its row, the run pass, and the draft passes rx-tsc
-node test/infer.js                   # the words read from the code (MO-8v): every function that does what a word must not cover is refused it, its honest twin is given it; the draft, --why; both checkers; rx-verify against a false mark
-node test/infer-view.js              # MO-8w: `handler` through JSX, `uses(c)`, `provides(c)`, a value made by a call — dishonest twins refused, honest ones proven; the audit's three classes; the unmarked draft; --run; rx-verify
+node test/words.js                   # the words read from the code (MO-8v): the draft, --why, both checkers; rx-verify against a false mark
+node test/words-audit.js             # MO-8w: the contexts a draft declares, the audit, rx-verify over the same file
+node test/words-cases.js             # every case kept as data (test/words/): what a word must not cover, its honest twin, the facts found by running (--shard 1/2)
 node test/generate.js                # generated declarations: drafted, found by the crate, kept, redrafted, and in the Vite plugin
 node test/verify.js                  # rx-verify: uses(…) rows, missing exports, errors, probes, callbacks, --record and strict mode
 ```

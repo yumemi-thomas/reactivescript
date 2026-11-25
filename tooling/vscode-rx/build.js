@@ -9,9 +9,11 @@ const { build } = require("rolldown");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const wasm = process.env.RX_WASM || path.resolve(__dirname, "../../compiler/target/wasm32-unknown-unknown/release/reactivescript.wasm");
-if (!fs.existsSync(wasm)) {
-  console.error(`no ${wasm}: cargo build --lib --release --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml`);
+const built = path.resolve(__dirname, "../../compiler/target/wasm32-unknown-unknown/release");
+const wasm = process.env.RX_WASM || path.join(built, "reactivescript.wasm");
+const words = process.env.RX_WORDS_WASM || path.join(built, "rx_words.wasm");   // `rx-declare`'s reading, asked by an editor's quick fix that drafts a declaration
+for (const [f, what] of [[wasm, "--lib"], [words, "-p rx-words"]]) if (!fs.existsSync(f)) {
+  console.error(`no ${f}: cargo build ${what} --release --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml`);
   process.exit(1);
 }
 fs.rmSync(path.join(__dirname, "dist"), { recursive: true, force: true });
@@ -21,5 +23,6 @@ Promise.all([
   pack(path.resolve(__dirname, "../rx-language-server/bin/server.js"), "dist/server.js", ["typescript", "tsrs", /^tsrs\//]),
 ]).then(() => {
   fs.copyFileSync(wasm, path.join(__dirname, "dist/rxc.wasm"));
+  fs.copyFileSync(words, path.join(__dirname, "dist/words.wasm"));
   for (const f of fs.readdirSync("dist")) console.log(`dist/${f}  ${(fs.statSync(path.join("dist", f)).size / 1024).toFixed(0)} KB`);
 }, e => { console.error(e); process.exit(1); });

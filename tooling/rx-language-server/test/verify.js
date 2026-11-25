@@ -2,7 +2,7 @@
 // mismatch, as are an export the module lacks and an "error" that is not an Error subclass.
 //   node test/verify.js         (its four parts at once; `node test/verify.js 2` is the second)
 // (MO-8v) The modules these tests draft are stand-ins for their types: a body of one line that does nothing. What the code
-// proves is test/infer.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
+// proves is test/words.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
 process.env.RX_DECLARE_INFER = "0";
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -104,7 +104,7 @@ check("a probe whose run throws under its providers too is not evidence", /lib\.
 check("a tuple's ref part is read as an accessor", /lib\.d\.rx:11 held\s+usePair: its fields read as declared/.test(out), out);
 check("a ref part that is not an accessor is a mismatch", /lib\.d\.rx:12 MISMATCH\s+useBadRef: 0 is declared ref, but is not an accessor/.test(out), out);
 check("pure: proven by the code and not refuted by two calls, it is read, not held (nothing shows it)", /lib\.d\.rx:13 read\s+double: pure is read from the code/.test(out), out);
-check("pure that answers differently is a mismatch", /lib\.d\.rx:14 MISMATCH\s+roll: declared pure, but two calls/.test(out), out);
+check("pure that answers differently is a mismatch", /lib\.d\.rx:14 MISMATCH\s+roll: declared pure, but (?:two calls|when it is called it asked Math\.random)/.test(out), out);
 check("provides: a hook of the file runs under the component", /lib\.d\.rx:15 held\s+ThemeProvider: provides\(theme\) holds: useTheme, which fails without it, runs under it/.test(out), out);
 check("a component that provides nothing is a mismatch", /lib\.d\.rx:16 MISMATCH\s+FakeProvider: declared provides\(theme\), but useTheme, which uses it, still fails under it/.test(out), out);
 check("an accessor declared `pending fails(Error) ref` holds, then answers, and fails under the failing arguments (MO-10l)", /lib\.d\.rx:17 held\s+useJson: its fields read as declared \(the result held, then answered\)/.test(out) && /lib\.d\.rx:17 held\s+useJson: under the failing arguments it fails with Error, as declared/.test(out), out);

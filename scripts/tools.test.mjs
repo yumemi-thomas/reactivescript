@@ -26,8 +26,8 @@ try {
   same("again", "declare.js", ["kit"]); ok("…and again, over what the first left");
   const audit = same("an audit", "declare.js", ["--audit", "--json", "rx-types/kit.d.rx"]); assert.match(audit, /"proven"/); ok("an audit");
   types("string"); const second = same("a library's types changed", "declare.js", ["kit"]); assert.match(second, /string/); ok("a library's declaration that changed (its size too little to see) is read again");
-  writeFileSync(path.join(kit, "index.js"), "export function twice(n) { n.k = 2; return n; }\n");
-  assert.match(same("a library's code changed", "declare.js", ["--audit", "--json", "rx-types/kit.d.rx"]), /"(contradicted|unproven)"/); ok("a library's code that changed is read again");
+  writeFileSync(path.join(kit, "index.js"), "export function twice(n) { return n * Math.random(); }\n");
+  assert.match(same("a library's code changed", "declare.js", ["--audit", "--json", "rx-types/kit.d.rx"]), /"unproven"/); ok("a library's code that changed is read again");
   same("no such package", "declare.js", ["none"]); ok("a tool that fails: its status and what it says");   // (or `again`)
 } catch (e) { if (e.code !== "ERR_ASSERTION" || e.actual !== undefined) throw e; ok("a tool that throws is left to a process of its own"); }
 process.env.RX_TOOLS = lend().env.RX_TOOLS;

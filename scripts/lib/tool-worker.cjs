@@ -1,13 +1,10 @@
 // A process that stays up and runs the language server's tools one after another (scripts/lib/tools.mjs asks): each
 // request runs the tool's own bin/ file, in its own folder, with its own arguments and environment and every module of
-// the tool loaded again — what is shared is TypeScript itself (compiled, warm) and the libraries' parsed declarations
-// (ts-shared.cjs). Anything that does not end as a process of its own would (it throws, it hangs) is answered `again`:
+// the tool loaded again: what is saved is Node's start. Anything that does not end as a process of its own would (it throws, it hangs) is answered `again`:
 // the one that asked runs it in a process of its own.
 //   node tool-worker.cjs <the language server's folder> <a folder the questions and answers are files of>
 const fs = require("node:fs"), path = require("node:path");
 const [root, at] = process.argv.slice(2).map(p => fs.realpathSync(p));
-const ts = require.resolve("typescript", { paths: [root] });
-const shared = require("./ts-shared.cjs"); shared.share(ts);
 const base = { ...process.env }, home = process.cwd(), argv = process.argv.slice(0, 1);
 class Exit { constructor(code) { this.code = code; } }
 let out, said, ended;
@@ -41,7 +38,7 @@ async function turn() {
   const { id, ...ask } = JSON.parse(text); let r; try { r = await run(ask); } catch (e) { r = { again: String(e?.stack ?? e) }; }
   process.chdir(home); for (const k of Object.keys(process.env)) if (!(k in base)) delete process.env[k]; Object.assign(process.env, base);
   // what it keeps is let go of when it is much; one that has grown all the same, or has gone wrong, is not used again
-  const { heapUsed, rss } = process.memoryUsage(); if (heapUsed > 600 * (1 << 20)) shared.forget();
+  const { rss } = process.memoryUsage();
   const last = !!r.again || rss > (Number(process.env.RX_TOOLS_MB) || 1500) * (1 << 20);
   fs.writeFileSync(answer + ".tmp", JSON.stringify({ id, last, ...r })); fs.renameSync(answer + ".tmp", answer);
   if (last) return own.exit(0);

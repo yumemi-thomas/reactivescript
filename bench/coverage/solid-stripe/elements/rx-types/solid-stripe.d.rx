@@ -1,0 +1,3 @@
+//@ for solid-stripe ^2.0.0
+export fn useStripe(): ref import("@stripe/stripe-js").Stripe | null instantiates
+export component Elements(props: { stripe: PromiseLike<import("@stripe/stripe-js").Stripe | null> | import("@stripe/stripe-js").Stripe | null; options?: import("@stripe/stripe-js").StripeElementsOptions; children?: View })

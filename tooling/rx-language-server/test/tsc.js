@@ -4,7 +4,7 @@
 // runtime built (`npm run build` in runtime/).
 //   node test/tsc.js            VERBOSE=1 prints each run's output
 // (MO-8v) The modules these tests draft are stand-ins for their types: a body of one line that does nothing. What the code
-// proves is test/infer.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
+// proves is test/words.js's; here the draft is the types' alone, as `rx-declare --no-infer` writes it.
 process.env.RX_DECLARE_INFER = "0";
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");

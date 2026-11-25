@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+**The words a tool writes, after a third review** (compiler/words, DESIGN.md there; spec/09 MO-8v; tooling/rx-language-server/DECLARATIONS.md)
+
+- **Fixed: false words in drafts and in generated declarations**, 121 over 1,275 packages written to break them, and wrong types: a result that may be absent or be
+  another value was drafted as if it were there (`ref`, a bare function). A row TypeScript does not hold is left out.
+- **Changed: a fn is `pure` only where every function it answers is too** (a controller's `open()` could be called by a view), and nothing it answers is changed later.
+  **If a program of yours is refused after this** (`IO_IN_REACTIVE` at a call that makes a controller or a setter): write `pure` in your own declaration of it, or make it in a handler or at the
+  module's top.
+- **Changed: `draft` and `rejects(E)` are no longer written**; they are asked. Nothing in 205 modules had either.
+- **Changed: a listener's callback is a `handler` by a list of what the package may do**, over every entry it has; `provides(c)` by a value shown to be one, over every view.
+- **Changed: a package one of whose files changes a built-in, or is not read, has no words**; every condition its package.json asks about is read, and the draft's head says so.
+- **Changed: `rx-verify`** watches every `pure` whoever wrote it, calls `instantiates` with no owner, runs a provider's other views, sees a `draft` that is kept; nothing is `held` by the reading that wrote it.
+
+**The words a tool writes are proved from a list of what is safe** (compiler/words, DESIGN.md there; spec/09 MO-8v)
+
+- **Fixed: `rx-declare` wrote false words**, about 190 over 671 packages written to break it (`pure` 152, `instantiates` 30, `handler` 27), some in real
+  packages (`toEffect`, `workerScope`, `createCallback`), and `instantiates` refused correct calls of `until`, `debounce`, `createEmitter`,
+  `createEventBus`, `makeSpring`. The reading is a crate of its own; what it does not model gives no word. Drafts have fewer words: a library's author
+  writes more of them (DECLARATIONS.md counts them). A callback given to the platform as a listener is a `handler`, as a JSX handler is, where the library
+  never sends the event itself while a call runs.
+- **Changed: `rx-declare --audit` proves a word or does not**; it no longer says that one is false. `rx-verify` holds every `pure` fn to what it is given,
+  and a `handler` to have no owner.
+- **Changed: a draft's types are read through tsrs**, as they are checked. A parameter that takes `null` is drafted with it.
+- **Fixed: a parameter `x?: unknown` was drafted `{}`**, and one of `null` alone `never`.
+
 - **Fixed: a view given to a JavaScript component that provides** (`{view (x) { provide c = x … }}`) had no owner of its own in the crate: the next view saw it (RG-7a;
   `compiler/test/js-host.mjs`; proposals/bugs/38).
 - **Fixed: a closure as a component's children** (`<T>{n => …}</T>`, `props.children(n)`) threw in the interpreter and the oracle (S-view-2; proposals/bugs/34).

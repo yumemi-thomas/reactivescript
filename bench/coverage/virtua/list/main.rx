@@ -1,0 +1,11 @@
+// virtua: a long list of which only the rows in view are in the page, each written by the app.
+import { VList } from "virtua/solid"
+import { rows } from "./rows.js"
+
+export default component App() {
+  source picked := "none"
+  <VList data={rows} style={{ height: "200px" }}>
+    {view (row) { <div class="row" style="height: 20px" onClick={() => { picked := row.name }}>{row.name}</div> }}
+  </VList>
+  <p>picked {picked}</p>
+}

@@ -6,15 +6,6 @@
 // version was a different type under the same name.
 const path = require("node:path");
 
-const { bare } = require("./checker.js");
-
-/** `spec` as the library resolves it: from `lib` (a file of the library) first, then from `from` (the app's file).
- *  @returns the resolved module, or undefined */
-function resolveAsLibrary(ts, spec, lib, from, options, host, cache) {
-  if (lib && bare(spec)) { const r = ts.resolveModuleName(spec, lib, options, host, cache).resolvedModule; if (r) return r; }
-  return ts.resolveModuleName(spec, from, options, host, cache).resolvedModule;
-}
-
 /** The directory `pkg` is installed in, as the library sees it: up from `lib`, then up from `from`. */
 function packageDir(pkg, lib, from) {
   const fs = require("node:fs");
@@ -30,10 +21,4 @@ function packageDir(pkg, lib, from) {
   return undefined;
 }
 
-/** TypeScript's own cache of what was resolved, for the resolutions of one reading of the disk: a draft's candidates, one
- *  check. Not kept longer (the language server lives through an install): whoever asks makes one for the asking, and gives
- *  it only to resolutions with the same module options. A name's answer is kept by the folder it is asked from, so the
- *  library's and the unit's own do not meet. */
-const resolutions = (ts, options, host) => ts.createModuleResolutionCache(host.getCurrentDirectory?.() ?? process.cwd(), f => ts.sys.useCaseSensitiveFileNames ? f : f.toLowerCase(), options);
-
-module.exports = { resolveAsLibrary, packageDir, resolutions };
+module.exports = { packageDir };

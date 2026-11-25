@@ -2,4 +2,4 @@
 // the app's own); the context is named so that a hook with no provider above it is refused (MO-12).
 export context counter
 export component CounterProvider(props: { initial: number; children?: View }) provides(counter)
-export pure fn useCounter(): [ref number, () => void] uses(counter)
+export fn useCounter(): [ref number, () => void] uses(counter)

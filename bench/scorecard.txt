@@ -3,42 +3,42 @@ task                  good accepted  types kept     runtime ok     bad caught   
 context-provider      1/1 ✓          5/5 ✓          4/4 ✓          7/7 ✓          —                —                   —               —              —                —                 —            
 duplicate-keys        1/1 ✓          3/3 ✓          3/3 ✓          2/2 ✓          —                —                   —               —              —                —                 —            
 effect-derived        1/1 ✓          3/3 ✓          4/4 ✓          5/5 ✓          —                0                   0               0              0                0                 0            
-file-routes           2/2 ✓          5/5 ✓          8/8 ✓          14/14 ✓        —                22                  0               4              0                0                 0            
-formisch-field-array  1/1 ✓          6/6 ✓          7/7 ✓          4/4 ✓          —                0                   7               7              11               0                 0            
-formisch-field-path   1/1 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            0                   7               1              11               0                 0            
+file-routes           2/2 ✓          5/5 ✓          8/8 ✓          14/14 ✓        —                22                  0               5              0                0                 0            
+formisch-field-array  1/1 ✓          6/6 ✓          7/7 ✓          4/4 ✓          —                7                   0               7              11               0                 0            
+formisch-field-path   1/1 ✓          6/6 ✓          4/4 ✓          2/2 ✓          2/2 ✓            7                   0               7              11               0                 0            
 frozen-read           1/1 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                0                   2               0              0                0                 0            
 keyed-edits           1/1 ✓          4/4 ✓          7/7 ✓          6/6 ✓          —                —                   —               —              —                —                 —            
-kobalte-toast         1/1 ✓          5/5 ✓          10/10 ✓        12/12 ✓        —                12                  7               4              0                0                 1            
+kobalte-toast         1/1 ✓          5/5 ✓          10/10 ✓        12/12 ✓        —                24                  0               5              0                0                 1            
 listener-cleanup      1/1 ✓          3/3 ✓          4/4 ✓          4/4 ✓          —                0                   1               1              0                0                 0            
 optimistic-todo       1/1 ✓          4/4 ✓          6/6 ✓          6/6 ✓          —                —                   —               —              —                —                 —            
-primitives-listeners  1/1 ✓          5/5 ✓          6/6 ✓          7/7 ✓          —                4                   8               0              0                0                 2            
-primitives-sensors    1/1 ✓          6/6 ✓          8/8 ✓          6/6 ✓          1/1 ✓            0                   2               0              0                0                 0            
-primitives-state      1/1 ✓          5/5 ✓          8/8 ✓          8/8 ✓          —                2                   2               2              0                0                 4            
-primitives-virtual    1/1 ✓          5/5 ✓          6/6 ✓          5/5 ✓          1/1 ✓            2                   7               0              0                0                 0            
+primitives-listeners  1/1 ✓          5/5 ✓          6/6 ✓          7/7 ✓          —                7                   2               4              0                0                 2            
+primitives-sensors    1/1 ✓          6/6 ✓          8/8 ✓          6/6 ✓          1/1 ✓            2                   0               0              0                0                 0            
+primitives-state      1/1 ✓          5/5 ✓          8/8 ✓          8/8 ✓          —                5                   0               3              0                0                 4            
+primitives-virtual    1/1 ✓          5/5 ✓          6/6 ✓          5/5 ✓          1/1 ✓            1                   4               1              0                0                 0            
 projection-selection  1/1 ✓          4/4 ✓          4/4 ✓          4/4 ✓          —                —                   —               —              —                —                 —            
-query-forward         1/1 ✓          6/6 ✓          6/6 ✓          9/9 ✓          —                29                  0               0              0                0                 0            
-query-mutation        1/1 ✓          5/5 ✓          5/5 ✓          6/6 ✓          —                54                  0               3              0                0                 0            
-router-code-routes    1/1 ✓          6/6 ✓          6/6 ✓          11/11 ✓        1/1 ✓            22                  4               2              16               0                 1            
-router-data           1/1 ✓          5/5 ✓          7/7 ✓          10/10 ✓        —                32                  2               5              4                0                 0            
-router-provider       2/2 ✓          5/5 ✓          5/5 ✓          12/12 ✓        1/1 ✓            21                  2               0              0                0                 1            
-router-rx-routes      4/4 ✓          9/9 ✓          17/17 ✓        16/16 ✓        —                25                  5               0              0                0                 1            
+query-forward         1/1 ✓          6/6 ✓          6/6 ✓          9/9 ✓          —                29                  0               1              0                0                 0            
+query-mutation        1/1 ✓          5/5 ✓          5/5 ✓          6/6 ✓          —                54                  0               4              0                0                 0            
+router-code-routes    1/1 ✓          6/6 ✓          6/6 ✓          11/11 ✓        1/1 ✓            27                  0               7              16               0                 1            
+router-data           1/1 ✓          5/5 ✓          7/7 ✓          10/10 ✓        —                33                  1               8              4                0                 0            
+router-provider       2/2 ✓          5/5 ✓          5/5 ✓          12/12 ✓        1/1 ✓            24                  0               2              0                0                 1            
+router-rx-routes      4/4 ✓          9/9 ✓          17/17 ✓        16/16 ✓        —                31                  0               6              0                0                 1            
 rx-package            1/1 ✓          8/8 ✓          45/45 ✓        11/11 ✓        —                —                   —               —              —                —                 —            
-sequential-awaits     1/1 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                   0               3              0                0                 0            
-solid-use-primitives  1/1 ✓          6/6 ✓          10/10 ✓        7/7 ✓          1/1 ✓            3                   6               0              0                0                 0            
-solid-use-state       1/1 ✓          5/5 ✓          4/4 ✓          6/6 ✓          —                3                   0               1              0                0                 0            
+sequential-awaits     1/1 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                0                   0               1              0                0                 0            
+solid-use-primitives  1/1 ✓          6/6 ✓          10/10 ✓        7/7 ✓          1/1 ✓            1                   1               1              0                0                 0            
+solid-use-state       1/1 ✓          5/5 ✓          4/4 ✓          6/6 ✓          —                3                   0               2              0                0                 0            
 source-mutation       1/1 ✓          3/3 ✓          3/3 ✓          4/4 ✓          —                —                   —               —              —                —                 —            
 ssr-divergence        1/1 ✓          3/3 ✓          4/4 ✓          3/3 ✓          —                2                   0               1              0                0                 0            
-start-mode            3/3 ✓          5/5 ✓          15/15 ✓        11/11 ✓        1/1 ✓            22                  0               4              0                0                 0            
-start-route           1/1 ✓          6/6 ✓          9/9 ✓          7/7 ✓          1/1 ✓            33                  2               0              0                0                 1            
-store-helper          1/1 ✓          4/4 ✓          4/4 ✓          5/5 ✓          —                0                   3               0              0                0                 0            
+start-mode            3/3 ✓          5/5 ✓          15/15 ✓        11/11 ✓        1/1 ✓            22                  0               5              0                0                 0            
+start-route           1/1 ✓          6/6 ✓          9/9 ✓          7/7 ✓          1/1 ✓            33                  0               0              0                0                 1            
+store-helper          1/1 ✓          4/4 ✓          4/4 ✓          5/5 ✓          —                2                   1               2              0                0                 0            
 store-updater         1/1 ✓          5/5 ✓          5/5 ✓          5/5 ✓          —                0                   0               1              0                0                 0            
-table-pagination      1/1 ✓          8/8 ✓          10/10 ✓        3/3 ✓          —                41                  2               0              0                0                 0            
-ui-sdk-dialog         1/1 ✓          6/6 ✓          9/9 ✓          6/6 ✓          1/1 ✓            21                  2               3              7                0                 3            
-ui-sdk-forms          1/1 ✓          5/5 ✓          5/5 ✓          4/4 ✓          2/2 ✓            8                   1               2              6                0                 3            
-wardic-motion         1/1 ✓          6/6 ✓          10/10 ✓        6/6 ✓          1/1 ✓            12                  1               1              0                0                 0            
-wardic-values         1/1 ✓          5/5 ✓          4/4 ✓          6/6 ✓          —                13                  1               1              0                0                 0            
+table-pagination      1/1 ✓          8/8 ✓          10/10 ✓        3/3 ✓          —                43                  0               3              0                0                 0            
+ui-sdk-dialog         1/1 ✓          6/6 ✓          9/9 ✓          6/6 ✓          1/1 ✓            21                  0               1              7                0                 3            
+ui-sdk-forms          1/1 ✓          5/5 ✓          5/5 ✓          4/4 ✓          2/2 ✓            10                  0               1              6                0                 3            
+wardic-motion         1/1 ✓          6/6 ✓          10/10 ✓        6/6 ✓          1/1 ✓            13                  0               2              0                0                 0            
+wardic-values         1/1 ✓          5/5 ✓          4/4 ✓          6/6 ✓          —                13                  0               1              0                0                 0            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-total                 44/44          186/186        279/279        247/247        13/13            383                 74              46             55               0                 17           
+total                 44/44          186/186        279/279        247/247        13/13            436                 12              82             55               0                 17           
 
 All green.
 
@@ -48,29 +48,29 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
   file-routes/src/host.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   file-routes/src/people.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   file-routes/src/router.d.rx: 14 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  formisch-field-array/rx-types/valibot.d.rx: 0 words by hand, 11 `any` inherited, 0 introduced, 0 by place
-  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  formisch-field-path/rx-types/valibot.d.rx: 0 words by hand, 11 `any` inherited, 0 introduced, 0 by place
+  formisch-field-array/rx-types/@formisch/solid/v2.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  formisch-field-array/rx-types/valibot.d.rx: 5 words by hand, 11 `any` inherited, 0 introduced, 0 by place
+  formisch-field-path/rx-types/@formisch/solid/v2.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  formisch-field-path/rx-types/valibot.d.rx: 5 words by hand, 11 `any` inherited, 0 introduced, 0 by place
   frozen-read/label.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  kobalte-toast/rx-types/@kobalte/core/toast.d.rx: 12 words by hand, 0 `any` inherited, 0 introduced, 1 by place
-  kobalte-toast/sync.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  kobalte-toast/rx-types/@kobalte/core/toast.d.rx: 21 words by hand, 0 `any` inherited, 0 introduced, 1 by place
+  kobalte-toast/sync.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   listener-cleanup/keys.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  primitives-listeners/rx-types/@solid-primitives/event-bus.d.rx: 4 words by hand, 0 `any` inherited, 0 introduced, 2 by place
-  primitives-listeners/rx-types/@solid-primitives/focus.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  primitives-listeners/rx-types/@solid-primitives/event-bus.d.rx: 5 words by hand, 0 `any` inherited, 0 introduced, 2 by place
+  primitives-listeners/rx-types/@solid-primitives/focus.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-listeners/rx-types/@solid-primitives/raf.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  primitives-listeners/rx-types/@solid-primitives/scheduled.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  primitives-listeners/rx-types/@solid-primitives/scheduled.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-sensors/rx-types/@solid-primitives/connectivity.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-sensors/rx-types/@solid-primitives/media.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-sensors/rx-types/@solid-primitives/mouse.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  primitives-state/rx-types/@solid-primitives/memo.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 2 by place
+  primitives-state/rx-types/@solid-primitives/memo.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 2 by place
   primitives-state/rx-types/@solid-primitives/pagination.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  primitives-state/rx-types/@solid-primitives/sortable.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  primitives-state/rx-types/@solid-primitives/sortable.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-state/rx-types/@solid-primitives/static-store.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 2 by place
   primitives-state/sorted.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-state/storage.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
-  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
+  primitives-virtual/rx-types/@solid-primitives/event-listener.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-virtual/rx-types/@solid-primitives/resize-observer.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   primitives-virtual/virtual.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
   query-forward/api.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
@@ -80,21 +80,21 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
   query-mutation/query.d.rx: 16 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   query-mutation/rx-types/@tanstack/solid-query.d.rx: 34 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-code-routes/host.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  router-code-routes/people.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  router-code-routes/rx-types/@tanstack/solid-router.d.rx: 22 words by hand, 16 `any` inherited, 0 introduced, 1 by place
+  router-code-routes/people.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  router-code-routes/rx-types/@tanstack/solid-router.d.rx: 24 words by hand, 16 `any` inherited, 0 introduced, 1 by place
   router-data/people.d.rx: 4 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  router-data/rx-types/@solidjs/router.d.rx: 28 words by hand, 4 `any` inherited, 0 introduced, 0 by place
+  router-data/rx-types/@solidjs/router.d.rx: 29 words by hand, 4 `any` inherited, 0 introduced, 0 by place
   router-provider/rx-types/@tanstack/solid-router.d.rx: 15 words by hand, 0 `any` inherited, 0 introduced, 1 by place
   router-provider/src/host.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  router-provider/src/people.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  router-provider/src/people.d.rx: 3 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-provider/src/router.d.rx: 6 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-rx-routes/rx-types/@tanstack/solid-router.d.rx: 19 words by hand, 0 `any` inherited, 0 introduced, 1 by place
   router-rx-routes/src/host.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  router-rx-routes/src/people.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  router-rx-routes/src/people.d.rx: 6 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   router-rx-routes/src/router.d.rx: 6 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   sequential-awaits/api.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   solid-use-primitives/rx-types/solid-use/client-only.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  solid-use-primitives/rx-types/solid-use/media-query.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  solid-use-primitives/rx-types/solid-use/media-query.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   solid-use-primitives/rx-types/solid-use/online-status.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   solid-use-primitives/rx-types/solid-use/page-visibility.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   solid-use-primitives/use.d.rx: 1 word by hand, 0 `any` inherited, 0 introduced, 0 by place
@@ -108,27 +108,27 @@ Declarations (words written by hand over rx-declare's draft; `any`s the library'
   start-route/rx-types/@tanstack/solid-router.d.rx: 13 words by hand, 0 `any` inherited, 0 introduced, 1 by place
   start-route/src/host.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   start-route/src/people.d.rx: 20 words by hand (rx-declare drafts nothing for it: the module has no types), 0 `any` inherited, 0 introduced, 0 by place
-  store-helper/array.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  store-helper/array.d.rx: 2 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   store-updater/audit.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  table-pagination/table.d.rx: 41 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  table-pagination/table.d.rx: 43 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   ui-sdk-dialog/rx-types/@ui-sdk/solid/dialog.d.rx: 16 words by hand, 6 `any` inherited, 0 introduced, 3 by place
   ui-sdk-dialog/rx-types/@ui-sdk/solid/toggle.d.rx: 5 words by hand, 1 `any` inherited, 0 introduced, 0 by place
   ui-sdk-forms/rx-types/@ui-sdk/solid/button.d.rx: 0 words by hand, 1 `any` inherited, 0 introduced, 1 by place
-  ui-sdk-forms/rx-types/@ui-sdk/solid/checkbox.d.rx: 1 word by hand, 2 `any` inherited, 0 introduced, 1 by place
-  ui-sdk-forms/rx-types/@ui-sdk/solid/radio.d.rx: 7 words by hand, 3 `any` inherited, 0 introduced, 1 by place
+  ui-sdk-forms/rx-types/@ui-sdk/solid/checkbox.d.rx: 2 words by hand, 2 `any` inherited, 0 introduced, 1 by place
+  ui-sdk-forms/rx-types/@ui-sdk/solid/radio.d.rx: 8 words by hand, 3 `any` inherited, 0 introduced, 1 by place
   wardic-motion/rx-types/@wardic/dom.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
-  wardic-motion/rx-types/@wardic/solid.d.rx: 12 words by hand, 0 `any` inherited, 0 introduced, 0 by place
+  wardic-motion/rx-types/@wardic/solid.d.rx: 13 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   wardic-values/rx-types/@wardic/dom.d.rx: 0 words by hand, 0 `any` inherited, 0 introduced, 0 by place
   wardic-values/rx-types/@wardic/solid.d.rx: 13 words by hand, 0 `any` inherited, 0 introduced, 0 by place
 
 Introduced `any`s (09 MO-8q: none, or on bench/any-allowlist.json): none
 
-Read from the code that runs (09 MO-8v): 74 words in the rows the tasks keep, counted apart from the 383 written by hand; 0 contradicted
-  the claims those rows make (one a word of a row): 180 — 74 proven by the generator, 92 held by a probe that fails over a module changed to make the claim false, 14 the author's own (bench/needed.txt: a program needs each), 0 mismatched (draft 2 proven + 0 held + 0 the author's, fails 0 proven + 2 held + 0 the author's, handler 11 proven + 5 held + 0 the author's, host 0 proven + 15 held + 0 the author's, instantiates 9 proven + 0 held + 3 the author's, nests 0 proven + 1 held + 0 the author's, pending ref 0 proven + 2 held + 0 the author's, provides 2 proven + 8 held + 4 the author's, pure 37 proven + 0 held + 7 the author's, ref 0 proven + 27 held + 0 the author's, rejects 6 proven + 3 held + 0 the author's, renders 0 proven + 4 held + 0 the author's, uses 7 proven + 25 held + 0 the author's)
-  whole drafts: 1465 words read (781 pure, 532 handler, 129 instantiates, 7 provides, 6 uses, 5 rejects, 5 draft); 634 questions asked (445 pure, 90 handler, 43 overloads, 21 draft, 14 rejects, 11 renders, 5 uses, 5 nests)
-  the audit (09 MO-8w: every behaviour word of the tasks' declarations held against the code): 74 proven, 0 contradicted, 57 the code neither shows nor refutes (bench/audit.txt lists each with what to check)
+Read from the code that runs (09 MO-8v): 12 words in the rows the tasks keep, counted apart from the 436 written by hand; 0 contradicted
+  the claims those rows make (one a word of a row): 166 — 12 proven by the generator, 108 held by a probe that fails over a module changed to make the claim false, 46 the author's own (bench/needed.txt: a program needs each), 0 mismatched (draft 0 proven + 2 held + 0 the author's, fails 0 proven + 2 held + 0 the author's, handler 7 proven + 6 held + 3 the author's, host 0 proven + 15 held + 0 the author's, instantiates 1 proven + 0 held + 9 the author's, nests 0 proven + 1 held + 0 the author's, pending ref 0 proven + 2 held + 0 the author's, provides 0 proven + 10 held + 4 the author's, pure 3 proven + 0 held + 29 the author's, ref 0 proven + 27 held + 0 the author's, rejects 0 proven + 8 held + 1 the author's, renders 0 proven + 4 held + 0 the author's, uses 1 proven + 31 held + 0 the author's)
+  whole drafts: 603 words read (496 handler, 80 instantiates, 27 pure); 1436 questions asked (1227 pure, 94 handler, 43 overloads, 24 draft, 20 rejects, 12 nests, 11 renders, 5 uses)
+  the audit (09 MO-8w: every behaviour word of the tasks' declarations held against the code): 12 proven, 0 contradicted, 99 the code does not show (bench/audit.txt lists each with what to check)
 
-Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 76 drafts, 4907 rows): 627 `any` the libraries' own, 0 introduced, 380 by place
+Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 76 drafts, 4893 rows): 643 `any` the libraries' own, 0 introduced, 414 by place
   effect-derived · ./page.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
   file-routes · @solidjs/router: 92 rows, 25 `any` the library's own, 0 introduced, 21 by place
   file-routes · the JS host: 6 rows, 0 `any` the library's own, 0 introduced, 0 by place
@@ -139,7 +139,7 @@ Whole drafts (09 MO-8q: every export of each module a task declares, drafted by 
   formisch-field-path · @formisch/solid/v2: 93 rows, 0 `any` the library's own, 0 introduced, 0 by place
   formisch-field-path · valibot: 783 rows, 64 `any` the library's own, 0 introduced, 16 by place
   frozen-read · ./label.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  kobalte-toast · @kobalte/core/toast: 63 rows, 3 `any` the library's own, 0 introduced, 2 by place
+  kobalte-toast · @kobalte/core/toast: 62 rows, 3 `any` the library's own, 0 introduced, 2 by place
   kobalte-toast · ./sync.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
   listener-cleanup · ./keys.js: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
   primitives-listeners · @solid-primitives/event-bus: 27 rows, 11 `any` the library's own, 0 introduced, 20 by place
@@ -157,27 +157,27 @@ Whole drafts (09 MO-8q: every export of each module a task declares, drafted by 
   primitives-state · ./sorted.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
   primitives-state · ./storage.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
   primitives-virtual · @solid-primitives/event-listener: 19 rows, 5 `any` the library's own, 0 introduced, 4 by place
-  primitives-virtual · @solid-primitives/resize-observer: 11 rows, 0 `any` the library's own, 0 introduced, 1 by place
+  primitives-virtual · @solid-primitives/resize-observer: 11 rows, 0 `any` the library's own, 0 introduced, 0 by place
   primitives-virtual · ./virtual.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
   query-forward · ./api.js: 37 rows, 19 `any` the library's own, 0 introduced, 3 by place
   query-forward · ./query.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  query-forward · @tanstack/solid-query: 201 rows, 37 `any` the library's own, 0 introduced, 6 by place
+  query-forward · @tanstack/solid-query: 197 rows, 37 `any` the library's own, 0 introduced, 6 by place
   query-mutation · ./api.js: 5 rows, 19 `any` the library's own, 0 introduced, 0 by place
   query-mutation · ./query.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  query-mutation · @tanstack/solid-query: 201 rows, 37 `any` the library's own, 0 introduced, 6 by place
+  query-mutation · @tanstack/solid-query: 197 rows, 37 `any` the library's own, 0 introduced, 6 by place
   router-code-routes · the JS host: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   router-code-routes · ./people.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  router-code-routes · @tanstack/solid-router: 296 rows, 63 `any` the library's own, 0 introduced, 24 by place
+  router-code-routes · @tanstack/solid-router: 295 rows, 63 `any` the library's own, 0 introduced, 24 by place
   router-data · ./people.js: 7 rows, 2 `any` the library's own, 0 introduced, 0 by place
   router-data · @solidjs/router: 92 rows, 25 `any` the library's own, 0 introduced, 21 by place
-  router-provider · @tanstack/solid-router: 296 rows, 63 `any` the library's own, 0 introduced, 24 by place
+  router-provider · @tanstack/solid-router: 295 rows, 63 `any` the library's own, 0 introduced, 24 by place
   router-provider · the JS host: 5 rows, 0 `any` the library's own, 0 introduced, 0 by place
   router-provider · ./people.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   router-provider · ./router.tsx: 26 rows, 1 `any` the library's own, 0 introduced, 15 by place
-  router-rx-routes · @tanstack/solid-router: 296 rows, 63 `any` the library's own, 0 introduced, 24 by place
+  router-rx-routes · @tanstack/solid-router: 295 rows, 63 `any` the library's own, 0 introduced, 24 by place
   router-rx-routes · the JS host: 7 rows, 0 `any` the library's own, 0 introduced, 0 by place
   router-rx-routes · ./people.js: 6 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  router-rx-routes · ./router.tsx: 26 rows, 1 `any` the library's own, 0 introduced, 15 by place
+  router-rx-routes · ./router.tsx: 26 rows, 1 `any` the library's own, 0 introduced, 18 by place
   sequential-awaits · ./api.js: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
   solid-use-primitives · solid-use/client-only: 5 rows, 2 `any` the library's own, 0 introduced, 0 by place
   solid-use-primitives · solid-use/media-query: 4 rows, 0 `any` the library's own, 0 introduced, 0 by place
@@ -191,7 +191,7 @@ Whole drafts (09 MO-8q: every export of each module a task declares, drafted by 
   start-mode · the JS host: 6 rows, 0 `any` the library's own, 0 introduced, 0 by place
   start-mode · ./people.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   start-mode · ./router.ts: 2 rows, 0 `any` the library's own, 0 introduced, 0 by place
-  start-route · @tanstack/solid-router: 299 rows, 65 `any` the library's own, 0 introduced, 23 by place
+  start-route · @tanstack/solid-router: 298 rows, 65 `any` the library's own, 0 introduced, 23 by place
   start-route · the JS host: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   store-helper · ./array.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
   store-updater · ./audit.js: 3 rows, 0 `any` the library's own, 0 introduced, 0 by place
@@ -200,8 +200,8 @@ Whole drafts (09 MO-8q: every export of each module a task declares, drafted by 
   ui-sdk-dialog · @ui-sdk/solid/toggle: 22 rows, 3 `any` the library's own, 0 introduced, 1 by place
   ui-sdk-forms · @ui-sdk/solid/button: 6 rows, 1 `any` the library's own, 0 introduced, 1 by place
   ui-sdk-forms · @ui-sdk/solid/checkbox: 22 rows, 3 `any` the library's own, 0 introduced, 1 by place
-  ui-sdk-forms · @ui-sdk/solid/radio: 16 rows, 3 `any` the library's own, 0 introduced, 1 by place
+  ui-sdk-forms · @ui-sdk/solid/radio: 15 rows, 3 `any` the library's own, 0 introduced, 1 by place
   wardic-motion · @wardic/dom: 121 rows, 0 `any` the library's own, 0 introduced, 3 by place
-  wardic-motion · @wardic/solid: 250 rows, 3 `any` the library's own, 0 introduced, 40 by place
+  wardic-motion · @wardic/solid: 250 rows, 11 `any` the library's own, 0 introduced, 56 by place
   wardic-values · @wardic/dom: 121 rows, 0 `any` the library's own, 0 introduced, 3 by place
-  wardic-values · @wardic/solid: 250 rows, 3 `any` the library's own, 0 introduced, 40 by place
+  wardic-values · @wardic/solid: 250 rows, 11 `any` the library's own, 0 introduced, 56 by place

@@ -25,6 +25,9 @@ const strip = "node --experimental-strip-types --no-warnings", crate = ["", "--s
 const napi = "npx napi build --platform --release --features node --manifest-path ./Cargo.toml -- --lib";
 const pluginOf = () => process.env.SOLID_VITE_PLUGIN ? null : "SOLID_VITE_PLUGIN is not set (a Solid plugin with context.resolve: compiler/README.md)";
 
+/** The suites that use what `t-vite` installs under compiler/test/.out: the plugin, the router. */
+const NEED_VITE = ["vite-types", "ssr-router", "vite-hosts"];
+
 /** The steps. `after`: what they need; `uses`: what two steps may not use at once — cargo's target folder, the bench's
  *  workspace, compiler/test/.out, the package's built files; `n`: how many processes it counts as (it is given that many);
  *  `soft` (quick): the seconds it has — what it did is kept, and the
@@ -34,7 +37,7 @@ const steps = [
   { id: "npm-runtime", dir: "runtime", run: ci("runtime"), quick: true, skipQuietly: true },
   { id: "npm-language-server", dir: LS, run: ci(LS), quick: true, skipQuietly: true },
   { id: "crate", dir: "compiler", run: "cargo build --release", uses: ["cargo"], n: jobs, quick: true },
-  { id: "wasm", dir: "compiler", run: "cargo build --lib --release --target wasm32-unknown-unknown", uses: ["cargo"], n: jobs, after: ["crate"], quick: true, not: () => targets.includes("wasm32-unknown-unknown") ? null : "no wasm32-unknown-unknown target (rustup target add)" },
+  { id: "wasm", dir: "compiler", run: "cargo build --lib --release --target wasm32-unknown-unknown && cargo build -p rx-words --release --target wasm32-unknown-unknown", uses: ["cargo"], n: jobs, after: ["crate"], quick: true, not: () => targets.includes("wasm32-unknown-unknown") ? null : "no wasm32-unknown-unknown target (rustup target add)" },
   { id: "cargo-test", dir: "compiler", run: "cargo test --release", uses: ["cargo"], n: jobs, after: ["wasm"], quick: true },
   { id: "node-build", dir: "compiler", run: napi, uses: ["cargo", "binding"], n: jobs, after: ["npm-compiler", "cargo-test"], quick: true },
   { id: "runtime", dir: "runtime", run: "npm run -s build", after: ["npm-runtime"], quick: true },
@@ -66,8 +69,8 @@ const steps = [
   { id: "editor-ls", dir: LS, run: `npm test -s && RXC=${rxc} node test/run.js`, after: ["npm-language-server", "wasm", "crate", "runtime", "node-build"], n: jobs },
   { id: "editor-vscode", dir: "tooling/vscode-rx", run: "npm ci --no-audit --no-fund && npm run package && SERVER=dist/server.js node ../rx-language-server/test/run.js && rm -f *.vsix", after: ["editor-ls"], uses: ["ls-pack"] },
   { id: "editor-pack", dir: LS, run: "npm pack --silent && rm -f *.tgz", after: ["wasm", "editor-vscode"], uses: ["ls-pack"] },
-  ...["vite-gate", "vite-types", "vite", "wardic", "formisch", "ssr-router", "start"].map(t => ({ id: `t-${t}`, dir: ".", run: t === "vite" ? `node scripts/parallel.mjs ${[1, 2, 3].map(i => `"node compiler/test/vite.mjs --shard ${i}/3"`).join(" ")}` : `node compiler/test/${t}.mjs`, after: ["node-build", "runtime", "npm-language-server"], uses: ["binding-read"], n: t === "vite" ? jobs : 1, heavy: t === "vite" })),
-  ...["vite-hosts", "vite-watch"].map(t => ({ id: `t-${t}`, dir: ".", run: `node compiler/test/${t}.mjs`, after: ["node-build", "runtime"], uses: ["binding-read"], not: pluginOf })),
+  ...["vite-gate", "vite-types", "vite", "wardic", "formisch", "ssr-router", "start"].map(t => ({ id: `t-${t}`, dir: ".", run: t === "vite" ? `node scripts/parallel.mjs ${[1, 2, 3].map(i => `"node compiler/test/vite.mjs --shard ${i}/3"`).join(" ")}` : `node compiler/test/${t}.mjs`, after: ["node-build", "runtime", "npm-language-server", ...(NEED_VITE.includes(t) ? ["t-vite"] : [])], uses: ["binding-read"], n: t === "vite" ? jobs : 1, heavy: t === "vite" })),
+  ...["vite-hosts", "vite-watch"].map(t => ({ id: `t-${t}`, dir: ".", run: `node compiler/test/${t}.mjs`, after: ["node-build", "runtime", ...(NEED_VITE.includes(t) ? ["t-vite"] : [])], uses: ["binding-read"], not: pluginOf })),
   { id: "proposals", dir: ".", run: "node proposals/check.mjs", after: ["node-build", "runtime", "npm-language-server"], uses: [], n: jobs, heavy: true },
   // the package as it is published, last: these write over the binding the suites above have loaded
   { id: "node-darwin", dir: "compiler", run: 'RUSTC="$(rustup which rustc)" npx napi build --platform --release --strip --features node --target aarch64-apple-darwin --manifest-path ./Cargo.toml -- --lib && npm test -s', uses: ["cargo", "binding"], n: jobs, last: true, not: () => process.platform === "darwin" && process.arch === "arm64" ? null : "another platform" },

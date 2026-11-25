@@ -51,23 +51,23 @@ if (args.includes("--host")) {
 }
 // `rx-declare --audit <file.d.rx>… [--json]` (MO-8w): each behaviour word the declaration has — `pure`, `handler`,
 // `draft`, `rejects(E)`, `uses(c)`, `provides(c)`, `nests(…)`, `renders(H)` — held against what the code shows: proven
-// (a word rx-declare would write: read from the code), contradicted (the code shows the opposite: exit 1), or
-// unproven, with what stands in the way — the thing a reviewer should check.
+// (a word rx-declare would write: read from the code), or unproven, with what stands in the way — the thing a reviewer
+// should check. (What shows a word false is a run: rx-verify.)
 if (args.includes("--audit")) {
   const files = args.filter(a => !a.startsWith("--"));
   if (!files.length) { process.stderr.write("usage: rx-declare --audit <file.d.rx>… [--json]\n"); process.exit(2); }
-  const A = require("../src/declare-audit.js"); const ts = require("typescript");
-  const all = []; let bad = 0;
+  const A = require("../src/declare-audit.js");
+  const all = [];
   for (const f of files) {
-    const r = A.auditFile(ts, f);
+    const r = A.auditFile(f);
     if (!r) { all.push({ file: f, skipped: true, rows: [] }); if (!args.includes("--json")) process.stdout.write(`${f}: declares no JS module that is found here (a host declaration, a package written in .rx): not read\n`); continue; }
     all.push({ file: f, spec: r.spec, rows: r.rows, unread: r.unread });
-    const n = { proven: 0, contradicted: 0, unproven: 0 };
-    for (const row of r.rows) for (const w of row.words) { n[w.verdict]++; if (w.verdict === "contradicted") bad++; if (!args.includes("--json") && (w.verdict !== "proven" || args.includes("--all"))) process.stdout.write(`${f}:${row.line}: ${row.name}: ${w.word} ${w.verdict === "contradicted" ? "CONTRADICTED" : w.verdict} — ${w.why}\n`); }
-    if (!args.includes("--json")) process.stdout.write(`${f}: ${n.proven} word${n.proven === 1 ? "" : "s"} read from the code, ${n.contradicted} contradicted by it, ${n.unproven} it neither shows nor refutes\n`);
+    const n = { proven: 0, unproven: 0 };
+    for (const row of r.rows) for (const w of row.words) { n[w.verdict]++; if (!args.includes("--json") && (w.verdict !== "proven" || args.includes("--all"))) process.stdout.write(`${f}:${row.line}: ${row.name}: ${w.word} ${w.verdict} — ${w.why}\n`); }
+    if (!args.includes("--json")) process.stdout.write(`${f}: ${n.proven} word${n.proven === 1 ? "" : "s"} read from the code, ${n.unproven} it does not show\n`);
   }
   if (args.includes("--json")) process.stdout.write(JSON.stringify(all) + "\n");
-  process.exit(bad ? 1 : 0);
+  process.exit(0);
 }
 const spec = args.find(a => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--out" && args[args.indexOf(a) - 1] !== "--causes" && args[args.indexOf(a) - 1] !== "--readings" && args[args.indexOf(a) - 1] !== "--only");
 // `--only <export>[,<export>…]` (MO-8k): the rows an app keeps — those exports' (a component with its members), the
@@ -97,7 +97,7 @@ if (!spec) { process.stderr.write("usage: rx-declare <module> [--out file.d.rx] 
   const readAt = args.indexOf("--readings");
   const readings = readAt >= 0 ? { names: (args[readAt + 1] ?? "").split(","), out: [] } : undefined;
   let text;
-  try { text = declare(require("typescript"), spec, process.cwd(), {}, { refs: !args.includes("--any"), causes, anyRows, unheld, places, readings, infer: !args.includes("--no-infer") && process.env.RX_DECLARE_INFER !== "0", why: args.includes("--why") ? why : undefined, inferred, notes }); }
+  try { text = declare(spec, process.cwd(), {}, { refs: !args.includes("--any"), causes, anyRows, unheld, places, readings, infer: !args.includes("--no-infer") && process.env.RX_DECLARE_INFER !== "0", why: args.includes("--why") ? why : undefined, inferred, notes }); }
   catch (e) {
     // a draft the crate cannot read: nothing is written, and the line and the parser's reason are the message (it was a
     // silent fall back to `any` for every row)

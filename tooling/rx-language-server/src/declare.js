@@ -92,18 +92,16 @@ function cause(ts, checker, t) {
   if (t.flags & ts.TypeFlags.Any) return "vendor-any";
   if (t.flags & ts.TypeFlags.TypeParameter) return "generic";
   let node;
-  try { node = checker.typeToTypeNode(t, undefined, ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope | ts.NodeBuilderFlags.IgnoreErrors); } catch { /* no node */ }
+  node = checker.typeToTypeNode(t, CTX.sf, ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.IgnoreErrors);
   if (!node) return "internal-type";
-  const K = ts.SyntaxKind; const found = new Set();
+  const K = ts.SyntaxKind; const found = new Set(); CTX.writing = undefined;
   const own = CTX.mod?.declarations?.find(d => ts.isSourceFile(d)); const ownPkg = own && packageOf(own.fileName);
   const visit = n => {
     if (n.kind === K.AnyKeyword) found.add("vendor-any");
     else if (n.kind === K.ConditionalType || n.kind === K.MappedType || n.kind === K.TemplateLiteralType || n.kind === K.IndexedAccessType || n.kind === K.InferType || (n.kind === K.TypeOperator && n.operator === K.KeyOfKeyword)) found.add("computed");
     else if (n.kind === K.FunctionType || n.kind === K.ConstructorType) found.add("function-inside");
     else if (n.kind === K.TypeReference || n.kind === K.TypeQuery || n.kind === K.ImportType) {
-      let e = n.kind === K.TypeReference ? n.typeName : n.kind === K.TypeQuery ? n.exprName : n.qualifier;
-      while (e && ts.isQualifiedName(e)) e = e.left;
-      let sym = e?.symbol; if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+      const sym = written(ts, checker, n.kind === K.TypeReference ? n.typeName : n.kind === K.TypeQuery ? n.exprName : n);
       const file = sym?.declarations?.[0]?.getSourceFile();
       if (sym && sym.flags & ts.SymbolFlags.TypeParameter) found.add("generic");
       else if (!file) found.add("internal-type");
@@ -122,17 +120,79 @@ function cause(ts, checker, t) {
  *  whether types are named where the library declares them (`refs`). */
 let CTX = { refs: false, scope: new Set() };
 
-const isLibFile = f => /\/typescript\/lib\/lib\.[^/]*\.d\.ts$/.test(f);
+const isLibFile = f => /[\\/]lib\.[\w.]+\.d\.ts$/.test(f);
 /** The exports of the module `spec` resolves to from where the draft is made: each exported symbol (an alias followed
  *  to what it names) to its name there. Empty when the import does not resolve: the app could not write it either. */
 function exportsOf(ts, checker, spec) {
   if (CTX.exports.has(spec)) return CTX.exports.get(spec);
   const map = new Map(); CTX.exports.set(spec, map);
-  const r = spec === CTX.spec ? undefined : require("./library-resolve.js").resolveAsLibrary(ts, spec, CTX.lib, CTX.entry, CTX.options, CTX.host, CTX.cache);   // as the library resolves it: nested under it or hoisted, the same module
+  const r = spec === CTX.spec ? undefined : CTX.resolve(spec, CTX.lib);   // as the library resolves it: nested under it or hoisted, the same module
   const sf = r && CTX.program.getSourceFile(r.resolvedFileName);
   const mod = spec === CTX.spec ? CTX.mod : sf && checker.getSymbolAtLocation(sf);
   if (mod) for (const e of checker.getExportsOfModule(mod)) { const y = e.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(e) : e; if (e.name !== "default" && !map.has(y)) map.set(y, e.name); }
   return map;
+}
+/** The symbol of a name tsrs wrote for a type, asked from the draft's entry: `__m.T` is the module's own, `import("pkg").T`
+ *  another's; a bare name is a type parameter the row declares, or a global — unless a module of the program declares one
+ *  of that name too, which it may then be (a type no module exports is written by its name alone). */
+function written(ts, checker, e) {
+  if (e.kind === ts.SyntaxKind.ImportType) {
+    const spec = e.argument?.literal?.text; if (spec === undefined || !e.qualifier) return undefined;
+    return member(ts, checker, moduleOf(ts, checker, spec), namesOf(ts, e.qualifier));
+  }
+  const ns = namesOf(ts, e);
+  if (ns[0] === "__m") return ns.length > 1 ? member(ts, checker, CTX.mod, ns.slice(1)) : CTX.mod;
+  if (ns.length === 1) for (const y of CTX.scope) if (y.name === ns[0]) return y;
+  // (one a module exports tsrs writes by its module: a bare name is none of those)
+  const own = declaredNames(ts).get(ns[0]) ?? [];
+  if (own.length && !(CTX.T.global ??= new Map()).has(ns[0])) CTX.T.global.set(ns[0], own.every(d => { const y = checker.getSymbolAtLocation(d.name); return y && !!nameOf(ts, checker, y, 0, false).text; }));
+  if (own.length && !CTX.T.global.get(ns[0]) && (!CTX.writing || mentions(ts, checker, CTX.writing, ns[0]))) return undefined;
+  const g = checker.resolveName(ns[0], CTX.sf, ts.SymbolFlags.Type | ts.SymbolFlags.Namespace | ts.SymbolFlags.Value);
+  return g && ns.length > 1 ? member(ts, checker, g, ns.slice(1)) : g;
+}
+/** Whether a type may hold one of that name which is not lib's: looked for where the type says what it is made of. */
+function mentions(ts, checker, t, name, depth = 0, seen = new Set()) {
+  if (seen.has(t)) return false; seen.add(t);
+  if (depth > 8 || seen.size > 400) return true;
+  const own = y => y?.name === name && !y.paths.every(isLibFile), go = x => !!x && mentions(ts, checker, x, name, depth + 1, seen), F = ts.TypeFlags;
+  if (own(t.aliasSymbol) || own(t.symbol)) return true;
+  if (t.aliasSymbol) return t.aliasArgs.some(go);
+  if (t.flags & F.UnionOrIntersection) return t.types.some(go);
+  if (t.flags & F.Substitution) return go(t.base);
+  if (t.flags & F.TypeParameter || !(t.flags & (F.Object | F.Conditional | F.Index | F.IndexedAccess | F.TemplateLiteral | F.StringMapping))) return false;
+  if (!(t.flags & F.Object)) return true;
+  if (checker.isArrayType(t) || checker.isTupleType(t) || (t.symbol && t.symbol.flags & (ts.SymbolFlags.Class | ts.SymbolFlags.Interface))) return checker.getTypeArguments(t).some(go);
+  if (t.objectFlags & 32) return true;   // (a mapped type)
+  return [...t.getCallSignatures(), ...t.getConstructSignatures()].some(g => g.getParameters().some(q => go(checker.getTypeOfSymbol(q))) || go(g.getReturnType()) || (g.getTypeParameters() ?? []).some(q => go(checker.getBaseConstraintOfType(q)))) || t.getProperties().some(q => go(checker.getTypeOfSymbol(q))) || checker.getIndexInfosOfType(t).some(i => go(i.type));
+}
+const namesOf = (ts, e) => { const out = []; for (; ts.isQualifiedName(e); e = e.left) out.unshift(e.right.text); out.unshift(e.text); return out; };
+function member(ts, checker, y, names) {
+  for (const n of names) {
+    if (!y) return undefined;
+    const real = y.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(y) : y;
+    y = real.flags & ts.SymbolFlags.ValueModule || real === CTX.mod ? checker.getExportsOfModule(real).find(x => x.name === n) ?? real.exportsTable.get(n) : real.exportsTable.get(n);
+  }
+  return y && y.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(y) : y;
+}
+/** The module a specifier tsrs wrote names: the one declared, a package's, or a file by its path. */
+function moduleOf(ts, checker, spec) {
+  if (spec === CTX.spec) return CTX.mod;
+  let sf;
+  if (/^[./]/.test(spec)) { const at = path.resolve(path.dirname(CTX.entry), spec); for (const x of ["", ".d.ts", ".d.mts", ".ts", ".tsx", "/index.d.ts", "/index.d.mts", "/index.ts"]) { sf = CTX.program.getSourceFile(at + x); if (sf) break; } sf ??= [".js", ".mjs", ".jsx"].map(x => at.endsWith(x) && CTX.program.getSourceFile(at.slice(0, -x.length) + (x === ".mjs" ? ".d.mts" : ".d.ts"))).find(Boolean); }
+  else { const r = CTX.resolve(spec, CTX.lib); sf = r && CTX.program.getSourceFile(r.resolvedFileName); }
+  return sf && checker.getSymbolAtLocation(sf);
+}
+/** Every type a module of the program declares at its top, by name. */
+function declaredNames(ts) {
+  if (CTX.T.declared) return CTX.T.declared;
+  const out = new Map();
+  for (const f of CTX.program.getSourceFileNames()) {
+    if (isLibFile(f)) continue;
+    const sf = CTX.program.getSourceFile(f); if (!sf || !ts.isExternalModule(sf)) continue;
+    const add = ss => { for (const st of ss) { if (ts.isInterfaceDeclaration(st) || ts.isTypeAliasDeclaration(st) || ts.isClassDeclaration(st) || ts.isEnumDeclaration(st) || ts.isModuleDeclaration(st)) { if (st.name?.text) out.set(st.name.text, [...out.get(st.name.text) ?? [], st]); if (ts.isModuleDeclaration(st) && st.body?.statements && !((st.name.text === "global"))) add(st.body.statements); } } };
+    add(sf.statements);
+  }
+  return CTX.T.declared = out;
 }
 /** The packages the declared module's own declaration files import from, in the order they do. */
 function imported(ts) {
@@ -140,8 +200,9 @@ function imported(ts) {
   const out = new Set();
   const start = CTX.mod.declarations?.find(d => ts.isSourceFile(d));
   const own = start && packageOf(start.fileName);
-  for (const sf of CTX.program.getSourceFiles()) {
-    if (sf !== start && !(own && !CTX.spec.startsWith(".") && packageOf(sf.fileName) === own)) continue;
+  for (const f of CTX.program.getSourceFileNames()) {
+    if (f !== start?.fileName && !(own && !CTX.spec.startsWith(".") && packageOf(f) === own)) continue;
+    const sf = CTX.program.getSourceFile(f); if (!sf) continue;
     for (const st of sf.statements) if ((ts.isImportDeclaration(st) || ts.isExportDeclaration(st)) && st.moduleSpecifier && ts.isStringLiteral(st.moduleSpecifier) && !/^[./]/.test(st.moduleSpecifier.text)) out.add(st.moduleSpecifier.text);
   }
   return CTX.imports = [...out];
@@ -156,9 +217,9 @@ function nameOf(ts, checker, sym0, args, value) {
   const decl = sym.declarations?.[0]; const file = decl?.getSourceFile();
   if (!file) return { why: "named-type" };
   // a global, under the namespaces it is in (`Intl.LocalesArgument`)
-  const global = () => { const names = [sym.name]; for (let up = sym.parent; up && up.flags & ts.SymbolFlags.Namespace && !up.declarations?.some(d => ts.isSourceFile(d) || (ts.isModuleDeclaration(d) && d.flags & ts.NodeFlags.GlobalAugmentation)); up = up.parent) names.unshift(up.name); return { text: names.join(".") }; };
+  const global = () => { const names = [sym.name]; for (let up = sym.parent; up && up.flags & ts.SymbolFlags.Namespace && !up.declarations?.some(d => ts.isSourceFile(d) || (ts.isModuleDeclaration(d) && (d.name?.text === "global"))); up = up.parent) names.unshift(up.name); return { text: names.join(".") }; };
   if (isLibFile(file.fileName) || !ts.isExternalModule(file)) return global();
-  const inGlobal = n => { for (let x = n; x; x = x.parent) if (ts.isModuleDeclaration(x) && x.flags & ts.NodeFlags.GlobalAugmentation) return true; return false; };
+  const inGlobal = n => { for (let x = n; x; x = x.parent) if (ts.isModuleDeclaration(x) && x.name?.text === "global" && x.name.kind === ts.SyntaxKind.Identifier) return true; return false; };
   if (inGlobal(decl)) return global();
   const pkg = packageOf(file.fileName);
   // where to look: the module being declared; the packages its own declarations import from, as they write them (a
@@ -222,11 +283,10 @@ function wideIndex(ts, pkg) {
   if (WIDE.has(key)) return WIDE.get(key);
   const { specs, deps } = subpathsOf(ts, pkg);
   const files = new Map();
-  for (const spec of specs) { const r = require("./library-resolve.js").resolveAsLibrary(ts, spec, CTX.lib, CTX.entry, CTX.options, CTX.host, CTX.cache); if (r && /\.d\.[cm]?ts$|\.tsx?$/.test(r.resolvedFileName)) files.set(spec, r.resolvedFileName); }
+  for (const spec of specs) { const r = CTX.resolve(spec, CTX.lib); if (r && /\.d\.[cm]?ts$|\.tsx?$/.test(r.resolvedFileName)) files.set(spec, r.resolvedFileName); }
   const index = new Map();
   if (files.size) {
-    const program = ts.createProgram([...new Set(files.values())], { ...CTX.options, noEmit: true }, CTX.host, CTX.program);
-    const checker = program.getTypeChecker();
+    const { program, checker } = CTX.T.other([...new Set(files.values())]);
     for (const [spec, file] of [...files].sort((a, b) => (a[0] === pkg ? 0 : 1) - (b[0] === pkg ? 0 : 1) || a[0].length - b[0].length || (a[0] < b[0] ? -1 : 1))) {
       const sf = program.getSourceFile(file); const mod = sf && checker.getSymbolAtLocation(sf); if (!mod) continue;
       for (const e of checker.getExportsOfModule(mod)) {
@@ -259,10 +319,17 @@ const WORDS = /\b(?:handler|pending|ref|draft)\s+[\w({[]|\bfails\s*\(/;
  *  some part cannot be named. A record or a function type is not such a text where the checker would read it as a row
  *  (the whole type, or a member of its union): those are written a step at a time by what calls this. */
 function leaf(ts, checker, t, open = false) {
-  let node;
-  try { node = checker.typeToTypeNode(t, undefined, ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.UseAliasDefinedOutsideCurrentScope | ts.NodeBuilderFlags.IgnoreErrors); } catch { return { why: "named-type" }; }
-  if (!node) return { why: "named-type" };
-  return print(ts, checker, node, open);
+  const F = ts.NodeBuilderFlags, was = CTX.writing; CTX.writing = t;
+  try {
+    // by the names its aliases have; where one has none a row can write, as what it stands for — unless tsrs cut that short
+    // (a type that goes on for ever is written `any` there, which is nobody's)
+    const node = checker.typeToTypeNode(t, CTX.sf, F.NoTruncation | F.IgnoreErrors | F.UseAliasDefinedOutsideCurrentScope);
+    if (!node) return { why: "named-type" };
+    const r = print(ts, checker, node, open); if (r.text) return r;
+    const out = checker.typeToTypeNode(t, CTX.sf, F.NoTruncation | F.IgnoreErrors), x = out && print(ts, checker, out, open);
+    const anys = y => (y.match(/\bany\b/g) ?? []).length;
+    return x?.text && anys(x.text) <= anys(checker.typeToString(t, CTX.sf, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope)) ? x : r;
+  } finally { CTX.writing = was; }
 }
 /** Whether two types are one: the same, or each assignable to the other with the same text. */
 const sameType = (ts, checker, a, b) => a === b || (checker.typeToString(a, undefined, ts.TypeFormatFlags.NoTruncation) === checker.typeToString(b, undefined, ts.TypeFormatFlags.NoTruncation) && checker.isTypeAssignableTo(a, b) && checker.isTypeAssignableTo(b, a));
@@ -290,7 +357,7 @@ function innerNode(ts, checker, node, t) {
 function print(ts, checker, node, open = false, given) {
   const K = ts.SyntaxKind;
   const real = node.pos >= 0;   // a node of the library's own declaration (not one TypeScript built for a resolved type)
-  const symOf = e => e.symbol ?? (real ? checker.getSymbolAtLocation(e) : undefined);
+  const symOf = e => real ? checker.getSymbolAtLocation(e) : written(ts, checker, e);
   const FAIL = {}; let why;
   const fail = w => { why = w; throw FAIL; };
   const key = n => ts.isIdentifier(n) ? n.text : ts.isStringLiteral(n) || ts.isNumericLiteral(n) ? JSON.stringify(n.text) : fail("anonymous");
@@ -299,7 +366,8 @@ function print(ts, checker, node, open = false, given) {
   const entity = (e, args, value) => {
     // in the library's declaration a qualified name is found whole (`v.GenericSchema` through `import * as v`)
     if (real && ts.isQualifiedName(e)) { const s0 = checker.getSymbolAtLocation(e.right); const r0 = s0 && nameOf(ts, checker, s0, args, value); if (r0?.text) return r0.text; }
-    const parts = []; while (ts.isQualifiedName(e)) { parts.unshift(e.right.text); e = e.left; }
+    const parts = []; if (!real && ts.isQualifiedName(e)) { const y = written(ts, checker, e), r = y && nameOf(ts, checker, y, args, value); if (!y) return fail("named-type"); if (!r.text) return fail(r.why); return r.text; }
+    while (ts.isQualifiedName(e)) { parts.unshift(e.right.text); e = e.left; }
     if (!parts.length && !value && locals.has(e.text)) return e.text;
     const sym = symOf(e);
     if (!sym) return fail("named-type");
@@ -310,6 +378,7 @@ function print(ts, checker, node, open = false, given) {
     return [r.text, ...parts].join(".");
   };
   const list = (ns, top) => ns.map(n => p(n, top));
+  const inside = (n, kinds) => { const x = p(n, false); return kinds.includes(n.kind) && !/^\([^()]*\)$/.test(x) ? `(${x})` : x; };
   const p = (n, top) => {
     switch (n.kind) {
       case K.AnyKeyword: return ANY("vendor-any");   // MO-8q: the library's own `any`, as it is
@@ -337,19 +406,21 @@ function print(ts, checker, node, open = false, given) {
           const rest = n.types.filter(x => !fn(x)), fns = n.types.filter(fn);
           return [...list(rest, top), ...fns.map(x => { const y = p(x, false); return /^\(.*\)$/s.test(y) && !/^\([^()]*\) =>/.test(y) ? y : `(${y})`; })].join(" | ");
         }
-        return list(n.types, top).join(" | ");
+        return n.types.map(x => [K.FunctionType, K.ConstructorType, K.ConditionalType].includes(x.kind) ? `(${p(x, top)})` : p(x, top)).join(" | ");
       }
-      case K.IntersectionType: return list(n.types, false).join(" & ");
-      case K.TypeOperator: return `${ts.tokenToString(n.operator)} ${p(n.type, false)}`;
-      case K.IndexedAccessType: return `${p(n.objectType, false)}[${p(n.indexType, false)}]`;
+      // (a type tsrs wrote has no parentheses of its own)
+      case K.IntersectionType: return n.types.map(x => inside(x, [K.UnionType, K.FunctionType, K.ConstructorType, K.ConditionalType, K.InferType])).join(" & ");
+      case K.TypeOperator: return `${ts.tokenToString(n.operator)} ${inside(n.type, [K.UnionType, K.IntersectionType, K.FunctionType, K.ConstructorType, K.ConditionalType, K.InferType])}`;
+      case K.IndexedAccessType: return `${inside(n.objectType, [K.UnionType, K.IntersectionType, K.FunctionType, K.ConstructorType, K.ConditionalType, K.TypeOperator, K.InferType, K.TypeQuery])}[${p(n.indexType, false)}]`;
       case K.TypeQuery: return `typeof ${entity(n.exprName, 0, true)}`;
       case K.ImportType: {
         // the library's own `import("./x").T`: by a module the app can import it from
-        if (!real || !n.qualifier) return fail("named-type");
+        if (!n.qualifier) return fail("named-type");
         const q = ts.isQualifiedName(n.qualifier) ? n.qualifier.right : n.qualifier;
-        const s0 = checker.getSymbolAtLocation(q); if (!s0) return fail("named-type");
+        const s0 = real ? checker.getSymbolAtLocation(q) : written(ts, checker, n); if (!s0) return fail("named-type");
         const args = n.typeArguments?.length ?? 0;
         const r = nameOf(ts, checker, s0, args, !!n.isTypeOf); if (!r.text) return fail(r.why);
+        if (!n.isTypeOf && /\)\.JSX\.Element$/.test(r.text)) return "View";
         return `${n.isTypeOf ? "typeof " : ""}${r.text}${args ? `<${list(n.typeArguments, false).join(", ")}>` : ""}`;
       }
       case K.TypeReference: {
@@ -367,10 +438,10 @@ function print(ts, checker, node, open = false, given) {
           const record = d && ts.isInterfaceDeclaration(d) && y.declarations.length === 1 && !d.heritageClauses?.length && d.members.length <= 16 && d.members.every(m => ts.isPropertySignature(m) && m.type);
           if (!d || !(ts.isTypeAliasDeclaration(d) || record)) throw e;
           const map = new Map();
-          (d.typeParameters ?? []).forEach((q, i) => { const a = n.typeArguments?.[i] ?? q.default; const sy = checker.getSymbolAtLocation(q.name); if (!a || !sy) throw e; map.set(sy, p(a, false)); });
+          (d.typeParameters ?? []).forEach((q, i) => { const a = n.typeArguments?.[i] ?? q.defaultType; const sy = checker.getSymbolAtLocation(q.name); if (!a || !sy) throw e; map.set(sy, p(a, false)); });
           subs.push(map);
           try {
-            if (record) return `{ ${d.members.map(m => `${m.modifiers?.some(x => x.kind === K.ReadonlyKeyword) ? "readonly " : ""}${key(m.name)}${m.questionToken ? "?" : ""}: ${p(m.type, false)}`).join("; ")} }`;
+            if (record) return `{ ${d.members.map(m => `${m.modifiers?.some(x => x.kind === K.ReadonlyKeyword) ? "readonly " : ""}${key(m.name)}${m.postfixToken?.kind === K.QuestionToken ? "?" : ""}: ${p(m.type, false)}`).join("; ")} }`;
             const r = p(d.type, top); return !top && /[|&]|=>| extends /.test(r) ? `(${r})` : r;
           } finally { subs.pop(); }
         }
@@ -380,7 +451,7 @@ function print(ts, checker, node, open = false, given) {
       case K.TypeLiteral: {
         if (top) return fail("anonymous");   // a record the checker would read field by field: the caller's to write
         return `{ ${n.members.map(m => {
-          if (ts.isPropertySignature(m) && m.type) return `${m.modifiers?.some(x => x.kind === K.ReadonlyKeyword) ? "readonly " : ""}${key(m.name)}${m.questionToken ? "?" : ""}: ${p(m.type, false)}`;
+          if (ts.isPropertySignature(m) && m.type) return `${m.modifiers?.some(x => x.kind === K.ReadonlyKeyword) ? "readonly " : ""}${key(m.name)}${m.postfixToken?.kind === K.QuestionToken ? "?" : ""}: ${p(m.type, false)}`;
           if (ts.isIndexSignatureDeclaration(m) && m.parameters.length === 1 && m.parameters[0].type && m.type) return `[${m.parameters[0].name.text}: ${p(m.parameters[0].type, false)}]: ${p(m.type, false)}`;
           return fail("anonymous");
         }).join("; ")} }`;
@@ -390,7 +461,7 @@ function print(ts, checker, node, open = false, given) {
         // a generic function type's own parameters are its own (`<T>(x: T) => T`, in the library's declaration)
         const mine = (n.typeParameters ?? []).map(q => q.name.text).filter(x => !locals.has(x));
         for (const x of mine) locals.add(x);
-        const tps = n.typeParameters?.length ? `<${n.typeParameters.map(q => `${q.name.text}${q.constraint ? ` extends ${p(q.constraint, false)}` : ""}${q.default ? ` = ${p(q.default, false)}` : ""}`).join(", ")}>` : "";
+        const tps = n.typeParameters?.length ? `<${n.typeParameters.map(q => `${q.name.text}${q.constraint ? ` extends ${p(q.constraint, false)}` : ""}${q.defaultType ? ` = ${p(q.defaultType, false)}` : ""}`).join(", ")}>` : "";
         const ps = n.parameters.map(q => ts.isIdentifier(q.name) && q.type && q.name.text !== "this" ? `${q.dotDotDotToken ? "..." : ""}${q.name.text}${q.questionToken ? "?" : ""}: ${p(q.type, false)}` : fail("anonymous"));
         const out = `${tps}(${ps.join(", ")}) => ${p(n.type, false)}`;
         for (const x of mine) locals.delete(x);
@@ -461,7 +532,7 @@ function typeParams(ts, checker, symbols, used) {
     const d = sym.declarations?.[0];
     if (!d || !ts.isTypeParameterDeclaration(d)) { CTX.scope = new Set(); return ""; }
     const part = n => { if (!n) return ""; return declared(ts, checker, n, undefined, true) ?? leaf(ts, checker, checker.getTypeFromTypeNode(n), true).text; };
-    let c = part(d.constraint); const def = part(d.default);
+    let c = part(d.constraint); const def = part(d.defaultType);
     if (c === "unknown") c = "";   // a bound that resolves to `unknown` (`TData extends RowData`, an alias of it) bounds nothing
     if (c === undefined || def === undefined) { CTX.scope = new Set(); return ""; }
     out.push([tpName(sym), `${d.modifiers?.some(m => m.kind === ts.SyntaxKind.ConstKeyword) ? "const " : ""}${tpName(sym)}${c ? ` extends ${c}` : ""}${def ? ` = ${def}` : ""}`]);
@@ -517,6 +588,9 @@ function accessorOf(ts, checker, t) {
   if (checker.typeToString(r) === "Promise<void>") return undefined;
   return r;
 }
+/** What a part of a result reads: an accessor that is there. One that may be absent, or be another value, is no reader to
+ *  bind: it is its type's own text. */
+const readerOf = (ts, checker, t) => checker.getNonNullableType(t) !== t || t.flags & ts.TypeFlags.Union ? undefined : accessorOf(ts, checker, t);
 // Solid's JSX.Element is a union with null and undefined: its name, not its members, says it is an element
 // (by where it is declared, a `JSX` namespace or Solid's own packages: the DOM's `Element`, another library's, are not)
 const isJsxElement = (ts, checker, t) => {
@@ -583,7 +657,7 @@ function propText(ts, checker, p, at, precise = false, obj) {
   // takes props, and TypeScript does not hold a function of one argument where the library calls with none)
   if (CTX.decl && fnSigs.length && fnSigs.every(s => !s.getParameters().length && givesElement(ts, checker, s))) return `${p.name}${opt}: () => View`;
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return `${p.name}${opt}: Component`;
-  if (checker.getNonNullableType(t).isUnion?.() && !isElement(ts, checker, t) && checker.getNonNullableType(t).types.some(u => isComponent(ts, checker, u)) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.StringLike)) return `${p.name}${opt}: string | Component`;   // a polymorphic \`as\`: a tag or a component (MO-11c)
+  if (checker.getNonNullableType(t).isUnion?.() && !isElement(ts, checker, t) && checker.getNonNullableType(t).types.some(u => isComponent(ts, checker, u)) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.StringLike) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.String || (u.flags & ts.TypeFlags.Intersection && u.types.some(x => x.flags & ts.TypeFlags.String)))) return `${p.name}${opt}: string | Component`;   // a polymorphic \`as\`: a tag or a component (MO-11c)
   if (isElement(ts, checker, t)) return `${p.name}${opt}: View`;
   if (isFn(checker, t)) return `${p.name}${opt}: ${(precise && fnText(ts, checker, t)) || callbackText(ts, checker, t, here, "callback", annotation(ts, p))}`;   // a callback (MO-10g)
   // MO-11c (2026-11-24): a record or a list of components — each component in the literal the prop is given is applied there
@@ -599,7 +673,7 @@ function ownObject(ts, t, checker) {
   if (t.symbol?.flags & ts.SymbolFlags.Class) return false;
   const decl = t.symbol?.declarations?.[0];
   const file = decl?.getSourceFile().fileName ?? "";
-  return !!t.getProperties().length && !/\/typescript\/lib\/lib\./.test(file) && !t.getProperties().some(q => q.name.startsWith("#"));
+  return !!t.getProperties().length && !isLibFile(file) && !t.getProperties().some(q => q.name.startsWith("#"));
 }
 /** Whether a record of an object's fields can be what the library takes: every field it requires has a name a row can
  *  write (a `~standard` or `"data-x"` it requires cannot be left out of the record, and the type's own name says it). */
@@ -641,7 +715,7 @@ function heldComponents(ts, checker, t, at, depth = 0) {
   const ix = checker.getIndexInfoOfType(u, ts.IndexKind.String);
   if (ix && comp(ix.type) && !u.getProperties().length) return { all: "Record<string, Component>", only: "Record<string, Component>" };
   const ps = u.getProperties(); if (!ps.length || ps.length > 80 || !ps.every(q => /^[A-Za-z_$][\w$]*$/.test(q.name))) return undefined;
-  const file = u.symbol?.declarations?.[0]?.getSourceFile().fileName ?? ""; if (/\/typescript\/lib\/lib\./.test(file)) return undefined;
+  const file = u.symbol?.declarations?.[0]?.getSourceFile().fileName ?? ""; if (isLibFile(file)) return undefined;
   const of = q => checker.getTypeOfSymbolAtLocation(q, at);
   if (!ps.some(q => comp(of(q)))) return undefined;
   // a record of components is data: an object that also has functions of its own — a route (`notFoundRoute`, with
@@ -666,6 +740,14 @@ function readsOf(ts, checker, p, at) {
 }
 /** The records `heldComponents` wrote whole, by their text: the same with the component fields alone. */
 const HELD_ONLY = new Map();
+/** A parameter's text with the `null` (and, where nothing says it may be left out, the `undefined`) its type takes: a row
+ *  without it would refuse the call that gives one. */
+function nullable(ts, t, opt, s) {
+  const F = ts.TypeFlags, has = f => t.flags & f || (t.flags & F.Union && t.types.some(x => x.flags & f));
+  const more = [has(F.Null) && !/\bnull\b/.test(s.replace(/\(.*\)|\{.*\}|<.*>/gs, "")) && "null", !opt && has(F.Undefined) && !/\bundefined\b/.test(s.replace(/\(.*\)|\{.*\}|<.*>/gs, "")) && "undefined"].filter(Boolean);
+  if (!more.length || /^NonNullable<|^Parameters<|^ReturnType</.test(s)) return s;
+  return `${/=>/.test(s) && !/^\(.*\)$/.test(s) || /^\(.*\) =>/.test(s) ? `(${s})` : s} | ${more.join(" | ")}`;
+}
 function paramText(ts, checker, p, at, generic = false, here) {
   const t = checker.getTypeOfSymbolAtLocation(p, at);
   const node = annotation(ts, p);   // MO-8o: the parameter as the library declares it
@@ -706,7 +788,7 @@ function paramText(ts, checker, p, at, generic = false, here) {
         if (k && oneType(k[2])) return `${name}${opt}: Component<${k[2]}>`; }
       // the last reading (`whole`): a callback with no name is its place as it stands — taken apart
       // (`(...args: Parameters<P>) => ReturnType<P>`) it is the function at its bounds, which TypeScript may not hold
-      return `${name}${opt}: ${CTX.whole && here && (byPlace(c) || introduced(c)) ? present(checker, t, here) : c}`;
+      return `${name}${opt}: ${nullable(ts, t, opt, CTX.whole && here && (byPlace(c) || introduced(c)) ? present(checker, t, here) : c)}`;
     }
     // a predicate is no `=> boolean` (a function that answers a boolean is not one): as the library declares it, else by its place
     const said = declared(ts, checker, node, t, true);
@@ -721,9 +803,13 @@ function paramText(ts, checker, p, at, generic = false, here) {
     // the last reading: options with a field said by its place (a method generic in itself, taken apart, is the function
     // at its bounds, which TypeScript may not hold) are the library's own, whole, at their place
     if (!whole_ && CTX.whole && here && (byPlace(rec) || introduced(rec))) return `${name}${opt}: ${opt ? present(checker, t, here) : here}`;
-    return whole_ ? `${name}${opt}: ${whole_}` : rec;
+    return whole_ ? `${name}${opt}: ${whole_}` : rec.replace(/^([^:]*: )([^]*)$/, (_, h, r) => h + nullable(ts, t, opt, r));
   }
-  return `${name}${opt}: ${text(ts, checker, opt ? checker.getNonNullableType(t) : t, opt ? present(checker, t, here) : here, node)}`;   // `?` already says it may be absent
+  // `?` already says it may be absent; a type that is nothing but absent, or that is not known, is written as it is
+  const bare = checker.getNonNullableType(t), F = ts.TypeFlags;
+  if (t.flags & F.Unknown) return `${name}${opt}: unknown`;
+  if (opt && bare.flags & F.Never && (t.flags & F.Null || (t.flags & F.Union && t.types.some(x => x.flags & F.Null)))) return `${name}${opt}: null`;
+  return `${name}${opt}: ${opt ? nullable(ts, t, opt, text(ts, checker, bare, present(checker, t, here), node)) : text(ts, checker, t, here, node)}`;
 }
 
 /** What a type may also be: ` | undefined`, ` | null`, from its union members. */
@@ -758,7 +844,7 @@ function atDefaults(ts, checker, sig) {
   const map = new Map();
   for (const tp of tps) {
     const td = tp.symbol?.declarations?.[0]; if (!td || !ts.isTypeParameterDeclaration(td)) return undefined;
-    const n = td.default ?? td.constraint;
+    const n = td.defaultType ?? td.constraint;
     const r = n ? print(ts, checker, n, true, map) : { text: "unknown" };
     if (!r.text || introduced(r.text)) return undefined;
     map.set(tp.symbol, r.text);
@@ -781,7 +867,7 @@ function structural(ts, checker, t, depth = 0, here, refs = depth === 0) {   // 
   const u = checker.getNonNullableType(t);
   if (!(u.flags & ts.TypeFlags.Object) || u.getCallSignatures().length || checker.isTupleType(u) || checker.isArrayType(u)) return undefined;
   const decl = u.symbol?.declarations?.[0];
-  if (/\/typescript\/lib\/lib\./.test(decl?.getSourceFile().fileName ?? "")) return undefined;   // a Promise, a Map, an Element: the platform's
+  if (isLibFile(decl?.getSourceFile().fileName ?? "")) return undefined;   // a Promise, a Map, an Element: the platform's
   const props = u.getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name) && !(q.flags & ts.SymbolFlags.Prototype) && !q.name.startsWith("_"));
   const typeOf = q => checker.getTypeOfSymbol(q);
   const opt = q => q.flags & ts.SymbolFlags.Optional ? "?" : "";
@@ -791,15 +877,17 @@ function structural(ts, checker, t, depth = 0, here, refs = depth === 0) {   // 
     return ms.length && ms.length <= 64 ? `{ ${ms.map(([q, f]) => `${q.name}${opt(q)}: ${f}`).join("; ")} }` : undefined;
   }
   if (!props.length || props.length > 32 || u.getProperties().some(q => q.name.startsWith("__@") || q.name.startsWith("#"))) return undefined;
+  // a function that may be absent is one of those (a field that may be left out says so itself)
+  const maybe = (f, qt, q) => { const n = nullish(ts, qt).replace(opt(q) ? / \| undefined/ : /$^/, ""); return n ? `(${f})${n}` : f; };
   const field = q => {
     const qt = typeOf(q);
-    if (isDisposer(ts, checker, qt)) return "() => void";
-    const read = accessorOf(ts, checker, qt);
+    if (isDisposer(ts, checker, qt)) return maybe("() => void", qt, q);
+    const read = readerOf(ts, checker, qt);
     // MO-10b: only the result's own fields are declared accessors; one nested deeper is a value — the function it is
     if (read && !refs) return `() => ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
     if (read && refs) shaped(ts, checker, qt, q.name);
     if (read) return `ref ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
-    if (isFn(checker, qt)) return fnResultText(ts, checker, qt, at(q));
+    if (isFn(checker, qt)) return maybe(fnResultText(ts, checker, qt, at(q)), qt, q);
     const st = depth < 2 ? structural(ts, checker, qt, depth + 1, at(q)) : undefined;
     return st ? st + (CTX.refs ? nullish(ts, qt) : "") : text(ts, checker, qt, at(q), annotation(ts, q));
   };
@@ -827,7 +915,7 @@ const EVIDENCE = /\bref\s|=>\s*(?:void\b|Promise<)/;
 const byPlace = s => /\b(?:Parameters|ReturnType)</.test(s);
 function resultText(ts, checker, t, generic = false, here, node) {
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return "Component";
-  const read = accessorOf(ts, checker, t);
+  const read = readerOf(ts, checker, t);
   if (read) shaped(ts, checker, t, "");
   if (read) return `ref ${text(ts, checker, read, CTX.decl && here ? `ReturnType<${here}>` : undefined, innerNode(ts, checker, node, read))}`;   // MO-8q: what the accessor answers, by its place, before an `any`
   if (isDisposer(ts, checker, t)) return nullish(ts, t) ? `(() => void)${nullish(ts, t)}` : "() => void";   // EF-5a: the checker holds a call to keeping it
@@ -849,7 +937,7 @@ function resultText(ts, checker, t, generic = false, here, node) {
       const open = declared(ts, checker, parts[i], x, true);
       return open && !introduced(open) ? open : partAt(i) ?? said;
     };
-    return `${ro}[${checker.getTypeArguments(tuple).map((x, i) => accessorOf(ts, checker, x) && shaped(ts, checker, x, String(i)) ? `ref ${text(ts, checker, accessorOf(ts, checker, x), CTX.decl && partAt(i) ? `ReturnType<${partAt(i)}>` : undefined, innerNode(ts, checker, parts[i], accessorOf(ts, checker, x)))}` : isFn(checker, x) ? (generic && !CTX.decl ? ANY("generic") : setter(ts, checker, x, parts[i], partAt(i))) : value(x, i)).join(", ")}]`;
+    return `${ro}[${checker.getTypeArguments(tuple).map((x, i) => readerOf(ts, checker, x) && shaped(ts, checker, x, String(i)) ? `ref ${text(ts, checker, readerOf(ts, checker, x), CTX.decl && partAt(i) ? `ReturnType<${partAt(i)}>` : undefined, innerNode(ts, checker, parts[i], readerOf(ts, checker, x)))}` : isFn(checker, x) ? (generic && !CTX.decl ? ANY("generic") : nullish(ts, x) ? `(${setter(ts, checker, x, parts[i], partAt(i))})${nullish(ts, x)}` : setter(ts, checker, x, parts[i], partAt(i))) : value(x, i)).join(", ")}]`;
   }
   let s = text(ts, checker, t, here, node);
   // a promise is said to be one, whatever it answers (MO-10b reads it): by its place, else of `any`
@@ -893,21 +981,14 @@ function shapeOf(row) {
   return `${ps.join(",")}|${ret}|${/\binstantiates\b/.test(tail) ? "i" : ""}`;
 }
 /** @returns {string} the draft `.d.rx` for `spec`, imported from `from` (a directory). */
-function declare(ts, spec, from, options = {}, how = {}) {
-  const host = ts.createCompilerHost({ strict: true, skipLibCheck: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options });
-  const entry = path.join(from, "__rx_declare__.ts");
-  const code = `import * as __m from ${JSON.stringify(spec)};\nexport { __m };\n`;
-  const { getSourceFile, fileExists } = host;
-  const parsed = new Map();   // a file is parsed once for the draft: its program and the packages'
-  host.getSourceFile = (f, ...rest) => path.resolve(f) === entry ? ts.createSourceFile(f, code, ts.ScriptTarget.ES2022) : parsed.get(f) ?? (parsed.set(f, getSourceFile.call(host, f, ...rest)), parsed.get(f));
-  host.fileExists = f => path.resolve(f) === entry || fileExists.call(host, f);
-  const program = ts.createProgram([entry], { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options }, host);
-  CTX = { refs: false, scope: new Set() };
+function declare(spec, from, options = {}, how = {}) {
+  const T = require("./ts-api.js").open(spec, from, options);
+  try { return draft(T, spec, from, how); } finally { T.dispose(); }
+}
+function draft(T, spec, from, how) {
+  const { ts, checker, program, mod, imp, entry, sf } = T;
+  CTX = { refs: false, scope: new Set(), T, sf, mod, spec, entry, program, resolve: T.resolve, exports: new Map() };
   const shapedBy = new Map();   // an export → the parts of its result that are only shaped as accessors
-  const checker = program.getTypeChecker();
-  const sf = program.getSourceFile(entry);
-  const imp = sf.statements[0];
-  const mod = checker.getSymbolAtLocation(imp.moduleSpecifier);
   if (!mod) throw new Error(`${spec}: no TypeScript types found from ${from}`);
   // the library's own file: what its rows name is resolved from here (MO-8o), not from the app's folder
   const lib = spec.startsWith(".") ? undefined : mod.declarations?.[0]?.getSourceFile().fileName;
@@ -916,10 +997,10 @@ function declare(ts, spec, from, options = {}, how = {}) {
     const pkg = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
     const v = require("./versions.js").installed(pkg, from); if (v) out.push(`//@ for ${pkg} ^${v}`);
   }
-  const opts = { strict: true, skipLibCheck: true, noEmit: true, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve, jsxImportSource: "@solidjs/web", ...options };
+  const opts = T.options;
   const real = JSON.stringify(spec);
   // a value the types declare and no build of the code exports (a `unique symbol` that types are written with): an import of it is undefined
-  let inCode; if (how.infer !== false) try { inCode = require("./infer.js").create(ts, { solid: process.env.RX_INFER_SOLID !== "0" }).exportedNames(spec, from); } catch { inCode = undefined; }
+  let inCode; if (how.infer !== false) try { const ns = require("./words.js").names(spec, from); inCode = ns && new Set(ns); } catch { inCode = undefined; }
   /** The rows, with the library's types named where it declares them (`refs`, MO-8m) or left `any` (as every draft was). */
   const rows = (mode, roots) => {   // `roots`: of these exports alone
   const refs = !!mode;
@@ -928,21 +1009,21 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const lines = [];
   const placed = new Set();   // the components whose props are their place
   const wide = new Set();   // the components whose props are written out though they are more than a row should hold
-  CTX = { refs, cache: require("./library-resolve.js").resolutions(ts, opts, host), decl: !!mode.decl, whole: !!mode.whole, named: !!mode.named, spec, entry, lib, options: opts, host, program, mod, scope: new Set(), exports: new Map() };
+  CTX = { refs, T, sf, decl: !!mode.decl, whole: !!mode.whole, named: !!mode.named, spec, entry, lib, resolve: T.resolve, program, mod, scope: new Set(), exports: new Map() };
   // the module's own types, each with how many type arguments its alias row takes (at least, at most): a row names one
   // bare where what it writes fits. As the library declares them, until a row's bounds turn out not to be nameable
-  OWN_ALL = new Map(checker.getExportsOfModule(mod).map(s0 => [s0.name, s0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s0) : s0]).filter(([, y]) => y.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface) && !(y.flags & ts.SymbolFlags.Value)).map(([n, y]) => { const tp = y.declarations?.[0]?.typeParameters ?? []; return [n, refs ? [tp.filter(q => !q.default).length, tp.length] : tp.some(q => !q.default) ? [tp.length, tp.length] : [0, 0]]; }));
+  OWN_ALL = new Map(checker.getExportsOfModule(mod).map(s0 => [s0.name, s0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s0) : s0]).filter(([, y]) => y.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface) && !(y.flags & ts.SymbolFlags.Value)).map(([n, y]) => { const tp = y.declarations?.[0]?.typeParameters ?? []; return [n, refs ? [tp.filter(q => !q.defaultType).length, tp.length] : tp.some(q => !q.defaultType) ? [tp.length, tp.length] : [0, 0]]; }));
   const aliases = new Map();
   for (const s0 of checker.getExportsOfModule(mod)) {
     const sym = s0.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s0) : s0; const name = s0.name;
     if (!(sym.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface)) || sym.flags & ts.SymbolFlags.Value) continue;
     const tp = sym.declarations?.[0]?.typeParameters ?? [];
-      const ps = tp.some(p => !p.default) ? tp.map(p => p.name.text) : [];   // one whose parameters all have defaults is named bare
+      const ps = tp.some(p => !p.defaultType) ? tp.map(p => p.name.text) : [];   // one whose parameters all have defaults is named bare
       // MO-8m: with its parameters' bounds and defaults as the library declares them, where they can be named, so the
       // alias is a type TypeScript accepts (`Row<T>` for a `Row<T extends object>` was an error of the draft's own)
       const full = refs && tp.length ? typeParams(ts, checker, tp.map(p => checker.getSymbolAtLocation(p.name)).filter(Boolean)) : "";
       CTX.scope = new Set();
-      if (full) { OWN_ALL.set(name, [tp.filter(p => !p.default).length, tp.length]); aliases.set(name, `export type ${name}${full} = import(${JSON.stringify(spec)}).${name}<${tp.map(p => { const y = checker.getSymbolAtLocation(p.name); return (y && CTX.rename?.get(y)) ?? p.name.text; }).join(", ")}>`); continue; }
+      if (full) { OWN_ALL.set(name, [tp.filter(p => !p.defaultType).length, tp.length]); aliases.set(name, `export type ${name}${full} = import(${JSON.stringify(spec)}).${name}<${tp.map(p => { const y = checker.getSymbolAtLocation(p.name); return (y && CTX.rename?.get(y)) ?? p.name.text; }).join(", ")}>`); continue; }
       // bounds that cannot be named: no alias TypeScript would accept, so a row names the type in place, `import(…).T<…>`
       if (refs && ps.length && tp.some(p => p.constraint)) { OWN_ALL.delete(name); aliases.set(name, `// ${name}<${tp.map(p => p.name.text).join(", ")}>: a type of ${spec} whose parameters' bounds are not exported: name it in place, import(${JSON.stringify(spec)}).${name}<…>`); continue; }
       OWN_ALL.set(name, [ps.length, ps.length]);
@@ -1059,7 +1140,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
     // (an instantiation expression) — so a part with no name is still exactly the library's, and of an overloaded fn
     // where one signature alone takes that many type arguments
     const tpNames = tps ? sig.getTypeParameters().map(q => tpName(q.symbol)) : [];
-    const takes = (g, n) => { const ps = g.getTypeParameters() ?? []; return ps.length > 0 && ps.length >= n && ps.filter(q => !q.symbol?.declarations?.[0]?.default).length <= n; };
+    const takes = (g, n) => { const ps = g.getTypeParameters() ?? []; return ps.length > 0 && ps.length >= n && ps.filter(q => !q.symbol?.declarations?.[0]?.defaultType).length <= n; };
     const place = !mode.paths ? undefined
       : tps && mode.decl && sigs.filter(g => takes(g, tpNames.length)).length === 1 ? `typeof import(${real}).${name}<${tpNames.join(", ")}>`
       : sigs.length === 1 || last ? `typeof import(${real}).${name}` : undefined;   // `last`: of several signatures, the one TypeScript reads `Parameters<typeof f>` from
@@ -1114,6 +1195,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const overloaded = new Set();   // the fns with several signatures: a row is one of them (the shortest), and has no one place
   const exportedIn = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/m.exec(l)?.[1] ?? /^\/\/ TODO ([\w$.]+):/.exec(l)?.[1];
   let head, lines, contexts, plainRows;
+  const held = new Set(), bare0 = l => l.replace(/^(export (?:(?:server|client) )*)pure fn /, "$1fn ").replace(/\bhandler \(/g, "(").replace(/ (?:instantiates|uses\([^)]*\)|provides\([^)]*\))(?= |$)/g, "");   // the rows TypeScript held, without the words it does not read
   const plain = () => plainRows ??= rows(false);   // the rows every draft had
   if (how.refs !== false) {
     // MO-8m: a row that names the library's types is kept where TypeScript holds it against the module (TY-6, checked
@@ -1133,6 +1215,7 @@ function declare(ts, spec, from, options = {}, how = {}) {
     const MODES = [{ generics: true, paths: true, decl: true, named: true }, { generics: true, paths: true, decl: true }, { generics: true, paths: false, decl: true }, { generics: true, paths: true }, { generics: true, paths: false }, { generics: false, paths: true }, { generics: false, paths: false }, { generics: false, paths: true, decl: true, whole: true }];
     const cands = [rows(MODES[0])], first = cands[0];
     let bad = check(first);
+    if (bad) for (const l of strip(first.lines)) if (!bad.has(exportedIn(l))) held.add(bare0(l));
     // the first reading, where it holds whole — most modules — says the most, and no other is made
     // (and where it does not, of the rows it left something to say of)
     const groups = [group(first.lines)];
@@ -1185,15 +1268,14 @@ function declare(ts, spec, from, options = {}, how = {}) {
   const unshaped = (line, name, reads) => [...shapedBy.get(name) ?? []].reduce((l, at) => reads(at) ? l : withWaits(l, { [at]: "" }), line);
   if (how.infer === false) lines = lines.map(l => { const n = exportedIn(l); return n && l.startsWith("export ") ? unshaped(l, n, () => false) : l; });
   // MO-8v: the words the code that runs proves — `pure`, `handler`, `draft`, `rejects(E)` — written into the rows
-  // (declare-infer.js, infer.js), and what is left to a person asked (questions.js): of a draft a person keeps
-  const di = require("./declare-infer.js"), types = name => { try { return di.paramTypes(ts, checker, mod, imp, name); } catch { return {}; } };
+  // (declare-infer.js, compiler/words), and what is left to a person asked (questions.js): of a draft a person keeps
   let r = { facts: () => undefined };
   if (how.infer !== false) {
-    r = di.apply(ts, spec, from, lines, types, how.why, { unshaped, contexts, written: how.written, views: name => { try { return di.viewProps(ts, checker, mod, imp, name); } catch { return { has: () => true, outside: () => true, surely: () => false }; } } });
+    r = require("./declare-infer.js").apply(spec, from, lines, how.why, { unshaped, contexts, written: how.written });
     lines = r.lines; out.push(...r.head);
     if (how.inferred) Object.assign(how.inferred, r.count, { unread: r.unread, words: r.words });
   }
-  lines = how.written ? lines.filter(l => !/^\/\/ TODO /.test(l)) : require("./questions.js").ask(lines, r.facts, types, { ...r, couldNest: name => { try { return di.couldNest(ts, checker, mod, imp, name); } catch { return true; } } });
+  lines = how.written ? lines.filter(l => !/^\/\/ TODO /.test(l)) : require("./questions.js").ask(lines, r.facts, r);
   // why each `any` left is one (--explain): what the type holds that the row cannot say; in a row of an overloaded fn,
   // where a type with no name would else be said by its place, that the fn has no one signature to take it from
   if (how.causes) for (const l of lines) { const n = exportedIn(l); for (const m of l.matchAll(/any\u00ab([^\u00bb]*)\u00bb/g)) how.causes.push({ name: n, cause: how.refs !== false && overloaded.has(n) && /^(internal-type|generic|generic-computed|callback|function-result)$/.test(m[1]) ? "overload" : m[1] }); }
@@ -1209,6 +1291,13 @@ function declare(ts, spec, from, options = {}, how = {}) {
     if (why.length) lines.splice(i, 0, `// TODO ${n}: ${why.length} \`any\` here ${why.length === 1 ? "is" : "are"} the draft's, not the library's (${[...new Set(why.map(c => overloaded.has(n) && /^(internal-type|generic|generic-computed|callback|function-result)$/.test(c) ? "overload" : c))].join(", ")}): name the type, or leave the row out (MO-8q)`);
   }
   for (let i = 0; i < lines.length; i++) lines[i] = lines[i].replace(/\u00ab[^\u00bb]*\u00bb/g, "");
+  // a row written otherwise than it was held is held once more as it stands (TY-6): one TypeScript refuses is no row, and the
+  // export is as an undeclared import's is
+  if (how.refs !== false) for (let k = 0; k < 6 && lines.some(l => l.startsWith("export ") && !held.has(bare0(l))); k++) {
+    let bad; try { bad = require("./declare-check.js").failing([...out, ...lines].join("\n") + "\n", out.length, lines, spec, from, opts, lib); } catch (e) { if (e.code !== "RX_DRAFT_UNREADABLE") throw e; bad = undefined; }
+    if (!bad?.size) break;
+    lines = lines.map(l => { const n = l.startsWith("export ") && exportedIn(l); const why = n && (bad.get(n) ?? bad.get(n.split(".")[0])); if (why && how.unheld) how.unheld[n] = why; return why ? `// left out, TypeScript does not hold it against the module (TY-6): ${l}` : l; });
+  }
   return [...out, ...lines].join("\n") + "\n";
 }
 

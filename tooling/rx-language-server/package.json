@@ -24,7 +24,7 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "test": "node ../../scripts/parallel.mjs \"node test/run.js\" \"node test/checker.js\" \"node test/tsc.js\" \"node test/declare.js\" \"node test/infer.js\" \"node test/infer-owner.js\" \"node test/infer-view.js\" \"node test/infer-called.js\" \"node test/generate.js\" \"node test/verify.js\"",
+    "test": "node ../../scripts/parallel.mjs \"node test/run.js\" \"node test/checker.js\" \"node test/tsc.js\" \"node test/declare.js\" \"node test/words.js\" \"node test/words-audit.js\" \"node test/words-cases.js --shard 1/4\" \"node test/words-cases.js --shard 2/4\" \"node test/words-cases.js --shard 3/4\" \"node test/words-cases.js --shard 4/4\" \"node test/generate.js\" \"node test/verify.js\"",
     "prepack": "node scripts/wasm.js"
   },
   "dependencies": {

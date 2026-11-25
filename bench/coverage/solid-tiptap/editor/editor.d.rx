@@ -1,0 +1,1 @@
+export fn editor(content: string): { mount: (el: HTMLElement) => void; html: ref string }

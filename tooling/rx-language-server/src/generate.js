@@ -12,7 +12,6 @@
 const fs = require("node:fs");
 const crypto = require("node:crypto");
 const path = require("node:path");
-const { createRequire } = require("node:module");
 const { lookup, declaration } = require("./rxc");
 const { declare } = require("./declare.js");
 const { installed } = require("./versions.js");
@@ -27,8 +26,8 @@ const GENERATED_ANY = /^\/\/@ generated /;   // a draft this tooling wrote, unde
 // a record that may be absent, MO-10b. 12: no word off a name or a shape — `ref` and `instantiates` are the types' `Accessor` or
 // proven by the code, MO-8v. 13: `instantiates` where the code makes what its owner keeps on every path. 14: that word beside a `ref`, MO-8l.
 // 15: a field typed `Accessor` is `ref` whatever its name; no question, which is for the draft a person keeps. 16: what
-// ECMAScript's own constructors run, by one table: a proxy made and handed back is `pure`)
-const FORMAT = 16;
+// ECMAScript's own constructors run, by one table: a proxy made and handed back is `pure`. 17: no `draft` and no `rejects(E)`; the functions a `pure` fn answers; a row TypeScript does not hold is left out)
+const FORMAT = 17;
 
 const isBare = spec => !spec.startsWith(".") && !spec.startsWith("/") && !/\.(rx|css|scss|sass|less|json|svg|png|jpe?g|gif|webp|woff2?)$/.test(spec) && !/^(node:|virtual:|\0)/.test(spec);
 const pkgOf = spec => spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
@@ -55,11 +54,10 @@ function packageImportSites(entry, text) {
  *  declaration file that one reaches by relative imports, re-exports and references (an `index.d.ts` is often only
  *  `export * from "./parts"`), of the entry file of each package it names, and of its package.json. A package that
  *  changes at the same version (a linked workspace package, a local patch) is redrafted. */
-function typesStamp(ts, spec, from) {
+function typesStamp(spec, from) {
   try {
-    const options = { module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, allowJs: false };
-    const cache = require("./library-resolve.js").resolutions(ts, options, ts.sys);
-    const resolve = (name, file) => ts.resolveModuleName(name, file, options, ts.sys, cache).resolvedModule?.resolvedFileName;
+    const { checker } = require("./checker.js"), ck = checker(path.dirname(from));
+    const resolve = (name, file) => ck.resolve(name, path.dirname(file), { module: 99, moduleResolution: 100, allowJs: false })?.resolvedFileName;
     const entry = resolve(spec, from);
     if (!entry) return "";
     const h = crypto.createHash("sha256");
@@ -69,9 +67,8 @@ function typesStamp(ts, spec, from) {
       let text; try { text = fs.readFileSync(f, "utf8"); } catch { continue; }
       h.update(text).update("\0");
       if (!follow || seen.size > 2000) continue;   // another package's entry stands for it; a bound on what one draft reads
-      const pre = ts.preProcessFile(text, true, true);
-      for (const r of pre.referencedFiles) todo.push([path.resolve(path.dirname(f), r.fileName), true]);
-      for (const i of pre.importedFiles) { const to = resolve(i.fileName, f); if (to) todo.push([to, i.fileName.startsWith(".")]); }
+      for (const m of text.matchAll(/^\s*\/\/\/\s*<reference\s+path\s*=\s*["']([^"']+)["']/gm)) todo.push([path.resolve(path.dirname(f), m[1]), true]);
+      for (const m of text.matchAll(/(?:\bfrom|\bimport|\brequire)\s*\(?\s*["']([^"'\n]+)["']/g)) { const to = resolve(m[1], f); if (to) todo.push([to, m[1].startsWith(".")]); }
     }
     for (let d = path.dirname(entry); ; d = path.dirname(d)) {
       if (fs.existsSync(path.join(d, "package.json"))) { h.update(fs.readFileSync(path.join(d, "package.json"), "utf8")); break; }
@@ -100,12 +97,6 @@ function rootOf(pkg, dir) {
     if (fs.existsSync(path.join(d, "node_modules", pkg, "package.json"))) return d;
     if (path.dirname(d) === d) return undefined;
   }
-}
-
-function typescriptFor(dir) {
-  // (TypeScript 7's package has no API in process: types are then read with the one this package depends on)
-  try { const ts = createRequire(path.join(dir, "package.json"))("typescript"); if (typeof ts.createProgram === "function") return ts; } catch { /* none */ }
-  return require("typescript");
 }
 
 /** The draft with each row the .d.rx parser refuses left out as a comment, so one row types put beyond the notation does
@@ -143,15 +134,15 @@ function ensureDeclarations(entry, options = {}) {   // options.text: the entry'
     const file = path.join(home, ...spec.split("/")) + ".d.rx";
     // a draft is written under .rx-types/ and nowhere else
     if (!plainSpec(spec) || !file.startsWith(home + path.sep)) { out.push({ spec, file: null, status: "failed", reason: `${spec} is not a package path a draft can be written for (MO-8l)` }); continue; }
-    const stamp = typesStamp(typescriptFor(dir), spec, from);
+    const stamp = typesStamp(spec, from);
     if (found && path.resolve(found) === file) {
       const head = GENERATED.exec(fs.readFileSync(file, "utf8"));
       if (head && head[1] === pkg && head[2] === version && Number(head[3]) === FORMAT && (head[4] ?? "") === stamp) { out.push({ spec, file, status: "current" }); continue; }
     }
     let text;
-    // MO-8v: with the words the package's code proves (`pure`, `handler`, `draft`, `rejects(E)`), each marked: they are
+    // MO-8v: with the words the package's code proves (`pure`, `handler`, `instantiates`, `uses(c)`, `provides(c)`): they are
     // read, not guessed, so an import nothing reviewed still makes the checker accept nothing the code does not show
-    try { text = declare(typescriptFor(dir), spec, dir, {}, { infer: process.env.RX_DECLARE_INFER !== "0", written: true }); }
+    try { text = declare(spec, dir, {}, { infer: process.env.RX_DECLARE_INFER !== "0", written: true }); }
     catch (e) {
       // a draft written for another version or under other rules is not kept when it cannot be redone: its rows (an
       // earlier rule's guessed `pure`) would still be read, so the import falls back to undeclared, the cautious reading

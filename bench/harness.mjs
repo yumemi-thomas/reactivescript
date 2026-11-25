@@ -56,13 +56,13 @@ function shared() {
   if (process.env.RX_SHARED_KEYS) return (shared_ = JSON.parse(process.env.RX_SHARED_KEYS));
   const at = (...p) => path.join(repo, ...p), nm = path.join(ws, "node_modules");
   shared_ = {
-    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), ...["cache.mjs", "tools.mjs", "tool-worker.cjs", "ts-shared.cjs", "bundle.mjs"].map(f => at("scripts/lib", f))),
+    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), ...["cache.mjs", "tools.mjs", "tool-worker.cjs", "bundle.mjs"].map(f => at("scripts/lib", f))),
     tools: cache.inputs(...["bin", "src", "package.json", "package-lock.json", "node_modules"].map(f => at("tooling/rx-language-server", f))),
     installed: [cache.treeHash(nm, { skip: (r, n) => r === "@reactivescript" || r === "@rx-types" || n === ".package-lock.json" }), cache.treeHash(path.join(nm, "@rx-types"))],
     // (the copies a program runs with, not what they were copied from: `workspace()` makes them again, a task run alone does not)
     runtime: cache.treeHash(path.join(nm, "@reactivescript/runtime")),
     // what a task that runs a build, or a process of its own, may reach: the compiler as it is built, and ref/
-    builds: cache.inputs(rxc, ...["index.js", "vite.mjs", "lib.mjs", "package.json", "scripts", "target/wasm32-unknown-unknown/release/reactivescript.wasm"].map(f => at("compiler", f)), ...(existsSync(at("compiler")) ? readdirSync(at("compiler")).filter(f => f.endsWith(".node")).map(f => at("compiler", f)) : []), ...["src", "compile", "check.ts", "disk.ts", "types"].map(f => at("ref", f))),
+    builds: cache.inputs(rxc, ...["index.js", "vite.mjs", "lib.mjs", "package.json", "scripts", "target/wasm32-unknown-unknown/release/reactivescript.wasm", "target/wasm32-unknown-unknown/release/rx_words.wasm"].map(f => at("compiler", f)), ...(existsSync(at("compiler")) ? readdirSync(at("compiler")).filter(f => f.endsWith(".node")).map(f => at("compiler", f)) : []), ...["src", "compile", "check.ts", "disk.ts", "types"].map(f => at("ref", f))),
     browser: cache.browser(pw()),
   };
   cache.saveIndex();
@@ -324,6 +324,8 @@ export function compile(entry, target, spa, asked) {
   return { file: name(out.entry ?? entry), css: out.css };
 }
 
+/** A package that ships its source as JSX, compiled as an app's bundler compiles it. */
+const jsxOfPackages = () => ({ name: "package-jsx", transform: { filter: { id: /[\\/]node_modules[\\/].*\.jsx$/ }, handler: (code, id) => ({ code: createRequire(path.join(ws, "package.json"))("@solidjs/compiler").transform(code, { filename: id, generate: "dom", hydratable: true }).code, moduleType: "js" }) } });
 /** Node's own modules, in a bundle for the browser: empty, as a bundler for the web makes them (Vite externalizes them
  *  with a warning). A package with one entry for every platform imports its Node adapter beside its browser's
  *  (@solid-primitives/filesystem: `node:fs/promises`, chokidar). */
@@ -357,7 +359,7 @@ export class Runner {
     if (!built.file) throw new Error(JSON.stringify(built).slice(0, 600));
     const entry = built.file + ".entry.mjs";
     writeFileSync(entry, `import main from ${JSON.stringify("./" + path.basename(built.file))};\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp({ root: document.getElementById("app") });\ntry { app.mount(main(app)${hydrate ? ", true" : ""}); } catch (e) { console.error("mount threw: " + (e && e.message)); }\nwindow.__mounted = true;\n`);
-    return timed("bundle", () => bundle(ws, { entry, dir: this.dir, conditions: ["browser", "development"], alias: nodeBuiltins() }));
+    return timed("bundle", () => bundle(ws, { entry, dir: this.dir, conditions: ["browser", "development"], alias: nodeBuiltins(), plugins: [jsxOfPackages()] }));
   }
   /** Serves the program: `ssr` renders each URL on the server and hydrates it; otherwise an empty page the client mounts in. */
   async serve({ ssr = false } = {}) {
@@ -573,8 +575,8 @@ export function declarations(dir, flagsFor = {}) {
     const allByName = new Map(); for (const l of draft) { const n = exported(l); if (n) allByName.set(n, [...(allByName.get(n) ?? []), l]); }
     let words = 0, places = 0, todos = 0; const kept = new Set();
     // 09 MO-8w: every behaviour word of the file, held against what the code shows (`rx-declare --audit`): proven — a
-    // word read from the code, counted apart from the words written by hand; contradicted — a false word, which is a
-    // problem whoever wrote it; unproven — a person's, listed
+    // word read from the code, counted apart from the words written by hand; unproven — a person's, listed. `contradicted`:
+    // what a run shows false (rx-verify)
     const read = host ? { rows: [] } : audited(p, from);
     const said = v => read.rows.flatMap(x => x.words.filter(w => w.verdict === v && w.word !== "instantiates").map(w => `${x.name}: ${w.word} — ${w.why}`));
     const inferred = read.rows.reduce((n, x) => n + x.words.filter(w => w.verdict === "proven").length, 0);
@@ -597,7 +599,7 @@ export function declarations(dir, flagsFor = {}) {
       if (best.introduced) rows.push({ name: row.name, introduced: best.introduced });
     }
     const claims = claimsOf(dir, p, problems, read);
-    files.push({ file: path.relative(dir, p), spec, words, inferred, todos, contradicted: [...said("contradicted").map(c => `${c} (the code contradicts the word)`), ...claims.mismatches], unproven: said("unproven"), claims, problems, any, inherited, introduced: any - inherited, places, drafted: draft.length > 0, rows, whole: draft.whole });
+    files.push({ file: path.relative(dir, p), spec, words, inferred, todos, contradicted: claims.mismatches, unproven: said("unproven"), claims, problems, any, inherited, introduced: any - inherited, places, drafted: draft.length > 0, rows, whole: draft.whole });
   }
   const sum = k => files.reduce((n, f) => n + f[k], 0);
   const wsum = k => files.reduce((n, f) => n + (f.whole[k] ?? 0), 0);
@@ -611,7 +613,7 @@ export function declarations(dir, flagsFor = {}) {
  *  did not answer — which is not an audit with nothing to say. */
 function audited(file, from) {
   const r = tool("audit", ["--conditions=browser"], "declare.js", ["--audit", "--json", file], { cwd: from, timeout: 300000 });
-  try { const out = JSON.parse(r.stdout); if (!Array.isArray(out)) throw new Error("not a list"); r.keep(!out.some(x => x.rows?.some(y => y.words.some(w => w.verdict === "contradicted")))); return out[0] ?? { rows: [] }; } catch { return { rows: [], error: String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${r.status ?? r.signal}` }; }
+  try { const out = JSON.parse(r.stdout); if (!Array.isArray(out)) throw new Error("not a list"); r.keep(true); return out[0] ?? { rows: [] }; } catch { return { rows: [], error: String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 200) || `exit ${r.status ?? r.signal}` }; }
 }
 /** The claims of several files, kind by kind. */
 export const claimKinds = bys => { const o = {}; for (const by of bys) for (const [k, c] of Object.entries(by ?? {})) { o[k] ??= { run: 0, code: 0, unverified: 0, mismatch: 0 }; for (const s in c) o[k][s] += c[s]; } return o; };
@@ -638,7 +640,7 @@ export function claimsIn(dir, file, read = audited(file, declares(file)?.from ??
   const words = new Map(read.rows.map(x => [x.line, x.words]));
   for (const row of rows) {
     const at = ob => [...worst.values()].find(r => r.line >= row.line && r.line <= row.end && r.ob === ob);
-    const add = (kind, word, r, w) => claims.push({ name: row.name, line: row.line, kind, word, by: w?.verdict === "contradicted" ? "mismatch" : w?.verdict === "proven" && r?.status !== "mismatch" ? "code" : byOf(r), why: String(byOf(r) === "unverified" ? w?.why ?? r?.what ?? "" : r?.what ?? w?.why ?? "").slice(0, 300) });
+    const add = (kind, word, r, w) => claims.push({ name: row.name, line: row.line, kind, word, by: w?.verdict === "proven" && r?.status !== "mismatch" ? "code" : byOf(r), why: String(byOf(r) === "unverified" ? w?.why ?? r?.what ?? "" : r?.what ?? w?.why ?? "").slice(0, 300) });
     for (const w of words.get(row.line) ?? []) { const ob = claimOf(w.word); add(w.word.replace(/\(.*$/, ""), w.word, ob && at(ob), w); }
     if (row.obligations.includes("fields")) add(row.facts.parts?.some(x => x.pending) ? "pending ref" : "ref", null, at("fields"));
     if (row.obligations.includes("fails")) add("fails", null, at("fails"));

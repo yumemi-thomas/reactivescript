@@ -1,0 +1,12 @@
+// solid-slider: slides of the app's own in a carousel, and a button that moves it.
+import { Slider, SliderProvider, SliderButton } from "solid-slider"
+
+export default component App() {
+  <SliderProvider>
+    <Slider options={{ loop: true }}>
+      <div class="slide">one</div>
+      <div class="slide">two</div>
+    </Slider>
+    <SliderButton next={true} class="next">next</SliderButton>
+  </SliderProvider>
+}

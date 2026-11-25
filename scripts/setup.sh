@@ -22,7 +22,7 @@ step "ref/ (links ../solid-next)"
 step "compiler: the Node-API binding, rxc, and the WebAssembly build the language server and rx-tsc read"
 (cd "$ROOT/compiler" && npm install && npm run build && cargo build --release)
 rustup target list --installed 2>/dev/null | grep -q wasm32-unknown-unknown || rustup target add wasm32-unknown-unknown
-(cd "$ROOT/compiler" && cargo build --lib --release --target wasm32-unknown-unknown)
+(cd "$ROOT/compiler" && cargo build --lib --release --target wasm32-unknown-unknown && cargo build -p rx-words --release --target wasm32-unknown-unknown)
 
 step "runtime"
 (cd "$ROOT/runtime" && npm install && npm run build)

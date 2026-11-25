@@ -6,5 +6,5 @@
 export type TargetWithEventMap = import("@solid-primitives/event-listener").TargetWithEventMap
 export type EventMapOf<Target> = import("@solid-primitives/event-listener").EventMapOf<Target>
 export type EventListenerOptions = import("@solid-primitives/event-listener").EventListenerOptions
-export pure fn createEventListener<Target extends TargetWithEventMap, EventMap extends EventMapOf<Target>, EventType extends keyof EventMap>(ref target: import("@solid-primitives/utils").Many<Target | undefined>, ref type_: import("@solid-primitives/utils").Many<EventType>, handler: handler (event: EventMap[EventType]) => void, options?: EventListenerOptions): void instantiates
+export fn createEventListener<Target extends TargetWithEventMap, EventMap extends EventMapOf<Target>, EventType extends keyof EventMap>(ref target: import("@solid-primitives/utils").Many<Target | undefined>, ref type_: import("@solid-primitives/utils").Many<EventType>, handler: handler (event: EventMap[EventType]) => void, options?: EventListenerOptions): void
 export fn makeEventListener<Target extends TargetWithEventMap, EventMap extends EventMapOf<Target>, EventType extends keyof EventMap>(target: Target, type_: EventType, handler: handler (event: EventMap[EventType]) => void, options?: EventListenerOptions): () => void

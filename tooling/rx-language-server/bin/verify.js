@@ -185,12 +185,11 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
   // MO-11q: `Dialog.Trigger` is a member of `Dialog`. MO-8t: and `toaster.show` a method of `toaster`, called on it
   const at = n => { const ks = n.split("."); let o = ks[0] in mod ? mod : mod.default ?? mod, of; for (const k of ks)   /* (a CommonJS build's re-exports are its default's) */ { of = o; o = o?.[k]; } return ks.length > 1 && typeof o === "function" && !/^[A-Z]/.test(ks[ks.length - 1]) ? o.bind(of) : o; };
   // MO-8w: which of the file's words the code proves is read from the code (src/declare-audit.js): a word that is proven
-  // is held, below, to what the reading claims; one the code contradicts is a mismatch as it stands; the rest are a
-  // person's, and are run as any row is
+  // is held, below, to what the reading claims; the rest are a person's, and are run as any row is
   let read = null;
-  if (process.env.RX_VERIFY_READ !== "0" && !mutation) { try { read = given(file) ?? require("../src/declare-audit.js").auditFile(require("typescript"), file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
+  if (process.env.RX_VERIFY_READ !== "0" && !mutation) { try { read = given(file) ?? require("../src/declare-audit.js").auditFile(file); } catch (e) { read = null; if (process.env.RXV_DEBUG) fs.writeSync(2, `[rx-verify] the code was not read: ${e?.message ?? e}\n`); } }
   const proven = new Map();   // export → claim → why the code proves it
-  const audit = { proven: 0, contradicted: 0, unproven: 0 };
+  const audit = { proven: 0, unproven: 0 };
   for (const row of read?.rows ?? []) for (const w of row.words) {
     audit[w.verdict]++;
     const ob = claimOf(w.word);
@@ -241,12 +240,24 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
       let own;   // the providers of the contexts the row names, where this file or the probe has each
 
       // pure: refuted by running, never shown by it (RFC 28)
-      if (!mutation && x.pure && runnable && (obs.has("pure") || read.has("pure"))) {
+      if (!mutation && x.pure && runnable) {
         const bad = []; called.add(`${line}:pure`);
-        if (read.has("pure")) {   // MO-8v: what a `pure` read from the code says it does not do
-          const seen = watched(createRoot, v, args());
-          try { await seen.result; } catch { /* what it rejects with is the row's rejects(…) */ }
-          bad.push(...seen.done().map(b => `read from its code as pure, but when it is called ${b}: the reading is wrong — remove the word, and report it`));
+        // MO-8v: what a `pure` says the fn does not do, whoever wrote it: it changes nothing it is given, leaves nothing on the
+        // global object, asks no clock and no chance, and what it answers is not changed later (by a timer it left to run)
+        const seen = watched(createRoot, v, args(), x.params.flatMap((p, i) => p.ref ? [i] : []));
+        if (obs.has("pure") || read.has("pure")) try { await seen.result; } catch { /* what it rejects with is the row's rejects(…) */ }
+        const did = [...seen.done()]; if (seen.scheduled()) { await new Promise(r => setTimeout(r, 30)); for (const b of seen.done()) if (!did.includes(b)) did.push(b.replace(/^it /, "it later ")); if (seen.changed()) did.push("what it answered is changed later"); }
+        if (read.has("pure")) bad.push(...did.map(b => `read from its code as pure, but when it is called ${b}: the reading is wrong — remove the word, and report it`));
+        // (a primitive's: what it makes may ask the clock; it changes nothing it is given)
+        else bad.push(...did.filter(b => obs.has("pure") || /changes what it is given/.test(b)).map(b => `declared pure, but when it is called ${b}`));
+        // what another fn of the file does between two calls (one the probe has arguments for) is nothing a pure one knows of
+        if (obs.has("pure") && !bad.length && !x.uses?.length) for (const other of fns) {
+          if (other === row || other.facts.pure || other.facts.uses?.length || !probes[other.name]?.args || typeof at(other.name) !== "function") continue;
+          let a, b, threw = false; const text = v => { try { return JSON.stringify(v, (k, y) => typeof y === "function" ? "fn" : y); } catch { return undefined; } };
+          createRoot(d => { try { a = text(v(...args())); } catch { threw = true; } d(); });
+          try { const r = at(other.name)(...probes[other.name].args()); if (typeof r?.then === "function") await r; } catch { /* its own rows say */ }
+          createRoot(d => { try { b = text(v(...args())); } catch { threw = true; } d(); });
+          if (!threw && a !== undefined && b !== undefined && a !== b && text(args()) === text(args())) { bad.push(`declared pure, but it answers differently after ${other.name} is called (${String(a).slice(0, 30)} then ${String(b).slice(0, 30)})`); break; }
         }
         let ran = false;
         if (obs.has("pure") && !bad.length) {   // (a fn that makes something each call is not alike on two calls by design)
@@ -268,6 +279,17 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
         }
         if (bad.length) push("pure", "mismatch", bad.join("; "));
         else if (ran && !code.has("pure")) push("pure", "unverified", "pure not contradicted: two calls with the same arguments answer alike, which cannot show a fn is pure");
+      }
+
+      // instantiates (MO-10a): where nothing owns what it makes, Solid's development build says so, or it throws; a call that
+      // returns with no report needs no owner (a run with one set of arguments: one path). In a process of its own: the build
+      if (!mutation && /\)[^()]*\binstantiates\b/.test(row.text.replace(/"(?:[^"\\]|\\.)*"/g, "")) && runnable && x.side !== "server") {
+        const r = unowned(js, name, probeFile);
+        if (r?.reports) push("instantiates", "held", `instantiates holds: with no owner Solid reports it (${r.reports})`, { quiet: true });
+        else if (!r || r.threw !== undefined) push("instantiates", "unverified", `instantiates not run: ${r ? `with no owner it threw (${r.threw})` : "Solid's development build did not answer"}`, { quiet: true });
+        else if (read.has("instantiates")) push("instantiates", "mismatch", "instantiates was read from the code, but called with no owner it returns, and Solid reports nothing: the reading is wrong — remove the word, and report it");
+        // (an author's: the call is made once, whatever it makes — a client, a bus — and no run shows that)
+        else push("instantiates", "unverified", "instantiates not shown: called with no owner it returns, and Solid reports nothing", { quiet: true });
       }
 
       // rejects(E): what its promise rejects with, under the probe's failing arguments
@@ -371,6 +393,7 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
           if (threw) push("draft", "unverified", `its \`draft\` parameter is not run: it threw (${short(threw, 50)})`);
           else if (after) push("draft", "mismatch", "declared to change its `draft` parameter during the call, but it changed it after it returned: it kept what it was given");
           else if (!during) push("draft", "mismatch", "its parameter is declared `draft`, but with the probe's arguments it changed nothing of what it was given");
+          else if (await keeps(v, probe.args, drafts)) push("draft", "mismatch", "its parameter is declared `draft`, but after the call it keeps what it was given");
           else push("draft", "held", `it changes its \`draft\` parameter in place during the call (${during} write${during === 1 ? "" : "s"}), and not after`);
         }
       }
@@ -432,7 +455,16 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
         const ran = runs.get(hook.name);
         if (ran.renderError) push("unverified", `provides(${c}) not run: it threw as it mounted (${short(ran.renderError, 50)}); give its props as the probe's props`);
         else if (ran.boundary && !notReady(ran.boundary)) still(hook.name, ran.boundary);
-        else push("held", `provides(${c}) holds: ${hook.name}, which fails without it, runs under it`), await later(hook.name, () => { at(hook.name)(...(probes[hook.name]?.args?.() ?? [])); return null; });
+        else {
+          // …and of every other view it is given: none is run where the context is not (a value that reads it, a test of it)
+          let outside;
+          for (const p of row.kind === "component" && !probes[row.name]?.around ? row.facts.props.filter(p => p.view && p.name !== "children") : []) {
+            const r = await place.renderOnce(() => solid.createComponent(at(row.name), Object.defineProperty({ ...propsOf(row.name) }, p.name, { get: () => solid.createComponent(() => { at(hook.name)(...(probes[hook.name]?.args?.() ?? [])); return null; }, {}), enumerable: true })), resolve);
+            if (r.error && failure(r.error).failed === failsAlone.get(hook.name)) { outside = p.name; break; }
+          }
+          if (outside) push("mismatch", `declared provides(${c}), but ${hook.name}, in its prop ${outside}, fails as it does alone: the component runs that view outside the provider`);
+          else push("held", `provides(${c}) holds: ${hook.name}, which fails without it, runs under it`), await later(hook.name, () => { at(hook.name)(...(probes[hook.name]?.args?.() ?? [])); return null; });
+        }
       } catch (e) { if (!noRenderer(e)) throw e; push("unverified", `provides(${c}) not run: it is mounted with @solidjs/universal, which is not installed here (npm i -D @solidjs/universal)`); }
     }
   }
@@ -443,15 +475,14 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
   // MO-11r, MO-10i: where it renders what it is given (with the probe's scene), and its draft callbacks
   out.push(...(await place.verifyPlacement({ rows: checked, mod, probeMod, solid, resolve })));
 
-  // MO-8w: a word the code contradicts is a mismatch whoever wrote it; a claim the code proves and no run refuted is
-  // held by that proof, where running showed nothing of it
-  for (const row of read?.rows ?? []) for (const w of row.words) if (w.verdict === "contradicted") out.push({ line: row.line, ob: claimOf(w.word) ?? "exists", status: "mismatch", what: `${row.name}: ${w.word} is contradicted by the code: ${w.why} — the word is false as the module is installed: take it off, or declare what is true (MO-8w)` });
+  // MO-8w: a claim the code proves and no run answered: `pure`, which no run can show, is `read`; another is not held by the
+  // reading that wrote it
   for (const row of checked) for (const [ob, why] of proven.get(row.name) ?? []) {
     const mine = out.filter(r => r.line === row.line && [].concat(r.ob).includes(ob));
     if (mine.some(r => r.status === "mismatch" || r.status === "held")) continue;
     for (const r of mine) out.splice(out.indexOf(r), 1);   // an `unverified` the proof answers
     if (ob === "pure") { out.push({ line: row.line, ob, status: "read", by: "code", what: `${row.name}: pure is read from the code (${why}: what a getter or a callback among its arguments does is the caller's), ${mine.length || called.has(`${row.line}:${ob}`) ? "and no run contradicts it" : "which was not run"}` }); continue; }
-    out.push({ line: row.line, ob, status: "held", by: "code", what: `${row.name}: ${describe(ob)} is proven by the code (${why}), ${mine.length || called.has(`${row.line}:${ob}`) ? "and no run contradicts it" : "which was not run"}` });
+    out.push({ line: row.line, ob, status: "unverified", by: "code", what: `${row.name}: ${describe(ob)} is read from the code (${why}), ${mine.length ? `and not shown by running: ${mine.map(r => r.what.replace(/^[^:]+: /, "")).join("; ").slice(0, 200)}` : "and no run was made of it: give the probe what it needs"}` });
   }
   out.push(...require("../src/strict.js").unanswered(file, out));
   const order = new Map(out.map((r, i) => [r, i]));
@@ -461,23 +492,42 @@ async function verifyModule(file, rows, js, probeMod, probeFile, mutation) {
 
 /** Calls `fn(...args)` under a root, watching what a `pure` read from the code says it does not do: `done()` lists what
  *  was seen — an argument changed, a global left behind, the clock or a random number asked for while it was called. */
-function watched(createRoot, fn, args) {
-  const snap = () => { try { return JSON.stringify(args, (k, v) => typeof v === "function" ? undefined : v); } catch { return undefined; } };
+function watched(createRoot, fn, args, refs = []) {
+  // (what it is given: its data, and what the accessors among its arguments answer, where asked twice they answer alike)
+  const data = () => { try { return [...args, ...refs.map(i => typeof args[i] === "function" && !args[i].length ? args[i]() : null)].map(x => JSON.stringify(x, (k, v) => typeof v === "function" ? undefined : v)); } catch { return undefined; } };
+  const still = String(data()) === String(data()), snap = () => still ? data() : undefined;
+  const page = () => { try { const d = globalThis.document; return d && d.title + d.documentElement.outerHTML; } catch { return undefined; } }, pageBefore = page();
   const before = snap(); const globals = new Set(Reflect.ownKeys(globalThis)); const asked = new Set();
   const saved = [Date.now, Math.random, globalThis.performance?.now];
   Date.now = function () { asked.add("Date.now()"); return saved[0].call(Date); };
   Math.random = function () { asked.add("Math.random()"); return saved[1].call(Math); };
   if (saved[2]) performance.now = function () { asked.add("performance.now()"); return saved[2].call(performance); };
-  let result, threw = null;
-  try { createRoot(d => { try { result = fn(...args); } catch (e) { threw = e; } d(); }); }
-  finally { Date.now = saved[0]; Math.random = saved[1]; if (saved[2]) performance.now = saved[2]; }
-  return { result, threw, done: () => {
+  let result, threw = null, scheduled = false;
+  const timers = ["setTimeout", "setInterval", "queueMicrotask", "setImmediate", "requestAnimationFrame"].filter(k => typeof globalThis[k] === "function").map(k => [k, globalThis[k]]);
+  for (const [k, f] of timers) globalThis[k] = function (...a) { scheduled = true; return f.apply(globalThis, a); };
+  const then = Promise.prototype.then; Promise.prototype.then = function (...a) { scheduled = true; return then.apply(this, a); };
+  const of = v => { try { return JSON.stringify(v, (k, y) => typeof y === "function" ? "fn" : y); } catch { return undefined; } };
+  let answered;
+  try { createRoot(d => { try { result = fn(...args); answered = typeof result?.then === "function" ? undefined : of(result); } catch (e) { threw = e; } d(); }); }
+  finally { Date.now = saved[0]; Math.random = saved[1]; if (saved[2]) performance.now = saved[2]; for (const [k, f] of timers) globalThis[k] = f; Promise.prototype.then = then; }
+  return { result, threw, scheduled: () => scheduled, changed: () => answered !== undefined && of(result) !== answered, done: () => {
     const out = []; const after = snap();
-    if (before !== undefined && after !== undefined && before !== after) out.push(`it changed what it was given (${String(before).slice(0, 30)} to ${String(after).slice(0, 30)})`);
+    const i = before && after ? before.findIndex((x, i) => x !== after[i]) : -1;
+    if (i >= 0) out.push(`it changes what it is given (${String(before[i]).slice(0, 30)} to ${String(after[i]).slice(0, 30)})`);
     const left = Reflect.ownKeys(globalThis).filter(k => !globals.has(k)); if (left.length) out.push(`it left ${left.map(String).slice(0, 3).join(", ")} on the global object`);
+    if (page() !== pageBefore) out.push("it changes the page");
     if (asked.size) out.push(`it asked ${[...asked].join(" and ")}`);
     return out;
   } };
+}
+/** Whether a fn keeps what it is given: what it was given is still there when nothing else has it (and what the probe makes
+ *  with no call is not). */
+async function keeps(fn, args, which) {
+  let gc; try { require("node:v8").setFlagsFromString("--expose-gc"); gc = require("node:vm").runInNewContext("gc"); } catch { return false; }
+  const make = async call => { const a = args(); const refs = which.flatMap(i => a[i] !== null && typeof a[i] === "object" ? [new WeakRef(a[i])] : []); if (call) try { await fn(...a); } catch { /* said already */ } return refs; };
+  const gone = async refs => { for (let i = 0; i < 8; i++) { await new Promise(r => setTimeout(r, 5)); gc(); if (refs.every(r => !r.deref())) return true; } return false; };
+  const given = await make(true), control = await make(false);
+  return await gone(control) && !await gone(given);
 }
 /** A value whose identity is what it is: an instance of a class (an AbortSignal, an element), not data. */
 const identified = v => v !== null && typeof v === "object" && !Array.isArray(v) && ![Object.prototype, null].includes(Object.getPrototypeOf(v));
@@ -494,6 +544,11 @@ function otherSide(js, name, probeFile) {
   const dom = !process.argv.includes("--dom");
   const r = require("node:child_process").spawnSync(process.execPath, [...process.execArgv, __filename, "--answer", path.resolve(js), name, probeFile ? path.resolve(probeFile) : "-", ...(dom ? ["--dom"] : [])], { cwd: process.cwd(), encoding: "utf8" });
   try { const out = JSON.parse(String(r.stdout).trim().split("\n").pop()); return out.ok ? { value: out.value, dom } : null; } catch { return null; }
+}
+/** A call of a fn with no owner, under Solid's development build: what Solid reports, or what it threw; null where that could not be asked. */
+function unowned(js, name, probeFile) {
+  const r = require("node:child_process").spawnSync(process.execPath, [...process.execArgv.filter(a => !/^--conditions=production$/.test(a)), "--conditions=browser", "--conditions=development", __filename, "--unowned", path.resolve(js), name, probeFile ? path.resolve(probeFile) : "-", ...(process.argv.includes("--dom") ? ["--dom"] : [])], { cwd: process.cwd(), encoding: "utf8", timeout: 30000 });
+  try { return JSON.parse(String(r.stdout).trim().split("\n").pop()); } catch { return null; }
 }
 /** Structural equality, for `pure`: functions are alike when both are functions. */
 function same(a, b, seen = new Set()) {
@@ -522,6 +577,22 @@ const LABEL = { held: "held      ", read: "read      ", mismatch: "MISMATCH  ", 
   const files = process.argv.slice(2).filter(a => !flags.includes(a));
   // `--answer <module.js> <export> <probe|->` (rx-verify's own second process, SV-7c): the export called with the probe's
   // arguments, twice; its answer as JSON when it is plain data and steady
+  if (process.argv[2] === "--unowned") {
+    process.on("unhandledRejection", () => {}); process.on("uncaughtException", () => {});
+    const [, , , js, name, probeFile] = process.argv; let out = null;
+    try {
+      if (dom) require(require.resolve("@happy-dom/global-registrator", { paths: [process.cwd(), __dirname] })).GlobalRegistrator.register({ url: "http://localhost/" });
+      const mod = await import(pathToFileURL(js).href); const probeMod = probeFile && probeFile !== "-" ? await import(pathToFileURL(probeFile).href) : null;
+      const v = name.split(".").reduce((o, k) => o?.[k], mod);
+      const said = []; for (const k of ["warn", "error"]) console[k] = (...a) => said.push(String(a[0]));
+      let threw = null, r; try { r = v(...(probeMod?.probes?.[name]?.args?.() ?? [])); } catch (e) { threw = e; }
+      if (typeof r?.then === "function") r.then(null, () => {});
+      await new Promise(z => setTimeout(z, 5));
+      const owner = said.find(t => /NO_OWNER|outside a reactive context|never be (?:disposed|run)|under a reactive root/i.test(t)) ?? (threw && /owner|reactive root|context/i.test(String(threw.message ?? threw)) ? String(threw.message ?? threw) : undefined);
+      out = owner ? { reports: owner.replace(/\s+/g, " ").slice(0, 60) } : threw ? { threw: short(threw, 50) } : {};
+    } catch { /* not asked */ }
+    process.stdout.write(JSON.stringify(out) + "\n", () => process.exit(0)); return;
+  }
   if (process.argv[2] === "--answer") {
     const [, , , js, name, probeFile] = process.argv; let out = { ok: false };
     try {
@@ -552,7 +623,7 @@ const LABEL = { held: "held      ", read: "read      ", mismatch: "MISMATCH  ", 
       if (!r.quiet) say(`${path.relative(process.cwd(), f)}:${r.line} ${LABEL[r.status]} ${r.what}\n`);
     }
     // (said, not recorded: it is about no claim)
-    if (audit) say(`${path.relative(process.cwd(), f)}: words: ${audit.proven} read from the code (each run against what the reading claims, where there are arguments to call with), ${audit.contradicted} contradicted by it, ${audit.unproven} it neither shows nor refutes (\`rx-declare --audit\` lists them, with what to check)\n`);
+    if (audit) say(`${path.relative(process.cwd(), f)}: words: ${audit.proven} read from the code (each run against what the reading claims, where there are arguments to call with), ${audit.unproven} it does not show (\`rx-declare --audit\` lists them, with what to check)\n`);
     if (record) { const at = require("../src/strict.js").writeRecord(f, results); say(`${path.relative(process.cwd(), at)}: recorded\n`); }
     all.push({ file: f, results: results.flatMap(r => [].concat(r.ob).map(ob => ({ line: r.line, name: r.name, ob, status: r.status, ...(r.by ? { by: r.by } : {}), what: r.what }))), ...(audit ? { audit } : {}) });
   }

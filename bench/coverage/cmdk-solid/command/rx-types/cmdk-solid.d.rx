@@ -1,0 +1,6 @@
+//@ for cmdk-solid ^2.0.0-rc.0
+export component Command(props: Parameters<typeof import("cmdk-solid").Command>[0] & { filter?: (value: string, search: string, keywords?: string[]) => number; onValueChange?: (value: string) => void })
+export component CommandEmpty(props: Parameters<typeof import("cmdk-solid").CommandEmpty>[0])
+export component CommandInput(props: Parameters<typeof import("cmdk-solid").CommandInput>[0] & { onValueChange?: (search: string) => void })
+export component CommandItem(props: Parameters<typeof import("cmdk-solid").CommandItem>[0] & { onSelect?: handler (value: string) => void })
+export component CommandList(props: Parameters<typeof import("cmdk-solid").CommandList>[0])
