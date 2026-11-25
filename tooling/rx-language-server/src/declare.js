@@ -588,6 +588,9 @@ function accessorOf(ts, checker, t) {
   if (checker.typeToString(r) === "Promise<void>") return undefined;
   return r;
 }
+/** What a part of a result reads: an accessor that is there. One that may be absent, or be another value, is no reader to
+ *  bind: it is its type's own text. */
+const readerOf = (ts, checker, t) => checker.getNonNullableType(t) !== t || t.flags & ts.TypeFlags.Union ? undefined : accessorOf(ts, checker, t);
 // Solid's JSX.Element is a union with null and undefined: its name, not its members, says it is an element
 // (by where it is declared, a `JSX` namespace or Solid's own packages: the DOM's `Element`, another library's, are not)
 const isJsxElement = (ts, checker, t) => {
@@ -654,7 +657,7 @@ function propText(ts, checker, p, at, precise = false, obj) {
   // takes props, and TypeScript does not hold a function of one argument where the library calls with none)
   if (CTX.decl && fnSigs.length && fnSigs.every(s => !s.getParameters().length && givesElement(ts, checker, s))) return `${p.name}${opt}: () => View`;
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return `${p.name}${opt}: Component`;
-  if (checker.getNonNullableType(t).isUnion?.() && !isElement(ts, checker, t) && checker.getNonNullableType(t).types.some(u => isComponent(ts, checker, u)) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.StringLike)) return `${p.name}${opt}: string | Component`;   // a polymorphic \`as\`: a tag or a component (MO-11c)
+  if (checker.getNonNullableType(t).isUnion?.() && !isElement(ts, checker, t) && checker.getNonNullableType(t).types.some(u => isComponent(ts, checker, u)) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.StringLike) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.String || (u.flags & ts.TypeFlags.Intersection && u.types.some(x => x.flags & ts.TypeFlags.String)))) return `${p.name}${opt}: string | Component`;   // a polymorphic \`as\`: a tag or a component (MO-11c)
   if (isElement(ts, checker, t)) return `${p.name}${opt}: View`;
   if (isFn(checker, t)) return `${p.name}${opt}: ${(precise && fnText(ts, checker, t)) || callbackText(ts, checker, t, here, "callback", annotation(ts, p))}`;   // a callback (MO-10g)
   // MO-11c (2026-11-24): a record or a list of components — each component in the literal the prop is given is applied there
@@ -874,15 +877,17 @@ function structural(ts, checker, t, depth = 0, here, refs = depth === 0) {   // 
     return ms.length && ms.length <= 64 ? `{ ${ms.map(([q, f]) => `${q.name}${opt(q)}: ${f}`).join("; ")} }` : undefined;
   }
   if (!props.length || props.length > 32 || u.getProperties().some(q => q.name.startsWith("__@") || q.name.startsWith("#"))) return undefined;
+  // a function that may be absent is one of those (a field that may be left out says so itself)
+  const maybe = (f, qt, q) => { const n = nullish(ts, qt).replace(opt(q) ? / \| undefined/ : /$^/, ""); return n ? `(${f})${n}` : f; };
   const field = q => {
     const qt = typeOf(q);
-    if (isDisposer(ts, checker, qt)) return "() => void";
-    const read = accessorOf(ts, checker, qt);
+    if (isDisposer(ts, checker, qt)) return maybe("() => void", qt, q);
+    const read = readerOf(ts, checker, qt);
     // MO-10b: only the result's own fields are declared accessors; one nested deeper is a value — the function it is
     if (read && !refs) return `() => ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
     if (read && refs) shaped(ts, checker, qt, q.name);
     if (read) return `ref ${text(ts, checker, read, at(q) && `ReturnType<${at(q)}>`, innerNode(ts, checker, annotation(ts, q), read))}`;
-    if (isFn(checker, qt)) return fnResultText(ts, checker, qt, at(q));
+    if (isFn(checker, qt)) return maybe(fnResultText(ts, checker, qt, at(q)), qt, q);
     const st = depth < 2 ? structural(ts, checker, qt, depth + 1, at(q)) : undefined;
     return st ? st + (CTX.refs ? nullish(ts, qt) : "") : text(ts, checker, qt, at(q), annotation(ts, q));
   };
@@ -910,7 +915,7 @@ const EVIDENCE = /\bref\s|=>\s*(?:void\b|Promise<)/;
 const byPlace = s => /\b(?:Parameters|ReturnType)</.test(s);
 function resultText(ts, checker, t, generic = false, here, node) {
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return "Component";
-  const read = accessorOf(ts, checker, t);
+  const read = readerOf(ts, checker, t);
   if (read) shaped(ts, checker, t, "");
   if (read) return `ref ${text(ts, checker, read, CTX.decl && here ? `ReturnType<${here}>` : undefined, innerNode(ts, checker, node, read))}`;   // MO-8q: what the accessor answers, by its place, before an `any`
   if (isDisposer(ts, checker, t)) return nullish(ts, t) ? `(() => void)${nullish(ts, t)}` : "() => void";   // EF-5a: the checker holds a call to keeping it
@@ -932,7 +937,7 @@ function resultText(ts, checker, t, generic = false, here, node) {
       const open = declared(ts, checker, parts[i], x, true);
       return open && !introduced(open) ? open : partAt(i) ?? said;
     };
-    return `${ro}[${checker.getTypeArguments(tuple).map((x, i) => accessorOf(ts, checker, x) && shaped(ts, checker, x, String(i)) ? `ref ${text(ts, checker, accessorOf(ts, checker, x), CTX.decl && partAt(i) ? `ReturnType<${partAt(i)}>` : undefined, innerNode(ts, checker, parts[i], accessorOf(ts, checker, x)))}` : isFn(checker, x) ? (generic && !CTX.decl ? ANY("generic") : setter(ts, checker, x, parts[i], partAt(i))) : value(x, i)).join(", ")}]`;
+    return `${ro}[${checker.getTypeArguments(tuple).map((x, i) => readerOf(ts, checker, x) && shaped(ts, checker, x, String(i)) ? `ref ${text(ts, checker, readerOf(ts, checker, x), CTX.decl && partAt(i) ? `ReturnType<${partAt(i)}>` : undefined, innerNode(ts, checker, parts[i], readerOf(ts, checker, x)))}` : isFn(checker, x) ? (generic && !CTX.decl ? ANY("generic") : nullish(ts, x) ? `(${setter(ts, checker, x, parts[i], partAt(i))})${nullish(ts, x)}` : setter(ts, checker, x, parts[i], partAt(i))) : value(x, i)).join(", ")}]`;
   }
   let s = text(ts, checker, t, here, node);
   // a promise is said to be one, whatever it answers (MO-10b reads it): by its place, else of `any`
@@ -1190,6 +1195,7 @@ function draft(T, spec, from, how) {
   const overloaded = new Set();   // the fns with several signatures: a row is one of them (the shortest), and has no one place
   const exportedIn = l => /^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+([\w$.]+)/m.exec(l)?.[1] ?? /^\/\/ TODO ([\w$.]+):/.exec(l)?.[1];
   let head, lines, contexts, plainRows;
+  const held = new Set(), bare0 = l => l.replace(/^(export (?:(?:server|client) )*)pure fn /, "$1fn ").replace(/\bhandler \(/g, "(").replace(/ (?:instantiates|uses\([^)]*\)|provides\([^)]*\))(?= |$)/g, "");   // the rows TypeScript held, without the words it does not read
   const plain = () => plainRows ??= rows(false);   // the rows every draft had
   if (how.refs !== false) {
     // MO-8m: a row that names the library's types is kept where TypeScript holds it against the module (TY-6, checked
@@ -1209,6 +1215,7 @@ function draft(T, spec, from, how) {
     const MODES = [{ generics: true, paths: true, decl: true, named: true }, { generics: true, paths: true, decl: true }, { generics: true, paths: false, decl: true }, { generics: true, paths: true }, { generics: true, paths: false }, { generics: false, paths: true }, { generics: false, paths: false }, { generics: false, paths: true, decl: true, whole: true }];
     const cands = [rows(MODES[0])], first = cands[0];
     let bad = check(first);
+    if (bad) for (const l of strip(first.lines)) if (!bad.has(exportedIn(l))) held.add(bare0(l));
     // the first reading, where it holds whole — most modules — says the most, and no other is made
     // (and where it does not, of the rows it left something to say of)
     const groups = [group(first.lines)];
@@ -1284,6 +1291,13 @@ function draft(T, spec, from, how) {
     if (why.length) lines.splice(i, 0, `// TODO ${n}: ${why.length} \`any\` here ${why.length === 1 ? "is" : "are"} the draft's, not the library's (${[...new Set(why.map(c => overloaded.has(n) && /^(internal-type|generic|generic-computed|callback|function-result)$/.test(c) ? "overload" : c))].join(", ")}): name the type, or leave the row out (MO-8q)`);
   }
   for (let i = 0; i < lines.length; i++) lines[i] = lines[i].replace(/\u00ab[^\u00bb]*\u00bb/g, "");
+  // a row written otherwise than it was held is held once more as it stands (TY-6): one TypeScript refuses is no row, and the
+  // export is as an undeclared import's is
+  if (how.refs !== false) for (let k = 0; k < 6 && lines.some(l => l.startsWith("export ") && !held.has(bare0(l))); k++) {
+    let bad; try { bad = require("./declare-check.js").failing([...out, ...lines].join("\n") + "\n", out.length, lines, spec, from, opts, lib); } catch (e) { if (e.code !== "RX_DRAFT_UNREADABLE") throw e; bad = undefined; }
+    if (!bad?.size) break;
+    lines = lines.map(l => { const n = l.startsWith("export ") && exportedIn(l); const why = n && (bad.get(n) ?? bad.get(n.split(".")[0])); if (why && how.unheld) how.unheld[n] = why; return why ? `// left out, TypeScript does not hold it against the module (TY-6): ${l}` : l; });
+  }
   return [...out, ...lines].join("\n") + "\n";
 }
 
