@@ -249,7 +249,7 @@ export default component App() { <Root>{view item (o) { <tr><td>{o.v}</td></tr> 
 ```
 
 ```rx
--- reject: VIEW_NOT_SHOWN
+-- types: TS2345
 context item: (o: { v: number }) => View
 component Root(p: { item: (o: { v: string }) => View; children: View }) { provide item = p.item
   <div>{p.children}</div> }

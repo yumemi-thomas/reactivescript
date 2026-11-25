@@ -88,7 +88,79 @@ export default component App() { source n := "A"
 | 0 | mount | `tN` |  |
 | 1 | handler `n := "B"` | `tY` |  |
 
+## Variant: a view the root may not have been given: the context then holds none, and nothing is shown
+
+```rx
+context item: (o: { v: string }) => View
+component Part() { <li><use.item v="a" /></li> }
+component Root(p: { item?: (o: { v: string }) => View; children?: View }) { provide item = p.item
+  <ul>{p.children}</ul> }
+export default component App() { source n := "A"
+  <button onClick={() => { n := "B" }}>t</button><Root><Part /></Root><Root>{view item (o) { <b>{o.v}{n}</b> }}<Part /></Root> }
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | `taA` |  |
+| 1 | handler `n := "B"` | `taB` |  |
+
+## Variant: a tree: the type of the view's parameter names itself
+
+```rx
+type N = { v: string; kids: N[] }
+context node: (x: { n: N }) => View
+component Tree(p: { node: (x: { n: N }) => View; root: N }) { provide node = p.node
+  <ul><use.node n={p.root} /></ul> }
+component Kids(p: { of: N }) { {for k in p.of.kids { <use.node n={k} /> }} }
+export default component App() { source n := "A"
+  t: N = { v: n, kids: [{ v: "x", kids: [{ v: "y", kids: [] }] }, { v: "z", kids: [] }] }
+  <button onClick={() => { n := "B" }}>t</button><Tree root={t}>{view node (x) { <li>{x.n.v}<ul><Kids of={x.n} /></ul></li> }}</Tree> }
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | `tAxyz` |  |
+| 1 | handler `n := "B"` | `tBxyz` |  |
+
+## Variant: the same type written another way, and a view that asks for less than the context gives
+
+```rx
+context item: (o: { v: string; w: Array<string> }) => View
+context wide: (o: { v: string; w: number }) => View
+component Part() { <li><use.item v="a" w={["b"]} /><use.wide v="c" w={1} /></li> }
+component Root(p: { item: (o: { w: string[]; v: string }) => View; wide: (o: { v: string }) => View; children?: View }) { provide item = p.item
+  provide wide = p.wide
+  <ul>{p.children}</ul> }
+export default component App() { <Root>{view item (o) { <b>{o.v}{o.w[0]}</b> }}{view wide (o) { <i>{o.v}</i> }}<Part /></Root> }
+```
+
+| instant | action | frame | effect |
+| --- | --- | --- | --- |
+| 0 | mount | `abc` |  |
+
 ## Rejected variants
+
+Whether a prop's type is the context's is the type pass's to say. A view that asks for more than the context gives:
+
+```rx
+-- types: TS2345
+context item: (o: { v: string }) => View
+component Part() { <li><use.item v="a" /></li> }
+component Root(p: { item: (o: { v: string; w: number }) => View; children?: View }) { provide item = p.item
+  <ul>{p.children}</ul> }
+export default component App() { <Root>{view item (o) { <b>{o.v}{o.w}</b> }}<Part /></Root> }
+```
+
+Shown without an argument its type asks for:
+
+```rx
+-- types: TS2322
+context item: (o: { v: string }) => View
+component Part() { <li><use.item /></li> }
+component Root(p: { item: (o: { v: string }) => View; children?: View }) { provide item = p.item
+  <ul>{p.children}</ul> }
+export default component App() { <Root>{view item (o) { <b>{o.v}</b> }}<Part /></Root> }
+```
 
 A flag before the view: where the flag is false the context holds `false`, which is shown as text, and text is not a
 row.

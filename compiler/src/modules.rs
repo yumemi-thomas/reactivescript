@@ -1039,7 +1039,7 @@ pub fn field_type(t: &str, field: &str) -> Option<(String, bool)> {
     found.filter(|_| last == 1)
 }
 /// `(s: T) => View`, `() => View`; `View | ((s: T) => View)`, either way round. Whether plain content is taken; the parameter.
-fn view_type(t: &str) -> Option<(bool, Option<String>)> {
+pub fn view_type(t: &str) -> Option<(bool, Option<String>)> {
     let alts: Vec<String> = split_top(t, "|").into_iter().map(|x| x.js_trim().to_string()).collect();
     if let [a, b] = &alts[..] {
         let f = if a == "View" { b } else if b == "View" { a } else { return None };

@@ -4186,8 +4186,9 @@ impl<'a> Checker<'a> {
                     let how = found.as_ref().and_then(|(cs, f)| self.shown_by(*cs).get(f).cloned());
                     match (found, how) {
                         (Some((cs, f)), Some(how)) => {
-                            let want = param.as_ref().map(|t| crate::modules::expand_type(t, &self.opts.types, 0)).unwrap_or_default();
-                            if how.mixed || how.param.clone().unwrap_or_default() != want {
+                            // (whether the two types are one is the type pass's to say, 13: it reads a recursive type, fields in
+                            // another order, `Array<T>`; here, that both are a view with a parameter)
+                            if how.mixed || how.param.is_none() != param.is_none() {
                                 self.err("VIEW_NOT_SHOWN", "RG-4c", format!("context {name} is declared {}, and {} is another type: what shows it, `<use.{name} … />`, gives it what the context says", info.ty.clone().unwrap_or_default(), show(e)));
                             } else {
                                 self.carried_fns.push((info.key.clone(), cs, f, region));

@@ -1410,7 +1410,7 @@ class Checker {
         if (c.ctx!.view?.fn) {                                                             // RG-4c: a context that holds a view with a parameter is given one the component was given, as it is
           const p = d.e.k === "member" && d.e.o.k === "id" ? env.lookup(d.e.o.name) : undefined; const cs = p?.kind === "props" && !p.viewOf ? this.compSyms.get(p.region) : undefined; const how = cs && this.shownBy(cs)?.get((d.e as { p: string }).p);
           if (!cs || !how) this.err("VIEW_NOT_SHOWN", "RG-4c", `context ${d.name} holds a view with a parameter: it is provided one this component was given, \`provide ${d.name} = props.item\`, of a prop declared with the context's type`);
-          else if (how.mixed || (how.param ?? "") !== (c.ctx!.view.param === undefined ? "" : expandType(c.ctx!.view.param, this.types))) this.err("VIEW_NOT_SHOWN", "RG-4c", `context ${d.name} is declared ${c.ctx!.ty}, and ${show(d.e)} is another type: what shows it, \`<use.${d.name} … />\`, gives it what the context says`);
+          else if (how.mixed || (how.param === undefined) !== (c.ctx!.view.param === undefined)) /* whether the two types are one is the type pass's to say (13: it reads a recursive type, fields in another order, `Array<T>`); here, that both are a view with a parameter */ this.err("VIEW_NOT_SHOWN", "RG-4c", `context ${d.name} is declared ${c.ctx!.ty}, and ${show(d.e)} is another type: what shows it, \`<use.${d.name} … />\`, gives it what the context says`);
           else this.carriedFns.push({ key: c.ctx!.key, comp: cs, view: (d.e as { p: string }).p, block: env.region });
         }
         const contract = c.ctx!.contract; const line = this.line;

@@ -8,7 +8,7 @@
 import { inPrelude, language } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
-import { isRx, relativeModule, ViewProps, type ModuleSet, shown, typesOf } from "../src/modules.ts";
+import { isRx, optionalView, relativeModule, ViewProps, type ModuleSet, shown, typesOf } from "../src/modules.ts";
 import { splitTop, shapeHasRef, type JsDecl, type Shape } from "../src/parse.ts";
 import type { ModSig } from "../src/check.ts";
 
@@ -62,6 +62,7 @@ export interface Ctx<T> { readonly __ctx: T }
 export declare function ctx<T>(d?: T): Ctx<T>;
 export declare function use<T>(c: Ctx<T>): T;
 export declare function provide<T>(c: Ctx<T>, v: NoInfer<T>): void;
+export declare function provideOr<T>(c: Ctx<T>, v: NoInfer<T> | undefined): void;
 export declare function effect(f: () => void | (() => void)): void;
 export declare function draft<S, T = S>(seed: S, f: (d: T) => void): T;   // ST-3: the draft has the equation's type where one is written, else its seed's
 export declare function len(x: unknown): number;
@@ -182,6 +183,7 @@ class Proj {
   private refFns = new Map<string, Extract<JsDecl, { kind: "fn" }>>();   // MO-10: declared JS fns with a `ref` parameter or result, by local name
   private refParts = new Map<string, Shape>();               // MO-10b: equations bound to such a fn's tuple or record result
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; this.views = new ViewProps(set, set.programs.get(path)?.decls ?? []); }
+  private propsOf: { name: string; type: string } | undefined;   // the props of the component being projected
   private loose = new Set<string>();   // RG-4c: what the component shows as a view that may be plain content, or nothing
   private views: ViewProps;   // MO-11t
 
@@ -226,9 +228,10 @@ class Proj {
         if (d.noProps) this.w.emit(`${ind}${ex(d)}function ${d.name}() {`, d.line);
         else this.w.emit(`${ind}${ex(d)}function ${d.name}(${d.props}${d.propsType ? `: ${d.propsType.replace(/(:\s*)((?:pending\s+|fails\([^)]*\)\s*)+)/g, "$1")}` : ": any"}) {`, d.line);   // MO-10f: a field's row words are .rx's, not TypeScript's
         const was = this.loose; this.loose = new Set([...shown(d, typesOf(this.set, this.path))].flatMap(([f, v]) => v.mixed || v.optional ? [`${d.props}.${f}`] : []));
+        const wasProps = this.propsOf; this.propsOf = d.noProps || d.propsType === undefined ? undefined : { name: d.props, type: d.propsType };
         this.decls(d.decls, ind + "  ");
         this.w.emit(`${ind}  return (`, d.line); this.markup(d.view.length ? d.view : [], ind + "    "); this.w.emit(`${ind}  );\n${ind}}`, d.line);
-        this.loose = was;
+        this.loose = was; this.propsOf = wasProps;
       }
       if (d.k === "action" || d.k === "server") {
         const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
@@ -243,7 +246,9 @@ class Proj {
         if (x && typeof x.shape === "object") this.refParts.set(d.name, x.shape);
         this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = __.eq(${this.expr(d.e, false, d.name)}${x?.shape === "ref" ? "()" : ""}, true);`, d.line);   // R-1: no promise without `await`
       }
-      if (d.k === "provide") this.w.emit(`${ind}__.provide(${d.name}, ${this.expr(d.e, false)});`, d.line);
+      // RG-4c: a view the component may not have been given is provided as it is — the context then holds none, and what
+      // shows it shows nothing (`item?: (o) => View`, `provide item = props.item`)
+      if (d.k === "provide") this.w.emit(`${ind}__.provide${d.e.k === "member" && d.e.o.k === "id" && this.propsOf && d.e.o.name === this.propsOf.name && optionalView(this.propsOf.type, typesOf(this.set, this.path), d.e.p) ? "Or" : ""}(${d.name}, ${this.expr(d.e, false)});`, d.line);
     }
     for (const d of ds) if (d.k === "effect") {
       this.w.emit(`${ind}__.effect(() => {`, d.line);

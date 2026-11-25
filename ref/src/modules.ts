@@ -404,6 +404,12 @@ export function takesView(propsType: string | undefined, types: Types, field: st
   return /\bView\b/.test(t.type) ? true : valueType(t.type) ? false : undefined;
 }
 
+/** RG-4c: whether a prop is a view with a parameter that the component may not be given (`item?: (o: T) => View`). */
+export function optionalView(propsType: string | undefined, types: Types, field: string): boolean {
+  if (propsType === undefined) return false;
+  const t = fieldType(expandType(propsType, types), field);
+  return !!t && t.optional && viewType(t.type.trim())?.mixed === false;
+}
 /** RG-4c, a context that holds a view (proposals/27): its declared type, read, is `View` (`fn: false`) or a function
  *  giving one, of one parameter or none (`fn: true`; `param`: the parameter's type). */
 export function viewCtx(type: string | undefined, types: Types): { fn: boolean; param?: string } | undefined {
