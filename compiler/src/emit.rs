@@ -2225,7 +2225,8 @@ impl<'p> Gen<'p> {
         for p in params {
             self.set(inner, p, val(mg(p)));
         }
-        let pre = self.block(decls, body, inner, None, false)?;
+        // RG-7a: what it provides is for what is in it
+        let pre = self.owned(decls, body, inner, false)?;
         Ok(arrow_block(params.iter().map(|p| P::Id(mg(p))).collect(), pre, false))
     }
     fn kids(&mut self, ms: &[Markup], env: Env) -> R<Vec<Child>> {

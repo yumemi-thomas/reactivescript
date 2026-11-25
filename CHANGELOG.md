@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Fixed: a view given to a JavaScript component that provides** (`{view (x) { provide c = x … }}`) had no owner of its own in the crate: the next view saw it (RG-7a;
+  `compiler/test/js-host.mjs`; proposals/bugs/38).
 - **Fixed: `NESTED_NOT_RENDERED`, twice on a line**, in the same order in both checkers (S-module-41; proposals/bugs/39).
 - **Fixed: an `await` in a component's children** was not compiled by the crate (S-view-1; proposals/bugs/37). It is still not, in a module where
   children read a context (proposals/bugs/36).
