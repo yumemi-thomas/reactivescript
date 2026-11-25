@@ -6,7 +6,7 @@ import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
-import { expandType, onlyShown, otherMention, shown, shownIn, typesOf, viewUses, viewNotShown, type ModuleSet, type Shown, type Types } from "./modules.ts";
+import { expandType, onlyShown, otherMention, shown, shownIn, typesOf, viewUses, viewNotShown, takesView, type ModuleSet, type Shown, type Types } from "./modules.ts";
 import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
@@ -1431,7 +1431,7 @@ class Checker {
         this.bind(inner, d.props, { kind: "props", name: d.props, region: r, line: d.line, ...(d.noProps ? { noProps: d.name } : {}), ...(ph ? { held: ph, ...(d.propsType !== undefined ? { retTy: fieldRows(d.propsType).text } : {}) } : {}) });
         sym.compEnv = inner;
         { const fs = this.shownBy(sym); const o = fs && otherMention(d, fs); if (o) { const at = this.line; this.line = o.line || d.line; const p = `${d.props}.${o.field}`; this.err("VIEW_FN_MISPLACED", "RG-4c", `${d.name} shows ${p} as a view, \`<${p} … />\`: it is named nowhere else (not read, called, stored, passed or spread; \`if ${p}\` asks for an optional one that takes no plain content, and \`{ ${o.field}: none, ...rest } = ${d.props}\` leaves it out of a rest)`); this.line = at; } }
-        { const o = process.env.RX_VIEW_WIDE ? undefined : viewUses(d, this.types, new Set(this.shownBy(sym)?.keys() ?? [])).bad[0]; if (o) { const at = this.line; this.line = o.line || d.line; this.err("VIEW_NOT_SHOWN", "RG-4c", viewNotShown(d.name, d.props, o.field, o.how)); this.line = at; } }
+        { const o = process.env.RX_VIEW_WIDE ? undefined : viewUses(d, this.types, new Set(this.shownBy(sym)?.keys() ?? []), (tag, attr) => { const s = inner.lookup(tag); return s?.comp ? takesView(s.comp.propsType, this.types, attr) : undefined; }).bad[0]; if (o) { const at = this.line; this.line = o.line || d.line; this.err("VIEW_NOT_SHOWN", "RG-4c", viewNotShown(d.name, d.props, o.field, o.how, o.of)); this.line = at; } }
         this.block(d.decls, d.view, inner, { scope: "reactive" });
         this.later.push(() => this.contentCheck(d.view, inner, []));
         return;

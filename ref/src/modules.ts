@@ -2,7 +2,7 @@
 // and orders them dependencies first (MO-1). A cycle is refused (MO-5): signatures are computed in that order.
 import { PRELUDE_FILES } from "./names.ts";
 import { parseProgram, parseDeclarations, ParseError, fieldName, isViewType, splitTop, closes, type JsDecl } from "./parse.ts";
-import type { Decl, Expr, Markup, Program } from "./ast.ts";
+import type { Decl, Expr, Markup, Stmt, Program } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
@@ -344,19 +344,20 @@ const TYPE_KEYS = new Set(["type", "ptypes", "ret", "targs", "propsType"]);
  *  `views`: those typed `View`. `held`: a view the component was given, its children (`children`) or another. Such an
  *  equation is a projection and no computation: the view is made where it is read, under what provides and catches there,
  *  as `props.children` is. */
-export type Given = { props?: { less: string[]; views: Set<string> }; held?: "children" | "view" };
+export type Given = { props?: { less: string[]; views: Set<string> }; held?: "children" | "view"; view?: boolean };   // view: declared `View` where the type is read (`views`); the children of a type that is not read are held, and no more is known of them
 export function given(e: Expr, look: (n: string) => Given | undefined): Given | undefined {
   if (e.k === "id") return look(e.name);
   if (e.k === "omit") { const p = given(e.e, look)?.props; return p && { props: { less: [...p.less, ...e.keys], views: p.views } }; }
-  if (e.k === "member") { const p = given(e.o, look)?.props; return !p || p.less.includes(e.p) ? undefined : e.p === "children" ? { held: "children" } : p.views.has(e.p) ? { held: "view" } : undefined; }
+  if (e.k === "member") { const p = given(e.o, look)?.props; if (!p || p.less.includes(e.p)) return undefined; const view = p.views.has(e.p); return e.p === "children" ? { held: "children", ...(view ? { view } : {}) } : view ? { held: "view", view } : undefined; }
   if (e.k === "if") { const d = defaulted(e, look); if (d) return d; }
   const either = e.k === "if" ? [e.t, e.f] : e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&") ? [e.l, e.r] : [];
-  return either.some(x => given(x, look)?.held) ? { held: "view" } : undefined;
+  const gs = either.map(x => given(x, look)).filter(g => g?.held);
+  return gs.length ? { held: "view", ...(gs.some(g => g!.view) ? { view: true } : {}) } : undefined;
 }
 /** A view with a default, `{ children = "none" } = props`: read once. Of text, it is still the children. */
 export function defaulted(e: Expr, look: (n: string) => Given | undefined): Given | undefined {
   if (e.k !== "if" || e.c.k !== "bin" || e.c.op !== "==" || e.c.r.k !== "lit" || e.c.r.v !== undefined || JSON.stringify(e.c.l) !== JSON.stringify(e.f)) return undefined;
-  const g = given(e.f, look); return !g?.held ? undefined : e.t.k === "lit" && typeof e.t.v === "string" ? g : { held: "view" };
+  const g = given(e.f, look); return !g?.held ? undefined : e.t.k === "lit" && typeof e.t.v === "string" ? g : { held: "view", ...(g.view ? { view: true } : {}) };
 }
 /** Names the equations of a block that are projections of its component's props, in whatever order they are written. */
 export function bindGiven(decls: Decl[], look: (n: string) => Given | undefined, set: (n: string, g: Given) => void) {
@@ -372,6 +373,33 @@ export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set
     for (const f of viewFields(body?.trim().replace(/;$/, ""), decls, depth + 1)) out.add(f);
   }
   return out;
+}
+
+/** The fields declared `View` of a component's props, where its type is read: written out, a type of the module, one
+ *  imported from `.rx`. One classification for the checkers, the interpreter, the oracle and the compiled module. */
+export function viewsOf(propsType: string | undefined, types: Types, decls: Decl[] = []): Set<string> {
+  if (propsType === undefined) return new Set();
+  const out = viewFields(propsType, decls);
+  for (const f of viewFields(expandType(propsType, types), [])) out.add(f);
+  return out;
+}
+/** The same of every component of a program, for the runners. */
+export function viewsAll(set: ModuleSet): Map<unknown, Set<string>> {
+  const out = new Map<unknown, Set<string>>();
+  for (const [path, p] of set.programs) {
+    const mine = p.decls.filter(d => d.k === "typedecl");
+    const walk = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string; propsType?: string }; if (o.k === "component" && "props" in o) out.set(o, viewsOf(o.propsType, typesOf(set, path), mine)); Object.values(x).forEach(walk); };
+    walk(p.decls); walk(p.view);
+  }
+  return out;
+}
+/** A type that is read and is a value's, with no view in it: `number`, `string | undefined`, `"a" | "b"`. */
+export function valueType(t: string): boolean { return splitTop(t, "|").every(a => /^(string|number|boolean|bigint|null|undefined|true|false|-?\d[\d.]*|"[^"]*"|'[^']*')$/.test(a.trim())); }
+/** What a component's prop is declared: a view (`true`), a value's type that is read (`false`), or not known. */
+export function takesView(propsType: string | undefined, types: Types, field: string): boolean | undefined {
+  if (propsType === undefined) return undefined;
+  const t = fieldType(expandType(propsType, types), field); if (!t) return undefined;
+  return /\bView\b/.test(t.type) ? true : valueType(t.type) ? false : undefined;
 }
 
 /** RG-4c: a view a component takes and shows: a field of its props declared a function giving a `View`, of one parameter or
@@ -531,17 +559,20 @@ export function onlyShown(d: { props: string; decls: Decl[]; view: Markup[] }): 
   return ![...d.decls, ...d.view].some(x => !named.has(x) && mentions(x));
 }
 
-/** RG-4c: what a component does with the views it is given (its children, and the props typed `View`). A view is only
- *  shown: `{props.children}` in the component's view, also under a default (`props.children ?? e`) or a choice
- *  (`c ? props.children : e`); given on, as content or as an argument of another component, or in a spread of the props;
- *  named again by a projection of the props; asked whether it was given (`if props.children`, `!`, `== undefined`).
- *  `bad`: every other mention, by line. `kids`: the readers that show the children. `skip`: the fields the component
- *  shows as `<props.f … />`, which have their own rule (`otherMention`). */
-export type ViewUses = { kids: Set<unknown>; bad: { field: string; line: number; how: string }[] };
+/** RG-4c: what a component does with the views it is given: the props declared `View` where its type is read (`viewsOf`),
+ *  its children among them. A view is only shown: `{props.children}` in the component's view, also under a default
+ *  (`props.children ?? e`) or a choice (`c ? props.children : e`); given on, as content or as an argument of another
+ *  component that takes a view there, or in a spread of the props; named again by a projection of the props; asked
+ *  whether it was given (`if props.children`, `!`, `== undefined`).
+ *  A name is the binding it is written under: a parameter, a loop's item, a local or an equation of an inner block of
+ *  the same spelling is another name. `bad`: every other mention, in the order of the text. `kids`: the readers that
+ *  show a view. `skip`: the fields the component shows as `<props.f … />`, which have their own rule (`otherMention`).
+ *  `dest`: what the prop `attr` of `<tag>` is declared (`takesView`). */
+export type ViewUses = { kids: Set<unknown>; bad: { field: string; line: number; how: string; of?: string }[] };
 /** What refuses a view read as a value, and the way that is accepted, by what read it (`how`). */
-export function viewNotShown(comp: string, props: string, field: string, how: string): string {
+export function viewNotShown(comp: string, props: string, field: string, how: string, of = ""): string {
   const v = field === "props" || field === "view" ? `${props}.children` : `${props}.${field}`;
-  if (field === "props") return `${comp} is given views in ${props}, and gives ${props} whole to what is no component: a view is only shown — take the views out first, \`{ children, ...rest } = ${props}\`, and show them (\`{children}\`)`;
+  if (field === "props") return `${comp} is given views in ${props} (${of}), and gives ${props} whole to what is no component: a view is only shown — take them out first, \`{ ${of}, ...rest } = ${props}\`, and show each (\`{${of.split(", ")[0]}}\`)`;
   const tail: Record<string, string> = {
     peek: `\`peek\` keeps nothing of it — show it where it goes, \`{${v}}\`: each place it is shown has its own, made there`,
     source: `a source does not hold it — show it, \`{${v}}\`; to show it later, keep a source that says when: \`{if open { {${v}} }}\``,
@@ -552,73 +583,142 @@ export function viewNotShown(comp: string, props: string, field: string, how: st
     list: `a list does not hold it — write them one after the other: \`{${v}}{…}\``,
     context: `a context does not carry it — give it on as an argument typed \`View\` of the component that shows it (\`<Q part={${v}} />\`), or let what is shown elsewhere be shown by a \`portal to(…)\` where it is written`,
     argument: `a fn does not take it — a component does: \`<Q part={${v}} />\``,
-    value: `it is not read as a value (compared, written out, computed with) — \`{${v}}\` shows it, \`${v} != undefined\` asks whether one was given`,
+    prop: `${of} takes a value, not a view — give it on to a prop typed \`View\`, or show it: \`{${v}}\``,
+    value: `it is not read as a value (compared, written out, computed with, kept from one instant to the next) — \`{${v}}\` shows it, \`${v} != undefined\` asks whether one was given`,
   };
   return `${comp} is given a view, ${field === "view" ? "a prop typed View" : field}, and a view is only shown: ${tail[how] ?? tail.value}`;
 }
-export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, types: Types, skip: Set<string> = new Set()): ViewUses {
-  const kids = new Set<unknown>(), bad: { field: string; line: number; how: string }[] = [];
-  const text = d.propsType === undefined ? undefined : expandType(d.propsType, types);
-  const ct = text === undefined ? undefined : fieldType(text, "children");
-  const childView = !skip.has("children") && !!ct && isViewType(ct.type);   // declared `View` where the type is read: children typed as a function are a function (bug 34), and what a type of JavaScript hides is as it was
-  const views = new Set([...viewFields(text, [])].filter(f => !skip.has(f)));
-  const names = new Map<string, Given>([[d.props, { props: { less: [], views } }]]);
-  const look = (n: string) => names.get(n);
-  type O = Record<string, any>;
-  const lists: Decl[][] = [];
-  const gather = (x: unknown): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { if (x.some(y => y && (y as O).k === "eq")) lists.push(x as Decl[]); x.forEach(gather); return; } Object.values(x).forEach(gather); };
-  gather([d.decls, d.view]);
-  for (let more = true; more;) { const n = names.size; for (const l of lists) bindGiven(l, look, (k, g) => { names.set(k, g); }); more = names.size > n; }
-  const held = (e: Expr): string | undefined => { const g = given(e, look); return !g?.held || (g.held === "children" && !childView) ? undefined : g.held; };
-  const form = (e: Expr): boolean => (e.k === "id" || e.k === "member") && held(e) !== undefined;
-  const whole = (e: Expr): boolean => { const p = given(e, look)?.props; return !!p && ((childView && !p.less.includes("children")) || [...p.views].some(v => !p.less.includes(v))); };
-  const HOW: Record<string, string> = { peek: "peek", rec: "record", arr: "list", call: "argument", source: "source", write: "source", optimistic: "source", provide: "context", effect: "effect", action: "handler", server: "handler" };
-  const plain = (x: unknown, line: number, how = "value"): void => {
-    if (!x || typeof x !== "object") return;
-    if (Array.isArray(x)) { for (const y of x) plain(y, line, how); return; }
-    const o = x as O; if (typeof o.line === "number") line = o.line;
-    if (how !== "handler" && how !== "effect") how = o.k === "fn" ? (typeof o.name === "string" ? "argument" : o.stmts ? "handler" : "closure") : HOW[o.k] ?? how;   // what reads it: the nearest, but a handler's or an effect's body whatever is in it
-    if (o.k === "id" || o.k === "pre") { const g = names.get(o.name); if (g?.held && held(o as Expr)) bad.push({ field: g.held, line, how }); else if (g?.props && whole({ k: "id", name: o.name })) bad.push({ field: "props", line, how }); return; }
-    if (o.k === "member") { if (held(o as Expr)) { bad.push({ field: o.p, line, how }); return; } if (given(o.o, look)?.props) return; plain(o.o, line, how); return; }
-    if (o.k === "omit" && given(o.e, look)?.props) { if (whole(o as Expr)) bad.push({ field: "props", line, how }); return; }
-    // whether one was given is a value like another, wherever it is asked
-    if (o.k === "un" && o.op === "!" && form(o.e)) return;
-    if (o.k === "bin" && /^[!=]==?$/.test(o.op) && form(o.l) && o.r.k === "lit" && o.r.v == null) return;
-    if (o.k === "if" && form(o.c)) { plain(o.t, line, how); plain(o.f, line, how); return; }
-    if (o.k === "bin" && o.op === "&&" && form(o.l)) { plain(o.r, line, how); return; }
-    for (const v of Object.values(o)) plain(v, line, how);
+export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, types: Types, skip: Set<string> = new Set(), dest?: (tag: string, attr: string) => boolean | undefined): ViewUses {
+  const kids = new Set<unknown>(), bad: ViewUses["bad"] = [];
+  const views = new Set([...viewsOf(d.propsType, types)].filter(f => !skip.has(f)));
+  type Sc = { names: Map<string, Given | null>; up: Sc | null };   // null: a name of this block that is no view
+  const sub = (up: Sc, ...ns: (string | undefined)[]): Sc => { const s: Sc = { names: new Map(), up }; for (const n of ns) if (n) s.names.set(n, null); return s; };
+  const look = (sc: Sc) => (n: string): Given | undefined => { for (let s: Sc | null = sc; s; s = s.up) if (s.names.has(n)) return s.names.get(n) ?? undefined; return undefined; };
+  const view = (e: Expr, sc: Sc): Given | undefined => { const g = given(e, look(sc)); return g?.held && g.view ? g : undefined; };
+  const form = (e: Expr, sc: Sc): boolean => (e.k === "id" || e.k === "member") && !!view(e, sc);
+  const left = (e: Expr, sc: Sc): string[] => { const p = given(e, look(sc))?.props; return p ? [...p.views].filter(v => !p.less.includes(v)).sort() : []; };
+  const nothing = (e: Expr): boolean => e.k === "lit" && e.v == null;
+  const near = (how: string, k: string): string => how === "handler" || how === "effect" ? how : k;   // what reads it: the nearest, but a handler's or an effect's body whatever is in it
+  const hit = (field: string, line: number, how: string, of?: string): void => { bad.push({ field, line, how, ...(of ? { of } : {}) }); };
+  /** The view an expression shows, if it does: itself, an arm of a choice or of a default. */
+  const shows = (e: Expr, sc: Sc): string | undefined => {
+    if (e.k === "id") return view(e, sc)?.held;
+    if (e.k === "member") return view(e, sc) ? e.p : undefined;
+    if (e.k === "if") return shows(e.t, sc) ?? shows(e.f, sc);
+    if (e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&")) return shows(e.l, sc) ?? shows(e.r, sc);
+    return undefined;
   };
-  const test = (c: Expr, line: number): void => {
-    if (form(c)) return;
-    if (c.k === "un" && c.op === "!") return test(c.e, line);
-    if (c.k === "bin" && /^[!=]==?$/.test(c.op) && form(c.l) && c.r.k === "lit" && c.r.v == null) return;
-    if (c.k === "bin" && (c.op === "&&" || c.op === "||")) { test(c.l, line); test(c.r, line); return; }
-    plain(c, line);
+  const declared = (x: Decl): string[] => x.k === "import" ? x.names.map(n => n.alias) : x.k === "effect" || x.k === "provide" ? [] : [x.name];
+  const block = (ds: Decl[], up: Sc): Sc => {
+    const sc = sub(up); for (const x of ds) for (const n of declared(x)) sc.names.set(n, null);
+    bindGiven(ds, look(sc), (n, g) => { sc.names.set(n, g); });
+    return sc;
   };
-  const ve = (e: Expr, line: number): void => {
-    if (form(e)) return;
-    if (e.k === "if") { test(e.c, line); ve(e.t, line); ve(e.f, line); return; }
-    if (e.k === "bin" && (e.op === "??" || e.op === "||")) { ve(e.l, line); ve(e.r, line); return; }
-    if (e.k === "bin" && e.op === "&&") { test(e.l, line); ve(e.r, line); return; }
-    plain(e, line);
+  const plain = (x: Expr | Expr[] | undefined, sc: Sc, line: number, how: string): void => {
+    if (!x) return;
+    if (Array.isArray(x)) { for (const y of x) plain(y, sc, line, how); return; }
+    const e = x;
+    switch (e.k) {
+      case "id": { const g = look(sc)(e.name); if (g?.held && g.view) hit(g.held, line, how); else if (g?.props) { const l = left(e, sc); if (l.length) hit("props", line, how, l.join(", ")); } return; }
+      case "pre": plain({ k: "id", name: e.name }, sc, line, how); plain(e.init, sc, line, how); return;   // what it was an instant ago is a value
+      case "member": if (view(e, sc)) { hit(e.p, line, how); return; } if (given(e.o, look(sc))?.props) return; plain(e.o, sc, line, how); return;
+      case "omit": if (given(e.e, look(sc))?.props) { const l = left(e, sc); if (l.length) hit("props", line, how, l.join(", ")); return; } plain(e.e, sc, line, how); return;
+      // whether one was given is a value like another, wherever it is asked
+      case "un": if (e.op === "!" && form(e.e, sc)) return; plain(e.e, sc, line, how); return;
+      case "bin":
+        if (/^[!=]==?$/.test(e.op) && form(e.l, sc) && nothing(e.r)) return;
+        if (!(e.op === "&&" && form(e.l, sc))) plain(e.l, sc, line, how);
+        plain(e.r, sc, line, how); return;
+      case "if": if (!form(e.c, sc)) plain(e.c, sc, line, how); plain(e.t, sc, line, how); plain(e.f, sc, line, how); return;
+      case "peek": plain(e.e, sc, line, near(how, "peek")); return;
+      case "await": plain(e.e, sc, line, how); plain(e.init, sc, line, how); return;
+      case "latest": case "pending": case "spread": case "throw": plain(e.e, sc, line, how); return;
+      case "tpl": for (const p of e.parts) if (typeof p !== "string") plain(p, sc, line, how); return;
+      case "index": plain(e.o, sc, line, how); plain(e.i, sc, line, how); return;
+      case "call": plain(e.f, sc, line, near(how, "argument")); plain(e.args, sc, line, near(how, "argument")); return;
+      case "arr": plain(e.items, sc, line, near(how, "list")); return;
+      case "rec": for (const f of e.fields) plain("spread" in f ? f.spread : f.v, sc, line, near(how, "record")); return;
+      case "fn": { const inner = sub(sc, ...e.params); if (e.stmts) stmts(e.stmts, inner, line, near(how, "handler")); else plain(e.body, inner, line, near(how, "closure")); return; }
+      case "draft": plain(e.seed, sc, line, how); stmts(e.body, sub(sc, "d"), line, how); return;
+      case "catch": plain(e.e, sc, line, how); plain(e.alt, sub(sc, e.name), line, how); return;
+      case "serverfn": stmts(e.body, sub(sc, ...e.params), line, near(how, "handler")); return;
+      default: return;   // lit, use, stylemap
+    }
   };
-  const dk = (ds: Decl[], line: number): void => { for (const x of ds) { if (x.k === "eq" && names.has(x.name) && (given(x.e, look)?.held || given(x.e, look)?.props)) continue; plain(x, (x as O).line ?? line); } };
-  const mk = (ms: Markup[], line: number): void => { for (const m0 of ms) {
-    const m = m0 as O; const at = typeof m.line === "number" ? m.line : line;
-    switch (m.k) {
-      case "read": ve(m.e, at); if (held(m.e)) kids.add(m0); break;
-      case "el": { const comp = /^[A-Z]/.test(m.tag) || shownIn(m.tag) !== undefined;
-        for (const a of m.attrs) { if (a.name === "..." ? !!given(a.e, look)?.props : comp && !/^on[A-Z:]/.test(a.name) && a.name !== "ref") { if (a.name !== "...") ve(a.e, at); } else plain(a.e, at, /^on[A-Z:]/.test(a.name) ? "handler" : "value"); }
-        mk(m.children, at); break; }
-      case "mif": test(m.c, at); dk(m.tDecls, at); mk(m.t, at); dk(m.fDecls, at); mk(m.f, at); break;
-      case "mfor": plain(m.xs, at); dk(m.decls, at); mk(m.body, at); break;
-      case "mview": dk(m.decls, at); mk(m.body, at); break;
-      case "loading": plain(m.on, at); mk(m.fallback, at); dk(m.decls, at); mk(m.body, at); break;
-      case "errored": mk(m.fallback, at); dk(m.decls, at); mk(m.body, at); break;
-      case "portal": plain(m.to, at); dk(m.decls, at); mk(m.body, at); break;
+  /** A condition: a view in it is asked for. */
+  const test = (c: Expr, sc: Sc, line: number, how = "value"): void => {
+    if (form(c, sc)) return;
+    if (c.k === "un" && c.op === "!") return test(c.e, sc, line, how);
+    if (c.k === "bin" && (c.op === "&&" || c.op === "||")) { test(c.l, sc, line, how); test(c.r, sc, line, how); return; }
+    plain(c, sc, line, how);
+  };
+  /** What is shown, given on or named again: a view, or a choice or a default whose every arm is one or a value. */
+  const ve = (e: Expr, sc: Sc, line: number, how = "value"): void => {
+    if (form(e, sc)) return;
+    if (e.k === "if") { test(e.c, sc, line, how); ve(e.t, sc, line, how); ve(e.f, sc, line, how); return; }
+    if (e.k === "bin" && (e.op === "??" || e.op === "||")) { ve(e.l, sc, line, how); ve(e.r, sc, line, how); return; }
+    if (e.k === "bin" && e.op === "&&") { test(e.l, sc, line, how); ve(e.r, sc, line, how); return; }
+    plain(e, sc, line, how);
+  };
+  const stmts = (ss: Stmt[], up: Sc, line: number, how: string): void => {
+    const sc = sub(up);
+    for (const s of ss) {
+      const at = s.line ?? line;
+      switch (s.k) {
+        case "let": plain(s.e, sc, at, how); sc.names.set(s.name, null); break;
+        case "write": case "optimistic": for (const p of s.target.path) if (typeof p !== "string") plain(p, sc, at, how); plain(s.e, sc, at, near(how, "source")); break;
+        case "expr": case "throw": plain(s.e, sc, at, how); break;
+        case "return": plain(s.e, sc, at, how); break;
+        case "action": stmts(s.body, sc, at, near(how, "handler")); break;
+        case "sif": test(s.c, sc, at, how); stmts(s.t, sc, at, how); stmts(s.f, sc, at, how); break;
+        case "for": plain(s.e, sc, at, how); stmts(s.body, sub(sc, s.name), at, how); break;
+        case "try": stmts(s.body, sc, at, how); if (s.handler) stmts(s.handler, sub(sc, s.catchName), at, how); if (s.fin) stmts(s.fin, sc, at, how); break;
+        default: break;   // refresh, affects
+      }
+    }
+  };
+  const dk = (ds: Decl[], sc: Sc, line: number, how = "value"): void => { for (const x of ds) {
+    const at = x.line ?? line;
+    switch (x.k) {
+      case "eq": if (sc.names.get(x.name)) { if (!given(x.e, look(sc))?.props) ve(x.e, sc, at, how); } else plain(x.e, sc, at, how); break;   // a projection: every arm of what it names
+      case "source": plain(x.init, sc, at, near(how, "source")); break;
+      case "fn": { const b = block(x.decls, sub(sc, ...x.params.map(p => p.name))); dk(x.decls, b, at, near(how, "closure")); plain(x.tail, b, at, near(how, "closure")); break; }
+      case "component": { const b = block(x.decls, sub(sc, x.props)); dk(x.decls, b, at, near(how, "closure")); mk(x.view, b, at); break; }
+      case "effect": plain(x.inputs, sc, at, "effect"); stmts(x.body, sc, at, "effect"); break;
+      case "action": case "server": stmts(x.body, sub(sc, ...x.params), at, near(how, "handler")); break;
+      case "provide": plain(x.e, sc, at, near(how, "context")); break;
+      case "context": plain(x.dflt, sc, at, how); break;
+      case "error": plain(x.msg, sub(sc, ...x.params), at, how); break;
+      default: break;   // import, typedecl
     }
   } };
-  dk(d.decls, 0); mk(d.view, 0);
+  const inner = (ds: Decl[], ms: Markup[], up: Sc, at: number): void => { const b = block(ds, up); dk(ds, b, at); mk(ms, b, at); };
+  const mk = (ms: Markup[], sc: Sc, line: number): void => { for (const m of ms) {
+    const at = typeof m.line === "number" ? m.line : line;
+    switch (m.k) {
+      case "read": ve(m.e, sc, at); if (shows(m.e, sc) !== undefined) kids.add(m); break;
+      case "el": {
+        const comp = /^[A-Z]/.test(m.tag) || shownIn(m.tag) !== undefined;
+        const to = (attr: string, e: Expr): void => { const f = shows(e, sc); if (f !== undefined && dest?.(m.tag, attr) === false) hit(f, at, "prop", `${attr} of <${m.tag}>`); };
+        for (const a of m.attrs) {
+          const handler = /^on[A-Z:]/.test(a.name);
+          if (a.name === "...") { if (!given(a.e, look(sc))?.props) plain(a.e, sc, at, "value"); }
+          else if (comp && !handler && a.name !== "ref") { ve(a.e, sc, at); to(a.name, a.e); }
+          else plain(a.e, sc, at, handler ? "handler" : "value");
+        }
+        if (comp) { const c = m.children.filter(x => x.k !== "text" || x.s.trim()); if (c.length === 1 && c[0].k === "read") to("children", c[0].e); }
+        mk(m.children, sc, at); break;
+      }
+      case "mif": test(m.c, sc, at); inner(m.tDecls, m.t, sc, at); inner(m.fDecls, m.f, sc, at); break;
+      case "mfor": plain(m.xs, sc, at, "value"); inner(m.decls, m.body, sub(sc, m.name), at); break;
+      case "mview": inner(m.decls, m.body, sub(sc, ...m.params), at); break;
+      case "loading": plain(m.on, sc, at, "value"); mk(m.fallback, sc, at); inner(m.decls, m.body, sc, at); break;
+      case "errored": mk(m.fallback, sub(sc, m.errName), at); inner(m.decls, m.body, sc, at); break;
+      case "portal": plain(m.to, sc, at, "value"); inner(m.decls, m.body, sc, at); break;
+      default: break;
+    }
+  } };
+  inner(d.decls, d.view, { names: new Map([[d.props, { props: { less: [], views } }]]), up: null }, 0);
   return { kids, bad };
 }
 /** The readers that show a component's children, of every component of a program: for the interpreter. */
