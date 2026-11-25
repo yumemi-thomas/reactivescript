@@ -779,6 +779,16 @@ pub fn view_fields(t: &str, decls: &[Decl], depth: usize, out: &mut HashSet<Stri
     if depth > 8 {
         return;
     }
+    // a union of records: a field that is a view in one of them is one
+    let alts = split_top(t, "|");
+    if alts.iter().filter(|x| !x.trim().is_empty()).count() > 1 {
+        for a in &alts {
+            if !a.trim().is_empty() {
+                view_fields(a.trim(), decls, depth + 1, out);
+            }
+        }
+        return;
+    }
     for part in split_top(t, "&") {
         let part = part.trim();
         if let Some(body) = part.strip_prefix('{').and_then(|p| p.strip_suffix('}')) {
@@ -1183,7 +1193,9 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
                 }
                 ExprKind::Member { p, .. } => if self.view(e, sc).is_some() { vec![p.clone()] } else { vec![] },
                 ExprKind::If { t, f, .. } => [self.fields(t, sc), self.fields(f, sc)].concat(),
-                ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => [self.fields(l, sc), self.fields(r, sc)].concat(),
+                // the left of `&&` is asked: what it is where it was not given is nothing, placed nowhere
+                ExprKind::Bin { op, r, .. } if op == "&&" => self.fields(r, sc),
+                ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||") => [self.fields(l, sc), self.fields(r, sc)].concat(),
                 _ => vec![],
             }
         }
@@ -1530,6 +1542,13 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
                             if n == "..." && comp && self.is_props(&a.e, sc) {
                                 // a spread gives each on under its own name
                                 let l = self.left(&a.e, sc);
+                                let i = attrs.iter().position(|x| std::ptr::eq(x, a)).unwrap_or(0);
+                                let content = children.iter().any(|x| !matches!(&x.kind, MarkupKind::Text(t) if t.trim().is_empty()));
+                                for f in &l {
+                                    if !attrs[i + 1..].iter().any(|x| x.name == *f) && !(f == "children" && content) && (self.dest)(tag, f) == Some(false) {
+                                        self.hit(f, at, "prop", &format!("{f} of <{tag}>"));
+                                    }
+                                }
                                 self.out.at.insert(a as *const Attr as usize, l);
                             }
                             if n == "..." {

@@ -366,6 +366,8 @@ export function bindGiven(decls: Decl[], look: (n: string) => Given | undefined,
 /** The fields typed `View` of a component's props type: written out, or a type of the module (`type P = …`, `interface P`). */
 export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set<string> {
   const out = new Set<string>(); if (t === undefined || depth > 8) return out;
+  const alts = splitTop(t, "|").map(x => x.trim()).filter(Boolean);   // a union of records: a field that is a view in one of them is one
+  if (alts.length > 1) { for (const a of alts) for (const f of viewFields(a, decls, depth + 1)) out.add(f); return out; }
   for (const part of splitTop(t, "&").map(x => x.trim())) {
     if (part.startsWith("{") && part.endsWith("}")) { for (const f of splitTop(part.slice(1, -1), ",;\n")) { const i = f.indexOf(":"); if (i > 0 && isViewType(f.slice(i + 1))) out.add(fieldName(f.slice(0, i))); } continue; }
     const d = decls.find(x => x.k === "typedecl" && x.name === /^\w+/.exec(part)?.[0]);
@@ -587,7 +589,8 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
   const fields = (e: Expr, sc: Sc): string[] => {
     if (e.k === "id" || e.k === "member") { const g = view(e, sc); if (!g) return []; if (e.k === "member") return [e.p]; for (let s: Sc | null = sc; s; s = s.up) if (s.names.has(e.name)) return s.fields?.get(e.name) ?? (g.field ? [g.field] : []); return []; }
     if (e.k === "if") return [...fields(e.t, sc), ...fields(e.f, sc)];
-    if (e.k === "bin" && (e.op === "??" || e.op === "||" || e.op === "&&")) return [...fields(e.l, sc), ...fields(e.r, sc)];
+    if (e.k === "bin" && e.op === "&&") return fields(e.r, sc);   // the left is asked: what it is where it was not given is nothing, placed nowhere
+    if (e.k === "bin" && (e.op === "??" || e.op === "||")) return [...fields(e.l, sc), ...fields(e.r, sc)];
     return [];
   };
   const declared = (x: Decl): string[] => x.k === "import" ? x.names.map(n => n.alias) : x.k === "effect" || x.k === "provide" ? [] : [x.name];
@@ -685,7 +688,11 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
         const to = (attr: string, e: Expr, key: unknown): void => { const f = shows(e, sc); if (f === undefined) return; places.set(key, fields(e, sc)); if (dest?.(m.tag, attr) === false) hit(f, at, "prop", `${attr} of <${m.tag}>`); };
         for (const a of m.attrs) {
           const handler = /^on[A-Z:]/.test(a.name);
-          if (a.name === "..." && comp && given(a.e, look(sc))?.props) places.set(a, left(a.e, sc));   // a spread gives each on under its own name
+          if (a.name === "..." && comp && given(a.e, look(sc))?.props) {                              // a spread gives each on under its own name
+            places.set(a, left(a.e, sc));
+            const later = new Set(m.attrs.slice(m.attrs.indexOf(a) + 1).map(x => x.name));
+            for (const f of left(a.e, sc)) if (!later.has(f) && !(f === "children" && m.children.some(x => x.k !== "text" || x.s.trim())) && dest?.(m.tag, f) === false) hit(f, at, "prop", `${f} of <${m.tag}>`);
+          }
           if (a.name === "...") { if (!given(a.e, look(sc))?.props || (!comp && left(a.e, sc).includes("children") && !m.children.some(x => x.k !== "text" || x.s.trim()))) plain(a.e, sc, at, "value"); }   // a spread of the props gives the views on to a component; an element with no content of its own would be given the children, which one runner shows and another does not
           else if (comp && !handler && a.name !== "ref") { ve(a.e, sc, at); to(a.name, a.e, a); }
           else plain(a.e, sc, at, handler ? "handler" : "value");
