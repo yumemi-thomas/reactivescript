@@ -11,7 +11,7 @@ use crate::ast::*;
 use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
-use crate::modules::{only_shown, other_mention, shown, shown_in, ModuleSet, Shown};
+use crate::modules::{only_shown, other_mention, shown, shown_in, view_misplaced, ModuleSet, Shown};
 use crate::names::{harness_reason, language, scalar, Lang};
 use crate::parse::{closes, js_trim, split_top, type_words, JsDecl, Part, Shape as FShape, Words};
 use crate::signature::{Catch, CompSig, ExportSig, HostSite, Hosted, ModSig, Own, PropSig, SigParam, ViewSig, HOLD};
@@ -2027,6 +2027,7 @@ pub struct Checker<'a> {
     through_reads: Vec<(RId, RId)>,
     /// RG-4c: the views an `.rx` component takes and shows as `<props.f … />`, by field
     shown_memo: HashMap<SId, IndexMap<String, Shown>>,
+    use_busy: HashSet<String>,
     /// what a view lambda is given to
     view_for: HashMap<*const Markup, (SId, String)>,
     /// by component and view, each place it shows it: what with
@@ -2478,6 +2479,7 @@ impl<'a> Checker<'a> {
             render_optional: HashMap::new(),
             through_reads: vec![],
             shown_memo: HashMap::new(),
+            use_busy: HashSet::new(),
             view_for: HashMap::new(),
             placed: HashMap::new(),
             view_stores: vec![],
@@ -4133,6 +4135,13 @@ impl<'a> Checker<'a> {
                     let was = std::mem::replace(&mut self.line, if at == 0 { *line as i64 } else { at as i64 });
                     let p = format!("{props}.{f}");
                     self.err("VIEW_FN_MISPLACED", "RG-4c", format!("{name} shows {p} as a view, `<{p} … />`: it is named nowhere else (not read, called, stored, passed or spread; `if {p}` asks for an optional one that takes no plain content, and `{{ {f}: none, ...rest }} = {props}` leaves it out of a rest)"));
+                    self.line = was;
+                }
+                let skip: Vec<String> = fields.keys().cloned().collect();
+                if let Some((f, at)) = view_misplaced(props, props_type.as_deref(), decls, view, &self.opts.types, &skip) {
+                    let was = std::mem::replace(&mut self.line, if at == 0 { *line as i64 } else { at as i64 });
+                    let what = if f == "props" { format!("views in {props}") } else { format!("a view, {f}") };
+                    self.err("VIEW_NOT_SHOWN", "RG-4c", format!("{name} is given {what}: a view is shown (`{{{props}.children}}`), given on to a component, or asked for (`if {props}.children`, `{props}.children ?? …`) — it is not read as a value (an equation of it that is no projection, a source, `peek`, an effect, a handler, a closure, a record, a list, a context, an argument of a fn). Each place it is shown has its own, owned there"));
                     self.line = was;
                 }
                 self.block(decls, view, inner, Ctx::reactive());
@@ -8945,6 +8954,10 @@ impl<'a> Checker<'a> {
                     out.cls.extend(fails.iter().cloned());
                     return out;
                 }
+                // `provide c = use c`: a provision that reads its own context adds nothing to it
+                if !self.use_busy.insert(c.key.clone()) {
+                    return out;
+                }
                 let mut i = 0;
                 while i < self.provisions.len() {
                     let (pk, pe, penv) = (self.provisions[i].key.clone(), self.provisions[i].e, self.provisions[i].env);
@@ -8954,6 +8967,7 @@ impl<'a> Checker<'a> {
                     }
                     i += 1;
                 }
+                self.use_busy.remove(&c.key);
                 out
             }
             ExprKind::Await { e: inner, init, .. } => {
@@ -9357,7 +9371,6 @@ impl<'a> Checker<'a> {
         self.arg_f = arg_f;
 
         let top = self.esc(None);
-        self.ambiguous_uses();
         // MO-11i: a record's children are nested in its component — which renders them among its own children, or nowhere
         let hosted_view = self.opts.file.as_deref().is_some_and(|f| f.ends_with(".host.rx"));
         // (by line, then name: a tree is met in whatever order it is asked for)

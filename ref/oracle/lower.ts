@@ -177,7 +177,7 @@ type Binding =
   | { k: "ctx"; ctx: ReturnType<typeof createContext<Binding | undefined>>; dflt: Expr | null; home: Scope; dv: Binding | null };   // RG-7: a declared context; its createContext is its identity
 class Scope {
   static all: Scope[] = [];
-  vars = new Map<string, Binding>(); givens = new Map<string, Given>();
+  vars = new Map<string, Binding>(); givens = new Map<string, Given>(); asked = new Map<string, () => boolean | undefined>();   // asked: RG-4c, whether a view under this name was given
   given = (n: string): Given | undefined => this.vars.has(n) || this.givens.has(n) ? this.givens.get(n) : this.parent?.given(n);
   parent: Scope | null; owner: ReturnType<typeof getOwner>;
   constructor(parent: Scope | null) { this.parent = parent; this.owner = getOwner(); Scope.all.push(this); }   // the owner at declaration: provisions are read against it (RG-7)
@@ -299,7 +299,7 @@ export class Oracle {
   }
   private inside(decls: Decl[], view: Markup[], scope: Scope): unknown[] {
     this.declare(decls, scope);
-    for (const e of viewReaders(view, t => { const b = scope.lookup(t); return b?.k === "comp" && !!this.shown.get(b.decl)?.get("children")?.mixed; })) this.hoistAwaits(null, e, scope, false);
+    for (const e of viewReaders(view, t => /^[A-Z]/.test(t))) this.hoistAwaits(null, e, scope, false);
     return this.fragment(view, scope);
   }
   /** R-f-4: error class names → their values; undefined: every failure. */
@@ -314,6 +314,24 @@ export class Oracle {
   private langFn(name: string): unknown { const l = language(name, false); return l === "fn" ? BUILTINS[name] : l === "log" ? this.logFn : undefined; }
   private lang(name: string, scope: Scope, env?: Map<string, unknown>) { return language(name, env?.has(name) || scope.lookup(name)); }
   /** RG-4c: a view the component was given, made where it is read (as the compiled module's). */
+  /** RG-4c: whether a view was given, asked without making it (content that was written is a getter; nothing is nothing, or `[]`). */
+  private asked(e: Expr, scope: Scope): boolean | undefined {
+    if (e.k === "id") { for (let s: Scope | null = scope; s; s = s.parent) { if (s.asked.has(e.name)) return s.asked.get(e.name)!(); if (s.vars.has(e.name) || s.givens.has(e.name)) return undefined; } return undefined; }
+    if (e.k === "member" && given(e, scope.given)?.held) {
+      const o = this.ev(e.o, scope) as any; if (o == null) return false;
+      const d = Object.getOwnPropertyDescriptor(o, e.p), some = (v: unknown) => v != null && v !== false && !(Array.isArray(v) && v.length === 0);
+      return d ? ("value" in d ? some(d.value) : true) : e.p in o && some(o[e.p]);
+    }
+    if (e.k === "if" && defaulted(e, scope.given)) return true;
+    return undefined;
+  }
+  /** … and a condition that asks it. `bare`: the view itself is one. */
+  private asks(c: Expr, scope: Scope, bare: boolean): boolean | undefined {
+    if (bare && (c.k === "id" || c.k === "member")) return this.asked(c, scope);
+    if (c.k === "un" && c.op === "!") { const a = this.asks(c.e, scope, true); return a === undefined ? undefined : !a; }
+    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null && (c.l.k === "id" || c.l.k === "member")) { const a = this.asked(c.l, scope); return a === undefined ? undefined : c.op === "==" ? !a : a; }
+    return undefined;
+  }
   private held(e: Expr, scope: Scope) { return () => { if (e.k !== "if" || !defaulted(e, scope.given)) return this.ev(e, scope); const v = this.ev(e.f, scope); return v === undefined ? this.ev(e.t, scope) : v; }; }
   // ---- declarations ----
   declare(decls: Decl[], scope: Scope) {
@@ -384,7 +402,7 @@ export class Oracle {
         }
         case "eq": {
           for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x);
-          if (scope.givens.get(d.name)?.held) { scope.vars.set(d.name, { k: "memo", get: this.held(d.e, scope) }); break; }
+          if (scope.givens.get(d.name)?.held) { scope.vars.set(d.name, { k: "memo", get: this.held(d.e, scope) }); scope.asked.set(d.name, () => this.asked(d.e, scope)); break; }
           if (this.foreign(d, scope)) break;
           if (d.e.k !== "draft") this.hoistAwaits(d.name, d.e, scope);
           if (d.e.k === "draft") {                                      // ST-3: createProjection((draft) => …, seed)
@@ -566,7 +584,7 @@ export class Oracle {
       }   // in tail position the memo returns the flight (R-1); elsewhere the operand checks below refuse it
       case "latest": { const was = this.imperative; this.imperative = 0; try { return latest(() => { const v = this.ev(e.e, scope, env); return v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v; }); } finally { this.imperative = was; } }   // R-12: `latest` of a value that never had one throws, in a handler as anywhere (Solid S-28)
       case "pending": return isPending(() => { const v = this.ev(e.e, scope, env); if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; });   // Solid D-23: the probe judges reads, so a structured value is read whole
-      case "if": return this.ev(e.c, scope, env) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
+      case "if": return (this.asks(e.c, scope, true) ?? this.ev(e.c, scope, env)) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
       case "throw": throw this.ev(e.e, scope, env);                    // R-f-3
       case "serverfn": { let f = this.serverFns.get(e); if (!f) this.serverFns.set(e, (f = this.serverFn({ name: this.serverNames.get(e) ?? "server fn", params: e.params, body: e.body }, scope))); return f; }   // SF-1d
       case "catch": {                                                  // R-f-4: a matching failure becomes a value
@@ -576,8 +594,9 @@ export class Oracle {
         if (this.imperative) { try { return this.ev(e.e, scope, env); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return alt(err); } }
         return boundaryRead(() => { const v = this.ev(e.e, scope, env); noFlight(v); return v; }, match, alt)();   // Solid: an error read inside try still reaches the boundary — a catch is a boundary around the read
       }
-      case "un": { const v = this.ev(e.e, scope, env) as any; noFlight(v); return e.op === "!" ? !v : -v; }
+      case "un": { const a = this.asks(e, scope, false); if (a !== undefined) return a; const v = this.ev(e.e, scope, env) as any; noFlight(v); return e.op === "!" ? !v : -v; }
       case "bin": {
+        { const a = this.asks(e, scope, false); if (a !== undefined) return a; if (e.op === "&&") { const l = this.asks(e.l, scope, true); if (l !== undefined) return l && this.ev(e.r, scope, env); } }   // RG-4c: asked, not made
         const l = this.ev(e.l, scope, env) as any; noFlight(l);
         if (e.op === "&&") return l ? this.ev(e.r, scope, env) : l;
         if (e.op === "||") return l ? l : this.ev(e.r, scope, env);
@@ -756,7 +775,7 @@ export class Oracle {
           const fn = (params: string[], decls: Decl[], body: Markup[]) => (p: unknown) => { const s2 = new Scope(scope); for (const x of params) s2.vars.set(x, { k: "const", value: p }); return this.region(decls, body, s2); };
           for (const c of m.children) if (c.k === "mview" && c.prop) kids[c.prop] = fn(c.params, c.decls, c.body);
           const view = m.children.find(c => c.k === "mview" && !c.prop);
-          Object.defineProperty(kids, "children", takes ? { enumerable: true, value: view?.k === "mview" ? fn(view.params, view.decls, view.body) : content.some(c => c.k !== "text" || c.s.trim()) ? fn([], [], content) : undefined } : { enumerable: true, get: () => this.fragment(content, scope) });   // plain content, where a view is taken, is one that asks nothing
+          Object.defineProperty(kids, "children", takes ? { enumerable: true, value: view?.k === "mview" ? fn(view.params, view.decls, view.body) : content.some(c => c.k !== "text" || c.s.trim()) ? fn([], [], content) : undefined } : { enumerable: true, get: () => content.length === 1 && content[0].k === "read" && !placed(content[0].e) ? this.fragment(content, scope) : this.region([], content, new Scope(scope)) });   // RG-4c: content is a block of the caller's names, made and owned where it is shown; one `{e}` that asks nothing of its place is the value it is   // plain content, where a view is taken, is one that asks nothing
           const props = this.props(m, scope, kids);
           return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); s2.givens.set(comp.props, { props: { less: [], views: viewFields(comp.propsType, this.typeDecls) } }); return this.region(comp.decls, comp.view, s2); }, props);
         }
@@ -766,9 +785,9 @@ export class Oracle {
         return el;
       }
       case "mif": {
-        const narrowed = m.c.k === "id" ? m.c.name : null;
+        const narrowed = m.c.k === "id" && self.asked(m.c, scope) === undefined ? m.c.name : null;
         return R.createComponent(Show as any, {
-          get when() { return self.ev(m.c, scope); },
+          get when() { return self.asks(m.c, scope, true) ?? self.ev(m.c, scope); },
           get fallback() { const s2 = new Scope(scope); return self.region(m.fDecls, m.f, s2); },
           children: (item: () => unknown) => { const s2 = new Scope(scope); if (narrowed) s2.vars.set(narrowed, { k: "memo", get: item }); return self.region(m.tDecls, m.t, s2); },
         });
@@ -827,3 +846,11 @@ const BUILTINS: Record<string, unknown> = {
 };
 export { flush, NotReadyError, resetErrorHalt };
 export function resetScopes() { Scope.all = []; }
+
+/** Whether an expression asks something of the place it is evaluated at: a `use`, an `await` (not in a closure, which is a value). */
+function placed(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  if (Array.isArray(e)) return e.some(placed);
+  const o = e as { k?: string }; if (o.k === "fn") return false;
+  return o.k === "use" || o.k === "await" || Object.values(e).some(placed);
+}

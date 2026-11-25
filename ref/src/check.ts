@@ -6,7 +6,7 @@ import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
-import { expandType, onlyShown, otherMention, shown, shownIn, typesOf, type ModuleSet, type Shown, type Types } from "./modules.ts";
+import { expandType, onlyShown, otherMention, shown, shownIn, typesOf, viewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
 import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
@@ -1431,6 +1431,7 @@ class Checker {
         this.bind(inner, d.props, { kind: "props", name: d.props, region: r, line: d.line, ...(d.noProps ? { noProps: d.name } : {}), ...(ph ? { held: ph, ...(d.propsType !== undefined ? { retTy: fieldRows(d.propsType).text } : {}) } : {}) });
         sym.compEnv = inner;
         { const fs = this.shownBy(sym); const o = fs && otherMention(d, fs); if (o) { const at = this.line; this.line = o.line || d.line; const p = `${d.props}.${o.field}`; this.err("VIEW_FN_MISPLACED", "RG-4c", `${d.name} shows ${p} as a view, \`<${p} … />\`: it is named nowhere else (not read, called, stored, passed or spread; \`if ${p}\` asks for an optional one that takes no plain content, and \`{ ${o.field}: none, ...rest } = ${d.props}\` leaves it out of a rest)`); this.line = at; } }
+        { const o = viewUses(d, this.types, new Set(this.shownBy(sym)?.keys() ?? [])).bad[0]; if (o) { const at = this.line; this.line = o.line || d.line; this.err("VIEW_NOT_SHOWN", "RG-4c", `${d.name} is given ${o.field === "props" ? `views in ${d.props}` : `a view, ${o.field}`}: a view is shown (\`{${d.props}.children}\`), given on to a component, or asked for (\`if ${d.props}.children\`, \`${d.props}.children ?? …\`) — it is not read as a value (an equation of it that is no projection, a source, \`peek\`, an effect, a handler, a closure, a record, a list, a context, an argument of a fn). Each place it is shown has its own, owned there`); this.line = at; } }
         this.block(d.decls, d.view, inner, { scope: "reactive" });
         this.later.push(() => this.contentCheck(d.view, inner, []));
         return;
@@ -3251,6 +3252,7 @@ class Checker {
   }
   /** R-f-2/3/4: the failures an expression's evaluation can produce. `imp`: imperative scope, where closures are not run now.
    *  `bound`: catch bindings in scope and what they caught (for a rethrow). */
+  private useBusy = new Set<string>();
   private failsOf(e: Expr, env: Env, imp: boolean, bound: Map<string, Set<string>>): Fails {
     const out = noFails(); const go = (x: Expr) => addF(out, this.failsOf(x, env, imp, bound));
     switch (e.k) {
@@ -3275,7 +3277,8 @@ class Checker {
       case "use": {                                                                        // RG-7e: the declared rows, else what this module's provisions of it can fail with
         const c = env.lookup(e.name)?.ctx; if (!c) return out;
         if (c.contract) { for (const x of c.contract.fails) out.cls.add(x); return out; }
-        for (const p of this.provisions) if (p.key === c.key) addF(out, this.failsOf(p.e, p.env, false, new Map())); return out;
+        if (this.useBusy.has(c.key)) return out;                                          // `provide c = use c`: a provision that reads its own context adds nothing to it
+        this.useBusy.add(c.key); try { for (const p of this.provisions) if (p.key === c.key) addF(out, this.failsOf(p.e, p.env, false, new Map())); } finally { this.useBusy.delete(c.key); } return out;
       }
       case "await": go(e.e); if (e.init) go(e.init); for (const c of this.rejects(e.e, env, new Set())) out.cls.add(c); return out;
       case "throw": go(e.e); out.cls.add(this.classOf(e.e, env, bound)); return out;
@@ -3459,7 +3462,6 @@ class Checker {
       const res = { fails, reqs }; escBusy.delete(C); escMemo.set(C, res); return res;
     };
     const top = esc(null);
-    this.ambiguousUses();
     // MO-11i: a record's children are nested in its component — which renders them among its own children, or nowhere (by line, then name: a tree is met in whatever order it is asked for)
     const points = (t: string) => [...t].map(x => x.codePointAt(0)!.toString(16).padStart(6, "0")).join("");
     for (const n of [...this.nested.values()].sort((a, b) => a.line - b.line || (points(a.name) < points(b.name) ? -1 : 1))) { const c = n.env.lookup(n.name)?.compRegion; if (!c || PF(c, "children").some(p => p.term === null)) continue; this.line = n.line; this.err("NESTED_NOT_RENDERED", "MO-11i", `${n.name} is given the components under its record's \`${n.kids}\`, to render among its own children, and renders none: they would never show, and nothing above them is checked — render them where they go, \`{props.children}\` in ${n.name}'s view${(this.opts.file ?? "").endsWith(".host.rx") ? " (or, where the layout applies a component of the host's own that renders them — a router's outlet — import that component in the host's declaration, MO-14f)" : ""}`); }

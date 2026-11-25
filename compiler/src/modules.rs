@@ -1023,6 +1023,267 @@ pub fn other_mention(props: &str, decls: &[Decl], view: &[Markup], fields: &Inde
     all.iter().find_map(|d| if out(d) { None } else { walk(d, props, fields, 0) })
 }
 
+/// RG-4c: what a component does with the views it is given (its children, and the props typed `View`). A view is only
+/// shown (`{props.children}`, also under a default or a choice), given on (as content or an argument of another
+/// component, or in a spread of the props), named again by a projection of the props, or asked whether it was given
+/// (`if props.children`, `!`, `== undefined`). The first other mention: the field, and its line. `skip`: the fields the
+/// component shows as `<props.f … />`, which have their own rule (`other_mention`). `ref/src/modules.ts` `viewUses`.
+pub fn view_misplaced(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String]) -> Option<(String, usize)> {
+    use serde_json::Value;
+    #[derive(Clone)]
+    enum G {
+        Props(Vec<String>),
+        Held(String),
+    }
+    struct W<'a> {
+        names: HashMap<String, G>,
+        views: HashSet<String>,
+        child_view: bool,
+        bad: Option<(String, usize)>,
+        _p: std::marker::PhantomData<&'a ()>,
+    }
+    fn s<'v>(v: &'v Value, f: &str) -> &'v str {
+        v[f].as_str().unwrap_or_default()
+    }
+    impl W<'_> {
+        fn given(&self, e: &Value) -> Option<G> {
+            match s(e, "k") {
+                "id" => self.names.get(s(e, "name")).cloned(),
+                "omit" => match self.given(&e["e"])? {
+                    G::Props(mut less) => {
+                        less.extend(e["keys"].as_array().into_iter().flatten().filter_map(|k| k.as_str().map(str::to_string)));
+                        Some(G::Props(less))
+                    }
+                    _ => None,
+                },
+                "member" => match self.given(&e["o"])? {
+                    G::Props(less) if !less.iter().any(|k| k == s(e, "p")) => match s(e, "p") {
+                        "children" => Some(G::Held("children".into())),
+                        p => self.views.contains(p).then(|| G::Held("view".into())),
+                    },
+                    _ => None,
+                },
+                "if" => self.defaulted(e).or_else(|| (self.is_held(&e["t"]) || self.is_held(&e["f"])).then(|| G::Held("view".into()))),
+                "bin" if matches!(s(e, "op"), "??" | "||" | "&&") => (self.is_held(&e["l"]) || self.is_held(&e["r"])).then(|| G::Held("view".into())),
+                _ => None,
+            }
+        }
+        fn is_held(&self, e: &Value) -> bool {
+            matches!(self.given(e), Some(G::Held(_)))
+        }
+        fn defaulted(&self, e: &Value) -> Option<G> {
+            let c = &e["c"];
+            if s(e, "k") != "if" || s(c, "k") != "bin" || s(c, "op") != "==" || s(&c["r"], "k") != "lit" || c["r"].get("v").is_some() || c["l"] != e["f"] {
+                return None;
+            }
+            match self.given(&e["f"])? {
+                G::Held(h) => Some(G::Held(if e["t"]["k"] == "lit" && e["t"]["v"].is_string() { h } else { "view".into() })),
+                _ => None,
+            }
+        }
+        fn held(&self, e: &Value) -> Option<String> {
+            match self.given(e)? {
+                G::Held(h) if h != "children" || self.child_view => Some(h),
+                _ => None,
+            }
+        }
+        fn form(&self, e: &Value) -> bool {
+            matches!(s(e, "k"), "id" | "member") && self.held(e).is_some()
+        }
+        fn whole(&self, e: &Value) -> bool {
+            match self.given(e) {
+                Some(G::Props(less)) => (self.child_view && !less.iter().any(|k| k == "children")) || self.views.iter().any(|v| !less.contains(v)),
+                _ => false,
+            }
+        }
+        fn hit(&mut self, f: &str, line: usize) {
+            if self.bad.is_none() {
+                self.bad = Some((f.to_string(), line));
+            }
+        }
+        fn plain(&mut self, x: &Value, mut line: usize) {
+            match x {
+                Value::Array(xs) => xs.iter().for_each(|y| self.plain(y, line)),
+                Value::Object(o) => {
+                    if let Some(l) = o.get("line").and_then(Value::as_u64) {
+                        line = l as usize;
+                    }
+                    match s(x, "k") {
+                        "id" | "pre" => {
+                            let id = serde_json::json!({ "k": "id", "name": x["name"] });
+                            match self.names.get(s(x, "name")).cloned() {
+                                Some(G::Held(h)) if self.held(&id).is_some() => self.hit(&h, line),
+                                Some(G::Props(_)) if self.whole(&id) => self.hit("props", line),
+                                _ => {}
+                            }
+                        }
+                        "member" => {
+                            if self.held(x).is_some() {
+                                self.hit(s(x, "p"), line);
+                            } else if !matches!(self.given(&x["o"]), Some(G::Props(_))) {
+                                self.plain(&x["o"], line);
+                            }
+                        }
+                        "omit" if matches!(self.given(&x["e"]), Some(G::Props(_))) => {
+                            if self.whole(x) {
+                                self.hit("props", line);
+                            }
+                        }
+                        _ => o.values().for_each(|v| self.plain(v, line)),
+                    }
+                }
+                _ => {}
+            }
+        }
+        fn nullish(e: &Value) -> bool {
+            s(e, "k") == "lit" && e.get("v").is_none_or(Value::is_null)
+        }
+        fn test(&mut self, c: &Value, line: usize) {
+            if self.form(c) {
+                return;
+            }
+            match (s(c, "k"), s(c, "op")) {
+                ("un", "!") => self.test(&c["e"], line),
+                ("bin", "==" | "!=" | "===" | "!==") if self.form(&c["l"]) && Self::nullish(&c["r"]) => {}
+                ("bin", "&&" | "||") => {
+                    self.test(&c["l"], line);
+                    self.test(&c["r"], line);
+                }
+                _ => self.plain(c, line),
+            }
+        }
+        fn ve(&mut self, e: &Value, line: usize) {
+            if self.form(e) {
+                return;
+            }
+            match (s(e, "k"), s(e, "op")) {
+                ("if", _) => {
+                    self.test(&e["c"], line);
+                    self.ve(&e["t"], line);
+                    self.ve(&e["f"], line);
+                }
+                ("bin", "??" | "||") => {
+                    self.ve(&e["l"], line);
+                    self.ve(&e["r"], line);
+                }
+                ("bin", "&&") => {
+                    self.test(&e["l"], line);
+                    self.ve(&e["r"], line);
+                }
+                _ => self.plain(e, line),
+            }
+        }
+        fn dk(&mut self, ds: &Value, line: usize) {
+            for x in ds.as_array().into_iter().flatten() {
+                if s(x, "k") == "eq" && self.names.contains_key(s(x, "name")) && self.given(&x["e"]).is_some() {
+                    continue;
+                }
+                self.plain(x, x["line"].as_u64().map(|l| l as usize).unwrap_or(line));
+            }
+        }
+        fn mk(&mut self, ms: &Value, line: usize) {
+            for m in ms.as_array().into_iter().flatten() {
+                let at = m["line"].as_u64().map(|l| l as usize).unwrap_or(line);
+                match s(m, "k") {
+                    "read" => self.ve(&m["e"], at),
+                    "el" => {
+                        let tag = s(m, "tag");
+                        let comp = tag.starts_with(|c: char| c.is_ascii_uppercase()) || shown_in(tag).is_some();
+                        for a in m["attrs"].as_array().into_iter().flatten() {
+                            let n = s(a, "name");
+                            let handler = n == "ref" || (n.starts_with("on") && n[2..].starts_with(|c: char| c.is_ascii_uppercase() || c == ':'));
+                            if n == "..." {
+                                if !matches!(self.given(&a["e"]), Some(G::Props(_))) {
+                                    self.plain(&a["e"], at);
+                                }
+                            } else if comp && !handler {
+                                self.ve(&a["e"], at);
+                            } else {
+                                self.plain(&a["e"], at);
+                            }
+                        }
+                        self.mk(&m["children"], at);
+                    }
+                    "mif" => {
+                        self.test(&m["c"], at);
+                        self.dk(&m["tDecls"], at);
+                        self.mk(&m["t"], at);
+                        self.dk(&m["fDecls"], at);
+                        self.mk(&m["f"], at);
+                    }
+                    "mfor" => {
+                        self.plain(&m["xs"], at);
+                        self.dk(&m["decls"], at);
+                        self.mk(&m["body"], at);
+                    }
+                    "mview" => {
+                        self.dk(&m["decls"], at);
+                        self.mk(&m["body"], at);
+                    }
+                    "loading" => {
+                        self.plain(&m["on"], at);
+                        self.mk(&m["fallback"], at);
+                        self.dk(&m["decls"], at);
+                        self.mk(&m["body"], at);
+                    }
+                    "errored" => {
+                        self.mk(&m["fallback"], at);
+                        self.dk(&m["decls"], at);
+                        self.mk(&m["body"], at);
+                    }
+                    "portal" => {
+                        self.plain(&m["to"], at);
+                        self.dk(&m["decls"], at);
+                        self.mk(&m["body"], at);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let text = props_type.map(|t| expand_type(t, types, 0));
+    let ct = text.as_deref().and_then(|t| field_type(t, "children"));
+    let child_view = !skip.iter().any(|f| f == "children") && ct.as_ref().is_none_or(|(t, _)| is_view_type(t));
+    let mut views = HashSet::new();
+    if let Some(t) = &text {
+        view_fields(t, &[], 0, &mut views);
+    }
+    views.retain(|f| !skip.contains(f));
+    let mut w = W { names: HashMap::from([(props.to_string(), G::Props(vec![]))]), views, child_view, bad: None, _p: std::marker::PhantomData };
+    let (dj, vj) = (Value::Array(decls.iter().map(|d| d.to_json()).collect()), Value::Array(view.iter().map(|m| m.to_json()).collect()));
+    // the equations that are projections of the props, of every block, in whatever order they are written
+    fn lists<'v>(x: &'v Value, out: &mut Vec<&'v Value>) {
+        match x {
+            Value::Array(xs) => {
+                out.extend(xs.iter().filter(|y| y["k"] == "eq" && y.get("deferred").is_none_or(|d| d != true) && y.get("key").is_none_or(Value::is_null)));
+                xs.iter().for_each(|y| lists(y, out));
+            }
+            Value::Object(o) => o.values().for_each(|y| lists(y, out)),
+            _ => {}
+        }
+    }
+    let mut eqs = vec![];
+    lists(&dj, &mut eqs);
+    lists(&vj, &mut eqs);
+    loop {
+        let n = w.names.len();
+        for d in &eqs {
+            let name = s(d, "name");
+            if !w.names.contains_key(name) {
+                if let Some(g) = w.given(&d["e"]) {
+                    w.names.insert(name.to_string(), g);
+                }
+            }
+        }
+        if w.names.len() == n {
+            break;
+        }
+    }
+    w.dk(&dj, 0);
+    w.mk(&vj, 0);
+    w.bad
+}
+
 /// RG-7b, 08: whether a component's children are shown in its own view and go nowhere else: named by `{props.children}`, by
 /// what a pattern or a rest of the props calls them, or by `if props.children`. Read by a snapshot, carried by a context, kept in a
 /// value, given as a prop or spread, they may be read where they are written, or where nothing of the component is.

@@ -530,3 +530,78 @@ export function onlyShown(d: { props: string; decls: Decl[]; view: Markup[] }): 
   }
   return ![...d.decls, ...d.view].some(x => !named.has(x) && mentions(x));
 }
+
+/** RG-4c: what a component does with the views it is given (its children, and the props typed `View`). A view is only
+ *  shown: `{props.children}` in the component's view, also under a default (`props.children ?? e`) or a choice
+ *  (`c ? props.children : e`); given on, as content or as an argument of another component, or in a spread of the props;
+ *  named again by a projection of the props; asked whether it was given (`if props.children`, `!`, `== undefined`).
+ *  `bad`: every other mention, by line. `kids`: the readers that show the children. `skip`: the fields the component
+ *  shows as `<props.f … />`, which have their own rule (`otherMention`). */
+export type ViewUses = { kids: Set<unknown>; bad: { field: string; line: number }[] };
+export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, types: Types, skip: Set<string> = new Set()): ViewUses {
+  const kids = new Set<unknown>(), bad: { field: string; line: number }[] = [];
+  const text = d.propsType === undefined ? undefined : expandType(d.propsType, types);
+  const ct = text === undefined ? undefined : fieldType(text, "children");
+  const childView = !skip.has("children") && (!ct || isViewType(ct.type));   // children typed as a function are a function (bug 34): called, as they were
+  const views = new Set([...viewFields(text, [])].filter(f => !skip.has(f)));
+  const names = new Map<string, Given>([[d.props, { props: { less: [], views } }]]);
+  const look = (n: string) => names.get(n);
+  type O = Record<string, any>;
+  const lists: Decl[][] = [];
+  const gather = (x: unknown): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { if (x.some(y => y && (y as O).k === "eq")) lists.push(x as Decl[]); x.forEach(gather); return; } Object.values(x).forEach(gather); };
+  gather([d.decls, d.view]);
+  for (let more = true; more;) { const n = names.size; for (const l of lists) bindGiven(l, look, (k, g) => { names.set(k, g); }); more = names.size > n; }
+  const held = (e: Expr): string | undefined => { const g = given(e, look); return !g?.held || (g.held === "children" && !childView) ? undefined : g.held; };
+  const form = (e: Expr): boolean => (e.k === "id" || e.k === "member") && held(e) !== undefined;
+  const whole = (e: Expr): boolean => { const p = given(e, look)?.props; return !!p && ((childView && !p.less.includes("children")) || [...p.views].some(v => !p.less.includes(v))); };
+  const plain = (x: unknown, line: number): void => {
+    if (!x || typeof x !== "object") return;
+    if (Array.isArray(x)) { for (const y of x) plain(y, line); return; }
+    const o = x as O; if (typeof o.line === "number") line = o.line;
+    if (o.k === "id" || o.k === "pre") { const g = names.get(o.name); if (g?.held && held(o as Expr)) bad.push({ field: g.held, line }); else if (g?.props && whole({ k: "id", name: o.name })) bad.push({ field: "props", line }); return; }
+    if (o.k === "member") { if (held(o as Expr)) { bad.push({ field: o.p, line }); return; } if (given(o.o, look)?.props) return; plain(o.o, line); return; }
+    if (o.k === "omit" && given(o.e, look)?.props) { if (whole(o as Expr)) bad.push({ field: "props", line }); return; }
+    for (const v of Object.values(o)) plain(v, line);
+  };
+  const test = (c: Expr, line: number): void => {
+    if (form(c)) return;
+    if (c.k === "un" && c.op === "!") return test(c.e, line);
+    if (c.k === "bin" && /^[!=]==?$/.test(c.op) && form(c.l) && c.r.k === "lit" && c.r.v == null) return;
+    if (c.k === "bin" && (c.op === "&&" || c.op === "||")) { test(c.l, line); test(c.r, line); return; }
+    plain(c, line);
+  };
+  const ve = (e: Expr, line: number): void => {
+    if (form(e)) return;
+    if (e.k === "if") { test(e.c, line); ve(e.t, line); ve(e.f, line); return; }
+    if (e.k === "bin" && (e.op === "??" || e.op === "||")) { ve(e.l, line); ve(e.r, line); return; }
+    if (e.k === "bin" && e.op === "&&") { test(e.l, line); ve(e.r, line); return; }
+    plain(e, line);
+  };
+  const dk = (ds: Decl[], line: number): void => { for (const x of ds) { if (x.k === "eq" && names.has(x.name) && (given(x.e, look)?.held || given(x.e, look)?.props)) continue; plain(x, (x as O).line ?? line); } };
+  const mk = (ms: Markup[], line: number): void => { for (const m0 of ms) {
+    const m = m0 as O; const at = typeof m.line === "number" ? m.line : line;
+    switch (m.k) {
+      case "read": ve(m.e, at); if (given(m.e, look)?.held === "children" && childView) kids.add(m0); break;
+      case "el": { const comp = /^[A-Z]/.test(m.tag) || shownIn(m.tag) !== undefined;
+        for (const a of m.attrs) { if (a.name === "..." ? !!given(a.e, look)?.props : comp && !/^on[A-Z:]/.test(a.name) && a.name !== "ref") { if (a.name !== "...") ve(a.e, at); } else plain(a.e, at); }
+        mk(m.children, at); break; }
+      case "mif": test(m.c, at); dk(m.tDecls, at); mk(m.t, at); dk(m.fDecls, at); mk(m.f, at); break;
+      case "mfor": plain(m.xs, at); dk(m.decls, at); mk(m.body, at); break;
+      case "mview": dk(m.decls, at); mk(m.body, at); break;
+      case "loading": plain(m.on, at); mk(m.fallback, at); dk(m.decls, at); mk(m.body, at); break;
+      case "errored": mk(m.fallback, at); dk(m.decls, at); mk(m.body, at); break;
+      case "portal": plain(m.to, at); dk(m.decls, at); mk(m.body, at); break;
+    }
+  } };
+  dk(d.decls, 0); mk(d.view, 0);
+  return { kids, bad };
+}
+/** The readers that show a component's children, of every component of a program: for the interpreter. */
+export function heldReads(set: ModuleSet): Set<unknown> {
+  const out = new Set<unknown>(), all = shownAll(set);
+  for (const [path, p] of set.programs) {
+    const walk = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string }; if (o.k === "component" && "props" in o) for (const m of viewUses(o as never, typesOf(set, path), new Set(all.get(o)?.keys() ?? [])).kids) out.add(m); Object.values(x).forEach(walk); };
+    walk(p.decls); walk(p.view);
+  }
+  return out;
+}

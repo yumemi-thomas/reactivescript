@@ -462,6 +462,12 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     show: (v: unknown) => isView(v) ? v : fmt(v),
     /** RG-4c: a view a component was given, shown with what it knows. `plain`: plain content is taken as well, shown as it is, and a function of no parameter is a thunk, as JSX has it. */
     view(c: unknown, f: (view: unknown) => unknown, plain?: boolean) { return typeof c === "function" && (!plain || c.length) ? f(c) : app.kids(c); },
+    /** RG-4c: whether a view was given, without making it: content that was written is a getter; nothing written is nothing, or `[]`. */
+    given(o: any, k: string): boolean {
+      if (o == null) return false;
+      const d = Object.getOwnPropertyDescriptor(o, k), some = (v: unknown) => v != null && v !== false && !(Array.isArray(v) && v.length === 0);
+      return d ? ("value" in d ? some(d.value) : true) : k in o && some(o[k]);
+    },
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
     kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out

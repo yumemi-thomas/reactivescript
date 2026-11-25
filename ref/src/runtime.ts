@@ -11,7 +11,7 @@ import { RuleError, CheckError } from "./errors.ts";
 import { checkModules, unwrapServer } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
-import { singleModule, shownAll, shownIn, type ModuleSet, type Shown } from "./modules.ts";
+import { singleModule, shownAll, shownIn, heldReads, type ModuleSet, type Shown } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
@@ -24,7 +24,7 @@ export class Flight { key: string; state: "pending" | "resolved" | "rejected" = 
 export class ViewValue { region: Region; items: VItem[]; constructor(region: Region, items: VItem[]) { this.region = region; this.items = items; } }
 
 /** RG-4c: a view given to a component that shows it (`view (s) { … }`): the caller's names, an instance at each place it is shown. */
-export class ViewFn { m: Extract<Markup, { k: "mview" }>; region: Region; constructor(m: Extract<Markup, { k: "mview" }>, region: Region) { this.m = m; this.region = region; } }
+export class ViewFn { m: Extract<Markup, { k: "mview" }>; region: Region; plain: boolean; one?: Node; constructor(m: Extract<Markup, { k: "mview" }>, region: Region, plain = false) { this.m = m; this.region = region; this.plain = plain; } }   // `plain`: content, a view that asks nothing (RG-4c)
 
 type Path = string;
 const join = (p: Path, k: string | number) => (p === "" ? String(k) : `${p}.${k}`);
@@ -176,10 +176,11 @@ export class Runtime {
   /** 09 MO-1: each imported module's region, instantiated once, dependencies first; its state is app state. */
   modules = new Map<string, Region>();
   private shown: Map<unknown, Map<string, Shown>>;   // RG-4c
+  private held: Set<unknown>;                          // RG-4c: the readers that show a component's children
   constructor(input: Program | ModuleSet) {
     const set = "programs" in input ? input : singleModule(input);
     const program = set.programs.get(set.entry)!;
-    this.program = program; this.shown = shownAll(set);
+    this.program = program; this.shown = shownAll(set); this.held = heldReads(set);
     this.root = new Region(null, this, null);
     const { diags } = checkModules(set); if (diags.length) throw new CheckError(diags);   // 08: the checker runs first; every static diagnostic is an error
     for (const path of set.order) { if (path === set.entry) continue; const r = new Region(this.root, this, null); this.modules.set(path, r); this.declare(set.programs.get(path)!.decls, r); }
@@ -964,7 +965,7 @@ export class Runtime {
         const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
         if (bad && this.demandMode) return bad;                        // absence propagates in reactive scope; in imperative scope an error is a value (E-12)
         // RG-4c, a function prop: `props.children(…)` where the children are one closure, as JSX passes it
-        while (f instanceof ViewValue && f.items.length === 1 && f.items[0].k === "read") { f = this.readNode(f.items[0].node); if (isAbsent(f)) return f; }
+        while (f instanceof ViewFn && f.plain && f.m.body.length === 1 && f.m.body[0].k === "read") { const v: ViewFn = f, r = v.m.body[0] as Extract<Markup, { k: "read" }>; f = this.readNode(v.one ??= this.mkNode("reader", "reader", v.region, rt => rt.evalExpr(r.e, v.region))); if (isAbsent(f)) return f; }
         if (typeof f !== "function") throw new RuleError("TYPE", "call of non-function");
         if ((f as { io?: boolean }).io && this.demandMode) throw new RuleError("IO-2", "io function called in reactive scope");
         if (f === BUILTINS.fetch) return this.flight(String(args[0]));
@@ -1227,7 +1228,17 @@ export class Runtime {
       case "text": return { k: "text", s: m.s };
       case "style": return { k: "text", s: "" };                                          // CSS-4: removed from the view
       case "portal": { const r = new Region(region, this, region.boundary); this.declare(m.decls, r); return { k: "comp", portal: true, inst: this.instantiate(m.body, r) }; }   // RG-8: owned here (its boundary, its provisions), shown elsewhere
-      case "read": return { k: "read", node: this.mkNode("reader", "reader", region, rt => rt.evalExpr(m.e, region)), shown: null };
+      case "read": {
+        // RG-4c: a view the component was given is shown here: an instance of this place, owned by it, named by where it is written
+        let held: { of: ViewFn; view: ViewValue } | null = null;
+        return { k: "read", node: this.mkNode("reader", "reader", region, rt => {
+          const v = rt.evalExpr(m.e, region);
+          if (held && held.of !== v) { held.view.region.dispose(); held = null; }
+          if (!(v instanceof ViewFn) || !v.plain) return v === undefined && this.held.has(m) ? "" : v;   // children that were not given show nothing
+          if (!held) { const cr = new Region(region, this, region.boundary, v.region); held = { of: v, view: new ViewValue(cr, v.m.body.map(c => this.inst1(c, cr))) }; }
+          return held.view;
+        }), shown: null };
+      }
       case "el": {
         const n = shownIn(m.tag), given = n && region.lookup(n[0]);
         if (given && "constant" in given && typeof given.constant === "object" && given.constant) {   // RG-4c
@@ -1251,8 +1262,7 @@ export class Runtime {
             const view = m.children.find(c => c.k === "mview" && !c.prop) ?? (content.some(c => c.k !== "text" || c.s.trim()) ? { k: "mview" as const, params: [], decls: [], body: content } : undefined);
             Object.defineProperty(props, "children", { enumerable: true, value: view?.k === "mview" ? new ViewFn(view, region) : undefined });
           }
-          let children: ViewValue | null = null;                   // RG-4c: instantiated where first read — owned by the reader's region, named by the caller's
-          if (!takes) Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, content.map(c => this.inst1(c, cr))); } return children; } });
+          if (!takes && !Object.getOwnPropertyDescriptor(props, "children")) Object.defineProperty(props, "children", { enumerable: true, value: content.some(c => c.k !== "text" || c.s.trim()) ? new ViewFn({ k: "mview", params: [], decls: [], body: content }, region, true) : undefined });   // RG-4c: content is a view that asks nothing, made at each place it is shown
           r.scope.set(comp.props, { constant: props });
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };
