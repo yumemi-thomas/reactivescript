@@ -445,7 +445,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
      *  (E-9): what the library reads of a `ref` argument while it is being made is a read it means to make once, which
      *  Solid's development build otherwise reports against the component (STRICT_READ_UNTRACKED) — in `.rx` an
      *  element ref is a source, so `createFullscreen(el)` passes a signal where a `.tsx` author passes `() => el`. */
-    inst<T>(f: () => T): T { return runWithOwner(createOwner(), () => untrack(f)) as T; },
+    inst<T>(f: () => T): T { return (getOwner() ? runWithOwner(createOwner(), () => untrack(f)) : untrack(f)) as T; },   // with no owner above there is none to make one under: what needs one (`provide`) says so, as where two copies of Solid are loaded (CP-4a)
 
     // ---- reads ----
     /** An imperative read sees σ (H-10): a pending value is a value; a snapshot of an error throws it (R-f-7). */

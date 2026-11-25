@@ -368,7 +368,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
      *  (E-9): what the library reads of a `ref` argument while it is being made is a read it means to make once, which
      *  Solid's development build otherwise reports against the component (STRICT_READ_UNTRACKED) — in `.rx` an
      *  element ref is a source, so `createFullscreen(el)` passes a signal where a `.tsx` author passes `() => el`. */
-    inst<T>(f: () => T): T { return runWithOwner(createOwner(), () => untrack(f)) as T; },
+    inst<T>(f: () => T): T { return (getOwner() ? runWithOwner(createOwner(), () => untrack(f)) : untrack(f)) as T; },   // with no owner above there is none to make one under: what needs one (`provide`) says so, as where two copies of Solid are loaded (CP-4a)
 
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
