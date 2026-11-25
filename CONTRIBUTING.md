@@ -44,33 +44,26 @@ not call a component it is given with no owner at all, and that a `pure`
 fn answers alike with a window and without one (10 SV-7c).
 A word a tool writes into a row is held to a harder bar than one a person
 writes: it is written only where the code proves it (tooling/rx-language-server/DECLARATIONS.md, MO-8v: `pure`,
-`handler`, `draft`, `rejects(E)`; MO-8w: `handler` through JSX,
-`uses(c)`, `provides(c)`, a value made by a call — read by `rx-declare`
+`handler`, `draft`, `rejects(E)`, `instantiates`, `uses(c)`, `provides(c)` — read by `rx-declare`
 from the JavaScript an import resolves to), and "probably" is a refusal.
-A change to that reading (`tooling/rx-language-server/src/infer.js`)
-comes with the function that shows it in `test/infer.js`,
-`test/infer-called.js`, `test/infer-owner.js` or `test/infer-view.js` — on the refused side, a function that does the one
-thing the word must not cover, hidden as code hides it; on the proven
-side, its honest twin — and the benchmark holds three numbers against
-it: no word read from the code is contradicted when `rx-verify` runs it,
-no word of a kept declaration is contradicted by the code (the audit,
-`rx-declare --audit`: a word written by hand is held as one a tool
-wrote is), and no whole draft asks more questions than the record has.
+A change to that reading (`compiler/words`, DESIGN.md there: a list of what is safe)
+comes with the function that shows it in `tooling/rx-language-server/test/words/`:
+on the refused side, a function that does the one thing the word must not
+cover, its fact found by running it; on the proven side, its honest twin.
+Nothing is taken as known that DESIGN.md does not list. The benchmark holds
+two numbers against it: no word is contradicted when `rx-verify` runs it, and
+no whole draft asks more questions than the record has.
 A word the audit cannot prove is listed with what stands in the way
 (`bench/audit.txt`, `bench/coverage/audit.txt`): that list is what a
 reviewer of the declarations has left to read, and a word comes off it
-by being proven, or by being checked and said so in the file.
-"Contradicted" is kept for what the code shows the opposite of: a
-reading that merely does not follow something (a library's own scope
-that is no Solid context, a prop that may hold a view) is "unproven",
-with the thing to check.
+by being proven, or by being checked and said so in the file. The audit
+never says that a word is false: a run does.
 A number says what it counts: a check is one fact, an `any` is counted
 where it stands, a claim has one result, and what could not be measured
 is a failure and not a zero (`bench/measure.test.mjs`).
 `spec/` holds the rules; what was measured, rejected or withdrawn goes to
 `spec/archive/`, and how a tool does its work beside the tool.
-A part of the reading that proves nothing on the ecosystem's code is
-deleted (DECLARATIONS.md's table, each part switched off in turn).
+A part of the reading that proves nothing on the ecosystem's code is deleted.
 A reason a word is refused is recorded as an example, not a count
 (`rx-declare --why`).
 A form that is asked for and not taken is recorded the same way, with
@@ -187,7 +180,7 @@ BENCH_WORDS=1 node bench/run.mjs <task>   # each row of the task's declarations 
 node bench/needed.mjs --write             # the hand-written words no tool has shown, and the diagnostic a program gets without each (--apply takes off those none needs)
 node --experimental-strip-types bench/generated.mjs   # no program is refused by a generated declaration that is accepted with none (MO-8l); --package <spec> <dir>: the same over one package
 npx rx-declare <module> --why             # each word read from the code: what proved it, or the first thing in the way with its file and line
-npx rx-declare --audit <file.d.rx>        # every word a declaration has, whoever wrote it: proven by the code, contradicted by it (exit 1), or neither — with what to check (09 MO-8w); the benchmark writes the lists (bench/audit.txt, bench/coverage/audit.txt)
+npx rx-declare --audit <file.d.rx>        # every word a declaration has, whoever wrote it: proven by the code, or not — with what to check (09 MO-8w); the benchmark writes the lists (bench/audit.txt, bench/coverage/audit.txt)
 # a task under a file-based router generates the router's tree before any checker reads the program (its `prepare`: a
 # `vite build`), and its host.d.rx is derived from that tree: `rx-declare --host --sync <host.d.rx>` after a route moves
 ```

@@ -366,10 +366,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   `pure`, `handler`, `draft`, `rejects(E)`, `uses(c)` and `provides(c)` into a
   draft only where the code an import resolves to proves them, and holds the
   words a file already has against the same reading (`--audit`: proven,
-  contradicted, unproven). No word is written off a name, a shape, a run or a
+  unproven). No word is written off a name, a shape, a run or a
   list of libraries (ruled 2026-11-24): `ref` is the types' own `Accessor`, or
   proven by the code, as `instantiates` is (the call makes what its owner keeps on every path that returns). Nothing in a checker knows where a word came from.
-  What proves each, and what is refused, is in DECLARATIONS.md.
+  What proves each is in DECLARATIONS.md and compiler/words/DESIGN.md.
   Another name of the object is the object (2026-11-24): `t = toast`,
   `{ success } = t` and a field of a record written here call the same
   method, by its row. An alias another module exports is not followed.

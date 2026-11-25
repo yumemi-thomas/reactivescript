@@ -49,10 +49,9 @@ export pure fn sortedBy<T>(ref list: T[], comparator: (a: T, b: T) => number): r
 
 Nothing in the file says which words came from the code: the first line of the draft counts them, and the tools
 read the code again when they need to know. `npx rx-declare --audit <file.d.rx>` goes through **every** word a
-declaration has, whoever wrote it, and says of each whether the code proves it, contradicts it (a `pure` function
-that sorts its argument in place, a `handler` that is called while the call runs: exit 1), or neither — with the first
-thing the reading stops at, which is what to check by hand. `rx-verify` does the same before it runs anything: a
-contradicted word is a mismatch, and each proven word is run against what was read. `npx rx-declare <module> --why`
+declaration has, whoever wrote it, and says of each whether the code proves it, or the first thing the reading stops at,
+which is what to check by hand. `rx-verify` runs them: a `pure` function that sorts its argument in place, a `handler`
+called while the call runs, is a mismatch. `npx rx-declare <module> --why`
 says, for every row, what proved each word or the first thing in the way, with its file and line:
 
 ```

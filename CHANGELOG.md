@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+**The words a tool writes are proved from a list of what is safe** (compiler/words, DESIGN.md there; spec/09 MO-8v)
+
+- **Fixed: `rx-declare` wrote false words**, about 190 over 671 packages written to break it (`pure` 152, `instantiates` 30, `handler` 27), some in real
+  packages (`toEffect`, `workerScope`, `createCallback`), and `instantiates` refused correct calls of `until`, `debounce`, `createEmitter`,
+  `createEventBus`, `makeSpring`. The reading is a crate of its own; what it does not model gives no word. Drafts have fewer words: a library's author
+  writes more of them (DECLARATIONS.md counts them).
+- **Changed: `rx-declare --audit` proves a word or does not**; it no longer says that one is false. `rx-verify` holds every `pure` fn to what it is given,
+  and a `handler` to have no owner.
+- **Changed: a draft's types are read through tsrs**, as they are checked. A parameter that takes `null` is drafted with it.
+- **Fixed: a parameter `x?: unknown` was drafted `{}`**, and one of `null` alone `never`.
+
 - **Fixed: a view given to a JavaScript component that provides** (`{view (x) { provide c = x … }}`) had no owner of its own in the crate: the next view saw it (RG-7a;
   `compiler/test/js-host.mjs`; proposals/bugs/38).
 - **Fixed: a closure as a component's children** (`<T>{n => …}</T>`, `props.children(n)`) threw in the interpreter and the oracle (S-view-2; proposals/bugs/34).

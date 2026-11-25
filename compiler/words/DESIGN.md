@@ -17,7 +17,9 @@ of Solid's, a module. A missing word costs a question; a wrong one is a program 
 - **A module's value** is a primitive, a function, a context, Solid's, a built-in's, the function a factory answers when it
   is run (by the reading below) as the module loads, or a *constant object*: a literal, a `Map`/`Set` of one, a pattern, which
   no export hands out and whose every reference is a read that does not let it go (`constant.rs`): so nothing that can
-  reach it can write it. `Object.freeze` of a literal of primitives and functions is one wherever it goes. Every other
+  reach it can write it. `Object.freeze` of a literal of primitives and functions is one wherever it goes. A `const` that only names
+  it is it, and a read of it may also be `find`, `some`, `every` or `map`,
+  whose callback, written there, only reads its item; what `find` answers is only read too. Every other
   object of a module is not known, and neither is anything read from it. A function or a class is an object too: no
   property of one is read.
 
@@ -29,7 +31,8 @@ contents: whatever was put in it, at any time. Every statement is run whatever i
 added; so is a function that calls itself. What is written through is an object or a name of this call: anything else ends
 the reading. A method is looked up by the kind of its receiver (a primitive's, an array's of the call's or of a type that
 is `lib`'s, a `Map`'s, a `Set`'s, a promise's) and its table says what it does with the receiver, its arguments and its
-callback. An operator that converts takes primitives alone. Iteration takes arrays, `Map`s and `Set`s.
+callback. `Object.create` and `new Proxy` answer a value that may only be passed on; `Object.assign` writes to an object of the
+call's alone. An operator that converts takes primitives alone. Iteration takes arrays, `Map`s and `Set`s.
 
 ## A line a word: proved, assumed
 | word | proved | assumed |

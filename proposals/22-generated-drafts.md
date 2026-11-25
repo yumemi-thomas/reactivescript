@@ -29,7 +29,7 @@ A row `pure` in a generated file grants permission to call the function in a vie
 
 ## Cost
 
-Drafting 1,917 lines; the reading of code 2,054 (`infer.js`), for `pure` mostly. Step 1 alone needs none of the second.
+Drafting 1,917 lines; the reading of code 4,400 of Rust (`compiler/words`), for `pure` mostly. Step 1 alone needs none of the second.
 
 ## Prototype
 
