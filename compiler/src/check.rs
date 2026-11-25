@@ -1638,6 +1638,66 @@ fn js_string(s: &str) -> String {
     serde_json::Value::String(s.to_string()).to_string()
 }
 /// A short rendering of an expression, for messages.
+/// MO-8j: the language's methods and functions that call a function they are given while the call runs.
+const CALLS_NOW: [&str; 10] = ["map", "filter", "some", "every", "find", "reduce", "forEach", "flatMap", "toSorted", "replace"];
+/// MO-8j: whether a fn's body calls its i-th parameter while the fn runs: called by its name, or given by its name to one
+/// of `CALLS_NOW`, outside any closure or in a closure that is itself given to one of them. A closure kept, a statement
+/// body and a parameter handed on to another fn are not read. `ref/src/check.ts` `paramCalledNow`.
+pub fn param_called_now(d: &Decl, i: usize) -> bool {
+    let Decl::Fn { params, decls, tail, .. } = d else { return false };
+    let Some(p) = params.get(i).map(|x| x.name.as_str()) else { return false };
+    fn calls(x: &Expr, p: &str) -> bool {
+        match &x.k {
+            ExprKind::Call { f, .. } => match &f.k {
+                ExprKind::Member { p: m, .. } => CALLS_NOW.contains(&m.as_str()),
+                ExprKind::Id(n) => CALLS_NOW.contains(&n.as_str()) && n != p,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+    fn visit(x: &Expr, p: &str, now: bool) -> bool {
+        let is_p = |a: &Expr| matches!(&a.k, ExprKind::Id(n) if n == p);
+        match &x.k {
+            ExprKind::Call { f, args, .. } => {
+                let c = now && calls(x, p);
+                if now && is_p(f) {
+                    return true;
+                }
+                if c && args.iter().any(is_p) {
+                    return true;
+                }
+                visit(f, p, now)
+                    || args.iter().any(|a| match &a.k {
+                        ExprKind::Fn { body, stmts, .. } => stmts.is_none() && visit(body, p, c),
+                        _ => visit(a, p, now),
+                    })
+            }
+            ExprKind::Fn { body, stmts, .. } => stmts.is_none() && visit(body, p, false),
+            ExprKind::Bin { l, r, .. } => visit(l, p, now) || visit(r, p, now),
+            ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => visit(e, p, now),
+            ExprKind::Await { e, init, .. } => visit(e, p, now) || init.as_ref().is_some_and(|i| visit(i, p, now)),
+            ExprKind::Pre { init, .. } => init.as_ref().is_some_and(|i| visit(i, p, now)),
+            ExprKind::If { c, t, f } => visit(c, p, now) || visit(t, p, now) || visit(f, p, now),
+            ExprKind::Catch { e, alt, .. } => visit(e, p, now) || visit(alt, p, now),
+            ExprKind::Tpl(parts) => parts.iter().any(|q| matches!(q, TplPart::Expr(e) if visit(e, p, now))),
+            ExprKind::Member { o, .. } => visit(o, p, now),
+            ExprKind::Index { o, i, .. } => visit(o, p, now) || visit(i, p, now),
+            ExprKind::Arr(items) => items.iter().any(|y| visit(y, p, now)),
+            ExprKind::Rec(fields) => fields.iter().any(|f| match f {
+                Field::Kv { v, .. } => visit(v, p, now),
+                Field::Spread(e) => visit(e, p, now),
+            }),
+            ExprKind::Draft { seed, .. } => visit(seed, p, now),
+            ExprKind::Lit(_) | ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => false,
+        }
+    }
+    decls.iter().any(|x| match x {
+        Decl::Eq { e, .. } => visit(e, p, true),
+        Decl::Source { init, .. } => visit(init, p, true),
+        _ => false,
+    }) || visit(tail, p, true)
+}
 pub fn show(e: &Expr) -> String {
     match &e.k {
         ExprKind::Lit(l) => match l {
@@ -6624,6 +6684,35 @@ impl<'a> Checker<'a> {
             }
             ExprKind::Call { f, args, .. } => {
                 self.call_marks(f, args, env);
+                // MO-8j (2026-11-26): an action or an io value given by name to what calls it while the call runs is called
+                // here, as its closure `(x) => name(x)` is: the language's own methods and functions that call what they are
+                // given, and a fn of the module whose body calls that parameter. What may keep it is as it was.
+                if !ctx.imperative {
+                    for (i, a) in args.iter().enumerate() {
+                        let ExprKind::Id(n) = &a.k else { continue };
+                        let Some(s) = self.lookup(env, n) else { continue };
+                        if !self.syms[s].io && self.syms[s].kind != SymKind::Action {
+                            continue;
+                        }
+                        let now = match &f.k {
+                            ExprKind::Member { p, .. } => CALLS_NOW.contains(&p.as_str()),
+                            ExprKind::Id(fname) => match self.lookup(env, fname) {
+                                Some(t) => self.syms[t].kind == SymKind::Fn && matches!(self.syms[t].fn_decl, Some(d) if param_called_now(d, i)),
+                                None => self.lang(env, fname) == Some(Lang::Fn) && CALLS_NOW.contains(&fname.as_str()),
+                            },
+                            _ => false,
+                        };
+                        if !now {
+                            continue;
+                        }
+                        if ctx.in_fn {
+                            self.err("IO_IN_FN", "R-io-2", format!("{n} is io, and {}(…) calls it; a fn is pure by definition", show(f)));
+                        } else {
+                            let code = if self.syms[s].kind == SymKind::Action { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" };
+                            self.err(code, "IO-2", format!("{n} is io, and {}(…) calls it while the call runs: it is called in reactive scope (R-io-3), as `(x) => {n}(x)` would be — call it from a handler or an action", show(f)));
+                        }
+                    }
+                }
                 // W-1a (2026-11-22): the value of a source, an equation or a prop is changed by a write, never in place:
                 // `rows.push(x)` changes the array every reader holds and tells none of them
                 if let ExprKind::Member { o, p, .. } = &f.k {

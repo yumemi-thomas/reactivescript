@@ -26,6 +26,36 @@ const DRAFT_CALLBACKS = new Set(["forEach", "map", "filter", "find", "findIndex"
 const ARRAY_MUTATORS = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]);
 /** The function of the language a name is, where it is mentioned (`names.ts`). */
 const lang = (env: Env, name: string) => language(name, env.lookup(name), env.conformance);
+/** MO-8j: the language's methods and functions that call a function they are given while the call runs. */
+const CALLS_NOW = new Set(["map", "filter", "some", "every", "find", "reduce", "forEach", "flatMap", "toSorted", "replace"]);
+/** MO-8j: whether a fn's body calls its i-th parameter while the fn runs: called by its name, or given by its name to one
+ *  of `CALLS_NOW`, outside any closure or in a closure that is itself given to one of them. A closure kept, a statement
+ *  body and a parameter handed on to another fn are not read: what is not known to call now is not refused. */
+export function paramCalledNow(d: Extract<Decl, { k: "fn" }>, i: number): boolean {
+  const p = d.params[i]?.name; if (p === undefined) return false;
+  const calls = (x: Expr) => x.k === "call" && (x.f.k === "member" ? CALLS_NOW.has(x.f.p) : x.f.k === "id" && CALLS_NOW.has(x.f.name) && x.f.name !== p);
+  const visit = (x: Expr, now: boolean): boolean => {
+    switch (x.k) {
+      case "call": { const c = now && calls(x); if (now && x.f.k === "id" && x.f.name === p) return true; if (c && x.args.some(a => a.k === "id" && a.name === p)) return true;
+        return visit(x.f, now) || x.args.some(a => a.k === "fn" ? !a.stmts && visit(a.body, c) : visit(a, now)); }
+      case "fn": return !x.stmts && visit(x.body, false);
+      case "bin": return visit(x.l, now) || visit(x.r, now);
+      case "un": case "peek": case "latest": case "pending": case "spread": case "omit": case "throw": return visit(x.e, now);
+      case "await": return visit(x.e, now) || (!!x.init && visit(x.init, now));
+      case "pre": return !!x.init && visit(x.init, now);
+      case "if": return visit(x.c, now) || visit(x.t, now) || visit(x.f, now);
+      case "catch": return visit(x.e, now) || visit(x.alt, now);
+      case "tpl": return x.parts.some(q => typeof q !== "string" && visit(q, now));
+      case "member": return visit(x.o, now);
+      case "index": return visit(x.o, now) || visit(x.i, now);
+      case "arr": return x.items.some(y => visit(y, now));
+      case "rec": return x.fields.some(f => visit("spread" in f ? f.spread : f.v, now));
+      case "draft": return visit(x.seed, now);
+      default: return false;   // lit, id, use, stylemap, serverfn
+    }
+  };
+  return d.decls.some(x => (x.k === "eq" && visit(x.e, true)) || (x.k === "source" && visit(x.init, true))) || visit(d.tail, true);
+}
 /** `map(…)` is the language's only where nothing binds `map`. */
 const ownMap = (e: Expr, env: Env): boolean => !(e.k === "call" && e.f.k === "id" && !lang(env, e.f.name));
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr) || attr === "ref";                // SC-4; `ref`: called once with the element (07 §4)
@@ -2443,6 +2473,18 @@ class Checker {
       case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
       case "call": {
         this.callMarks(e.f, e.args, env);
+        // MO-8j (2026-11-26): an action or an io value given by name to what calls it while the call runs is called here,
+        // as its closure `(x) => name(x)` is: the language's own methods and functions that call what they are given, and a
+        // fn of the module whose body calls that parameter. What may keep it (a JavaScript import, a prop) is as it was.
+        if (ctx.scope === "reactive") e.args.forEach((a, i) => {
+          const s = a.k === "id" ? env.lookup(a.name) : undefined; if (!s?.io && s?.kind !== "action") return;
+          const f = e.f.k === "id" ? env.lookup(e.f.name) : undefined;
+          const now = e.f.k === "member" ? CALLS_NOW.has(e.f.p) : e.f.k === "id" && (f ? f.kind === "fn" && !!f.fnDecl && paramCalledNow(f.fnDecl, i) : lang(env, e.f.name) === "fn" && CALLS_NOW.has(e.f.name));
+          if (!now) return;
+          const n = (a as { name: string }).name;
+          if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${n} is io, and ${show(e.f)}(…) calls it; a fn is pure by definition`);
+          else this.err(s.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${n} is io, and ${show(e.f)}(…) calls it while the call runs: it is called in reactive scope (R-io-3), as \`(x) => ${n}(x)\` would be — call it from a handler or an action`);
+        });
         // W-1a (2026-11-22): the value of a source, an equation or a prop is changed by a write, never in place:
         // `rows.push(x)` changes the array every reader holds and tells none of them
         if (e.f.k === "member" && ARRAY_MUTATORS.has(e.f.p) && !this.draftChain(e.f.o, env)) {

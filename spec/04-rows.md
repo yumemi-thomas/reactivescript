@@ -28,6 +28,14 @@ and where they may not go.
   bin S — Solid's runtime `ACTION_CALLED_IN_OWNED_SCOPE` has no runtime
   form here). Carrying an `io` value (storing it, passing it) is not a
   call; its type carries the row: `io (n: number) => Promise<void>`.
+  *Given by name to what calls it now (2026-11-26).* In reactive scope
+  an action or an `io` value given by name is called there, as its
+  closure `(x) => name(x)` is, where the callee calls it while the call
+  runs: the language's methods and functions that call what they are
+  given (`map`, `filter`, `some`, `every`, `find`, `reduce`, `forEach`,
+  `flatMap`, `toSorted`, `replace`), and a fn of the module whose body
+  calls that parameter. What may keep it (a JavaScript import, a prop, a
+  record, a fn that hands it back) carries it. S-check-4.
   *An action a value carries (2026-11-24).* What a name, a field, an item
   or a fn's result holds is followed through the literals that say it: an
   action handed back by a fn (`{ n: n, set: set }`, `[n, set]`, `set`), of
