@@ -49,7 +49,7 @@ A component that has such a prop and never shows it this way is as it was (bug 3
 
 Both checkers report `NESTED_NOT_RENDERED` by line, then name. Over 120 other seeds of `--text` on S-module-41: 4 disagreements before, none after.
 
-## What the programs changed
+## What the programs changed (2d2b37ff)
 
 - **A, rule 1 and 4.** UI SDK and Kobalte take *either* a function or plain content, and have a second view (`render`, `as`). A children-only, view-only form could not be used by the components that asked for it. So: views of other names (MO-11k's named form), and `View | ((s: T) => View)` for children. Both keep every rule; a view of another name has its own placement in the summary (`f-at`).
 - **A, rule 2.** A spread is allowed (`<props.children {...now} />`): the state of a part is a record. For O-3 its fields are all of what it holds.
@@ -58,3 +58,18 @@ Both checkers report `NESTED_NOT_RENDERED` by line, then name. Over 120 other se
 - **The parameter's type is in the printed signature** (written out only): without it, an array changed in place through `s` was accepted across modules.
 - **B, 33**: a snapshot (`source x := peek(props.children)`) was `out` in every runner and became `in`; it is the caller's again.
 - **Found**: [38](proposals/bugs/38-a-view-that-provides.md).
+
+## After the review that was cut off
+
+Each finding was run again on d843fd7f, 2d2b37ff and upstream e650b85; what follows replaces the lines above where they differ.
+
+- **B, 33: taken out.** `<P>{use c}</P>` with `peek([p.children, p.children])` was `outout` in every runner and became `outin` compiled: the mark "a snapshot is reading" was spent by the first read. Giving it back is easy; knowing every read that must be the caller's is not (a component made under the snapshot, a getter in between), and this was the third try that moved a program the runners agreed on. A `use` in plain children is as it was; a view reads where it is shown. S-context-4 holds what a fix must not change; bugs/33 says what one would have to be.
+- **C: taken back, d843fd7f's gate.** The new one refused a program that reads no context (a fn with state kept as a value) and compiled a wrong one (a local fn under another name). A gate that only narrows the old one was worked out and not made: where a module's children read a context, refusing an `await` elsewhere in it also keeps 33's wrong code from being compiled, so each program it gave back could be wrong by 33. The six correct programs that d843fd7f refuses and upstream compiles stay refused.
+- **A: plain content beside a view is a view that asks nothing.** With 33 out, plain content with a `use` would have been accepted and wrong. Emitted as a view it needs no helper in the runtime, no wrapping of a lone value, and an `await` in it is asked where it is shown. A view alone is told from nothing by `typeof`, not by its length; the length is for JavaScript's thunk where plain content is taken.
+- **A: three programs.** Children of named views alone are none (the interpreter and the oracle called it some); a field named `children` in a spread is the view's (the interpreter dropped it); `{view children (s) { … }}` is refused (compiled, it was overwritten).
+- **A: types by name.** The parameter's type, and the props', are read through names: of the module, of the `.rx` modules it imports, and through their signatures, which now say what an exported type stands for. What cannot be read (JavaScript's types, a union, a type that names itself) is not refused: an in-place write through it is not seen, as through a component's props (which still read no names: not changed here, it would change verdicts).
+- **A: the stale view.** A spread that may give a view is refused: what is written, then the type, decides; unknown may. Kept out: dropping the field (silent), running a closure as a view (it makes it again at each change).
+- **Found: types.** A missing or wrong argument of an optional or a union view was told by TypeScript at a name the projection did not map, and lost. Mapped.
+- **Kept, because a library needs each**: named views (UI SDK's `renderToken`, `Segment`, `fallback`; TanStack's `fallback`; Kobalte's `element`-like parts of S-view-6), plain content or a view (Kobalte's Resizable, ToggleButton, Rating, Checkbox, Switch, Select; TanStack's Link, MatchRoute, Block; 332 of UI SDK's exports). **Not relaxed**: asking for children that may be plain (36 of UI SDK's, no other library): a JavaScript host's content would be made twice, or owned above where it is shown.
+- **D** has its test (S-module-41) and page ([39](proposals/bugs/39-order-of-one-lines-diagnostics.md)).
+- **34**: a closure given on (`<T>{props.children}</T>`) is called as well. **38**: run served and hydrated.

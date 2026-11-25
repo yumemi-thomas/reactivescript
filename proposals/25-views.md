@@ -111,8 +111,8 @@ export default component App() {
 | --- | --- |
 | UI SDK's Toggle and trigger, rewritten with it | 2 of its 3 refused correct lines accepted (the third is a `ref` on a component: another matter); its 12 mistakes caught; 44 of 44 of its suite, 5 of 5 leak gates, its Playwright specs as before the rewrite (548 pass; the 2 that fail fail there too, run here) |
 | Kobalte's `Select.Value` and `as`, TanStack Router's `Link`, `MatchRoute`, `Await` | written and run (S-view-6), as they are used: a function or plain content |
-| programs run in both checkers, the interpreter, the oracle, both emitters, the server and hydration | @COUNTS@ |
-| programs of this tree and upstream's that change verdict, projection or code | 0 of 1,170 (one message's words) |
+| programs run in both checkers, the interpreter, the oracle, both emitters, the server and hydration | 104 tables right, 22 programs accepted, 171 refused (S-view-3 to S-view-7) |
+| programs of this tree and upstream's that change verdict, projection or code | 0 of 1,170 (one message's words; the printed signature of 34 says what an exported type stands for) |
 
 A view is a block, so what is hard for plain children is right by what exists: a `use` in it reads where it is shown ([33](bugs/33-use-in-children.md)), an `await` in it is asked there ([36](bugs/36-await-by-a-childs-context.md)). Plain children of other components are as they were.
 
@@ -121,10 +121,10 @@ A view is a block, so what is hard for plain children is right by what exists: a
 | | |
 | --- | --- |
 | rules | one paragraph of RG-4c; `view`, `value(…)` and `f-at` in a printed signature |
-| code | @CODE@ |
+| code | 845 lines added and 67 removed in the crate, 416 and 79 in `ref/`, 6 of them in the runtimes (bugs 34, 38 and 39 included) |
 | check | 798 programs in 0.19 s, before and after |
-| 1,000 rows, production, one run: mount / reverse / change all | a plain `for` 5.1 / 0.8 / 0.6 ms; a view 6.6 / 0.9 / 0.4; a child reading a context 8.2 / 0.8 / 1.2 |
-| the module, minified | 1,227; 1,402; 1,538 bytes |
+| 1,000 rows, production, one run (2d2b37ff): mount / reverse / change all | a plain `for` 5.1 / 0.8 / 0.6 ms; a view 6.6 / 0.9 / 0.4; a child reading a context 8.2 / 0.8 / 1.2 |
+| the module, minified (2d2b37ff) | 1,227; 1,402; 1,538 bytes |
 | a reader learns | a tag that begins with a small letter |
 
 ## Against

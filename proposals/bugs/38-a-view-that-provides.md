@@ -14,4 +14,4 @@ export default component App() {
 
 `V` is `p => [p.children("a"), p.children("b"), p.after]`. It shows `abb`: what the second view provides is seen beside it. `ref/`'s emitter gives the view an owner of its own (RG-7a), and shows `abo`.
 
-**Fix, on `proto-children`.** The crate does the same. **Test.** S-view-4 (the two emitters' code is compared); run in Chromium, both of Solid's builds.
+**Fix, on `proto-children`.** The crate does the same. **Test.** `compiler/test/js-host.mjs`: rendered, served and hydrated, in both of Solid's builds.
