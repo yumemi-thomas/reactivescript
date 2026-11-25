@@ -13,7 +13,8 @@ import { lowerViews, STRING_RENDERER, type Target } from "./jsx.ts";
 export type Built = { entry: string; css: string; views: (target: Target) => Map<string, string> };
 export const crate = !!process.env.RX_CRATE;
 const rxc = fileURLToPath(new URL("../../compiler/target/release/rxc", import.meta.url));
-if (crate) execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: fileURLToPath(new URL("../../compiler/", import.meta.url)), stdio: "inherit" });
+// (RX_BUILT: whoever runs this built it. On macOS cargo takes target/release/rxc away for a moment to write it again, also when nothing changed)
+if (crate && process.env.RX_BUILT !== "1") execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: fileURLToPath(new URL("../../compiler/", import.meta.url)), stdio: "inherit" });
 
 /** Throws CompileError when the program is not compiled; the caller has run the checker. */
 export function build(sc: Scenario, src: string, handlers: string[]): Built {

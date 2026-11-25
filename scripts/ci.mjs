@@ -39,18 +39,18 @@ const steps = [
   { id: "node-build", dir: "compiler", run: napi, uses: ["cargo", "binding"], n: jobs, after: ["npm-compiler", "cargo-test"], quick: true },
   { id: "runtime", dir: "runtime", run: "npm run -s build", after: ["npm-runtime"], quick: true },
   { id: "runtime-test", dir: "runtime", run: "npm test && npm pack --silent && rm -f *.tgz && node test.mjs", after: ["runtime", "node-build"], uses: ["binding-read"], quick: true },
-  { id: "names", dir: ".", run: `${strip} compiler/test/names.mjs`, after: ["crate"], quick: true },
+  { id: "names", dir: ".", run: `${strip} compiler/test/names.mjs`, after: ["crate", "cargo-test"], quick: true },
   { id: "spec-refs", dir: ".", run: "node scripts/spec-refs.mjs", quick: true },
   { id: "tools", dir: ".", run: "node scripts/lock.test.mjs && node scripts/cache.test.mjs" },
   { id: "tools-worker", dir: ".", run: "node scripts/tools.test.mjs", after: ["wasm", "npm-language-server"] },
   { id: "ref-run", dir: "ref", run: "npm test -s", quick: true },
   { id: "ref-oracle", dir: "ref", run: "npm run -s oracle", quick: true },
   { id: "ref-compiled", dir: "ref", run: "npm run -s compiled", uses: ["ref-out"], quick: true },
-  { id: "ref-compiled-crate", dir: "ref", run: "RX_CRATE=1 npm run -s compiled", uses: ["ref-out", "cargo"], after: ["crate"], quick: true, only: "quick" },
+  { id: "ref-compiled-crate", dir: "ref", run: "RX_CRATE=1 npm run -s compiled", uses: ["ref-out"], after: ["crate", "cargo-test"], quick: true, only: "quick" },
   { id: "ref-types", dir: "ref", run: "npm run -s types", after: ["npm-language-server"], quick: true },
   { id: "ref-crate", dir: "ref", run: `node ../scripts/parallel.mjs ${crate.map(c => `"npm run -s crate -- ${c}"`).join(" ")}`, after: ["node-build"], uses: ["cargo"], n: jobs, quick: true },
   { id: "ref-ssr", dir: "ref", run: "npm run -s ssr", n: jobs, heavy: true, quick: true, soft: 45 },
-  { id: "drafts", dir: ".", run: "node compiler/test/drafts.mjs", after: ["crate"], quick: true },
+  { id: "drafts", dir: ".", run: "node compiler/test/drafts.mjs", after: ["crate", "cargo-test"], quick: true },
   { id: "lib", dir: ".", run: "node compiler/test/lib.mjs", after: ["node-build"], uses: ["binding-read"], quick: true },
   { id: "bench-install", dir: ".", run: 'mkdir -p bench/.out/ws && cd bench/.out/ws && if cmp -s ../../package-lock.json node_modules/.installed-from-lock && cmp -s ../../package.json package.json; then echo installed; else cp ../../package.json ../../package-lock.json . && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock; fi', uses: ["ws"], quick: true },
   { id: "confined", dir: ".", run: "node compiler/test/confined.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws"], quick: true },
@@ -106,7 +106,7 @@ async function start(s) {
   const release = s.heavy ? await heavy(`${quick ? "quick" : "ci"} ${s.id}`, quick ? { want: n0, wait: 30, orNot: true, log() {} } : { want: n0, log: t => console.log(`${at()}  ${t}`) }) : () => {};
   if (!release) { running.delete(s.id); done.set(s.id, { not: "another heavy run holds the machine (node scripts/heavy.mjs --who)" }); console.log(`${at()}  part ${s.id.padEnd(22)} not run: the machine is busy`); return next(); }
   const file = path.join(log, `${s.id}.log`), n = Math.min(n0, release.n ?? n0), cmd = s.run;
-  const child = spawn("bash", ["-c", `exec >${JSON.stringify(file)} 2>&1; time { ${cmd}\n} 2>&1; code=$?; exit $code`], { cwd: path.join(repo, s.dir), env: { ...env, RX_JOBS: String(n), BENCH_JOBS: String(n), ...release.env }, stdio: "ignore", detached: true });
+  const child = spawn("bash", ["-c", `exec >${JSON.stringify(file)} 2>&1; time { ${cmd}\n} 2>&1; code=$?; exit $code`], { cwd: path.join(repo, s.dir), env: { ...env, RX_JOBS: String(n), BENCH_JOBS: String(n), ...(done.get("crate")?.ok ? { RX_BUILT: "1" } : {}), ...release.env }, stdio: "ignore", detached: true });
   let late = false; const soft = quick && s.soft ? setTimeout(() => { late = true; try { process.kill(-child.pid, "SIGTERM"); } catch { /* ended */ } setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, 3000); }, s.soft * 1000) : null;
   const began = Date.now(), wall = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, (s.limit ?? (Number(process.env.RX_CI_LIMIT) || 3600)) * 1000);
   running.set(s.id, { child, s, n });

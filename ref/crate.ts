@@ -117,7 +117,7 @@ if (textMode) {
     reqs.push({ ...r, id: `${r.id} (cut ${cut.length})`, files: files(() => cut + ["é", "😀\n", "漢 ", "\"é"][pick(4)]) }, { ...r, id: `${r.id} (${JSON.stringify(ins)} at ${at})`, files: files(t => t.slice(0, at) + ins + t.slice(at)) });
   }
 }
-execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
+if (process.env.RX_BUILT !== "1") execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
 if (lowerMode) process.exit(await lower());
 if (projectMode) process.exit(await project());
 const out = rxc("conform", JSON.stringify(reqs));

@@ -20,7 +20,7 @@
 // `prototype=` is a verdict of the prototype of 19, 20 and 21, a local branch that is not published: this tree does not run
 // it. `--prototype <folder>` runs the programs so marked there.
 // `says-branch="text"` and `says-upstream="text"` ask that the output hold the text. `files=<dir>` copies a folder of proposals/ beside.
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { cores } from "../scripts/lib/lock.mjs";
 import * as cache from "../scripts/lib/cache.mjs";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -34,8 +34,13 @@ const verbose = process.argv.includes("-v"), only = arg("--only"), up = arg("--u
 const roots = { branch: repo, ...(up ? { upstream: resolve(up) } : {}), ...(proto ? { prototype: resolve(proto) } : {}) };
 for (const [name, root] of Object.entries(roots)) for (const f of ["compiler/target/release/rxc", "ref/node_modules/solid-js", "runtime/dist/web.js", "tooling/rx-language-server/node_modules"]) if (!existsSync(join(root, f))) { console.log(`SETUP ${name}: no ${f} in ${root} (README.md says how it is built)`); process.exit(2); }
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "rx-proposals-")));
+// each tree's crate is built here, once, and not by the runners (which build it first): on macOS cargo takes the binary away
+// for a moment to write it again, also when nothing changed, and the programs run beside each other would find none
+if (process.env.RX_BUILT !== "1") for (const root of Object.values(roots)) execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
+mkdirSync(join(tmp, "bin")); writeFileSync(join(tmp, "bin/cargo"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+process.env.RX_BUILT = "1"; process.env.PATH = `${join(tmp, "bin")}:${process.env.PATH}`;
 /** A process to its end: `{ status, stdout, stderr }`. */
-const run = (cmd, args, cwd, env = {}) => new Promise(res => { const c = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; c.stdout.setEncoding("utf8").on("data", d => { stdout += d; }); c.stderr.setEncoding("utf8").on("data", d => { stderr += d; }); c.on("error", e => res({ status: null, stdout, stderr: stderr + e.message })); c.on("close", status => res({ status, stdout, stderr })); });
+const run = (cmd, args, cwd, env = {}) => new Promise(res => { const c = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; c.stdout.setEncoding("utf8").on("data", d => { stdout += d; }); c.stderr.setEncoding("utf8").on("data", d => { stderr += d; }); c.on("error", e => res({ status: null, stdout, stderr: stderr + e.message })); c.on("close", (status, signal) => res({ status, signal, stdout, stderr })); });
 const node = async (args, cwd, env = {}) => { const r = await run(process.execPath, args, cwd, env); return r.stdout + r.stderr; };
 const uniq = xs => [...new Set(xs)].sort();
 
@@ -71,7 +76,7 @@ const kinds = {
     const c = a.stdout + a.stderr, r = await node(["--experimental-strip-types", join(root, "ref/check.ts"), ...flags.filter(f => f !== "--spa"), file], dir);
     const cv = said(c) === "ok" && a.status !== 0 ? "failed" : said(c), parse = /: parse error: /.test(r) && cv !== "ok";   // a parse error the reference prints without a code
     const rv = parse ? cv : said(r) === "ok" && !/^ok /m.test(r) ? "failed" : said(r);
-    return { got: flags.includes("--spa") || cv === rv ? cv : `${cv}|${rv}`, out: c + "\n--- ref\n" + r };
+    return { got: flags.includes("--spa") || cv === rv ? cv : `${cv}|${rv}`, out: c + (cv === "failed" ? `\n(rxc ended: ${a.signal ?? a.status})` : "") + "\n--- ref\n" + r };
   },
   async frames(root, b, name, slot) {
     const at = mirror(name, root, slot); for (const f of readdirSync(join(at, "scenarios"))) rmSync(join(at, "scenarios", f));
@@ -142,7 +147,7 @@ const say = (w, r) => {
   if (got !== want && (noSetup(out) || !out.trim() || (b.kind === "frames" && !/^(PASS|FAIL|SKIP) S-proposal-1/m.test(out)))) { setup++; console.log(`SETUP ${relative(repo, d)}:${b.line} ${b.kind} ${name}: not run — ${(out.split("\n").find(l => noSetup(l)) ?? "no output").trim().slice(0, 200)}`); return; }
   ran++;
   const ok = judged(w, out, got); if (!ok) bad++;
-  if (!ok || verbose) console.log(`${ok ? "ok  " : "FAIL"} ${relative(repo, d)}:${b.line} ${b.kind} ${name}: ${got}${ok ? "" : `, stated ${want}${text && !out.includes(text) ? `, saying ${JSON.stringify(text)}` : ""}`}${verbose ? "\n" + out.replaceAll(/^/gm, "     | ").slice(0, 1600) : ""}`);
+  if (!ok || verbose) console.log(`${ok ? "ok  " : "FAIL"} ${relative(repo, d)}:${b.line} ${b.kind} ${name}: ${got}${ok ? "" : `, stated ${want}${text && !out.includes(text) ? `, saying ${JSON.stringify(text)}` : ""}`}${verbose || /^\(rxc ended:/m.test(ok ? "" : out) ? "\n" + out.replaceAll(/^/gm, "     | ").slice(0, 1600) : ""}`);
 };
 const jobs = Math.max(1, Number(process.env.RX_JOBS) || cores());
 await Promise.all(Array.from({ length: jobs }, async (_, slot) => {
