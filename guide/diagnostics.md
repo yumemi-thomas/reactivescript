@@ -1774,6 +1774,39 @@ export default component App() {
 }
 ```
 
+### AMBIGUOUS_CONTEXT
+
+A context is used in a component's children, and the component provides it around them (RG-7b). Whether it is read there
+or where it is written is not settled: RG-4c says a component's children are the caller's, RG-7b that a provision is for what
+is shown beneath it. Say which is meant. Bound above, it is what is provided where you are; in a component of its own, in a
+block of the children (`{if true { v = use room … }}`), or in a `view` for a component that takes one, it is what the
+component provides.
+
+```rx before
+context room: string
+component Room(props: { children: View }) {
+  provide room = "hall"
+  <p>{props.children}</p>
+}
+export default component App() {
+  <Room>{use room}</Room>
+}
+```
+
+```rx after
+context room: string
+component Room(props: { children: View }) {
+  provide room = "hall"
+  <p>{props.children}</p>
+}
+component Name() {
+  <b>{use room}</b>
+}
+export default component App() {
+  <Room><Name /></Room>
+}
+```
+
 ### CONTEXT_NOT_FOUND
 
 `use x` reads the nearest provision of context `x` above the region, and some path that renders it has none (RG-7b).

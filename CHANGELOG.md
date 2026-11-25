@@ -6,6 +6,8 @@
   given as `<Toggle>{view (s) { … }}</Toggle>`; a prop of another name as `{view cell (s) { … }}`; `View | (…)` takes plain content as well (RG-4c; S-view-3 to S-view-7). The crate gives a view that provides an owner of its own, as ref/ did (proposals/bugs/38).
 - **Fixed: a closure as a component's children** (`<T>{n => …}</T>`, `props.children(n)`) threw in the interpreter and the oracle (S-view-2; proposals/bugs/34).
 - **Fixed: `NESTED_NOT_RENDERED`, twice on a line**, in the same order in both checkers (S-module-41; proposals/bugs/39).
+- **Refused: a context used in a component's children where the component provides it around them** (`AMBIGUOUS_CONTEXT`; S-context-5; proposals/bugs/33). It read at the caller,
+  compiled, and where it is shown in the interpreter: bind it above, or use it in a component, a block or a view.
 - **Fixed: an `await` in a component's children** was not compiled by the crate (S-view-1; proposals/bugs/37). It is still not, in a module where
   children read a context (proposals/bugs/36).
 

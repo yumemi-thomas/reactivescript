@@ -1,6 +1,6 @@
 # 24 — A question: where does a `use` in children read?
 
-`<Toggle>{(use toggle).pressed ? "on" : "off"}</Toggle>` is accepted, and compiled it reads at the caller: [bug 33](bugs/33-use-in-children.md). A fix was tried and is held back, because the text says two things.
+`<Toggle>{(use toggle).pressed ? "on" : "off"}</Toggle>` is accepted, and compiled it reads at the caller: [bug 33](bugs/33-use-in-children.md). A fix was tried and is held back, because the text says two things. This branch chooses neither: it refuses the program where the two differ ([33](bugs/33-use-in-children.md), `AMBIGUOUS_CONTEXT`).
 
 - **RG-4c**: *`children` is a view value evaluated in the* caller's *region: its readers are the caller's, its lifetime is the caller's, and the child only decides where it is placed.*
 - **RG-7b**: a provision is for *every region* instantiated beneath *it — the instantiation chain (the tree of views), not the lexical one. `use name` reads the nearest provision above.*
@@ -8,7 +8,7 @@
 
 By RG-4c a `use` written in children is one of the caller's readers. By 08 it sees what the component provides, and both checkers accept a program on that ground: the one below is `CONTEXT_NOT_FOUND` if P provides nothing.
 
-<!-- check branch=ok upstream=ok -->
+<!-- check branch=AMBIGUOUS_CONTEXT upstream=ok -->
 ```rx
 context c: string
 component P(props: { children?: View }) {

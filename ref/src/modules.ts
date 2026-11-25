@@ -505,3 +505,28 @@ function mentions(x: unknown, name: string): boolean {
   const o = x as { k?: string; name?: string; tag?: string };
   return ((o.k === "id" || o.k === "pre") && o.name === name) || (o.k === "el" && typeof o.tag === "string" && (o.tag === name || o.tag.startsWith(`${name}.`))) || Object.values(x).some(y => mentions(y, name));
 }
+
+/** RG-7b, 08: whether a component's children are shown in its own view and go nowhere else: named by `{props.children}`, by what a
+ *  pattern or a rest of the props calls them, or by `if props.children`. Read by a snapshot, carried by a context, kept in a value,
+ *  given as a prop or spread, they may be read where they are written, or where nothing of the component is. */
+export function onlyShown(d: { props: string; decls: Decl[]; view: Markup[] }): boolean {
+  const kids = new Set<string>(), holds = new Set([d.props]);
+  type O = Record<string, any>;
+  const name = (v: O | undefined): string | undefined => v?.k === "id" || v?.k === "pre" ? v.name : undefined;
+  const form = (v: O): boolean => (v?.k === "id" && kids.has(v.name)) || (v?.k === "member" && v.p === "children" && v.o.k === "id" && holds.has(v.o.name)) || (v?.k === "if" && v.c.k === "bin" && v.c.op === "==" && form(v.c.l) && form(v.f) && !mentions(v.t));
+  const mentions = (v: any): boolean => {
+    if (!v || typeof v !== "object") return false;
+    if (Array.isArray(v)) return v.some(mentions);
+    const n = name(v); if (form(v) || (n !== undefined && (kids.has(n) || holds.has(n)))) return true;
+    const of = (x: O | undefined) => { const m = name(x); return m !== undefined && holds.has(m); };
+    if ((v.k === "member" && of(v.o)) || (v.k === "omit" && of(v.e) && v.keys.includes("children"))) return false;   // another field of the props, a rest without the children
+    return Object.entries(v).some(([f, x]) => !(((v.k === "read" && f === "e") || (v.k === "mif" && f === "c")) && form(x as O)) && mentions(x));
+  };
+  const named = new Set<unknown>();
+  for (const x of d.decls) if (x.k === "eq" && x.key === undefined && !x.deferred) {
+    const e = x.e as O;
+    if (form(e)) { kids.add(x.name); named.add(x); }
+    else if (e.k === "omit" && holds.has(name(e.e) ?? "") && !e.keys.includes("children")) { holds.add(x.name); named.add(x); }
+  }
+  return ![...d.decls, ...d.view].some(x => !named.has(x) && mentions(x));
+}

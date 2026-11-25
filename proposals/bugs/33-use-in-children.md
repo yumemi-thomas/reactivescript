@@ -1,6 +1,6 @@
 # A context read in a component's children is read at the caller
 
-<!-- frames branch=fail upstream=fail says-branch="no provision for toggle" says-upstream="no provision for toggle" -->
+<!-- frames branch=refused upstream=fail says-upstream="no provision for toggle" -->
 ```rx
 context toggle: { pressed: boolean }
 component Toggle(props: { children: View }) {
@@ -22,7 +22,7 @@ export default component App() {
 
 **On upstream (e650b85).** Accepted by both checkers, and right in the interpreter. Compiled, it depends on the target. A fresh mount in a browser throws *no provision for toggle*. The server's output shows `off!`, and its hydration throws. Where the caller has a provision of its own, or the context has a default, the mount reads that one, in silence.
 
-<!-- frames branch=pass upstream=pass runner=ref -->
+<!-- frames branch=fail upstream=pass runner=ref says-branch="AMBIGUOUS_CONTEXT" -->
 ```rx
 context toggle: { pressed: boolean }
 component Toggle(props: { children: View }) {
@@ -40,7 +40,7 @@ export default component App() {
 | 0 | mount | `off` |
 | 1 | handler `lit := true` | `on` |
 
-<!-- frames branch=fail upstream=fail runner=ssr says-branch="server render threw: RG-7b: no provision for toggle" says-upstream="page.evaluate: Error: RG-7b: no provision for toggle" -->
+<!-- frames branch=refused upstream=fail runner=ssr says-upstream="page.evaluate: Error: RG-7b: no provision for toggle" -->
 ```rx
 context toggle: { pressed: boolean }
 component Toggle(props: { children: View }) {
@@ -57,12 +57,16 @@ export default component App() {
 | --- | --- | --- |
 | 0 | mount | `off` |
 
-**On this branch.** The same, but for the server, which throws too: what a region provides is no longer seen beside it ([30](30-provision-leaks.md)).
+**On this branch.** Refused by both checkers, `AMBIGUOUS_CONTEXT`: no side is chosen. A context used (or written) in a component's children, in no block and no component of theirs, is refused where the component provides that context around every place it shows them in its own view. There the two readings differ (RG-4c: the caller's; RG-7b and 08: where they are shown) and compiled code has the other one than the interpreter. Where the component provides nothing of that name nothing changes; nor where its children are also read by a snapshot, carried by a context, kept in a value, given as a prop, spread or named in an imperative place, or shown in a place outside the provision as well: on those the runners agree, or no summary tells them apart. The printed signature says which, `apart(c)` beside `provides(c)`.
+
+Of 1,116 programs made for it (31 ways to show children, 15 forms of children), the runners differ on 388: 239 are refused, 149 are as they were (a record, a list, a closure, a prop, a snapshot of an applied component). 592 on which they agree are accepted. 129 that show the same frames are refused: in 84 the read is in an attribute or a handler, which a frame does not show, or is not reached in that table; in 23 the children are never shown; in 22 the component provides the very value that is above it. The last is the one way found that a program right in every runner is refused, a wrapper that provides on what it has; binding it above is one line. No program of this tree or upstream's (1,170), no benchmark program and none of the UI SDK rewrite is.
+
+**The price.** 08 and RG-7b accept these programs, the interpreter runs them, and upstream's checkers pass them. Upstream's compiled code is wrong on them or throws, so no one has one that works. If upstream decides for 08 and fixes compiled code, the refusal goes.
 
 **Cause.** A block binds its owner once (`const __o = __rt.owner()`), and a `use` in a child's getter names the caller's. The oracle has the same fault. An `if` branch or a row among the children has an owner of its own, and is right.
 
-**Not fixed here.** Where such a read belongs is asked in [24](../24-view-functions.md), with the fix that was tried. A narrower one was tried since and taken back (`proto-children` 2d2b37ff): children read under the owner that reads them, but at the caller for a snapshot or a context's value. What decides is who reads, and the children's getter does not know: a second read in one snapshot was the first one's reader's (S-context-4: `peek([p.children, p.children])`, `outout` in every runner, became `outin` compiled), and each repair moved the edge. A fix has to say at the component's `{props.children}` that it is shown there, and leave every other read.
+**A fix was tried.** Where such a read belongs is asked in [24](../24-view-functions.md). A narrower one was tried since and taken back (`proto-children` 2d2b37ff): children read under the owner that reads them, but at the caller for a snapshot or a context's value. What decides is who reads, and the children's getter does not know: a second read in one snapshot was the first one's reader's (S-context-4: `peek([p.children, p.children])`, `outout` in every runner, became `outin` compiled), and each repair moved the edge. A fix has to say at the component's `{props.children}` that it is shown there, and leave every other read.
 
-**Test.** S-context-4: the programs a fix must not change.
+**Test.** S-context-5 (refused, and what is not); S-context-4 (what a fix must not change).
 
 **Instead.** A child component that reads the context, or the read in a block of the children: `{if true { t = use toggle; <b>{t.pressed ? "on" : "off"}</b> }}`.

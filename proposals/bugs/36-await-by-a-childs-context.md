@@ -1,6 +1,6 @@
 # An await in children is asked where they are written
 
-<!-- frames branch=refused upstream=fail says-branch="is not lowered yet" says-upstream="no flight q" -->
+<!-- frames branch=refused upstream=fail says-upstream="no flight q" -->
 ```rx
 import pure { fetch } from "./prelude"
 context c: string
@@ -23,7 +23,7 @@ export default component App() {
 
 The same table, in the reference: its interpreter is right, and its emitter asks `outer`.
 
-<!-- frames branch=pass upstream=pass runner=ref -->
+<!-- frames branch=fail upstream=pass runner=ref says-branch="AMBIGUOUS_CONTEXT" -->
 ```rx
 import pure { fetch } from "./prelude"
 context c: string
@@ -44,7 +44,7 @@ export default component App() {
 | 0 | mount | `wait` |
 | 1 | resolve "q" "ok" | `ok` |
 
-<!-- frames branch=fail upstream=fail runner=ref-compiled -->
+<!-- frames branch=refused upstream=fail runner=ref-compiled -->
 ```rx
 import pure { fetch } from "./prelude"
 context c: string
@@ -67,7 +67,7 @@ export default component App() {
 
 **On upstream (e650b85).** Accepted by both checkers. Compiled, and in the oracle, it asks `outer`: an `await` in a view is hoisted to the block it is written in (07 §3), which is above the provision. An `await` that is never reached is enough to see the rest of it, which is [33](33-use-in-children.md):
 
-<!-- frames branch=refused upstream=fail says-branch="is not lowered yet" says-upstream="got 'out!'" -->
+<!-- frames branch=refused upstream=fail says-upstream="got 'out!'" -->
 ```rx
 import pure { fetch } from "./prelude"
 context c: string = "out"
@@ -82,7 +82,7 @@ export default component App() { <P>{use c}{false ? await fetch(use c) : "!"}</P
 | --- | --- | --- |
 | 0 | mount | `in!` |
 
-**On this branch.** The crate refuses it: *not compiled, `await` outside an equation's result position is not lowered yet*. It refused every `await` in children ([37](37-await-in-children-not-compiled.md)); it compiles them now, but in a module where some application's children read a context: by `use`, or by a name that stands for one (a fn that reads it, what is bound, written or given as a prop from one, what is imported). Names are compared, not scopes, so a correct program of such a module stays refused. The reference's emitter is unchanged. A narrower gate was tried and taken back (`proto-children` 2d2b37ff): asked of those children alone, it compiled six correct programs more, refused some that this one compiles (a fn with state kept as a value anywhere in the program; S-view-1), and compiled a wrong one that this one refuses (a fn declared in the component, under another name). Where a module's children read a context, [33](33-use-in-children.md) is in its code as well.
+**On this branch.** Both checkers refuse these two: the question is asked by a context the component provides ([33](33-use-in-children.md), `AMBIGUOUS_CONTEXT`). Where they do not, the crate still refuses it: *not compiled, `await` outside an equation's result position is not lowered yet*. It refused every `await` in children ([37](37-await-in-children-not-compiled.md)); it compiles them now, but in a module where some application's children read a context: by `use`, or by a name that stands for one (a fn that reads it, what is bound, written or given as a prop from one, what is imported). Names are compared, not scopes, so a correct program of such a module stays refused. The reference's emitter is unchanged. A narrower gate was tried and taken back (`proto-children` 2d2b37ff): asked of those children alone, it compiled six correct programs more, refused some that this one compiles (a fn with state kept as a value anywhere in the program; S-view-1), and compiled a wrong one that this one refuses (a fn declared in the component, under another name). Where a module's children read a context, [33](33-use-in-children.md) is in its code as well.
 
 **What the gate does not see.** A fn that reads a context, given as a prop to a component of another module, which calls it in its children: that module alone does not say what its prop is. It is wrong on this branch with no children as well (the interpreter throws E-9 on it).
 

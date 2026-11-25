@@ -61,18 +61,3 @@ export default component App() { source k := "a"
 | --- | --- | --- | --- |
 | 0 | mount | `a` | log(a) |
 | 1 | handler `k := "b"` | `b` | log(b) |
-
-## Variant: handler
-
-```rx
-context c: string = "none"
-component P(props: { v: string, children?: View }) { provide c = props.v
-  <div>{props.children}</div> }
-export default component App() { source seen := ""
- <P v="a"><button onClick={() => { seen := peek(use c) }}>{seen}</button></P> }
-```
-
-| instant | action | frame | effect |
-| --- | --- | --- | --- |
-| 0 | mount |  |  |
-| 1 | handler `seen := "q"` | `q` |  |

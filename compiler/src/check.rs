@@ -11,7 +11,7 @@ use crate::ast::*;
 use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
-use crate::modules::{other_mention, shown, shown_in, ModuleSet, Shown};
+use crate::modules::{only_shown, other_mention, shown, shown_in, ModuleSet, Shown};
 use crate::names::{harness_reason, language, scalar, Lang};
 use crate::parse::{closes, js_trim, split_top, type_words, JsDecl, Part, Shape as FShape, Words};
 use crate::signature::{Catch, CompSig, ExportSig, HostSite, Hosted, ModSig, Own, PropSig, SigParam, ViewSig, HOLD};
@@ -2037,6 +2037,11 @@ pub struct Checker<'a> {
     view_stores: Vec<((SId, String), String, i64)>,
     /// the branch of `if props.f` where it is
     asked: HashMap<RId, String>,
+    /// RG-7b: where a component's children are shown by name (the component, the region)
+    kid_reads: Vec<(RId, RId)>,
+    /// … each context read or written in a component's children, in no block of theirs: its key, its name
+    kid_uses: Vec<(RId, String, String, i64)>,
+    around_memo: HashMap<(RId, String), IndexSet<String>>,
     /// MO-11i: the components a factory's records nest others in — by name and line: its region, and the record's field
     nested: IndexMap<(String, i64), (RId, String)>,
     nesting_word: Option<String>,
@@ -2478,6 +2483,9 @@ impl<'a> Checker<'a> {
             view_stores: vec![],
             shown_at: vec![],
             asked: HashMap::new(),
+            kid_reads: vec![],
+            kid_uses: vec![],
+            around_memo: HashMap::new(),
             nested: IndexMap::new(),
             nesting_word: None,
             view_props: HashMap::new(),
@@ -2986,7 +2994,7 @@ impl<'a> Checker<'a> {
                             };
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
-                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, components: false, takes: vec![], view: None });
+                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, components: false, takes: vec![], view: None, apart: vec![] });
                             self.regions[r].sig = Some(CompSig { made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new(), hosts: IndexMap::new(), through: false });
                             sym.kind = SymKind::Comp;
                             sym.comp_region = Some(r);
@@ -3260,13 +3268,13 @@ impl<'a> Checker<'a> {
                 let empty = || Catch::Set(IndexSet::new());
                 let given = || Catch::Set(gives.iter().cloned().collect());
                 let mut props = IndexMap::new();
-                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false, components: false, takes: vec![], view: None });
+                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false, components: false, takes: vec![], view: None, apart: vec![] });
                 for p in xprops {
                     let f = match &p.catches {
                         Some(c) => Catch::of(c),
                         None => empty(),
                     };
-                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component, components: p.components, takes: vec![], view: None });
+                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component, components: p.components, takes: vec![], view: None, apart: vec![] });
                 }
                 let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                 let r = c.region(None, "imported", true, Some(alias.to_string()));
@@ -6165,6 +6173,7 @@ impl<'a> Checker<'a> {
                 if let Some(c) = c {
                     self.read(c, ctx, false, None);
                     let info = self.syms[c].ctx.clone().unwrap();
+                    self.kid_use(env, &info.key, name);
                     if !info.dflt {
                         let region = self.reg(env);
                         self.uses.push(UseRec { region, name: info.key, line: self.line, display: name.clone() });
@@ -6749,7 +6758,8 @@ impl<'a> Checker<'a> {
                         if let Some(c) = self.ctx_of(&target.name, env) {
                             self.model.write(Some(c), op, !target.path.is_empty());
                             let info = self.syms[c].ctx.clone().unwrap();
-                            self.uses.push(UseRec { region, name: info.key.clone(), line: self.line, display: target.name.clone() });
+                            self.kid_use(env, &info.key, &target.name);
+                        self.uses.push(UseRec { region, name: info.key.clone(), line: self.line, display: target.name.clone() });
                             if !info.source {
                                 self.err("WRITE_TO_NON_SOURCE", "O-4", format!("context {} is read beneath its provision: call an action it provides that writes it", target.name));
                             }
@@ -7301,6 +7311,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 MarkupKind::Read(e) => {
+                    self.kid_read(e, env);
                     self.comp("reader", env, None, Some("{…}".into()), |c| c.expr(e, env, Ctx::reactive(), None));
                     self.keep(e, env);
                     self.readers.push(ReaderRec { region, e, env, line: self.line });
@@ -7503,6 +7514,7 @@ impl<'a> Checker<'a> {
                 }
                 MarkupKind::Mif { c, t, t_decls, f, f_decls } => {
                     self.whole_ok.insert(c as *const Expr); // MO-10f: a condition reads no field
+                    self.kid_read(c, env);
                     self.comp("reader", env, None, Some("if".into()), |cc| cc.expr(c, env, Ctx::reactive(), None));
                     self.keep(c, env);
                     self.readers.push(ReaderRec { region, e: c, env, line: self.line });
@@ -7702,6 +7714,118 @@ impl<'a> Checker<'a> {
             let held: Vec<(String, bool, Vec<String>)> = field_rows(t).1.into_iter().filter(|h| h.0.contains('.')).collect();
             if !held.is_empty() {
                 self.prop_held.insert(r, held);
+            }
+        }
+    }
+    /// RG-7b: the component whose children `e` is, by name.
+    fn children_of(&self, e: &Expr, env: EId, depth: usize) -> Option<RId> {
+        let made = |n: &str| self.lookup(env, n).and_then(|s| self.syms[s].made);
+        if depth > 8 {
+            return None;
+        }
+        match &e.k {
+            ExprKind::Id(n) => made(n).filter(|m| matches!(m.0.k, ExprKind::Member { .. } | ExprKind::If { .. })).and_then(|(x, at, _)| self.children_of(x, at, depth + 1)),
+            ExprKind::If { f, .. } if depth > 0 => self.children_of(f, env, depth + 1),
+            ExprKind::Member { o, p, .. } if p == "children" => {
+                let ExprKind::Id(n) = &o.k else { return None };
+                let s = self.lookup(env, n)?;
+                if self.syms[s].kind == SymKind::Props {
+                    return self.syms[s].view_of.is_none().then_some(self.syms[s].region);
+                }
+                let (x, at, _) = self.syms[s].made?;
+                let ExprKind::Omit { e, keys } = &x.k else { return None };
+                let ExprKind::Id(n) = &e.k else { return None };
+                let s = self.lookup(at, n).filter(|&s| self.syms[s].kind == SymKind::Props && !keys.iter().any(|k| k == "children"))?;
+                Some(self.syms[s].region)
+            }
+            _ => None,
+        }
+    }
+    fn kid_read(&mut self, e: &Expr, env: EId) {
+        if let Some(c) = self.children_of(e, env, 0) {
+            let at = self.reg(env);
+            self.kid_reads.push((c, at));
+        }
+    }
+    fn kid_use(&mut self, env: EId, key: &str, name: &str) {
+        let region = self.reg(env);
+        if self.regions[region].kids.is_some() {
+            let at = (region, key.to_string(), name.to_string(), self.line);
+            if !self.kid_uses.contains(&at) {
+                self.kid_uses.push(at);
+            }
+        }
+    }
+    /// RG-7b: what is provided between a region and its component's root, whatever shows it: around every place a component
+    /// shows its children in its own view (`only_shown`), nothing otherwise.
+    fn above(&mut self, r0: RId) -> IndexSet<String> {
+        let mut out = IndexSet::new();
+        let mut r = Some(r0);
+        while let Some(i) = r {
+            out.extend(self.regions[i].provides.iter().filter(|k| *k != HOLD).cloned());
+            if let Some((comp, site)) = self.regions[i].kids {
+                let view = self.regions[i].kids_view.clone().unwrap_or_else(|| "children".into());
+                out.extend(self.around(comp, &view));
+                r = Some(site);
+                continue;
+            }
+            if self.regions[i].is_component_root {
+                break;
+            }
+            r = self.regions[i].parent;
+        }
+        out
+    }
+    fn around(&mut self, comp: RId, field: &str) -> IndexSet<String> {
+        if let Some(sig) = &self.regions[comp].sig {
+            return match sig.props.get(field).or_else(|| sig.props.get("*")) {
+                Some(PropSig { p: Catch::Set(p), apart, rendered: true, .. }) => p.iter().filter(|k| *k != HOLD && !apart.contains(k)).cloned().collect(),
+                _ => IndexSet::new(),
+            };
+        }
+        let key = (comp, field.to_string());
+        if let Some(m) = self.around_memo.get(&key) {
+            return m.clone();
+        }
+        self.around_memo.insert(key.clone(), IndexSet::new());
+        let decl = self.comp_syms.get(&comp).and_then(|&s| self.syms[s].comp);
+        let shown = match decl {
+            Some(Decl::Component { props, decls, view, .. }) if field == "children" => !self.through_reads.iter().any(|t| t.1 == comp) && (self.shown_at.iter().any(|x| x.1 == comp && x.2 == field) || only_shown(props, decls, view)),
+            Some(_) => true,
+            None => false,
+        };
+        let at: Vec<RId> = self.kid_reads.iter().filter(|x| field == "children" && x.0 == comp).map(|x| x.1).chain(self.shown_at.iter().filter(|x| x.1 == comp && x.2 == field).map(|x| x.0)).collect();
+        let mut out: Option<IndexSet<String>> = None;
+        if shown && at.iter().all(|&r| self.regions[r].component == Some(comp)) {
+            for r in at {
+                let ns = self.above(r);
+                out = Some(match out {
+                    None => ns,
+                    Some(o) => o.into_iter().filter(|k| ns.contains(k)).collect(),
+                });
+            }
+        }
+        let out = out.unwrap_or_default();
+        self.around_memo.insert(key, out.clone());
+        out
+    }
+    /// RG-4c says that a component's children are read at the caller, RG-7b and 08 that a context read in them is read where they
+    /// are shown. Where the component provides that context around them, the two differ: it is refused.
+    fn ambiguous_uses(&mut self) {
+        for (region, key, name, line) in self.kid_uses.clone() {
+            let mut r = region;
+            while let Some((comp, site)) = self.regions[r].kids {
+                // a view, and plain content that is one (RG-4c), is a block
+                if self.regions[r].kids_view.is_some() || self.regions[comp].sig.as_ref().is_some_and(|s| s.props.get("children").is_some_and(|p| p.view.is_some())) || self.comp_syms.get(&comp).copied().is_some_and(|s| self.shown_by(s).contains_key("children")) {
+                    break;
+                }
+                if self.around(comp, "children").contains(&key) {
+                    let tag = self.apps.iter().find(|a| a.comp == comp && a.site == site).map(|a| a.tag.clone()).unwrap_or_default();
+                    self.line = line;
+                    self.err("AMBIGUOUS_CONTEXT", "RG-7b", format!("{name} is used in <{tag}>'s children, and <{tag}> provides it around them: whether that is read there or where it is written is not settled — bind it above (`v = use {name}`) for what is provided here, or read it in a component of its own or in a block (`{{if true {{ v = use {name} … }}}}`) for what <{tag}> provides"));
+                    break;
+                }
+                r = site;
             }
         }
     }
@@ -9233,6 +9357,7 @@ impl<'a> Checker<'a> {
         self.arg_f = arg_f;
 
         let top = self.esc(None);
+        self.ambiguous_uses();
         // MO-11i: a record's children are nested in its component — which renders them among its own children, or nowhere
         let hosted_view = self.opts.file.as_deref().is_some_and(|f| f.ends_with(".host.rx"));
         // (by line, then name: a tree is met in whatever order it is asked for)
@@ -9649,7 +9774,14 @@ impl<'a> Checker<'a> {
                 let ty = v.param.map(|t| one_line(&t)).and_then(|t| printed_type(&t));
                 ViewSig { optional: v.optional, mixed: v.mixed, ty, values }
             });
-            props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false, components: false, takes, view });
+            let apart = match &dp {
+                Catch::Set(p) if rendered && (f == "children" || f == "*") => {
+                    let around = self.around(g, "children");
+                    p.iter().filter(|k| *k != HOLD && !around.contains(*k)).cloned().collect()
+                }
+                _ => vec![],
+            };
+            props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false, components: false, takes, view, apart });
         }
         let e = self.esc(Some(g));
         let file = self.opts.file.clone().unwrap_or_else(|| "main.rx".into()).split('/').last().unwrap_or("").to_string();

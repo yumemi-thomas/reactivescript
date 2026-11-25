@@ -130,6 +130,7 @@ function line(file: string, name: string, x: ExportSig): string {
           if (!(v.f instanceof Set && v.f.size === 0)) parts.push(`catches(${cls(v.f)})`);
           if (!(v.p instanceof Set && v.p.size === 0)) parts.push(`provides(${v.p === "all" ? "*" : [...v.p].map(k => relKey(file, k)).join(", ")})`);
         }
+        if (v.apart?.length) parts.push(`apart(${v.apart.map(k => relKey(file, k)).join(", ")})`);   // RG-7b: of what `provides(…)` says, what is not around every place the children are shown in the component's own view
         if (v.action) parts.push(`action ${v.action.name} catches(${cls(v.action.f)})`);
         return `${f === "*" ? "...props" : f}${parts.length ? `: ${parts.join(" ")}` : ""}`;
       });
@@ -236,6 +237,7 @@ export function parseSignature(src: string, file: string): ModSig {
         if (/\bunrendered\b/.test(rest)) { v.rendered = false; v.f = "all"; v.p = "all"; }
         const c = /\bcatches\(([^)]*)\)/.exec(rest); if (c) v.f = catchOf(c[1]);
         const p = /\bprovides\(([^)]*)\)/.exec(rest); if (p) v.p = p[1].trim() === "*" ? "all" : new Set(p[1].split(",").map(k => absKey(file, k.trim())).filter(Boolean));
+        const ap = /\bapart\(([^)]*)\)/.exec(rest); if (ap) v.apart = ap[1].split(",").map(k => absKey(file, k.trim())).filter(Boolean);
         sig.props[fname] = v;
       }
       let tail = m[3];
