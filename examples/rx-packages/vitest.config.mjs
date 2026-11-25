@@ -11,8 +11,8 @@ export default defineConfig(({ mode }) => {
   const ssr = mode === "ssr", conditions = ssr ? ["node", "development"] : ["development", "browser"];
   const point = { name: "point", api: { vitest: { experimental: { ignoreFsModuleCache: true } } }, enforce: "pre", transform(code, id) {
     const m = /\/test\/([\w-]+)\/([\w-]+?)(\.ssr)?\.test\.tsx?$/.exec(id); if (!m) return;
-    const [, pkg, part] = m, at = (p) => orig ? (OF[pkg] === "terracotta" || OF[pkg] === "cmdk-solid" ? OF[pkg] : pkg === "primitives" ? `@solid-primitives/${p}` : `${OF[pkg]}/${p}`) : pkg === "primitives" ? `@rx-packages/${p}` : existsSync(path.join(here, "packages", pkg, "facade", p + ".ts")) ? path.join(here, "packages", pkg, "facade", p + ".ts") : `@rx-packages/${pkg}/${p}`;
-    return code.replace(/from "\.(?:\/index(?:\.tsx?)?)?"/g, `from "${at(part)}"`).replace(/from "\.\.\/src(?:\/index(?:\.[jt]sx?)?)?"/g, `from "${at(part)}"`).replaceAll('"@kobalte/tests"', `"${path.join(here, "test/utils/index.ts")}"`);
+    const [, pkg, part] = m, at = (p) => orig ? (OF[pkg] === "cmdk-solid" ? OF[pkg] : pkg === "primitives" ? `@solid-primitives/${p}` : `${OF[pkg]}/${p}`) : pkg === "primitives" ? `@rx-packages/${p}` : existsSync(path.join(here, "packages", pkg, "facade", p + ".ts")) ? path.join(here, "packages", pkg, "facade", p + ".ts") : existsSync(path.join(here, "packages", pkg, "dist", p + ".js")) ? `@rx-packages/${pkg}/${p}` : `${OF[pkg]}/${p}`;   // a part that is not rewritten is the original's
+    return code.replace(/from "\.(?:\/index(?:\.tsx?)?)?"/g, `from "${at(part)}"`).replace(/from "\.\.\/src(?:\/index(?:\.[jt]sx?)?)?"/g, `from "${at(part)}"`).replace(/from '\.\.\/src\/components\/([\w-]+)'/g, (_, c) => `from "${at(c)}"`).replaceAll('"@kobalte/tests"', `"${path.join(here, "test/utils/index.ts")}"`);
   } };
   return {
     cacheDir: `node_modules/.vite-${orig ? "original" : "rx"}-${mode}`,

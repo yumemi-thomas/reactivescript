@@ -1,0 +1,105 @@
+// Disclosure and Dialog. Derived from components/disclosure and components/dialog of terracotta 2.0.0 (MIT, see ../NOTICE). `as` is not a prop: each part is its own element.
+import { call, give, trapTab } from "./dom.js"
+import client { holdFocus } from "./dom.js"
+import pure { uniqueId, flag } from "./dom.js"
+import { Div, P, H2, Button as ButtonProps } from "./types.js"
+
+export type State = { isOpen: boolean; disabled: boolean; open: () => void; close: () => void; toggle: () => void; setState: (v: boolean) => void }
+export type Options = { defaultOpen?: boolean; isOpen?: boolean; disabled?: boolean; onChange?: (v: boolean) => void; onOpen?: () => void; onClose?: () => void }
+export type Kids = { children?: View | ((s: State) => View) }
+/** Open or closed: the caller's (isOpen) or its own (defaultOpen). */
+export fn createDisclosure(ref of: Options): State {
+  source mine := peek(of.defaultOpen) ?? false
+  now = of.isOpen ?? mine
+  action setState(v: boolean) {
+    if (!of.disabled) {
+      mine := v
+      if (v && of.onOpen) { of.onOpen() }
+      if (of.onChange) { of.onChange(v) }
+      if (!v && of.onClose) { of.onClose() }
+    }
+  }
+  action open() { setState(true) }
+  action close() { setState(false) }
+  action toggle() { setState(!now) }
+  { isOpen: now, disabled: of.disabled ?? false, open: open, close: close, toggle: toggle, setState: setState }
+}
+type Ids = { button: string; panel: string }
+context ids: Ids
+context state: State
+fn data(s: State): any => ({ "tc-disabled": flag(s.disabled), "tc-expanded": flag(s.isOpen) })
+
+export type DisclosureProps = Omit<Div, "children" | "onChange"> & Options & Kids
+export component Disclosure(props: DisclosureProps) {
+  { defaultOpen, isOpen, disabled, onChange, onOpen, onClose, children: shown, ...rest } = props
+  s = createDisclosure({ defaultOpen: defaultOpen, isOpen: isOpen, disabled: disabled, onChange: onChange, onOpen: onOpen, onClose: onClose })
+  button = uniqueId()
+  panel = uniqueId()
+  provide ids = { button: button, panel: panel }
+  provide state = s
+  <div tc-disclosure="" {...data(s)} {...rest}><props.children {...s} /></div>
+}
+export component DisclosureButton(props: Omit<ButtonProps, "children"> & Kids) {
+  { disabled, onClick, children: shown, ...rest } = props
+  i = use ids
+  s = use state
+  off = s.disabled || disabled
+  <button tc-button="" tc-disclosure-button="" id={i.button} role="button" tabindex={off ? 0 - 1 : 0} aria-controls={s.isOpen ? i.panel : undefined} tc-disabled={flag(off)} disabled={off} aria-disabled={off ? "true" : "false"} tc-expanded={flag(s.isOpen)} aria-expanded={s.isOpen ? "true" : "false"} onClick={(e) => { call(e, onClick); if (!off) { s.toggle() } }} {...rest}><props.children {...s} /></button>
+}
+export component DisclosurePanel(props: Omit<Div, "children"> & Kids & { unmount?: boolean }) {
+  { unmount = true, children: shown, ...rest } = props
+  i = use ids
+  s = use state
+  {if s.isOpen || !unmount { <div tc-disclosure-panel="" id={i.panel} {...data(s)} {...rest}><props.children {...s} /></div> }}
+}
+
+type DialogIds = { panel: string; title: string; description: string; register: (part: "title" | "description", id: string | undefined) => void }
+context dialog: DialogIds
+export type DialogProps = Omit<Div, "children" | "onChange"> & Options & Kids & { unmount?: boolean }
+export component Dialog(props: DialogProps) {
+  { defaultOpen, isOpen, disabled, onChange, onOpen, onClose, unmount = true, children: shown, ref: user, ...rest } = props
+  s = createDisclosure({ defaultOpen: defaultOpen, isOpen: isOpen, disabled: disabled, onChange: onChange, onOpen: onOpen, onClose: onClose })
+  owner = uniqueId()
+  panel = uniqueId()
+  title = uniqueId()
+  description = uniqueId()
+  source there: { title?: string; description?: string } := {}
+  source el: any := undefined
+  action register(part: "title" | "description", id: string | undefined) { there[part] := id }
+  effect (s.isOpen ? el : undefined) { let e = $0
+    return e ? holdFocus(e) : undefined }
+  provide dialog = { panel: panel, title: title, description: description, register: register }
+  provide state = s
+  {if s.isOpen || !unmount {
+    <div tc-dialog="" id={owner} role="dialog" aria-modal={s.isOpen ? "true" : undefined} aria-labelledby={there.title} aria-describedby={there.description} aria-hidden={s.isOpen ? undefined : "true"} inert={!s.isOpen} {...data(s)} {...rest} ref={(e: Element) => { el := e; give(user, e) }}><props.children {...s} /></div>
+  }}
+}
+export component DialogPanel(props: Omit<Div, "children"> & Kids & { disabled?: boolean }) {
+  { disabled, onKeyDown, children: shown, ...rest } = props
+  d = use dialog
+  s = use state
+  <div tc-dialog-panel="" tabindex={0 - 1} id={d.panel} {...data(s)} {...rest} onKeyDown={(e) => { call(e, onKeyDown)
+    if (!disabled && s.isOpen) { if (e.key == "Tab") { trapTab(e) } else if (e.key == "Escape") { e.stopPropagation(); s.close() } } }}><props.children {...s} /></div>
+}
+export component DialogOverlay(props: Omit<Div, "children"> & Kids) {
+  { onClick, children: shown, ...rest } = props
+  d = use dialog
+  s = use state
+  <div tc-dialog-overlay="" {...data(s)} {...rest} onClick={(e) => { call(e, onClick); s.close() }}><props.children {...s} /></div>
+}
+export component DialogTitle(props: Omit<H2, "children"> & Kids) {
+  { id, children: shown, ...rest } = props
+  d = use dialog
+  s = use state
+  mine = id ?? d.title
+  effect (mine) { d.register("title", $0); return () => { d.register("title", undefined) } }
+  <h2 tc-dialog-title="" id={mine} {...data(s)} {...rest}><props.children {...s} /></h2>
+}
+export component DialogDescription(props: Omit<P, "children"> & Kids) {
+  { id, children: shown, ...rest } = props
+  d = use dialog
+  s = use state
+  mine = id ?? d.description
+  effect (mine) { d.register("description", $0); return () => { d.register("description", undefined) } }
+  <p tc-dialog-description="" id={mine} {...data(s)} {...rest}><props.children {...s} /></p>
+}

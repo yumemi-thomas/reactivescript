@@ -1,0 +1,13 @@
+export pure fn uniqueId(): string instantiates
+export pure fn flag(on: any): "" | undefined
+export fn give(ref_: any, element: Element): void
+export fn call(event: Event, handler: any): void
+export fn pressKey(event: any, disabled: boolean | undefined): void
+export fn roam(event: any, list: any, selector: string, axis: "both" | "horizontal" | "vertical"): any
+export fn focusFirst(list: any, ...selectors: string[]): void
+export fn focus(element: any): void
+export fn click(element: any): void
+export fn trapTab(event: any): void
+export client fn holdFocus(element: any): () => void
+export fn leaves(event: any, ...inside: any[]): boolean
+export pure fn same(by: any, a: any, b: any): boolean

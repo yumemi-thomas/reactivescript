@@ -1,1 +1,1 @@
-{ "kobalte": { "name": "@kobalte/core" } }
+{ "kobalte": { "name": "@kobalte/core" }, "terracotta": { "name": "terracotta" } }

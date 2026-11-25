@@ -1,0 +1,26 @@
+// Button, Toggle, Switch. Derived from components/button, toggle and switch of terracotta 2.0.0 (MIT, see ../NOTICE). `as` becomes `render`.
+import { call, pressKey } from "./dom.js"
+import pure { flag } from "./dom.js"
+import { Button as ButtonProps } from "./types.js"
+
+export type Attrs = { "tc-button": ""; tabindex: number; role: "button"; "tc-disabled": "" | undefined; disabled: boolean | undefined; "aria-disabled": "true" | "false" | undefined; onKeyDown: (e: KeyboardEvent) => void; onKeyUp: (e: KeyboardEvent) => void; onClick: (e: MouseEvent) => void }
+/** `render` shows the caller's element with the button's attributes: it is pressed by Enter and Space, as a button is. */
+export component Button(props: ButtonProps & { render?: (p: { attrs: Attrs }) => View }) {
+  { disabled, render: none, onKeyDown, onKeyUp, onClick, children, ...rest } = props
+  action down(e: KeyboardEvent) { call(e, onKeyDown); pressKey(e, disabled) }
+  action up(e: KeyboardEvent) { call(e, onKeyUp); pressKey(e, disabled) }
+  action press(e: MouseEvent) { if (disabled) { e.preventDefault() } else { call(e, onClick) } }
+  attrs: Attrs = { "tc-button": "", tabindex: disabled ? 0 - 1 : 0, role: "button", "tc-disabled": flag(disabled), disabled: disabled, "aria-disabled": disabled == undefined ? undefined : disabled ? "true" : "false", onKeyDown: down, onKeyUp: up, onClick: press }
+  {if props.render { <props.render attrs={attrs} /> } else { <button {...attrs} {...rest}>{children}</button> }}
+}
+export type SwitchState = { checked: boolean; disabled: boolean; toggle: () => void }
+export type SwitchProps = Omit<ButtonProps, "children" | "onChange"> & { checked?: boolean; defaultChecked?: boolean; onChange?: (v: boolean) => void; children?: View | ((s: SwitchState) => View) }
+export component Switch(props: SwitchProps) {
+  { checked, defaultChecked, disabled, onChange, onClick, children: shown, ...rest } = props
+  source mine := peek(defaultChecked) ?? false
+  now = checked ?? mine
+  action toggle() { if (!disabled) { let next = !now
+    mine := next
+    if (onChange) { onChange(next) } } }
+  <button type="button" tc-button="" tc-switch="" tabindex={disabled ? 0 - 1 : 0} disabled={disabled} tc-disabled={flag(disabled)} aria-disabled={disabled ? "true" : "false"} {...rest} role="switch" aria-checked={now ? "true" : "false"} tc-checked={flag(now)} onClick={(e) => { call(e, onClick); toggle() }}><props.children checked={now} disabled={disabled ?? false} toggle={toggle} /></button>
+}

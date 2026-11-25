@@ -1,0 +1,4 @@
+export default component App() {
+  source a: { v: string } | undefined := undefined
+  <button onClick={() => { if (a) { a := undefined } }}>{a ? a.v : "none"}</button>
+}
