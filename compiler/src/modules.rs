@@ -1527,6 +1527,11 @@ pub fn view_uses(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[
                         for a in attrs {
                             let n = a.name.as_str();
                             let handler = n.starts_with("on") && n[2..].starts_with(|c: char| c.is_ascii_uppercase() || c == ':');
+                            if n == "..." && comp && self.is_props(&a.e, sc) {
+                                // a spread gives each on under its own name
+                                let l = self.left(&a.e, sc);
+                                self.out.at.insert(a as *const Attr as usize, l);
+                            }
                             if n == "..." {
                                 // a spread of the props gives the views on to a component; an element is none
                                 // (an element with no content of its own would be given the children, which one runner shows and another does not)

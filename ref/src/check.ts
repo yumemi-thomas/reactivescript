@@ -3068,7 +3068,7 @@ class Checker {
               if (s.factory && !this.expanding.shape.has(s)) { this.expanding.shape.add(s); walk(this.factoryTree(s, m.line), [...anc, ...ch], sc, s.factory.env); this.expanding.shape.delete(s); }
             }
             for (const x of m.children) { const f = this.viewElsewhere(s, x); for (const at of f === undefined ? [] : S.viewsAt?.[f] ?? []) walk([x], [...anc, ...at], scoped || at.some(t => P_SCOPE.has(t)), env); }
-            for (const a of m.attrs) { const fs = places?.get(a); if (fs) for (const at of S.viewsAt?.[a.name] ?? []) for (const f of fs) put(f, [...anc, ...at]); }   // a view given on as an argument: where that component shows it
+            for (const a of m.attrs) { const fs = places?.get(a); if (fs) for (const f of fs) { const to = a.name === "..." ? f : a.name; if (to === "children" && m.children.some(x => x.k !== "text" || x.s.trim())) continue; for (const at of (to === "children" ? S.childrenAt : S.viewsAt?.[to]) ?? []) put(f, [...anc, ...at]); } }   // a view given on as an argument, or by a spread: where that component shows it
             break;
           }
           { const c = this.shows(m.tag, env); if (c) { if (c.view === "children") sh.childrenAt.push(anc); else ((sh.viewsAt ??= {})[c.view] ??= []).push(anc); break; } }

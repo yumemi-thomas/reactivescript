@@ -8201,8 +8201,14 @@ impl<'a> Checker<'a> {
         // a view given on as an argument: where that component shows it
         for a in attrs {
             let Some(fs) = self.view_places.get(&(a as *const Attr as usize)).cloned() else { continue };
-            for at in ss.views_at.get(&a.name).into_iter().flatten() {
-                for f in &fs {
+            for f in &fs {
+                // … or by a spread, under its own name
+                let to = if a.name == "..." { f.as_str() } else { a.name.as_str() };
+                if to == "children" && children.iter().any(|x| !matches!(&x.kind, MarkupKind::Text(t) if t.trim().is_empty())) {
+                    continue;
+                }
+                let ats: Vec<Vec<String>> = if to == "children" { ss.children_at.clone() } else { ss.views_at.get(to).cloned().unwrap_or_default() };
+                for at in &ats {
                     let a2: Vec<String> = anc.iter().chain(at.iter()).cloned().collect();
                     if f == "children" {
                         sh.children_at.push(a2);

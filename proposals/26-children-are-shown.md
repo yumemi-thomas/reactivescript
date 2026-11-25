@@ -25,16 +25,56 @@ export default component App() {
 | 0 | mount | `off` |
 | 1 | handler `lit := true` | `on` |
 
+## What changes in programs that run today
+
+Stated first, because an earlier version of this page said "none that agreed is now different", and that was false: it
+had compared whether the runners agree *within* a revision, not what they show *across* the two. Compared across
+(54571c1d before, this branch after; interpreter, oracle, both emitters, then the server and hydration in both emitters):
+
+| programs | agreed before and after | of those, show something else now |
+| --- | --- | --- |
+| 1,147 generated (`w/mkamb.py`) | 359 | **63** |
+| 979 written for the review's findings (`w/mkg1.py`: bindings and types, "was it given", a view given on) | 696 | **188** |
+| 635 of the earlier reviews | 218 | 1 |
+| 3,802 of the independent review | 913 | 65 (the 63 above, which it copied, and 2) |
+
+Every one is in one of seven classes. Each is what the rule says; none was found that it does not say. "Real" counts the
+components of upstream's tree (632), PR #1's (1,243) and the UI SDK rewrite (1,146) that have the shape, read by the
+parser (`w/census2.mts`): props typed by JavaScript are not seen by it.
+
+| class | before | now | why the rule wants it | generated | real |
+| --- | --- | --- | --- | --- | --- |
+| a view shown at two places, one under a provision of its own; the content reads the context in an argument, an element or a condition (`<L v={use c} />`) | `outout` | `outin` | each place that shows it has its own, and reads what is provided there (rule 1). Before, a `use` written bare in content was read where shown and one in an argument where written | 16 + 4 | 0 components show a view twice |
+| a view given on as an argument, `<Q part={p.children} />`, to a component that provides | `out` | `in` | the same: it is shown in `Q`, under what `Q` provides | 16 + 24 | 0 give one on as an argument |
+| the props spread to a component with no content written, `<Q {...p} />` | nothing, or the word `undefined` | the children | a spread gives every prop, the children among them (rule 2, "given on"). Before, the empty application overwrote them with none | 31 + 32 + 1 | 0 |
+| asked of a view that was not given: `if p.children`, `p.children ?? "none"`, `!p.children`, an effect over it | given (the children always were: an empty list) | not given | the question is whether something was written | 49 + 1 | 3 components ask (bug 41's two pages and S-context-3, which were written about this) |
+| asked of content that was given | the content is made to answer (its effects run once more) | nothing is made | "nothing is made to answer it" | 24 | the same 3 |
+| a view that was not given, shown | the word `undefined` | nothing | a view that is not there shows nothing | 31 | not counted apart (0 components give a named view on) |
+| **asked of an argument that is written and is no literal, whose value is `""`, `0` or `undefined`** (`part={s}`, `part={0 + 0}`, a loop's item) | not given (the value was read) | given | whether one was given does not read the argument: it may be a view given on, which reading would make. A literal (`part=""`, `part={undefined}`) still answers by what it is | 28 | 0 ask a named view |
+
+The last is the one that costs something: before, an argument's *value* answered. It is the price of never making a view
+to ask of it, and no program of the three trees asks it.
+
+What is newly **refused** though every runner agreed before: 233 of the 1,147 (a view through a context 66, a snapshot
+78, an effect 30, a handler 31, a closure 14, a record 14; none real, see "Against"), 13 of the 979 (`pre` of a view, a
+view compared, a snapshot; and five whose `<div>` is given on as an argument into a `<p>`, which the browser's parser
+moved on hydration: the content model now follows a named view where it is shown), 14 of the 635 and 716 of the 3,802
+(`VIEW_NOT_SHOWN`, the review's set being written around snapshots, contexts and records).
+
 ## Proposal
 
 1. **A view given to a component is a block of the caller's names, owned where it is shown.** Each place that shows it has its own, made there and disposed with it. What it reads from contexts, what it waits on and fails with are that place's. (08's sentence; Solid's JSX children; what a `view (s) { … }` of [25](25-views.md) already is.)
-2. **A component only shows it.** A prop typed `View`, the children or one of another name, is
+2. **A component only shows it.** A prop *declared* `View` where the type is read (written out, a type of the module, one imported from `.rx`), the children or one of another name, under the names bound to it (a parameter, a loop's item or an inner block's equation of the same spelling is another name; children declared `number` are a number), is
    - shown, `{props.children}`, also `props.children ?? e` and `c ? props.children : e`;
-   - given on, as another component's content or argument, or in a spread of the props;
+   - given on, as another component's content or as its argument typed `View` (to one whose declared type is a value's, `count: number`, it is refused), or in a spread of the props to a component;
    - named by a projection of the props (`{ children } = props`, `x = props.children`, a rest);
-   - asked for: `if props.children`, `!props.children`, `props.children != undefined`. That is whether content was written. Nothing is made to answer it.
+   - asked for: `if props.children`, `!props.children`, `props.children != undefined`, also through a name, a choice or `||`. That is whether something was written for it: content between the tags; an argument that is no literal nothing (its value is not read); what a spread or a rest hands on. A literal is the value it is (`part=""`, `{0}`, `{false}`, `{undefined}` were not given; `!= undefined` and `??` ask only that). Nothing is made to answer it. A view given on is written: an argument does not hand on whether its giver was given one; a spread does.
 
-   Read as a value it is `VIEW_NOT_SHOWN`: kept by `peek` or a source, carried by a context, read by an effect or a handler, answered by a closure, held in a record or a list, given to a fn. The message gives the form that is accepted for the one it found.
+   What JavaScript gives: a getter (JSX content) was given, and is not read; a value answers as JavaScript does, which is what Solid's `props.children ? … : …` answers: `undefined`, `null`, `false`, `0`, `""` no, `[]` yes (`compiler/test/js-host.mjs`, production, in the browser and on the server).
+
+   An argument's expression is a value of the caller: `<Q title={use c} />` reads what is provided where it is written, under every runner. Only content, and a `view name (…) { … }`, is a block of the place that shows it.
+
+   Read as a value it is `VIEW_NOT_SHOWN`: kept by `peek`, a source or `pre`, carried by a context, read by an effect or a handler, answered by a closure, held in a record or a list, given to a fn; every arm of a choice and a seed is checked. The message gives the form that is accepted for the one it found.
 3. Nothing is added: no word to make a view once and hold it.
 
 RG-4c's first sentence is replaced; 08's stands.
@@ -91,14 +131,17 @@ export default component App() { <P>{use c}</P> }
 
 | programs | before (54571c1d) | with this |
 | --- | --- | --- |
-| 1,147 generated (37 ways to show children × 15 forms of content × a default or a provision above; the 1,116 of bugs/33 and one receiver added since) | 375 refused, 592 agree, 180 accepted and different | 346 refused, 800 agree, 1 on which all throw alike (`provide c = use c` with nothing above: the check does not look above a provision, as before) |
+| 1,147 generated (37 ways to show children × 15 forms of content × a default or a provision above) | 375 refused, 592 agree, 175 accepted and different, 5 on which all throw alike | 346 refused, 800 agree, 1 on which all throw alike (`provide c = use c` with nothing above: the check does not look above a provision, as before) |
 | … served and hydrated | not run | 800 of 800, in both emitters |
-| 635 of the earlier reviews | 308 refused, 234 agree, 85 different or not compiled, 8 on which all fail alike | 267 refused, 328 agree, 31 different or not compiled, 9 alike; none that agreed is now different |
-| 3,802 of the independent review (three runners before) | 1,590 refused, 1,629 agree, 583 different or not compiled | 2,163 refused, 1,529 agree, 110 different or not compiled; none that agreed is now different; 1,099 newly refused, each `VIEW_NOT_SHOWN` |
+| 979 written for the review's findings (100 of bindings and types; 495 of "was it given": 15 ways to ask × 17 ways to give × the children or a named view; 384 of a view given on: 6 things content asks of its place × 8 ways to give it on × 6 places that show it) | 143 refused, 709 agree, 115 different, 12 alike in error | 156 refused, 823 agree, none different; both checkers say the same of all 979 and the emitters lower them alike |
+| 635 of the earlier reviews | 308 refused, 234 agree, 85 different or not compiled, 8 alike in error | 267 refused, 328 agree, 30 different or not compiled, 2 that differ on the server only (a portal, a hidden row; not run on the server before), 8 alike |
+| 3,802 of the independent review (three runners before) | 1,590 refused, 1,629 agree, 583 different or not compiled | 2,163 refused, 1,532 agree, 62 different or not compiled, 45 alike in error; 716 that agreed are refused, each `VIEW_NOT_SHOWN` |
+
+What the agreeing ones *show*, before and after, is the first section of this page.
 
 Of the 346 refused, 106 were accepted and different before, 7 were refused already (5 a `CONTEXT_NOT_FOUND`), and **233 showed the same in every runner before**: a view through a context (66), a snapshot (78), an effect (30), a handler (31), a closure (14), a record (14). They agreed on the caller's reading of a single mount; shown twice, or hidden and shown, a record and a list are made once compiled and at each place in the interpreter (6 of 134 probes written for it).
 
-What is still different is older and not of children: the oracle prints a portal's and a list's items as `[null]`; the interpreter does not wait for a pending attribute; a closure as children that is also shown ([34](bugs/34-closure-as-a-child.md)).
+What is still different on some runner was read program by program (DECISION.md): 40 of the 59 of the independent review's set show exactly what they showed before; the others were refused or not compiled before and are a handler of a scenario's table that the harness evaluates (5), the interpreter not waiting for a pending attribute (2), the oracle's `[null]` for a portal's items and its functional path write (2), a fn that reads a context given as a value and called in content, which the interpreter refuses at run time (7; so on PR #1 with the reference's emitter), a ref callback (1), a closure as children that is also shown ([34](bugs/34-closure-as-a-child.md)). None is of this rule.
 
 No program of this tree, of the benchmark or of the guide changes verdict but the two scenarios that held the old reading (S-context-4, S-context-5, rewritten). Of the twelve packages and the UI SDK rewrite (47 files), two lines of the UI SDK's dialog change: `viewOf(props.children)` of children declared `View`, written `{props.children}`; its suite (44), its leak gates (5) and its table of mistakes (12) are as before.
 
@@ -120,7 +163,13 @@ Each runs in every runner (S-context-5).
 | a handler that reads it to show it | a source the handler writes, `{if open { {props.children} }}` |
 | `source x := peek(props.children)`, `{x}` | `{props.children}` |
 
+`pre` of a view (what it was an instant ago) and a view given to a prop whose declared type is a value's (`count: number`) are refused as well; neither was found in a program.
+
 **One has no form that keeps the caller's program.** A view carried by a context to a part that the *caller* places: Kobalte's `Select`, `Combobox` and `Pagination` give the item's view to the root and show it in a part written among the children. Two forms run, and each changes that API: the root shows its own list, or the part is given the view (S-context-5's last variants but one). The UI SDK has none; its 47 reads in a nested function and 37 in a record are forwarding getters, which is "given on".
+
+**One is lost: whether content *resolves* empty.** Kobalte's `DateField` and `TimeField` segments resolve their children (`children(() => props.children)`) and show a fallback text when the result is empty, also when content was written and came to nothing. "Was it given" answers whether content was written, not what it comes to, and nothing in `.rx` resolves a view to look at it. The segment's fallback has to be a prop of its own (the caller says it), or the component stays JavaScript. That is two more components of the same library whose behaviour a rewrite changes.
+
+The counts of this section are of spellings of `children` (a regex census): they cannot say how many libraries carry a *named* renderer by a context, nor rule out more losses of this kind.
 
 TanStack's `MatchRoute` shows a function child whether or not the route matches and plain content only on a match. As two props, a named view and plain children, neither is made to know which was given (S-context-5's last variant). As one `View | ((s) => View)` it cannot be written: nothing asks which kind was given.
 
@@ -149,8 +198,9 @@ In the prototype the two rules still have their own code (`otherMention`, `viewU
 | | |
 | --- | --- |
 | rules | RG-4c's sentence replaced; one diagnostic in, one out (`AMBIGUOUS_CONTEXT`) |
-| code removed | the crate's gate on awaits (92 lines), the ambiguity check (33); `apart(…)` in a printed signature and what computes it are dead (about 150 lines), not yet deleted |
-| code | crate +411 −141, `ref/` +222 −44: the walk that finds a view read as a value, with its messages (309 lines of the crate, 100 of `ref/`); content emitted as a block, and "was it given" |
+| code removed | the crate's gate on awaits (92 lines), the ambiguity check (33), and what it inferred: `around`, `above`, `apart(…)` in a printed signature (an old one is still read), `onlyShown`, `kidUses` (174 lines of the crate, 69 of `ref/`) |
+| code | crate +835 −336, `ref/` +453 −135 against 54571c1d (26,853 → 27,352 and 11,989 → 12,307 lines): the walk that finds a view read as a value, by binding and by declared type, with its messages; content emitted as a block; "was it given"; a named view's placement |
+| runtime | three helpers the compiled module calls (`__rt.given`, `__rt.opt`, `__rt.v`): a release raises compiler and runtime together (both 0.3.1 today; nothing is released from this branch) |
 | a reader learns | a view is shown; each place has its own |
 
 ## Against
@@ -158,9 +208,11 @@ In the prototype the two rules still have their own code (`otherMention`, `viewU
 - 233 generated programs that showed the same everywhere are refused, and a library that carries a view by a context to a part its caller places has to change its API.
 - A snapshot of content has no form. Solid has `children()` for it; no `.rx` program asked.
 - Content shown at two places is made twice, where RG-4c promised one. That is Solid's behaviour, and the reason TSX authors reach for `children()`.
-- "Was it given" is whether content was written: `<P>{cond ? x : undefined}</P>` was given. From a JavaScript host that passes a proxy without descriptors, the content is read to answer.
+- "Was it given" is whether something was written: `<P>{cond ? x : undefined}</P>` was given, and so is `<Q part={s} />` whatever `s` holds, where before the argument's value answered (the last class of the first section). A view given on as an argument is written: whether its giver was given one is not handed on, where Solid reads the value and knows. A spread hands it on.
+- What content *resolves* to cannot be asked (Kobalte's `DateField`, `TimeField`).
+- "Each place has its own" is of what `.rx` writes and of what JavaScript gives as a getter. A JavaScript host that gives one made DOM node gives one node: shown at two places it is at the second, as in Solid.
 - A lone `{e}` with no `use` or `await` in it stays a plain value, so that a closure given as children is the function it is (34): two forms of content in the emitters.
-- The checkers still place a view given on as an argument by the old chains; no program was found on which that is wrong.
+- A fn that reads a context, given as a value and called in content, is refused by the interpreter at run time and run by the others (older than this; the removed gate kept the crate from compiling it).
 
 ## What upstream must accept
 

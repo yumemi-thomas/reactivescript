@@ -685,6 +685,7 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
         const to = (attr: string, e: Expr, key: unknown): void => { const f = shows(e, sc); if (f === undefined) return; places.set(key, fields(e, sc)); if (dest?.(m.tag, attr) === false) hit(f, at, "prop", `${attr} of <${m.tag}>`); };
         for (const a of m.attrs) {
           const handler = /^on[A-Z:]/.test(a.name);
+          if (a.name === "..." && comp && given(a.e, look(sc))?.props) places.set(a, left(a.e, sc));   // a spread gives each on under its own name
           if (a.name === "...") { if (!given(a.e, look(sc))?.props || (!comp && left(a.e, sc).includes("children") && !m.children.some(x => x.k !== "text" || x.s.trim()))) plain(a.e, sc, at, "value"); }   // a spread of the props gives the views on to a component; an element with no content of its own would be given the children, which one runner shows and another does not
           else if (comp && !handler && a.name !== "ref") { ve(a.e, sc, at); to(a.name, a.e, a); }
           else plain(a.e, sc, at, handler ? "handler" : "value");

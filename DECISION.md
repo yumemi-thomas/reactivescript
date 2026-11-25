@@ -109,7 +109,7 @@ The decision stands. What follows replaces the lines above where they differ.
 | 635 probes of the earlier reviews | 308 refused, 234 agree, 85 different or not compiled, 8 fail alike | 267 refused, 328 agree, 31 different or not compiled, 9 alike |
 | 3,802 probes of the independent review (three runners before: the reference's emitter ran out of memory on one of them there) | 1,590 refused, 1,629 agree, 583 different or not compiled | 2,163 refused, 1,529 agree, 110 different or not compiled |
 
-No program that agreed before is different now, in either set. What is newly refused there is `VIEW_NOT_SHOWN` each time (1,099 of the independent review's, which was written around snapshots, contexts and records).
+~~No program that agreed before is different now, in either set.~~ **False** (found by the independent review): the comparison was of agreement within a revision, not of what is shown across the two. 63 of the 359 generated programs that agree before and after show something else now. The comparison across revisions, its classes and counts are the first section of "After the independent review" below. What is newly refused there is `VIEW_NOT_SHOWN` each time (1,099 of the independent review's, which was written around snapshots, contexts and records).
 
 **The 346 refused of the generated set** (the user's cross-table): 106 were accepted and different before; 7 were refused already (5 `CONTEXT_NOT_FOUND`); **233 showed the same in every runner before**: a view through a context 66, a snapshot 78, an effect 30, a handler 31, a closure 14, a record 14. They agreed on one mount of the caller's reading. Asked harder (134 probes: shown twice, toggled, in rows, with state, without a default, without a boundary) a record and a list differ in 6.
 
@@ -150,7 +150,7 @@ Real losses, counted: one API shape of three families of one library.
 ## Kept simpler, removed
 
 - Gone: `AMBIGUOUS_CONTEXT` and its check (33 lines), the crate's gate on awaits (92 lines) and its field; "plain content is a view that asks nothing" as a case of 25.
-- Dead and not deleted: `around`, `apart(…)` in a printed signature, `onlyShown`, `kidUses` (about 150 lines in the two checkers and the two signature printers). Deleting them changes printed signatures; not done.
+- Dead, and deleted after the review: `around`, `above`, `apart(…)` in a printed signature, `onlyShown`, `kidUses`, `kidReads` (69 lines of `ref/`, 174 of the crate). An old signature that says `apart(…)` is still read: the word is passed over.
 - Added: the walk that finds a view read as a value (100 lines of `ref/src/modules.ts`, 309 of the crate's, messages included); content as a block and "was it given" (41 lines of the reference's emitter, 83 of the crate's, 36 of the oracle, 22 of the interpreter, 6 in each runtime). Crate: +411 −141; `ref/`: +222 −44.
 
 ## Not done
@@ -166,3 +166,85 @@ Real losses, counted: one API shape of three families of one library.
 - The benchmark, tasks and coverage, `--check --strict`: as the scorecard. One program was refused on the way (`primitives/event-dispatcher`: `createEventDispatcher(peek props)`, props that declare no view): the cause of the narrowing above.
 - The twelve packages and the UI SDK sources, 47 files, checked by both compilers: 2 lines of the UI SDK's dialog change (`viewOf(props.children)` of children declared `View`, written `{props.children}`). With them the copy builds; 44 of 44 of its suite; its app served and hydrated; its table of mistakes the same (12 caught); 5 of 5 leak gates. Its Playwright specs (548) were not run.
 - 1,000 rows with content, production, Chromium, median of 30, two runs each, mount / reverse / change all, ms: before 1.4 / 0.8 / 0.6, after 1.4 / 0.8 / 0.6; rows that provide a context to a child: 1.6 / 0.9 / 0.7 both; rows that ask `if props.children`: 2.9 / 1.0 / 1.4 before, 2.2 / 0.9 / 0.8 after (the content is no longer made to answer). The module minified: 1,492 to 1,515 bytes; the bundle 151,392 to 151,595.
+
+## After the independent review (2026-11-25, `../review-astra/REVIEW.md`: fix first)
+
+The decision stands; the review found the prototype below the bar it set itself. Each finding was reproduced on
+54571c1d, PR #1 a4cba8ef and `origin/main` e650b851 before anything was changed (`../w/p1`, `p2`, `p3`; `matrix.py`
+runs every runner of a revision). What was decided on the way is marked **decided**.
+
+### What the rule changes in programs that ran (the comparison that was missing)
+
+| programs | agree before and after | of those, show something else now |
+| --- | --- | --- |
+| 1,147 generated | 359 | 63 |
+| 979 written for the findings (`../w/mkg1.py`) | 696 | 188 |
+| 635 of the earlier reviews | 218 | 1 |
+| 3,802 of the independent review | 913 | 65 (63 of them the generated ones it copied) |
+
+Seven classes, each the rule's own answer; the table with before / now / why / counts is the first section of
+proposals/26. Real programs with the shape (upstream 632 components, PR #1 1,243, UI SDK rewrite 1,146; `../w/census2.mts`):
+a view shown twice 0, given on as an argument 0, a spread with no content 0, asked 3 (bug 41's two pages and
+S-context-3). The one class that gives something up: an argument that is written and is no literal (`part={s}`) is
+given whatever its value is, where before its value answered (28 generated, 0 real).
+
+### Each finding
+
+| finding | what was done | test |
+| --- | --- | --- |
+| `(x) => x + 1` refused after `x = p.children`; an `x` of another block | **fixed**: the walk follows bindings (a scope for each block, parameter, loop item, local, `catch` name), in both checkers, on the AST in the crate (no JSON copy) | S-context-6 (program, first variant); `mkg1.py` A (100 programs) |
+| `amount = p.children ?? 0` refused, children declared `number` | **fixed**: a view is a prop *declared* `View` where the type is read; one classification (`viewsOf` / `views_of`) for both checkers, the interpreter, the oracle and both emitters | S-context-6 |
+| a JS host's `children: 0` to children typed `number`: `no` before, `yes` after | **fixed**: "was it given" is asked only of a prop declared `View`; anything else is its value's truth, read as before | `compiler/test/js-host.mjs` (production, browser and server) |
+| … and what a `View` given by JavaScript as `0`, `""`, `false`, `null`, `[]` answers | **decided**: a value answers as JavaScript does, which is Solid's `props.children ? … : …` (`[]` yes, the others no; `!= undefined` asks only that); a getter (JSX content) was given and is not read | the same test |
+| `y = pre x -> ""`: the reference accepted, the crate refused | **fixed, as refused in both**: what a view was an instant ago is a value (a snapshot shown later). It was accepted before the rule | S-context-6, rejected |
+| `await fetch((use c) + await fetch("k"))` in content: accepted, not compiled | **made right**: an `await` inside another's question was hoisted after it, in a reader of any view (not compiled on `origin/main` either, in or out of content; the removed gate hid one case). Inner first, in both emitters and the oracle | S-context-6 (last variant but one), server and hydration |
+| 63 of 359 changed what they show | **the comparison is across revisions now** (`../w/xrev.py`), for the four sets; classes above | proposals/26, first section |
+| Kobalte DateField / TimeField test whether content *resolves* empty | **stated as a loss**: "was it given" cannot answer what content resolves to. In `.rx` the segment's fallback is a prop of its own, or the component stays JavaScript. The rewrites table says so | — |
+| `{p.children && "yes"}` of nothing: the oracle printed `false` | **fixed**: `v && e` is the nothing `v` is where it was not given, in every runner | S-context-6 |
+| `<Q title={use c} />` shows the caller's value: "newly promised" | **the promise is corrected**: an argument's expression is a value of the caller; only content and a `view name (…) { … }` is a block of the place that shows it. Unchanged behaviour, every runner agrees | S-context-6 |
+| `<Q part={p.children} />` puts a `<div>` in `<p>`; the browser moves it on hydration | **fixed**: a view's placement follows it through a name, a choice and the component it is given on to (`ViewUses.at`, the shapes of both checkers, printed as `part-at …`) | S-context-6, rejected (CONTENT_MODEL); `mkg1.py` C |
+| `v = false ? p.children : [p.children]`, a seed `pre n -> p.children`, a fn in one arm | **fixed**: a projection is checked arm by arm; a seed is walked | S-context-6, rejected |
+| `x = on ? p.children : p.children`, `x != undefined` made the content; `p.children \|\| true` in the oracle | **fixed**: a choice, a default and `\|\|` are asked arm by arm | S-context-6 |
+| a JS host's one DOM node shown twice is at the second place only | **stated**: "each place has its own" is of what `.rx` writes and of what JavaScript gives as a getter (made at each read). One made node is one node, as in Solid | proposals/26, Against |
+| a newly compiled package on the old runtime: `__rt.given is not a function` | **not done**: compiler and runtime are both 0.3.1 and nothing is released from a prototype; the compiled module now calls `__rt.given`, `__rt.opt`, `__rt.v`, so a release raises both together | proposals/26, Cost |
+| the props message repeated on its own advice | **fixed**: it names the views still inside (`{ heading, ...rest } = p`) | S-context-6, rejected |
+| a view given to `count?: number` shown as text | **narrowed in**: given on to a prop whose declared type is a value's is refused; a type that is not read is as it was | S-context-6, rejected |
+| dead `apart(…)` | **deleted** (above) | parity suite: printed signatures equal |
+
+### Found by my own programs for the fixes, and fixed
+
+- `q.part != undefined` of a literal `""`, `0`, `false` answered "not given" compiled and "given" interpreted: the question of a value is its own (`!= undefined`, `??`: is it not `undefined`; `if`, `!`, `&&`: its truth).
+- `{q.part && "Y"}` of `part={0}` showed `0` in the interpreter and nothing compiled: the value of `v && e` is `v` where it was not given.
+- `<Q>{w.children}</Q>` with nothing given to `w`, then `q.children ?? "n"`: compiled showed `n`, the others nothing. Content that is written is given.
+- A named view of `false` shown: `false` before, nothing after. Restored (`__rt.opt`: only one that was not given shows nothing).
+- The props, children among them, spread to an *element* with no content: the interpreter and the oracle showed nothing, compiled code the children (also before). **Refused** (`VIEW_NOT_SHOWN`); with content written it runs as it did (S-context-4).
+
+### Decided: what "was it given" is, exactly
+
+Whether something was *written* for the view: content between the tags; an argument that is no literal nothing; what a
+spread or a rest hands on. The argument's value is not read. Considered and not chosen: the value's truth (what the
+runners did before for an argument), because the argument may be a view given on, and reading it makes that view; a
+protocol that tells a value from a block at run time needs the giver to know what the receiver declares, which it does
+not for a component given by value. So a view given on as an argument is "written": whether its giver was given one is
+not handed on (a spread hands it on; `{if p.title { <Q title={p.title} /> } else { <Q /> }}` says it). That is weaker
+than Solid, which reads the value, and it is the last class of the table.
+
+### What is still different on some runner, and is not the rule's
+
+Of the 635 and the 3,802, accepted, with runners that differ: 27 and 59. 40 of the 59 show exactly what they showed on
+54571c1d. The 19 others were refused or not compiled there and were each read: a handler written in a scenario's table
+that names a source two instances have, or holds a `use` (the harness: 5); the interpreter does not wait for a pending
+attribute (2, also on PR #1 and upstream); the oracle prints a portal's items as `[null]` (1) and stores the function of
+a functional path write (1, fixed upstream since); a fn that reads a context given as a value and called in content,
+which the interpreter refuses at run time and the others run (7; the same on PR #1 for the reference's emitter, the gate
+kept the crate from compiling it); a ref callback (1); a module the probe does not have (1); frames recorded for the old
+reading (1). One hole stays, where all runners throw alike: `provide c = use c` with nothing above and no default.
+
+### Lines
+
+| | 54571c1d | 7f3845ec | now |
+| --- | --- | --- | --- |
+| crate `compiler/src` | 26,853 | 27,123 | 27,352 |
+| `ref/` (src, compile, oracle) | 11,989 | 12,167 | 12,307 |
+
+The fixes: crate +692 −463, `ref/` +344 −204 since 7f3845ec (the walk rewritten with scopes, 174 + 69 lines deleted).
