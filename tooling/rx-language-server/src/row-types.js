@@ -62,10 +62,10 @@ function rowTypes(spec, from, rows, text) {
       const args = run(refs.map(i => ch.getTypeArguments.gen(objects[i].type))); const argsOf = new Map(refs.map((i, k) => [i, args[k]]));
       const tups = objects.map((x, i) => i).filter(i => tup[i]), targets = run(tups.map(i => objects[i].type.getTarget.gen())), open2 = new Set(tups.filter((i, k) => targets[k].elementFlags.some(f => f & ~3)));
       // the platform's event targets: its own type, or several of them at once, whose `addEventListener` is lib's (`t`)
-      const listens = objects.map((x, i) => i).filter(i => !calls[i].length && !arr[i] && !tup[i] && (sym[i] ? isLib(sym[i]) : objects[i].type.flags & TF.Intersection));
+      const listens = objects.map((x, i) => i).filter(i => !calls[i].length && !arr[i] && !tup[i] && (sym[i] ? isLib(sym[i]) && sym[i].flags & (SF.Interface | SF.Class) : objects[i].type.flags & TF.Intersection));
       const lists = run(listens.map(i => ch.getPropertyOfType.gen(objects[i].type, "addEventListener"))), inter = listens.filter((i, k) => lists[k] && isLib(lists[k]) && !sym[i]);
       const parts = run(inter.map(i => objects[i].type.getTypes.gen())), partSyms = run(parts.flat().map(y => y.getSymbol.gen())); let at0 = 0;
-      const whole = new Set(inter.filter((i, k) => parts[k].map(() => partSyms[at0++]).every(y => y && (y.name === "globalThis" || isLib(y)))));
+      const whole = new Set(inter.filter((i, k) => parts[k].map(() => partSyms[at0++]).every(y => y && (y.name === "globalThis" || (isLib(y) && y.flags & (SF.Interface | SF.Class))))));
       const target = new Set(listens.filter((i, k) => lists[k] && isLib(lists[k]) && (sym[i] || whole.has(i))));
       const fns = [], recs = [];
       objects.forEach((x, i) => {

@@ -3,7 +3,7 @@
 //                           (`lost`: honest, and no form the reading lists: no word, and why)
 //   words/adversarial.json  packages whose fact was established by RUNNING them (`fact`): the row that `rx-declare` drafts may
 //                           not match `not`. Two reviews wrote them against the reading that was here before, and 757 were
-//                           written against this one (compiler/words)
+//                           written against this one (compiler/words); q and r, a listener's `handler` (`has`: a true one)
 //   node test/words-cases.js [--shard i/n]
 const fs = require("node:fs"), path = require("node:path");
 const { ask } = require("../src/rxc.js");
@@ -37,7 +37,8 @@ JSON.parse(fs.readFileSync(path.join(__dirname, "words/adversarial.json"), "utf8
   fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(Object.fromEntries(Object.entries({ name, version: "1.0.0", type: "module", exports: { ".": { types: "./index.d.ts", default: "./index.js" } }, ...c.pkg }).filter(([, v]) => v !== null))));
   for (const [f, text] of Object.entries({ "index.js": c.js, "index.d.ts": c.d, ...c.files })) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), text); }
   let rows; try { rows = declare(name, ws, {}, { infer: true, written: true }).split("\n").filter(l => l.startsWith("export ")).join("\n"); } catch (e) { rows = `error: ${e.message}`; }
-  ok(`${c.id}: not /${c.not}/ (${c.fact})`, !new RegExp(c.not, "m").test(rows) && !rows.startsWith("error:"), rows);
+  if (c.has) ok(`${c.id}: /${c.has}/`, new RegExp(c.has, "m").test(rows) && !rows.startsWith("error:"), rows);   // an honest one: its word is written
+  else ok(`${c.id}: not /${c.not}/ (${c.fact})`, !new RegExp(c.not, "m").test(rows) && !rows.startsWith("error:"), rows);
 });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

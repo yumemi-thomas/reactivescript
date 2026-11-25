@@ -27,12 +27,14 @@ pub struct Place<'m, 'a, 'r> {
     pub spent: Cell<u32>,
     /// Where what the import loads sends events (dispatch.rs), once asked.
     pub sent: RefCell<Option<Vec<super::dispatch::Place0>>>,
+    #[allow(clippy::type_complexity)]
+    pub patched: RefCell<Option<Option<(usize, Span, String)>>>,
 }
 
 type Body<'m, 'a> = Result<&'m [Statement<'a>], &'m Expression<'a>>;
 
 impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
-    pub fn new(mods: &'m Modules<'a, 'r>, h: Host, hi: usize, entry: usize, types: &'m Types) -> Self { Place { mods, h, hi, entry, types, steps: Cell::new(0), spent: Cell::new(0), sent: RefCell::new(None) } }
+    pub fn new(mods: &'m Modules<'a, 'r>, h: Host, hi: usize, entry: usize, types: &'m Types) -> Self { Place { mods, h, hi, entry, types, steps: Cell::new(0), spent: Cell::new(0), sent: RefCell::new(None), patched: RefCell::new(None) } }
     pub fn m(&self, mi: usize) -> &'m Module<'a> { self.mods.get(mi) }
     pub fn line(&self, m: usize, at: u32) -> (String, usize) { let x = self.m(m); (x.path.clone(), x.line(at)) }
 
@@ -367,6 +369,7 @@ impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
             _ => return no(p.span, "its parameter is taken apart"),
         }
         if c.later.is_empty() { return no(at0, "never called in the code that was read"); }
+        self.unpatched(f)?;
         if c.listens { self.quiet(f, &c.events)?; }
         Ok(c.later)
     }
