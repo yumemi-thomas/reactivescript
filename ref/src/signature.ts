@@ -117,7 +117,7 @@ function line(file: string, name: string, x: ExportSig): string {
     case "server": return `export server ${x.io ? "" : "pure "}fn ${name}(${x.params.join(", ")})${x.rejects.length ? ` rejects(${[...x.rejects].sort().join(" | ")})` : ""}`;
     case "action": return `export action ${name}`;
     case "errclass": return `export error ${name}(${x.params.join(", ")})`;
-    case "type": return `export type ${name}`;
+    case "type": return `export type ${name}${x.text !== undefined ? ` = ${x.text}` : ""}`;
     case "context": { const t = [x.source ? "source" : "", rows(x.rows, x.fails), x.type ?? ""].filter(Boolean).join(" "); return `export context ${name}${t ? `: ${t}` : ""}${x.dflt ? " = …" : ""}`; }
     case "comp": {
       const s = x.sig;
@@ -193,7 +193,7 @@ export function parseSignature(src: string, file: string): ModSig {
       const at = /\shosts\(/.exec(row); if (at) { const open = at.index + at[0].length - 1; const text = balanced(row, open); if (text === undefined) fail("hosts(…)"); inner = hostsOf(file, text!); row = (row.slice(0, at.index) + row.slice(open + text!.length + 2)).trim(); }
       if ((m = /^renders\s+(\S+)\s+from\s+([A-Za-z_$][\w$.]*):(\d+)\s*(?:fails\(([^)]*)\))?\s*(?:uses\(([^)]*)\))?$/.exec(row))) { const host = absKey(file, m[1]); hosted.push({ host, name: host.slice(host.lastIndexOf("#") + 1), fn: m[2], line: Number(m[3]), fails: classesOf(m[4] ?? "").sort(), requires: (m[5] ?? "").split(",").map(k => k.trim()).filter(Boolean).map(k => absKey(file, k)), ...(inner ? { inner } : {}) }); return; }
     }
-    if ((m = /^type\s+([A-Za-z_$][\w$]*)/.exec(s))) { exports.set(m[1], { kind: "type" }); return; }
+    if ((m = /^type\s+([A-Za-z_$][\w$]*)(?:\s*=\s*(.+))?/.exec(s))) { exports.set(m[1], { kind: "type", ...(m[2] !== undefined ? { text: m[2].trim() } : {}) }); return; }
     if ((m = /^action\s+([A-Za-z_$][\w$]*)$/.exec(s))) { exports.set(m[1], { kind: "action" }); return; }
     if ((m = /^error\s+([A-Za-z_$][\w$]*)\s*(?:\(([^)]*)\))?$/.exec(s))) { exports.set(m[1], { kind: "errclass", params: (m[2] ?? "").split(",").map(x => x.trim()).filter(Boolean) }); return; }
     if ((m = /^source\s+([A-Za-z_$][\w$]*)\s*(?::(?!=)\s*(.*?))?\s*(:?=)\s*…$/.exec(s))) { const r = rowWords(m[2] ?? ""); if (r.rest) fail("a source's rows"); exports.set(m[1], { kind: "source", question: m[3] === "=", rows: r.rows, fails: r.fails }); return; }

@@ -762,16 +762,132 @@ pub struct Shown {
     pub mixed: bool,
     pub param: Option<String>,
 }
-pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &[Decl]) -> IndexMap<String, Shown> {
+pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types) -> IndexMap<String, Shown> {
     let mut out = IndexMap::new();
     let Some(t) = props_type else { return out };
-    for f in shown_fields(props, decls, view) {
-        let Some((ty, optional)) = field_type(t, &f, types, 0) else { continue };
+    let fields = shown_fields(props, decls, view);
+    if fields.is_empty() {
+        return out;
+    }
+    let t = expand_type(t, types, 0);
+    for f in fields {
+        let Some((ty, optional)) = field_type(&t, &f) else { continue };
         if let Some((mixed, param)) = view_type(&ty).filter(|v| f != "ref" && (!v.0 || f == "children")) {
             out.insert(f, Shown { optional, mixed, param });
         }
     }
     out
+}
+/// The types a module names, its own and those it imports from `.rx` modules: what each stands for, in no name of a module.
+pub type Types = HashMap<String, String>;
+pub fn types_of(set: &ModuleSet, path: &str) -> Types {
+    fn named(set: &ModuleSet, path: &str, name: &str, busy: &mut Vec<(String, String)>) -> Option<String> {
+        let at = (path.to_string(), name.to_string());
+        if busy.contains(&at) || busy.len() > 8 {
+            return None; // a type that names itself is read as far as its name
+        }
+        for d in &set.programs.get(path)?.decls {
+            match d {
+                Decl::TypeDecl { name: n, text, .. } if n == name => {
+                    let text = text.trim_start_matches("export").trim_start();
+                    let body = if text.starts_with("interface") { &text[text.find('{')?..] } else { text[text.find('=')? + 1..].js_trim().trim_end_matches(';') };
+                    busy.push(at);
+                    let t = expand(body, 0, &mut |n: &str| named(set, path, n, busy));
+                    busy.pop();
+                    return Some(t);
+                }
+                Decl::Import { names, resolved: Some(r), .. } => {
+                    if let Some(n) = names.iter().find(|n| n.alias == name) {
+                        // MO-9: a signature says what it stands for
+                        return match set.programs.contains_key(r) {
+                            true => named(set, r, &n.name, busy),
+                            false => set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).and_then(|x| match x { crate::signature::ExportSig::Type(t) => t.clone(), _ => None }),
+                        };
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+    let Some(p) = set.programs.get(path) else { return Types::new() };
+    let mut out = Types::new();
+    for d in &p.decls {
+        let names: Vec<&str> = match d {
+            Decl::TypeDecl { name, .. } => vec![name],
+            Decl::Import { names, resolved: Some(_), .. } => names.iter().map(|n| n.alias.as_str()).collect(),
+            _ => continue,
+        };
+        for n in names {
+            if let Some(t) = named(set, path, n, &mut vec![]) {
+                out.insert(n.to_string(), t);
+            }
+        }
+    }
+    out
+}
+/// A type with what its names stand for written out: records, lists, unions, what a function answers; a name it does not
+/// know is left.
+pub fn expand_type(t: &str, types: &Types, depth: usize) -> String {
+    expand(t, depth, &mut |n: &str| types.get(n).cloned())
+}
+fn expand(t: &str, depth: usize, named: &mut dyn FnMut(&str) -> Option<String>) -> String {
+    let t = t.js_trim();
+    if depth > 8 || t.len() > 4000 {
+        return t.to_string();
+    }
+    let word = |s: &str| !s.is_empty() && !s.as_bytes()[0].is_ascii_digit() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
+    if t.starts_with('(') {
+        // a function's parameters and result; a parenthesis
+        if let Some(end) = crate::parse::closes(t, 0) {
+            if let Some(r) = t[end..].js_trim().strip_prefix("=>") {
+                let ps: Vec<String> = split_top(&t[1..end - 1], ",").into_iter().filter(|p| !p.js_trim().is_empty()).map(|p| match p.split_once(':') {
+                    Some((n, ty)) if !n.contains(['{', '[']) => format!("{}: {}", n.js_trim(), expand(ty, depth + 1, named)),
+                    _ => p.js_trim().to_string(),
+                }).collect();
+                return format!("({}) => {}", ps.join(", "), expand(r, depth + 1, named));
+            }
+            if end == t.len() {
+                return format!("({})", expand(&t[1..end - 1], depth + 1, named));
+            }
+        }
+    }
+    for sep in ["|", "&"] {
+        let parts: Vec<String> = split_top(t, sep).into_iter().filter(|x| !x.js_trim().is_empty()).collect();
+        if parts.len() > 1 {
+            let xs: Vec<String> = parts.iter().map(|x| expand(x, depth + 1, named)).collect();
+            let record = |x: &String| x.starts_with('{') && crate::parse::closes(x, 0) == Some(x.len());
+            if sep == "&" && xs.iter().all(record) {
+                return format!("{{ {} }}", xs.iter().map(|x| x[1..x.len() - 1].js_trim().trim_end_matches([',', ';']).to_string()).filter(|x| !x.is_empty()).collect::<Vec<_>>().join("; "));
+            }
+            return xs.join(&format!(" {sep} "));
+        }
+    }
+    if let Some(inner) = t.strip_prefix("readonly ") {
+        return format!("readonly {}", expand(inner, depth + 1, named));
+    }
+    if let Some(inner) = t.strip_suffix("[]") {
+        let x = expand(inner, depth + 1, named);
+        return if x.contains(['|', '&']) || x.contains("=>") { format!("({x})[]") } else { format!("{x}[]") };
+    }
+    for w in ["Array", "ReadonlyArray"] {
+        if let Some(inner) = t.strip_prefix(w).and_then(|r| r.strip_prefix('<')).and_then(|r| r.strip_suffix('>')) {
+            return format!("{w}<{}>", expand(inner, depth + 1, named));
+        }
+    }
+    if let Some(body) = t.strip_prefix('{').and_then(|r| r.strip_suffix('}')) {
+        let fields: Vec<String> = split_top(body, ",;\n").into_iter().filter(|f| !f.js_trim().is_empty()).map(|f| match f.split_once(':') {
+            Some((k, ty)) if !k.contains(['(', '[']) => format!("{}: {}", k.js_trim(), expand(ty, depth + 1, named)),
+            _ => f.js_trim().to_string(),
+        }).collect();
+        return if fields.is_empty() { "{}".into() } else { format!("{{ {} }}", fields.join("; ")) };
+    }
+    if word(t) {
+        if let Some(x) = named(t) {
+            return x;
+        }
+    }
+    t.to_string()
 }
 /// `<props.f … />`: the name of the props, and the field.
 pub fn shown_in(tag: &str) -> Option<(&str, &str)> {
@@ -820,31 +936,22 @@ pub fn shown_fields(props: &str, decls: &[Decl], view: &[Markup]) -> indexmap::I
     go(props, decls, view, &mut out);
     out
 }
-fn field_type(t: &str, field: &str, decls: &[Decl], depth: usize) -> Option<(String, bool)> {
-    if depth > 8 {
-        return None;
-    }
+/// A field of a record type written out: its type, and whether it is optional.
+pub fn field_type(t: &str, field: &str) -> Option<(String, bool)> {
+    let (mut found, mut last) = (None, 0);
     for part in split_top(t, "&") {
-        let part = part.js_trim();
-        if let Some(body) = part.strip_prefix('{').and_then(|p| p.strip_suffix('}')) {
-            for f in split_top(body, ",;\n") {
-                if let Some((k, ty)) = f.split_once(':') {
-                    if !k.is_empty() && field_name(k) == field {
-                        return Some((ty.js_trim().to_string(), k.js_trim().ends_with('?')));
-                    }
+        let Some(body) = part.js_trim().strip_prefix('{').and_then(|p| p.strip_suffix('}')) else { continue };
+        for f in split_top(body, ",;\n") {
+            if let Some((k, ty)) = f.split_once(':') {
+                if !k.is_empty() && field_name(k) == field {
+                    found = Some((ty.js_trim().to_string(), k.js_trim().ends_with('?')));
+                    last += 1;
                 }
             }
-            continue;
-        }
-        let n: String = part.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-        let Some(text) = decls.iter().find_map(|d| match d { Decl::TypeDecl { name, text, .. } if *name == n => Some(text), _ => None }) else { continue };
-        let text = text.trim_start_matches("export").trim_start();
-        let body = if text.starts_with("interface") { text.find('{').map(|i| &text[i..]) } else { text.find('=').map(|i| &text[i + 1..]) };
-        if let Some(r) = body.and_then(|b| field_type(b.js_trim().trim_end_matches(';'), field, decls, depth + 1)) {
-            return Some(r);
         }
     }
-    None
+    // in two records of an intersection, it is neither's
+    found.filter(|_| last == 1)
 }
 /// `(s: T) => View`, `() => View`; `View | ((s: T) => View)`, either way round. Whether plain content is taken; the parameter.
 fn view_type(t: &str) -> Option<(bool, Option<String>)> {

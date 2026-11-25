@@ -2829,7 +2829,7 @@ export default component App() {
 ```
 
 ```rx
--- reject: UNKNOWN_COMPONENT
+-- reject: VIEW_FN_EXPECTED
 type B = (s: { n: number }) => View
 component T(props: { children: B }) {
   source n := 1

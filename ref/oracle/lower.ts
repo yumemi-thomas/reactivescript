@@ -17,8 +17,8 @@ import {
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failure.ts";
-import { singleModule, given, defaulted, bindGiven, viewFields, shown, shownIn, type Given, type ModuleSet } from "../src/modules.ts";
-import { nonTailAwaits, placed, viewReaders } from "../src/awaits.ts";
+import { singleModule, given, defaulted, bindGiven, viewFields, shownAll, shownIn, type Given, type ModuleSet } from "../src/modules.ts";
+import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { unwrapServer } from "../src/check.ts";
 import { primsSolid, isPrims } from "../src/prims.ts";
 import type { Shape } from "../src/parse.ts";
@@ -229,12 +229,13 @@ export class Oracle {
   scanHandlers: Stmt[][] | undefined;
 
   /** 09 MO-1: each imported module's scope, declared once, dependencies first. */
-  moduleScopes = new Map<string, Scope>(); private typeDecls: Decl[] = [];
+  moduleScopes = new Map<string, Scope>(); private typeDecls: Decl[] = []; private shown: ReturnType<typeof shownAll> = new Map();   // RG-4c
   declarations?: ModuleSet["declarations"];
   private instances = new WeakMap<Binding, { r: any; shape: Shape }>();   // MO-10: a primitive's raw result, under the binding of its instance
   constructor(input: Program | ModuleSet, handlers?: Stmt[][]) {
     const set = "programs" in input ? input : singleModule(input);
     this.declarations = set.declarations;
+    this.shown = shownAll(set);
     this.typeDecls = [...set.programs.values()].flatMap(p => p.decls.filter(d => d.k === "typedecl"));
     const program = set.programs.get(set.entry)!;
     this.program = program; this.scanHandlers = handlers;
@@ -298,7 +299,7 @@ export class Oracle {
   }
   private inside(decls: Decl[], view: Markup[], scope: Scope): unknown[] {
     this.declare(decls, scope);
-    for (const e of viewReaders(view)) this.hoistAwaits(null, e, scope, false);
+    for (const e of viewReaders(view, t => { const b = scope.lookup(t); return b?.k === "comp" && !!this.shown.get(b.decl)?.get("children")?.mixed; })) this.hoistAwaits(null, e, scope, false);
     return this.fragment(view, scope);
   }
   /** R-f-4: error class names → their values; undefined: every failure. */
@@ -364,7 +365,7 @@ export class Oracle {
             else if (this.isStructuredAwait(d.init, d.name)) { const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}); /* ST-5 structured: the derive writes its draft (Solid's createStore(fn, seed) idiom) */ scope.vars.set(d.name, { k: "store", get: () => store, set: () => { throw new Unsupported("root write to a derived store"); }, setPath: setStore, question: true }); }
             else { const [get, set] = createSignal(compute as any, this.loadingValue(d.init, scope) as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: false }); }
           } else {
-            const init = this.snapshot(() => this.ev(d.init, scope));
+            const init = untrack(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
               const [store, setStore] = createStore(init as any); rooted(store as object); if (d.key === undefined) byPosition.add(store as object); const [get, set] = createSignal<unknown>(store);
               const w = { set: rootSet(store, set as never, v => setStore(() => v as any), f => setStore(f as any)), setPath: setStore };   // ST-2a: a root write is reconciled per path; W-6: a function is the updater
@@ -558,7 +559,7 @@ export class Oracle {
         if (v === undefined && e.init) return this.ev(e.init, scope, env);
         return v;
       }
-      case "peek": return this.snapshot(() => this.ev(e.e, scope, env));
+      case "peek": return untrack(() => this.ev(e.e, scope, env));
       case "await": {
         for (let s: Scope | null = scope; s; s = s.parent) { const h = hoistedOf.get(s)?.get(e); if (h) return h(); }   // a hoisted `await`: its own node, read here
         const v = this.ev(e.e, scope, env); return !e.stream && v instanceof Flight ? v.first : v;   // in tail position the memo returns the flight (R-1): a stream for `await*`, else its one answer
@@ -596,12 +597,12 @@ export class Oracle {
         if (e.f.k === "member") { self = this.ev(e.f.o, scope, env); f = self == null ? undefined : self[e.f.p]; } else f = this.ev(e.f, scope, env);
         const args = e.args.map(a => this.ev(a, scope, env));
         if (f === BUILTINS.fetch) { const fl = this.flight(String(args[0])); return process.env.ORACLE_PROMISES ? fl.first : fl; }
-        if (Array.isArray(f) && f.length === 1 && isView(f) && typeof f[0] === "function") { const v = f[0](); if (typeof v === "function") f = v; }   // RG-4c, a function prop: the children are one closure, as JSX passes it
+        while (Array.isArray(f) && f.length === 1 && isView(f) && typeof f[0] === "function") f = f[0]();   // RG-4c, a function prop: the children are one closure, as JSX passes it
         if (typeof f !== "function") throw new Error("call of non-function");
         return f.apply(self, args);
       }
       case "draft": throw new Unsupported("draft outside an equation");
-      case "use": { const b = this.provision(e.name, scope); if (b.k === "const") return b.value; const was = this.carried; this.carried = true; try { return (b as { get: () => unknown }).get(); } finally { this.carried = was; } }
+      case "use": { const b = this.provision(e.name, scope); return b.k === "const" ? b.value : (b as { get: () => unknown }).get(); }
       case "spread": throw new Error("spread outside an array literal");
       case "omit": return omit(this.ev(e.e, scope, env) as Record<string, unknown>, ...e.keys);
     }
@@ -726,7 +727,6 @@ export class Oracle {
   /** A view's items, as Solid's compiled JSX shapes them: in a fragment a reader is a memo; an element's children are its
    *  holes, each inserted at its own marker (`inEl`), so each reader is its own render effect. */
   fragment(m: Markup[], scope: Scope, inEl = false): unknown[] { const items = m.map(x => this.node(x, scope, inEl)); return inEl ? items : items.map(x => (x as { $read?: boolean })?.$read ? R.memo(x as () => unknown) : x); }
-  /** RG-7b, 08: children with a `use` are owned where they are read, so it reads there (what a context carries, and a snapshot, are read at the caller). */
   private props(m: Extract<Markup, { k: "el" }>, scope: Scope, kids?: Record<string, unknown>): Record<string, unknown> {
     const parts: unknown[] = []; let run: Record<string, unknown> | null = null;    // 07 §4: a spread is a function source of Solid's merge, between runs of named props
     for (const a of m.attrs) {
@@ -736,13 +736,6 @@ export class Oracle {
     }
     if (kids) parts.push(kids);
     return parts.length === 0 ? {} : parts.length === 1 ? (typeof parts[0] === "function" ? (merge as any)(parts[0]) : parts[0] as Record<string, unknown>) : (merge as (...xs: unknown[]) => Record<string, unknown>)(...parts);
-  }
-  private carried = false;
-  private snapshot<T>(f: () => T): T { const was = this.carried; this.carried = true; try { return untrack(f); } finally { this.carried = was; } }
-  private place(kids: Markup[], scope: Scope): Scope {
-    if (!placed(kids, t => scope.lookup(t)?.k === "comp")) return scope;
-    const owner = getOwner(), at = this.carried; this.carried = false;
-    return at || !owner ? scope : Object.create(scope, { owner: { value: owner } }) as Scope;
   }
   private node(m: Markup, scope: Scope, inEl = false): unknown {
     const self = this;
@@ -754,16 +747,16 @@ export class Oracle {
         if (m.tag === "") return this.fragment(m.children, scope, inEl);     // `<>…</>`
         const n = shownIn(m.tag), given = n && scope.lookup(n[0]);
         if (given?.k === "const" && typeof given.value === "object" && given.value) {   // RG-4c: the view it was given, applied; plain content, as it is
-          const g = () => { const v = (given.value as Record<string, any>)[n![1]]; return typeof v === "function" && v.length ? R.createComponent(v, this.props(m, scope)) : v == null ? "" : isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g;
+          const g = () => { const v = (given.value as Record<string, any>)[n![1]]; return typeof v === "function" ? R.createComponent(v, this.props(m, scope)) : v == null ? "" : isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g;
         }
         if (/^[A-Z]/.test(m.tag)) {
           const b = scope.lookup(m.tag); if (!b || b.k !== "comp") throw new Error(`unknown component ${m.tag}`);
           const comp = b.decl, home = b.home;
-          const view = m.children.find(c => c.k === "mview" && !c.prop), kids: Record<string, unknown> = {};
-          const fn = (v: Extract<Markup, { k: "mview" }>) => (p: unknown) => { const s2 = new Scope(scope); for (const x of v.params) s2.vars.set(x, { k: "const", value: p }); return this.region(v.decls, v.body, s2); };   // RG-4c
-          for (const c of m.children) if (c.k === "mview" && c.prop) kids[c.prop] = fn(c);
-          const content = m.children.filter(c => c.k !== "mview"); const none = !m.children.length && shown(comp, this.typeDecls).get("children")?.mixed === false;
-          Object.defineProperty(kids, "children", view?.k === "mview" || none ? { enumerable: true, value: view?.k === "mview" ? fn(view) : undefined } : { enumerable: true, get: () => this.fragment(content, this.place(content, scope)) });
+          const kids: Record<string, unknown> = {}, takes = this.shown.get(comp)?.get("children"), content = m.children.filter(c => c.k !== "mview");   // RG-4c
+          const fn = (params: string[], decls: Decl[], body: Markup[]) => (p: unknown) => { const s2 = new Scope(scope); for (const x of params) s2.vars.set(x, { k: "const", value: p }); return this.region(decls, body, s2); };
+          for (const c of m.children) if (c.k === "mview" && c.prop) kids[c.prop] = fn(c.params, c.decls, c.body);
+          const view = m.children.find(c => c.k === "mview" && !c.prop);
+          Object.defineProperty(kids, "children", takes ? { enumerable: true, value: view?.k === "mview" ? fn(view.params, view.decls, view.body) : content.some(c => c.k !== "text" || c.s.trim()) ? fn([], [], content) : undefined } : { enumerable: true, get: () => this.fragment(content, scope) });   // plain content, where a view is taken, is one that asks nothing
           const props = this.props(m, scope, kids);
           return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); s2.givens.set(comp.props, { props: { less: [], views: viewFields(comp.propsType, this.typeDecls) } }); return this.region(comp.decls, comp.view, s2); }, props);
         }

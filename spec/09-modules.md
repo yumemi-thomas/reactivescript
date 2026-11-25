@@ -945,7 +945,7 @@ is the signature the compiler printed.
   | `uses(…)`, `provides(…)`, `retains(…)` | context *keys*, relative to the signature's own module, of any module; `uses(loading)` is SV-7b's need | names of contexts the same file declares |
   | a component's props | the summary of MO-3, a row per prop: bare (rendered, discharging nothing), `catches(E)` / `catches(*)`, `provides(…)` for children, `unrendered`, `action go catches(…)`, `takes(…)`, `view` for a prop shown as a view (RG-4c; `view | View` where it takes plain content as well, `view?` optional), with its parameter's type and `value(…)`, the fields that hold no closure of the component's (O-3), and `f-at` in its `shape(…)`; no other types | TypeScript's fields, with the words of MO-8i on them |
   | after a component | `made`, `fails(E)`, `uses`, `retains(…)`, `hosts(…)`, `shape(roots …; closes-p; a; form; children-at …)` | `fails(E)`, `uses`, `provides`, `shape(T)` |
-  | types | none: a row's types are the projection's, in the `.d.ts` beside it (MO-13d); `export type T` is a name | the row's text is the module's `.d.ts` (13 TY-4b) |
+  | types | none: a row's types are the projection's, in the `.d.ts` beside it (MO-13d); `export type T` is a name, with what it stands for where that is a record (`= { … }`: RG-4c reads a view's parameter through it) | the row's text is the module's `.d.ts` (13 TY-4b) |
   | type parameters, optional and rest parameters, `handler`, `draft`, `nests`, `renders(H)`, `const` | not written | MO-8d to MO-8o, MO-10, MO-11 |
   | what it is held to | nothing: the compiler inferred each row (no TY-6, no MO-8f, no MO-8j) | TY-6, MO-8f, MO-8j |
   | the import's own rows | `import pure` cannot lower an io row and `fails` is refused, with MO-4a's messages | MO-8b |

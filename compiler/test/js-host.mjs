@@ -15,18 +15,7 @@ const dir = path.join(ws, "js-host"); rmSync(dir, { recursive: true, force: true
 const rxc = process.env.RXC ?? path.join(repo, "compiler/target/release/rxc"), req = createRequire(path.join(ws, "package.json"));
 writeFileSync(path.join(dir, "types.js"), "export {};\n");
 writeFileSync(path.join(dir, "types.d.ts"), "export type T = { a: number };\n");
-writeFileSync(path.join(dir, "keep.d.rx"), "export component Keep(props: { children?: View })\n");
-writeFileSync(path.join(dir, "keep.js"), `import { children } from "solid-js";\nexport const Keep = p => children(() => p.children);\n`);
 writeFileSync(path.join(dir, "kit.rx"), `import { T } from "./types.js"
-import { Keep } from "./keep.js"
-context c: string = "out"
-component Given(props: { children?: View }) {
-  provide c = "in"
-  <div>{props.children}</div>
-}
-export component Held() {
-  <Given><Keep>{use c}</Keep><Keep><b title={use c}>{use c}</b></Keep></Given>
-}
 export component View1(props: { children: (s: { on: boolean }) => View }) {
   source lit := false
   <p onClick={() => { lit := !lit }}><props.children on={lit} /></p>
@@ -75,9 +64,8 @@ const lib = library(kit, "kit/kit"); let made = 0; const el = t => { made++; con
 const b1 = s => { const b = el(""); const i = document.createElement("i"); b.append(i); Object.defineProperty(b, "s", { value: s }); return [b, () => s.on ? "on" : "off"]; };
 const at = () => { const d = document.createElement("div"); document.body.append(d); return d; }; const out = window.views = [];
 const run = (C, props, n = 2) => { const d = at(); made = 0; const end = render(() => createComponent(lib[C], props), d); const seen = [d.textContent]; for (let i = 0; i < n; i++) { d.querySelector("p").click(); flush(); seen.push(d.textContent); } out.push([seen.join(" "), made]); end(); out[out.length - 1].push(d.textContent); };
-run("View1", { children: b1 }); run("View1", merge({}, { children: b1 })); run("Mixed", { children: b1 }); run("Mixed", { get children() { return el("plain"); } }); run("Mixed", { children: () => "thunk" }); run("Mixed", { children: ["a", 1, "b"] }); run("Mixed", {}); run("Mixed", { children: undefined, cell: s => s.k }); run("Mixed", { cell: s => [s.k, "!"], children: b1 });
-const [f, set] = createSignal(() => b1); const d = at(); render(() => createComponent(lib.Mixed, { get children() { return f(); } }), d); const before = d.textContent; set(() => s => [() => s.on ? "ON" : "OFF"]); flush(); const mid = d.textContent; set("text"); flush(); out.push([before, mid, d.textContent]);
-const h = at(); render(() => createComponent(lib.Held, {}), h); out.push([h.textContent]);` }, bundle: true, write: false, format: "esm", conditions: ["browser", "development"], logLevel: "error" });
+run("View1", { children: b1 }); run("View1", merge({}, { children: b1 })); run("Mixed", { children: b1 }); run("Mixed", { get children() { return el("plain"); } }); run("Mixed", { children: () => "thunk" }); run("Mixed", { children: ["a", 1, "b"] }); run("Mixed", {}); run("Mixed", { children: undefined, cell: s => s.k }); run("Mixed", { cell: s => [s.k, "!"], children: b1 }); run("View1", { children: (s = {}) => b1(s) }); run("View1", { children: (...a) => b1(a[0]) }); run("View1", { children: () => el("none") });
+const [f, set] = createSignal(() => b1); const d = at(); render(() => createComponent(lib.Mixed, { get children() { return f(); } }), d); const before = d.textContent; set(() => s => [() => s.on ? "ON" : "OFF"]); flush(); const mid = d.textContent; set("text"); flush(); out.push([before, mid, d.textContent]);` }, bundle: true, write: false, format: "esm", conditions: ["browser", "development"], logLevel: "error" });
 const browser = await req("playwright").chromium.launch(); const page = await browser.newPage(); const said = [];
 page.on("console", m => { if (m.type() !== "log") said.push(m.text().split("\n")[0]); }); page.on("pageerror", e => said.push(e.message));
 await page.setContent("<p></p>"); await page.addScriptTag({ type: "module", content: r.outputFiles[0].text }); await page.waitForTimeout(100);
@@ -89,8 +77,8 @@ check("a `ref` closure's read of a prop is a snapshot", got[2] === 1 && !said.so
   const page = await browser.newPage(); const said = []; page.on("console", m => { if (m.type() !== "log") said.push(m.text().split("\n")[0]); }); page.on("pageerror", e => said.push(e.message));
   await page.setContent("<p></p>"); await page.addScriptTag({ type: "module", content: views.outputFiles[0].text }); await page.waitForTimeout(100);
   const got = await page.evaluate(() => window.views);
-  const want = [["off on off", 1, ""], ["off on off", 1, ""], ["off on off", 1, ""], ["plain plain plain", 1, ""], ["thunk thunk thunk", 0, ""], ["a1b a1b a1b", 0, ""], ["  ", 0, ""], ["c c c", 0, ""], ["c!off c!on c!off", 1, ""], ["off", "OFF", "text"], ["inin"]];
-  check("a view given by a JavaScript host (RG-4c), and a context in children a JavaScript component keeps (RG-7b)", JSON.stringify(got) === JSON.stringify(want) && !said.length, [got, want, said]);
+  const want = [["off on off", 1, ""], ["off on off", 1, ""], ["off on off", 1, ""], ["plain plain plain", 1, ""], ["thunk thunk thunk", 0, ""], ["a1b a1b a1b", 0, ""], ["  ", 0, ""], ["c c c", 0, ""], ["c!off c!on c!off", 1, ""], ["off on off", 1, ""], ["off on off", 1, ""], ["none none none", 1, ""], ["off", "OFF", "text"]];
+  check("a view given by a JavaScript host (RG-4c)", JSON.stringify(got) === JSON.stringify(want) && !said.length, [got, want, said]);
 }
 await browser.close();
 writeFileSync(path.join(dir, "server.mjs"), `import kit from "./kit.ssr.mjs"; import { views } from "./cases.mjs"; import { library } from "@reactivescript/runtime"; import { createComponent } from "solid-js"; import { renderToString } from "@solidjs/web";
@@ -99,6 +87,43 @@ console.log(JSON.stringify([views(lib).map(text), text(() => createComponent(lib
 const s = spawnSync(process.execPath, ["server.mjs"], { cwd: dir, encoding: "utf8", timeout: 60000 });
 const [shown, value] = s.status === 0 ? JSON.parse(s.stdout.trim().split("\n").pop()) : [];
 check("children of a JavaScript host, on the server", JSON.stringify(shown) === JSON.stringify(want) && value === "undefined 1", [shown, want, value, s.stderr.slice(-600)]);
+// a view given to a JavaScript component that provides (RG-7a): its context is for what is in it, in the browser, on the
+// server and where the browser takes over what the server made
+{
+  writeFileSync(path.join(dir, "v.d.rx"), "export component V(props: { after: Component; children: (x: string) => View })\n");
+  writeFileSync(path.join(dir, "v.js"), `import { children, createComponent } from "solid-js";\nexport const V = p => children(() => [p.children("a"), p.children("b"), createComponent(p.after, {})]);\n`);
+  writeFileSync(path.join(dir, "views.rx"), `import { V } from "./v.js"
+context c: string = "o"
+component R() {
+  <u>{use c}</u>
+}
+export component Two() {
+  source n := 1
+  <p onClick={() => { n := v => v + 1 }}><V after={R}>{view (x) {
+    provide c = x
+    <R /><b>{n}</b>
+    {if n > 1 { <R /> }}
+  }}</V></p>
+}
+`);
+  for (const target of ["dom", "ssr"]) for (const m of Object.values(JSON.parse(execFileSync(rxc, ["app", path.join(dir, "views.rx"), "--lib", "--target", target], { encoding: "utf8" })).modules)) writeFileSync(path.join(dir, `views.${target}.mjs`), m.code);
+  writeFileSync(path.join(dir, "views-server.mjs"), `import kit from "./views.ssr.mjs"; import { library } from "@reactivescript/runtime"; import { createComponent } from "solid-js"; import { renderToString, generateHydrationScript } from "@solidjs/web";
+console.log(JSON.stringify([generateHydrationScript(), renderToString(() => createComponent(library(kit, "kit/views").Two, {}))]));`);
+  const out = spawnSync(process.execPath, ["views-server.mjs"], { cwd: dir, encoding: "utf8", timeout: 60000 });
+  const [script, html] = out.status === 0 ? JSON.parse(out.stdout.trim().split("\n").pop()) : ["", ""];
+  const browser = await req("playwright").chromium.launch();
+  for (const mode of ["development", "production"]) for (const how of ["render", "hydrate"]) {
+    const r = await build({ stdin: { resolveDir: dir, contents: `import kit from "./views.dom.mjs"; import { library } from "@reactivescript/runtime"; import { createComponent, flush } from "solid-js"; import { render, hydrate } from "@solidjs/web";
+const at = document.getElementById("app"), first = at.querySelector("b"), seen = []; const end = ${how}(() => createComponent(library(kit, "kit/views").Two, {}), at); flush(); seen.push(at.textContent);
+at.querySelector("p").click(); flush(); seen.push(at.textContent, ${how === "hydrate" ? `first === at.querySelector("b")` : "true"}); end(); window.seen = seen;` }, bundle: true, write: false, format: "esm", conditions: ["browser", mode], logLevel: "error" });
+    const page = await browser.newPage(); const said = []; page.on("console", m => { if (m.type() !== "log") said.push(m.text().split("\n")[0]); }); page.on("pageerror", e => said.push(e.message));
+    await page.setContent(`<head>${script}</head><body><div id="app">${how === "hydrate" ? html : ""}</div></body>`); await page.addScriptTag({ type: "module", content: r.outputFiles[0].text }); await page.waitForTimeout(100);
+    const got = await page.evaluate(() => window.seen);
+    check(`a view that provides, given to JavaScript (RG-7a): ${how}, ${mode}`, JSON.stringify(got) === JSON.stringify(["a1b1o", "a2ab2bo", true]) && !said.length, [got, said, html, out.stderr.slice(-400)]);
+    await page.close();
+  }
+  await browser.close();
+}
 // rx-lib ships the modules a package imports for their types alone: with no row, with one, and where there are only types
 {
   const pkg = path.join(dir, "pkg"); mkdirSync(path.join(pkg, "src"), { recursive: true });

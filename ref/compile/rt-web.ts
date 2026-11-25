@@ -266,7 +266,6 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
   };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
 
-  let carried = false;   // RG-7b: a context's value, or a snapshot, is being read (`place`)
   const app = {
     root: opts.root,
     log, flights, lastKey, asyncError: null as unknown,
@@ -481,10 +480,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     },
     module(key: unknown, factory: (rt: unknown) => Record<string, unknown>) { const k = (typeof key === "function" && (key as { __rxKey?: string }).__rxKey) || key; let m = modules.get(k); if (!m) { m = factory(app); modules.set(k, m); } return m; },
     // ---- context (RG-7) ----
-    owner: () => { carried = false; return getOwner(); },
-    /** RG-7b, 08: children with a `use` are owned where a component shows them, so it reads there: the owner that reads them.
-     *  What nothing owns (an effect, a handler), a snapshot and what a context carries are read at the caller, `o`. */
-    place(o: ReturnType<typeof getOwner>) { const at = carried; carried = false; return at ? o : getOwner() ?? o; },
+    owner: () => getOwner(),
     /** `context x: T = d` (RG-7): the declaration is the identity; `d`, if any, is evaluated once, owned where it is declared. */
     /** `context x: T = d` (RG-7): the declaration is the identity (a sentinel default: absence is ours to decide); `d` is
      *  evaluated once, owned where it is declared — created now, so it takes its id there on both sides (SV-3). */
@@ -495,7 +491,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
       if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
     },
-    useGet(c: Ctx, owner: ReturnType<typeof getOwner>) { const e = app.use(c, owner); if (!e.get) return e.value; const was = carried; carried = true; try { return e.get(); } finally { carried = was; } },
+    useGet(c: Ctx, owner: ReturnType<typeof getOwner>) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
     /** MO-10a, RG-6a (2026-11-23): a declared JS primitive is called in an owner of its own, under the place it is
      *  written. To that place it is one child, on the server and in the browser, whatever it makes inside — so a
@@ -515,14 +511,13 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
-    untrack: <T>(f: () => T): T => { const was = carried; carried = true; try { return untrack(f); } finally { carried = was; } },   // E-4: a snapshot is the caller's too (`place`)
-    omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
+    untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 
     // ---- views: compiled JSX (compile/jsx.ts, generate "dom") does the rest ----
     show: (v: unknown) => isView(v) ? v : fmt(v),
-    /** RG-4c: a view a component was given, shown with what it knows (a function of one parameter; one of none is a thunk, as JSX has it); plain content, as it is. */
-    view(c: unknown, f: (view: unknown) => unknown) { return typeof c === "function" && c.length ? f(c) : app.kids(c); },
+    /** RG-4c: a view a component was given, shown with what it knows. `plain`: plain content is taken as well, shown as it is, and a function of no parameter is a thunk, as JSX has it. */
+    view(c: unknown, f: (view: unknown) => unknown, plain?: boolean) { return typeof c === "function" && (!plain || c.length) ? f(c) : app.kids(c); },
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
     kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out

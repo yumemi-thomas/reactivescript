@@ -8,7 +8,7 @@
 import { inPrelude, language } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
-import { isRx, relativeModule, ViewProps, type ModuleSet, shown } from "../src/modules.ts";
+import { isRx, relativeModule, ViewProps, type ModuleSet, shown, typesOf } from "../src/modules.ts";
 import { splitTop, shapeHasRef, type JsDecl, type Shape } from "../src/parse.ts";
 import type { ModSig } from "../src/check.ts";
 
@@ -225,7 +225,7 @@ class Proj {
         // where a library asks for one (`toast(() => JSX.Element)`) and wherever a component is asked for
         if (d.noProps) this.w.emit(`${ind}${ex(d)}function ${d.name}() {`, d.line);
         else this.w.emit(`${ind}${ex(d)}function ${d.name}(${d.props}${d.propsType ? `: ${d.propsType.replace(/(:\s*)((?:pending\s+|fails\([^)]*\)\s*)+)/g, "$1")}` : ": any"}) {`, d.line);   // MO-10f: a field's row words are .rx's, not TypeScript's
-        const was = this.loose; this.loose = new Set([...shown(d, this.set.programs.get(this.path)?.decls ?? [])].flatMap(([f, v]) => v.mixed || v.optional ? [`${d.props}.${f}`] : []));
+        const was = this.loose; this.loose = new Set([...shown(d, typesOf(this.set, this.path))].flatMap(([f, v]) => v.mixed || v.optional ? [`${d.props}.${f}`] : []));
         this.decls(d.decls, ind + "  ");
         this.w.emit(`${ind}  return (`, d.line); this.markup(d.view.length ? d.view : [], ind + "    "); this.w.emit(`${ind}  );\n${ind}}`, d.line);
         this.loose = was;

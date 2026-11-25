@@ -378,10 +378,72 @@ export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set
  *  none, which its view shows as `<props.f … />`. `mixed`: `children` declared `View | ((s: T) => View)` take plain content as well.
  *  `param`: the parameter's type. */
 export type Shown = { optional: boolean; mixed: boolean; param?: string };
-export function shown(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, decls: Decl[]): Map<string, Shown> {
-  const out = new Map<string, Shown>();
-  for (const f of shownFields(d)) { const t = fieldType(d.propsType, f, decls), v = t && viewType(t.type); if (v && f !== "ref" && (!v.mixed || f === "children")) out.set(f, { optional: t.optional, ...v }); }
+export function shown(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, types: Types): Map<string, Shown> {
+  const out = new Map<string, Shown>(); const fields = d.propsType === undefined ? new Set<string>() : shownFields(d); if (!fields.size) return out;
+  const text = expandType(d.propsType!, types);
+  for (const f of fields) { const t = fieldType(text, f), v = t && viewType(t.type); if (v && f !== "ref" && (!v.mixed || f === "children")) out.set(f, { optional: t.optional, ...v }); }
   return out;
+}
+/** The same of every component of a program, for the runners. */
+export function shownAll(set: ModuleSet): Map<unknown, Map<string, Shown>> {
+  const out = new Map<unknown, Map<string, Shown>>();
+  for (const [path, p] of set.programs) {
+    const walk = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string }; if (o.k === "component" && "propsType" in o) out.set(o, shown(o as never, typesOf(set, path))); Object.values(x).forEach(walk); };
+    walk(p.decls); walk(p.view);
+  }
+  return out;
+}
+/** The types a module names, its own and those it imports from `.rx` modules: what each stands for, in no name of a module. */
+export type Types = Map<string, string>;
+const typesMemo = new WeakMap<ModuleSet, Map<string, Types>>();
+export function typesOf(set: ModuleSet | undefined, path: string): Types {
+  if (!set) return new Map();
+  let memo = typesMemo.get(set); if (!memo) typesMemo.set(set, memo = new Map());
+  const done = memo.get(path); if (done) return done;
+  const named = (path: string, name: string, busy: string[]): string | undefined => {
+    const at = `${path}#${name}`; if (busy.includes(at) || busy.length > 8) return undefined;   // a type that names itself is read as far as its name
+    for (const d of set.programs.get(path)?.decls ?? []) {
+      if (d.k === "typedecl" && d.name === name) {
+        const text = (d.text ?? "").replace(/^export\s+/, ""); let body: string | undefined;
+        if (text.startsWith("interface")) { const i = text.indexOf("{"); if (i < 0) return undefined; body = text.slice(i); }
+        else { const i = text.indexOf("="); if (i < 0) return undefined; body = text.slice(i + 1).trim().replace(/;$/, ""); }
+        return expand(body, n => named(path, n, [...busy, at]));
+      }
+      if (d.k === "import" && d.resolved) { const n = d.names.find(n => n.alias === name); if (n) { if (set.programs.has(d.resolved)) return named(d.resolved, n.name, busy); const x = set.signatures?.get(d.resolved)?.exports.get(n.name); return x?.kind === "type" ? x.text : undefined; } }   // MO-9: a signature says what it stands for
+    }
+    return undefined;
+  };
+  const out: Types = new Map();
+  for (const d of set.programs.get(path)?.decls ?? []) for (const n of d.k === "typedecl" ? [d.name] : d.k === "import" && d.resolved ? d.names.map(n => n.alias) : []) { const t = named(path, n, []); if (t !== undefined) out.set(n, t); }
+  memo.set(path, out); return out;
+}
+/** A type with what its names stand for written out: records, lists, unions, a function's parameters and what it answers; a name it does not know is left. */
+export const expandType = (t: string, types: Types) => expand(t, n => types.get(n));
+function expand(t: string, named: (n: string) => string | undefined, depth = 0): string {
+  t = t.trim(); if (depth > 8 || t.length > 4000) return t;
+  const go = (x: string) => expand(x, named, depth + 1);
+  if (t.startsWith("(")) {
+    const end = closes(t, 0);
+    if (end !== undefined) {
+      const r = t.slice(end).trim();
+      if (r.startsWith("=>")) return `(${splitTop(t.slice(1, end - 1), ",").filter(p => p.trim()).map(p => { const i = p.indexOf(":"); return i >= 0 && !/[{[]/.test(p.slice(0, i)) ? `${p.slice(0, i).trim()}: ${go(p.slice(i + 1))}` : p.trim(); }).join(", ")}) => ${go(r.slice(2))}`;
+      if (end === t.length) return `(${go(t.slice(1, -1))})`;
+    }
+  }
+  for (const sep of ["|", "&"]) {
+    const parts = splitTop(t, sep).filter(x => x.trim()); if (parts.length < 2) continue;
+    const xs = parts.map(go);
+    if (sep === "&" && xs.every(x => x.startsWith("{") && closes(x, 0) === x.length)) return `{ ${xs.map(x => x.slice(1, -1).trim().replace(/[,;]+$/, "")).filter(Boolean).join("; ")} }`;
+    return xs.join(` ${sep} `);
+  }
+  if (t.startsWith("readonly ")) return `readonly ${go(t.slice(9))}`;
+  if (t.endsWith("[]")) { const x = go(t.slice(0, -2)); return /[|&]|=>/.test(x) ? `(${x})[]` : `${x}[]`; }
+  for (const w of ["Array", "ReadonlyArray"]) if (t.startsWith(`${w}<`) && t.endsWith(">")) return `${w}<${go(t.slice(w.length + 1, -1))}>`;
+  if (t.startsWith("{") && t.endsWith("}")) {
+    const fields = splitTop(t.slice(1, -1), ",;\n").filter(f => f.trim()).map(f => { const i = f.indexOf(":"); return i >= 0 && !/[([]/.test(f.slice(0, i)) ? `${f.slice(0, i).trim()}: ${go(f.slice(i + 1))}` : f.trim(); });
+    return fields.length ? `{ ${fields.join("; ")} }` : "{}";
+  }
+  return (/^[A-Za-z_$][\w$]*$/.test(t) ? named(t) : undefined) ?? t;
 }
 /** `<props.f … />`: the name of the props, and the field. */
 export const shownIn = (tag: string): [string, string] | undefined => { const m = /^([a-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/.exec(tag); return m ? [m[1], m[2]] : undefined; };
@@ -397,15 +459,12 @@ export function shownFields(d: { props: string; decls: Decl[]; view: Markup[] })
   if (/^[a-z_$]/.test(d.props)) walk([...d.decls, ...d.view]);
   return out;
 }
-function fieldType(t: string | undefined, field: string, decls: Decl[], depth = 0): { type: string; optional: boolean } | undefined {
-  if (t === undefined || depth > 8) return undefined;
-  for (const part of splitTop(t, "&").map(x => x.trim())) {
-    if (part.startsWith("{") && part.endsWith("}")) { for (const f of splitTop(part.slice(1, -1), ",;\n")) { const i = f.indexOf(":"); if (i > 0 && fieldName(f.slice(0, i)) === field) return { type: f.slice(i + 1).trim(), optional: f.slice(0, i).trim().endsWith("?") }; } continue; }
-    const d = decls.find(x => x.k === "typedecl" && x.name === /^\w+/.exec(part)?.[0]);
-    const body = d?.k === "typedecl" ? /^(?:type\s[^=]*=|interface\s[^{]*(?={))([^]*)$/.exec((d.text ?? "").replace(/^export\s+/, ""))?.[1] : undefined;
-    const r = fieldType(body?.trim().replace(/;$/, ""), field, decls, depth + 1); if (r) return r;
-  }
-  return undefined;
+/** A field of a record type written out: its type, and whether it is optional. In two records of an intersection, it is neither's. */
+function fieldType(t: string, field: string): { type: string; optional: boolean } | undefined {
+  const found: { type: string; optional: boolean }[] = [];
+  for (const part of splitTop(t, "&").map(x => x.trim())) if (part.startsWith("{") && part.endsWith("}"))
+    for (const f of splitTop(part.slice(1, -1), ",;\n")) { const i = f.indexOf(":"); if (i > 0 && fieldName(f.slice(0, i)) === field) found.push({ type: f.slice(i + 1).trim(), optional: f.slice(0, i).trim().endsWith("?") }); }
+  return found.length === 1 ? found[0] : undefined;
 }
 /** `(s: T) => View`, `() => View`; `View | ((s: T) => View)`, either way round. */
 function viewType(t: string): { mixed: boolean; param?: string } | undefined {

@@ -6,7 +6,7 @@ import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
-import { otherMention, shown, shownIn, type ModuleSet, type Shown } from "./modules.ts";
+import { expandType, otherMention, shown, shownIn, typesOf, type ModuleSet, type Shown, type Types } from "./modules.ts";
 import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
@@ -604,9 +604,9 @@ export type ExportSig =
   | { kind: "errclass"; params: string[] }
   | { kind: "comp"; sig: CompSig }
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
-  | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
+  | { kind: "type"; /** what it stands for (RG-4c), where a signature can hold it */ text?: string };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig>; hosted?: Hosted[]; hosts?: Record<string, HostSite[]> };   // MO-11u: hosted, the calls of `renders(H)` fns that were given components; hosts, the applications of such an H the module itself roots (its mounted view, a root of a library's own)
-type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean; dependency?: boolean; through?: Set<string>; placed?: Set<string>; under?: Set<string>; conformance?: boolean };   // placed, under: MO-14h — the components a host's view places (`module#Name`), and the JS components its declaration says the host renders through: a component given to a fn that `renders(H)`, H among them, is checked where the view places it   // through: MO-14f, in a host's view — the JS components the host renders through (`declaration#Name`)   // dependency: MO-1c, the module is not the program's entry: its default component is a component like any other, mounted by no one   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
+type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean; dependency?: boolean; through?: Set<string>; placed?: Set<string>; under?: Set<string>; conformance?: boolean; /** what the module's types stand for, its own and what it imports from `.rx` */ types?: Types };   // placed, under: MO-14h — the components a host's view places (`module#Name`), and the JS components its declaration says the host renders through: a component given to a fn that `renders(H)`, H among them, is checked where the view places it   // through: MO-14f, in a host's view — the JS components the host renders through (`declaration#Name`)   // dependency: MO-1c, the module is not the program's entry: its default component is a component like any other, mounted by no one   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return [...c.diags, ...judgeHosted([c.signature(p)], [], !!opts.spa)]; }
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; advice: Diagnostic[]; sig: ModSig; model: Model; peeks: PeekFacts } { const c = new Checker(opts); c.run(p); return { diags: c.diags, advice: c.advice, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), peeks: c.peekFacts(p) }; }
@@ -616,7 +616,7 @@ export function checkModules(set: ModuleSet, spa = false, whole = false, hosts: 
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
   const hostSigs: ModSig[] = [];   // MO-11u: the modules of a host's view (MO-14), judged with this program
   const facts: [string, PeekFacts][] = []; const advice: Diagnostic[] = [];   // advice: 99, the advisory rows — about a correct program, never an error
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole, hosted: !!set.hosted?.has(path), dependency: path !== set.entry, through: set.through, placed: set.placed, under: set.under, conformance: set.conformance }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, spa, whole, hosted: !!set.hosted?.has(path), dependency: path !== set.entry, through: set.through, placed: set.placed, under: set.under, conformance: set.conformance, types: typesOf(set, path) }); diags.push(...r.diags); advice.push(...r.advice); sigs.set(path, r.sig); models.set(path, r.model); facts.push([path, r.peeks]); }
   // MO-14d: a module the host's declaration imports is one a JS host renders (CP-4d), whatever the build found
   if (whole) { const all = [...new Set([...hosts, ...(set.hosted ?? [])])]; diags.push(...resolvePeeks(facts, set, all)); diags.push(...hostExports(sigs, all, spa, set.placed)); }
   if (set.host) {   // MO-14c: the host's view, checked as a program of its own; what it says is the declaration's
@@ -744,7 +744,6 @@ class Checker {
     // importer applies it. MO-14d: a hosted module's is rendered by the host, where its declaration says
     const view = this.opts.hosted || this.opts.dependency ? [] : p.view;
     providesIn(p.decls, view, this.provided, this.actionNames);
-    this.typeDecls = p.decls;
     this.block(p.decls, view, root, { scope: "reactive" });
     this.later.push(() => this.contentCheck(view, root, []));
     for (const f of this.later) f();
@@ -1156,10 +1155,10 @@ class Checker {
   private shownBy(s: Sym): Map<string, Shown> | undefined {
     if (s.compRegion?.sig) { const ps = Object.entries(s.compRegion.sig.props).flatMap(([f, p]) => p.view ? [[f, { optional: p.view.optional, mixed: p.view.mixed, ...(p.view.type !== undefined ? { param: p.view.type } : {}) }] as [string, Shown]] : []); return ps.length ? new Map(ps) : undefined; }
     if (!s.comp) return undefined;
-    let r = this.shownMemo.get(s); if (!r) this.shownMemo.set(s, r = shown(s.comp, this.typeDecls));
+    let r = this.shownMemo.get(s); if (!r) this.shownMemo.set(s, r = shown(s.comp, this.types));
     return r.size ? r : undefined;
   }
-  private typeDecls: Decl[] = [];
+  private get types(): Types { return this.opts.types ?? new Map(); }
   private viewFor = new WeakMap<Markup, { comp: Sym; view: string }>();                     // what a view lambda is given to
   private placed = new Map<string, { e: Expr; field: string; env: Env }[][]>();            // by component and view, each place it shows it: what with
   private shownAt: { region: Region; comp: Region; view: string }[] = [];                   // … and where: what is read there goes up from there
@@ -1270,7 +1269,7 @@ class Checker {
     const actions = (e?: Expr, en?: Env) => { const ps = e && en ? [...this.actionParts(e, en)].sort() : []; return ps.length ? { actions: ps } : {}; };
     for (const d of p.decls) {
       if (!(d as { exported?: boolean }).exported || !("name" in d)) continue;
-      if (d.k === "typedecl") { exports.set(d.name, { kind: "type" }); continue; }
+      if (d.k === "typedecl") { const t = this.types.get(d.name), text = t === undefined ? undefined : printedType(oneLine(t)).type; exports.set(d.name, { kind: "type", ...(text !== undefined ? { text } : {}) }); continue; }
       const s = env.vars.get(d.name); if (!s) continue;
       switch (s.kind) {
         case "source": exports.set(d.name, { kind: "source", question: !!s.question, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls) }); break;
@@ -2809,13 +2808,14 @@ class Checker {
                   if (one) { this.viewFns.add(one); this.viewFor.set(one, { comp: s, view: "children" }); many(one); }
                 }
                 for (const x of m.children) if (x.k === "mview" && x.prop && takes.has(x.prop)) {
+                  if (x.prop === "children") { apart.add(x); this.expectsView(m.tag); continue; }
                   many(x); this.viewFor.set(x, { comp: s, view: x.prop }); apart.add(x);
                   const at = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag }); at.kids = { comp: s.compRegion!, site: env.region, view: x.prop };
                   this.markup([x], new Env(env, at));
                 }
                 for (const [f, v] of takes) if (f !== "children" && !v.mixed) {
                   const a = m.attrs.find(a => a.name === f), n = m.children.filter(x => x.k === "mview" && x.prop === f).length;
-                  if (a || n > 1 || (!n && (!v.optional || m.attrs.some(x => x.name === "..." && this.spreads(x.e, f, env))))) this.expectsView(m.tag, f);
+                  if (a || n > 1 || (!n && (!v.optional || m.attrs.some(x => x.name === "..." && this.mayGive(x.e, f, env))))) this.expectsView(m.tag, f);
                 }
               }
               this.markup([...m.children.filter(x => !apart.has(x)), ...this.throughChildren(m, s, env), ...values.values()], new Env(env, kids));
@@ -3127,11 +3127,34 @@ class Checker {
   }
   /** RG-4c: a view of another name, which a component shows where it says, not among its children. */
   private viewElsewhere(s: Sym, x: Markup): string | undefined { return x.k === "mview" && x.prop && this.shownBy(s)?.has(x.prop) ? x.prop : undefined; }
-  /** Whether a spread is of a record written with that field: a value is no view. */
-  private spreads(e: Expr, f: string, env: Env, depth = 0): boolean {
-    if (depth > 8) return false;
-    if (e.k === "rec") return e.fields.some(x => "spread" in x ? this.spreads(x.spread, f, env, depth + 1) : x.key === f);
-    const s = e.k === "id" ? env.lookup(e.name) : undefined; return !!s?.expr && !!s.env && this.spreads(s.expr, f, s.env, depth + 1);
+  /** Whether a spread may give that field: a value there is no view, and is shown as one. Where neither the record as it is
+   *  written nor a type says it does not, it may. `path`: what of `e` is spread, the last step first. */
+  private mayGive(e: Expr, f: string, env: Env, path: TStep[] = [], depth = 0): boolean {
+    if (depth > 16) return true;
+    const of = (x: Expr, p = path, en = env) => this.mayGive(x, f, en, p, depth + 1);
+    const typed = (t: string | undefined) => { for (let i = path.length - 1; i >= 0 && t !== undefined; i--) t = tyStep(t, path[i]); const fs = t === undefined ? undefined : tyFields(t); return fs && fs.some(([k]) => k === f || k.startsWith("[")); };
+    const last = path[path.length - 1], rest = path.slice(0, -1);
+    switch (e.k) {
+      case "rec":
+        if (!last) return e.fields.some(x => "spread" in x ? of(x.spread) : x.key === f);
+        if (typeof last === "object") { for (const x of [...e.fields].reverse()) { if ("spread" in x) return true; if (x.key === last.field) return of(x.v, rest); } return false; }
+        break;
+      case "arr": if (last === "elem") return e.items.some(x => x.k === "spread" || of(x, rest)); break;
+      case "omit": if (!last) return !e.keys.includes(f) && of(e.e); break;
+      case "if": return of(e.t) || of(e.f);
+      case "bin": if (e.op === "??" || e.op === "||" || e.op === "&&") return of(e.l) || of(e.r); break;
+      case "peek": case "latest": return of(e.e);
+      case "lit": return false;
+      case "member": return of(e.o, [...path, { field: e.p }]);
+      case "index": return of(e.o, [...path, "elem"]);
+      case "id": {
+        const s = env.lookup(e.name); if (!s) return true;
+        if (s.kind === "props") { const t = this.propsTy.get(s.region); return (t === undefined ? undefined : typed(expandType(t, this.types))) ?? true; }
+        if (s.rowOf) return of(s.rowOf.e, [...path, "elem"], s.rowOf.env);
+        if (s.made) return s.made.ty !== undefined ? typed(expandType(s.made.ty, this.types)) ?? true : of(s.made.e, path, s.made.env);
+      }
+    }
+    return typed(this.declTy(e, env)) ?? true;
   }
   private expectsView(tag: string, view?: string) { this.err("VIEW_FN_EXPECTED", "RG-4c", `<${tag}> shows its ${view ?? "children"} with what it knows, as one view with one parameter: write ${view === undefined ? "them" : "it"} as \`{view ${view === undefined ? "" : `${view} `}(s) { … }}\`, \`s.x\` for what it passes as \`x\``); }
   private readsChildren(e: Expr, env: Env) { return e.k === "member" && e.p === "children" && e.o.k === "id" && env.lookup(e.o.name)?.kind === "props"; }
@@ -3433,7 +3456,7 @@ class Checker {
     const c = this.compSyms.get(G), v = c && this.shownBy(c)?.get(f); if (!v) return {};
     const t = v.param === undefined ? undefined : oneLine(v.param);
     const given = [...new Set((this.placed.get(`${G.id}:${f}`) ?? []).flat().map(x => x.field))];
-    return { view: { optional: v.optional, mixed: v.mixed, values: ((safe: string[]) => given.includes("*") ? safe.length === given.length ? ["*"] : safe.filter(x => x !== "*") : safe)(given.filter(x => this.viewValue(c, f, x)).sort()), ...(t !== undefined && /^\{[^"'`/]*\}$/.test(t) ? { type: t } : {}) } };
+    return { view: { optional: v.optional, mixed: v.mixed, values: ((safe: string[]) => given.includes("*") ? safe.length === given.length ? ["*"] : safe.filter(x => x !== "*") : safe)(given.filter(x => this.viewValue(c, f, x)).sort()), ...(t !== undefined ? printedType(t) : {}) } };
   }
   compSig: ((G: Region) => CompSig) | null = null;
 }
@@ -3453,6 +3476,11 @@ function tyClean(t: string): string {
 }
 /** A union's members; `null` and `undefined` dropped when `present` (a read of a field that is there). */
 function tyMembers(t: string, present: boolean): string[] { return splitTop(tyClean(t), "|").map(tyClean).filter(m => !(present && (m === "null" || m === "undefined"))); }
+/** RG-4c: a type in a printed signature, a string's literal as `string`; none: not a record written out. */
+function printedType(t: string): { type?: string } {
+  const out = t.replace(/(["'`])(?:\\[^]|(?!\1)[^\\])*\1/g, "string");
+  return out.startsWith("{") && closes(out, 0) === out.length && !out.includes("/") ? { type: out } : {};
+}
 /** A record type's fields, as written: `{ a: T; b?: (x: U) => V }`. */
 export function tyFields(t: string): [string, string][] | undefined {
   const ms = tyMembers(t, true); if (ms.length !== 1) return undefined; t = ms[0];

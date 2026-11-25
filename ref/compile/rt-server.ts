@@ -150,7 +150,6 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
   const ro = (get: Acc): [Acc, Writer] => [get, { set: onServer("a write"), path: onServer("a write"), guess: onServer("a write") }];
 
-  let carried = false;   // RG-7b: a context's value, or a snapshot, is being read (`place`)
   const app = {
     log, flights, lastKey, asyncError: null as unknown,
     /** Render `view` as a stream: `write` receives each chunk, `end` the close. */
@@ -348,10 +347,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     },
     module(key: unknown, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
     // ---- context (RG-7): the server build's owner context, keyed by the declaration ----
-    owner: () => { carried = false; return getOwner(); },
-    /** RG-7b, 08: children with a `use` are owned where a component shows them, so it reads there: the owner that reads them.
-     *  What nothing owns (an effect, a handler), a snapshot and what a context carries are read at the caller, `o`. */
-    place(o: Owner) { const at = carried; carried = false; return at ? o : getOwner() ?? o; },
+    owner: () => getOwner(),
     context(name: string, dflt: (() => unknown) | null): Ctx { return { name, id: Symbol(name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any) as Acc } : null }; },
     // (a component runs under an owner. None here means the component was rendered by another copy of Solid than the one
     // this runtime imports: a dev server that bundles the app with its development build of Solid and leaves the runtime
@@ -362,7 +358,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
       if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
     },
-    useGet(c: Ctx, owner: Owner) { const e = app.use(c, owner); if (!e.get) return e.value; const was = carried; carried = true; try { return e.get(); } finally { carried = was; } },
+    useGet(c: Ctx, owner: Owner) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
     /** MO-10a, RG-6a (2026-11-23): a declared JS primitive is called in an owner of its own, under the place it is
      *  written. To that place it is one child, on the server and in the browser, whatever it makes inside — so a
@@ -379,16 +375,15 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => a === b,
-    untrack: <T>(f: () => T): T => { const was = carried; carried = true; try { return untrack(f); } finally { carried = was; } },   // E-4: a snapshot is the caller's too (`place`)
-    omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
+    untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 
     // ---- views: compiled JSX (compile/jsx.ts, generate "ssr", hydratable) does the rest ----
     // a value is formatted, a view is inserted. The text is escaped by the compiled view, which wraps every hole in Solid's
     // `escape` (strings, and the strings of a list): escaping here as well showed `a < b` as `a &lt; b` (2026-11-24)
     show: (v: unknown) => isView(v) ? v : fmt(v),
-    /** RG-4c: a view a component was given, shown with what it knows (a function of one parameter; one of none is a thunk, as JSX has it); plain content, as it is. */
-    view(c: unknown, f: (view: unknown) => unknown) { return typeof c === "function" && c.length ? f(c) : app.kids(c); },
+    /** RG-4c: a view a component was given, shown with what it knows. `plain`: plain content is taken as well, shown as it is, and a function of no parameter is a thunk, as JSX has it. */
+    view(c: unknown, f: (view: unknown) => unknown, plain?: boolean) { return typeof c === "function" && (!plain || c.length) ? f(c) : app.kids(c); },
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
     kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
     /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. The

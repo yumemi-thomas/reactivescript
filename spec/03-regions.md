@@ -141,8 +141,7 @@ A component is a function from a props value to a region whose tail is a view.
   region: its readers are the caller's, its lifetime is the caller's, and the
   child only decides where it is placed. A child that needs to create its
   content more than once, or conditionally own it, asks for a function prop
-  instead, which is ordinary. A `use` in children reads where they are placed
-  (RG-7b, 08; S-context-4).
+  instead, which is ordinary.
   - **A view (proposed 2026-11-25).** The function prop that makes markup. A
     prop declared a function giving a `View`, of one parameter or none
     (`children: (s: { on: boolean }) => View`, `cell: () => View`), may be shown
@@ -155,10 +154,13 @@ A component is a function from a props value to a region whose tail is a view.
     read where it is read, never written. For what it waits on and fails with, an
     argument is checked as read where the view is shown. What the view stores
     where it outlives it (O-3) is nothing the component's closures hold.
-    Children declared `View | ((s: T) => View)` are given plain content as well,
-    shown as it is, and are not asked for. A component so typed that never shows
-    them this way is as it was: it reads and calls them. (`VIEW_FN_EXPECTED`,
-    `VIEW_FN_MISPLACED`; S-view-3, S-view-4, S-view-5.)
+    Children declared `View | ((s: T) => View)` are given plain content as well:
+    a view that asks nothing, so owned, read and asked where it is shown, as any
+    view is; they are not asked for. A spread gives no view: one that may hold
+    the field, by the record written and by its type, is refused. The types are
+    read through the names the module declares or imports from `.rx`. A component
+    so typed that never shows them this way is as it was: it reads and calls
+    them. (`VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED`; S-view-3 to S-view-7.)
 - **RG-4d (No return channel).** A component body evaluates to its view and
   nothing else. To expose a value upward, the caller passes a handler (or an
   action) the child calls: a source passed as a prop is read-only in the child

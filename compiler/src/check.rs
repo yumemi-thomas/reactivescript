@@ -1951,6 +1951,8 @@ pub struct Opts<'a> {
     pub under: &'a HashSet<String>,
     /// CP-4c: a program loaded for the scenario runners, where `fetch` and `fail` are the scenario prelude's
     pub conformance: bool,
+    /// what the module's types stand for, its own and what it imports from `.rx`
+    pub types: crate::modules::Types,
 }
 
 pub struct Checker<'a> {
@@ -2025,7 +2027,6 @@ pub struct Checker<'a> {
     through_reads: Vec<(RId, RId)>,
     /// RG-4c: the views an `.rx` component takes and shows as `<props.f … />`, by field
     shown_memo: HashMap<SId, IndexMap<String, Shown>>,
-    type_decls: &'a [Decl],
     /// what a view lambda is given to
     view_for: HashMap<*const Markup, (SId, String)>,
     /// by component and view, each place it shows it: what with
@@ -2209,7 +2210,7 @@ fn check_modules_judged(set: &ModuleSet, spa: bool, whole: bool, hosts: &[String
     let mut advice = vec![];
     let mut plans = Plans::new();
     for path in &set.order {
-        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole, hosted: set.hosted.contains(path), dependency: *path != set.entry, through: &set.through, placed: &set.placed, under: &set.under, conformance: set.conformance });
+        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, whole, hosted: set.hosted.contains(path), dependency: *path != set.entry, through: &set.through, placed: &set.placed, under: &set.under, conformance: set.conformance, types: crate::modules::types_of(set, path) });
         diags.extend(r.diags);
         advice.extend(r.advice);
         plans.extend(r.plans);
@@ -2472,7 +2473,6 @@ impl<'a> Checker<'a> {
             render_optional: HashMap::new(),
             through_reads: vec![],
             shown_memo: HashMap::new(),
-            type_decls: &[],
             view_for: HashMap::new(),
             placed: HashMap::new(),
             view_stores: vec![],
@@ -2630,7 +2630,6 @@ impl<'a> Checker<'a> {
         // MO-1c: the runtime mounts the entry's default component, and no other module's
         let view: &'a [Markup] = if self.opts.hosted || self.opts.dependency { &[] } else { &p.view };
         provides_in(&p.decls, view, &mut self.provided, &mut self.action_names);
-        self.type_decls = &p.decls;
         self.block(&p.decls, view, root, Ctx::reactive());
         self.later.push(Later::Content { ms: view, env: root, anc: vec![] });
         let mut i = 0;
@@ -3120,7 +3119,7 @@ impl<'a> Checker<'a> {
             };
             let set = |v: &Vec<String>| -> IndexSet<String> { v.iter().cloned().collect() };
             let sym = match x {
-                ExportSig::Type => continue,
+                ExportSig::Type(_) => continue,
                 ExportSig::Source { question, rows, fails } => {
                     let mut s = Sym::new(SymKind::Source, alias, region, line);
                     s.question = *question;
@@ -3678,7 +3677,7 @@ impl<'a> Checker<'a> {
             }
             let Some(name) = d.name() else { continue };
             if let Decl::TypeDecl { .. } = d {
-                exports.insert(name.to_string(), ExportSig::Type);
+                exports.insert(name.to_string(), ExportSig::Type(self.opts.types.get(name).and_then(|t| printed_type(&one_line(t)))));
                 continue;
             }
             let Some(&s) = self.envs[env].vars.get(name) else { continue };
@@ -7199,7 +7198,7 @@ impl<'a> Checker<'a> {
         if let Some(r) = self.shown_memo.get(&s) {
             return r.clone();
         }
-        let r = shown(props, props_type.as_deref(), decls, view, self.type_decls);
+        let r = shown(props, props_type.as_deref(), decls, view, &self.opts.types);
         self.shown_memo.insert(s, r.clone());
         r
     }
@@ -7430,6 +7429,10 @@ impl<'a> Checker<'a> {
                                 if !takes.contains_key(p) {
                                     continue;
                                 }
+                                if p == "children" {
+                                    self.expects_view(tag, None);
+                                    continue;
+                                }
                                 if params.len() > 1 {
                                     self.expects_view(tag, Some(p));
                                 }
@@ -7442,7 +7445,7 @@ impl<'a> Checker<'a> {
                             }
                             for (f, v) in takes.iter().filter(|(f, v)| *f != "children" && !v.mixed) {
                                 let n = children.iter().filter(|x| matches!(&x.kind, MarkupKind::Mview { prop: Some(p), .. } if p == f)).count();
-                                if attrs.iter().any(|a| a.name == *f) || n > 1 || (n == 0 && (!v.optional || attrs.iter().any(|a| a.name == "..." && self.spreads(&a.e, f, env, 0)))) {
+                                if attrs.iter().any(|a| a.name == *f) || n > 1 || (n == 0 && (!v.optional || attrs.iter().any(|a| a.name == "..." && self.may_give(&a.e, &[], f, env, 0)))) {
                                     self.expects_view(tag, Some(f));
                                 }
                             }
@@ -7879,19 +7882,53 @@ impl<'a> Checker<'a> {
         }
         self.apply_factory(s, kids, line);
     }
-    /// Whether a spread is of a record written with that field: a value is no view.
-    fn spreads(&self, e: &Expr, f: &str, env: EId, depth: usize) -> bool {
-        if depth > 8 {
-            return false;
+    /// Whether a spread may give that field: a value there is no view, and is shown as one. Where neither the record as it is
+    /// written nor a type says it does not, it may. `path`: what of `e` is spread, the last step first.
+    fn may_give(&self, e: &Expr, path: &[TStep], f: &str, env: EId, depth: usize) -> bool {
+        if depth > 16 {
+            return true;
         }
-        match &e.k {
-            ExprKind::Rec(fields) => fields.iter().any(|x| match x {
-                Field::Spread(v) => self.spreads(v, f, env, depth + 1),
+        let of = |x: &Expr, path: &[TStep]| self.may_give(x, path, f, env, depth + 1);
+        let typed = |t: String| {
+            let t = path.iter().rev().try_fold(t, |t, s| ty_step(&t, s))?;
+            Some(ty_fields(&t)?.iter().any(|(k, _)| k == f || k.starts_with('[')))
+        };
+        let on = |s: TStep| { let mut p = path.to_vec(); p.push(s); p };
+        match (&e.k, path) {
+            (ExprKind::Rec(fields), []) => return fields.iter().any(|x| match x {
+                Field::Spread(v) => of(v, path),
                 Field::Kv { key, .. } => key == f,
             }),
-            ExprKind::Id(n) => self.lookup(env, n).and_then(|s| self.syms[s].expr).is_some_and(|(x, at)| self.spreads(x, f, at, depth + 1)),
-            _ => false,
+            (ExprKind::Rec(fields), [rest @ .., TStep::Field(k)]) => return fields.iter().rev().find_map(|x| match x {
+                Field::Spread(_) => Some(true),
+                Field::Kv { key, v } => (key == k).then(|| of(v, rest)),
+            }).unwrap_or(false),
+            (ExprKind::Arr(items), [rest @ .., TStep::Elem]) => return items.iter().any(|x| matches!(x.k, ExprKind::Spread(_)) || of(x, rest)),
+            (ExprKind::Omit { e, keys }, []) => return !keys.iter().any(|k| k == f) && of(e, path),
+            (ExprKind::If { t, f, .. }, _) => return of(t, path) || of(f, path),
+            (ExprKind::Bin { op, l, r }, _) if matches!(op.as_str(), "??" | "||" | "&&") => return of(l, path) || of(r, path),
+            (ExprKind::Peek(x) | ExprKind::Latest(x), _) => return of(x, path),
+            (ExprKind::Lit(_), _) => return false,
+            (ExprKind::Member { o, p, .. }, _) => return of(o, &on(TStep::Field(p.clone()))),
+            (ExprKind::Index { o, .. }, _) => return of(o, &on(TStep::Elem)),
+            (ExprKind::Id(n), _) => {
+                let Some(sy) = self.lookup(env, n).map(|s| &self.syms[s]) else { return true };
+                if sy.kind == SymKind::Props {
+                    return self.props_ty.get(&sy.region).and_then(|t| typed(crate::modules::expand_type(t, &self.opts.types, 0))).unwrap_or(true);
+                }
+                if let Some((list, at)) = sy.row_of {
+                    return self.may_give(list, &on(TStep::Elem), f, at, depth + 1);
+                }
+                if let Some((x, at, ty)) = sy.made {
+                    return match ty {
+                        Some(t) => typed(crate::modules::expand_type(t, &self.opts.types, 0)).unwrap_or(true),
+                        None => self.may_give(x, path, f, at, depth + 1),
+                    };
+                }
+            }
+            _ => {}
         }
+        self.decl_ty(e, env, 0).and_then(typed).unwrap_or(true)
     }
     /// RG-4c
     fn expects_view(&mut self, tag: &str, view: Option<&String>) {
@@ -9609,7 +9646,7 @@ impl<'a> Checker<'a> {
                 if fields.iter().any(|x| x == "*") {
                     values = if values.len() == fields.len() { vec!["*".into()] } else { values.into_iter().filter(|x| x != "*").collect() };
                 }
-                let ty = v.param.map(|t| one_line(&t)).filter(|t| t.starts_with('{') && t.ends_with('}') && !t.contains(['"', '\'', '`', '/']));
+                let ty = v.param.map(|t| one_line(&t)).and_then(|t| printed_type(&t));
                 ViewSig { optional: v.optional, mixed: v.mixed, ty, values }
             });
             props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false, components: false, takes, view });
@@ -10230,6 +10267,29 @@ pub fn ty_fields(t: &str) -> Option<Vec<(String, String)>> {
             })
             .collect(),
     )
+}
+/// RG-4c: a type in a printed signature, a string's literal as `string`; `None`: not a record written out.
+fn printed_type(t: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut cs = t.chars();
+    while let Some(c) = cs.next() {
+        if matches!(c, '"' | '\'' | '`') {
+            while let Some(d) = cs.next() {
+                if d == '\\' {
+                    cs.next();
+                } else if d == c {
+                    break;
+                }
+            }
+            out.push_str("string");
+        } else {
+            out.push(c);
+        }
+    }
+    if !(out.starts_with('{') && closes(&out, 0) == Some(out.len())) || out.contains('/') {
+        return None;
+    }
+    Some(out)
 }
 /// The declared type one step down, where the text says it: a field of a record type, the result of a function type,
 /// the element of an array type. `None`: the declaration does not say (`any`, a named type, a union of several).

@@ -132,7 +132,8 @@ pub enum ExportSig {
     ErrClass { params: Vec<String> },
     Comp { sig: CompSig },
     Context { key: String, source: bool, dflt: bool, rows: Vec<String>, fails: Vec<String>, ty: Option<String> },
-    Type,
+    /// what it stands for (RG-4c), where a signature can hold it
+    Type(Option<String>),
 }
 /// MO-13i: what a fn's result is made of. An action; one value, read (`reader`: it changes, with the rows it is read with)
 /// or plain (made once), and the parts of it that are actions; a record or a tuple of such.
@@ -439,7 +440,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
         ),
         ExportSig::Action => format!("export action {}", name),
         ExportSig::ErrClass { params } => format!("export error {}({})", name, params.join(", ")),
-        ExportSig::Type => format!("export type {}", name),
+        ExportSig::Type(t) => format!("export type {}{}", name, t.as_ref().map(|t| format!(" = {t}")).unwrap_or_default()),
         ExportSig::Context { source, dflt, rows: r, fails, ty, .. } => {
             let t: Vec<String> = [if *source { "source".to_string() } else { String::new() }, rows(r, fails), ty.clone().unwrap_or_default()].into_iter().filter(|x| !x.is_empty()).collect();
             let t = t.join(" ");
@@ -528,7 +529,7 @@ re!(LEAD_COMMENT, r"^//.*$");
 re!(T_RENDERS, r"^renders\s+(\S+)\s+from\s+([A-Za-z_$][A-Za-z0-9_$.]*):(\d+)\s*(?:fails\(([^)]*)\))?\s*(?:uses\(([^)]*)\))?$");
 re!(C_HOSTS, r"(^|\s)hosts\(");
 re!(R_HOSTS, r"\shosts\(");
-re!(T_TYPE, r"^type\s+([A-Za-z_$][A-Za-z0-9_$]*)");
+re!(T_TYPE, r"^type\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*=\s*(.+))?");
 re!(T_ACTION, r"^action\s+([A-Za-z_$][A-Za-z0-9_$]*)$");
 re!(T_ERROR, r"^error\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\(([^)]*)\))?$");
 re!(T_SOURCE, r"^source\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::([^=].*?)?)??\s*(:?=)\s*…$");
@@ -674,7 +675,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             continue;
         }
         if let Some(m) = T_TYPE.captures(&s) {
-            exports.insert(m[1].to_string(), ExportSig::Type);
+            exports.insert(m[1].to_string(), ExportSig::Type(m.get(2).map(|t| crate::parse::js_trim(t.as_str()).to_string())));
             continue;
         }
         if let Some(m) = T_ACTION.captures(&s) {

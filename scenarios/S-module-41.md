@@ -186,3 +186,36 @@ A component the view does not place keeps the fn's row and every other
 rule: `Extra` is given to a route (checked beneath the provider, where
 the router is) and also applied by hand beside the provider, where it is
 not.
+
+Two components that render none of what the record nests in them, on the
+record's one line: both are reported, by line and then by name
+(proposals/bugs/39).
+
+```rx
+-- reject: NESTED_NOT_RENDERED
+import { createRootRoute, createRoute, createRouter, tree, useParams, RouterProvider, Outlet } from "./router.js"
+import { fetchPerson, NotFound } from "./people.js"
+context accent: string
+export component Root() {
+  <nav>people</nav>
+  errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
+    loading fallback { <p>loading…</p> } { <main><span>root</span></main> }
+  }
+}
+export component Home() {
+  <h1 class={use accent}>People</h1>
+}
+export component Person() {
+  params = useParams()
+  person = await fetchPerson(params.id)
+  <h1>{person.name}</h1>
+}
+rootRoute = createRootRoute({ component: Root })
+indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: Home })
+personRoute = createRoute({ getParentRoute: () => rootRoute, path: "/people/$id", component: Person })
+router = createRouter({ routeTree: peek tree(rootRoute, [indexRoute, personRoute]) })
+export default component App() {
+  provide accent = "dark"
+  <p>app</p>
+}
+```

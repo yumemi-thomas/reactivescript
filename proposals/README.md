@@ -38,7 +38,7 @@ build, no Chromium for bug 15) is reported as `SETUP`, apart, and is no verdict.
 
 ## Bugs of `main`, in the order to take them
 
-Each was run on e650b85. 35, and a question. [37](bugs/37-await-in-children-not-compiled.md) is this branch's own, and fixed. 33 to 36 are not fixed here: 36 is refused by the crate.
+Each was run on e650b85. 35, and a question. [37](bugs/37-await-in-children-not-compiled.md) is this branch's own, and fixed. 33 to 36 are not fixed here: 36 is refused by the crate. 34 and, of this branch, [38](bugs/38-a-view-that-provides.md) and [39](bugs/39-order-of-one-lines-diagnostics.md) are fixed on `proto-children`.
 
 1. [03](bugs/03-effect-loses-cleanup.md) an effect's cleanup tears a live listener down, in silence
 2. [05](bugs/05-action-in-a-value.md) an action in a value
@@ -87,8 +87,8 @@ Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bug
 | [20](20-generic-fns.md) generic fns | prototyped (`proto-generic` b36ab25d, not published) | weak to medium: about 18 of 192, no facade line | 17 |
 | [21](21-locals-in-fns.md) locals in fns | a question; prototyped (`proto-locals` a1c93632, not published) | – | – |
 | **children** | | | |
-| [24](24-view-functions.md) where a `use` in children reads | a question; a narrow fix (`proto-children`, not published) | – | – |
 | [25](25-views.md) views | a component shows what it is given with what it knows; prototyped (`proto-children`, not published) | medium: three libraries, one rewritten | – |
+| [24](24-view-functions.md) where a `use` in children reads | a question; a fix tried and held back (`proto-view-fn` a05f579a, not published) | – | – |
 | **tooling** | | | |
 | [22](22-generated-drafts.md) drafts | for a person to review | medium | 03 |
 | [23](23-rx-verify.md) `rx-verify` | refutes; no gate | medium | 03 |

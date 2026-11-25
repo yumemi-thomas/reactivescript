@@ -11,7 +11,7 @@ import { RuleError, CheckError } from "./errors.ts";
 import { checkModules, unwrapServer } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
-import { singleModule, shown, shownIn, type ModuleSet } from "./modules.ts";
+import { singleModule, shownAll, shownIn, type ModuleSet, type Shown } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
@@ -175,11 +175,11 @@ export class Runtime {
 
   /** 09 MO-1: each imported module's region, instantiated once, dependencies first; its state is app state. */
   modules = new Map<string, Region>();
-  private typeDecls: Decl[] = [];
+  private shown: Map<unknown, Map<string, Shown>>;   // RG-4c
   constructor(input: Program | ModuleSet) {
     const set = "programs" in input ? input : singleModule(input);
     const program = set.programs.get(set.entry)!;
-    this.program = program; this.typeDecls = [...set.programs.values()].flatMap(p => p.decls.filter(d => d.k === "typedecl"));
+    this.program = program; this.shown = shownAll(set);
     this.root = new Region(null, this, null);
     const { diags } = checkModules(set); if (diags.length) throw new CheckError(diags);   // 08: the checker runs first; every static diagnostic is an error
     for (const path of set.order) { if (path === set.entry) continue; const r = new Region(this.root, this, null); this.modules.set(path, r); this.declare(set.programs.get(path)!.decls, r); }
@@ -964,7 +964,7 @@ export class Runtime {
         const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
         if (bad && this.demandMode) return bad;                        // absence propagates in reactive scope; in imperative scope an error is a value (E-12)
         // RG-4c, a function prop: `props.children(…)` where the children are one closure, as JSX passes it
-        if (f instanceof ViewValue && f.items.length === 1 && f.items[0].k === "read") { const v = this.readNode(f.items[0].node); if (isAbsent(v)) return v; if (typeof v === "function") f = v; }
+        while (f instanceof ViewValue && f.items.length === 1 && f.items[0].k === "read") { f = this.readNode(f.items[0].node); if (isAbsent(f)) return f; }
         if (typeof f !== "function") throw new RuleError("TYPE", "call of non-function");
         if ((f as { io?: boolean }).io && this.demandMode) throw new RuleError("IO-2", "io function called in reactive scope");
         if (f === BUILTINS.fetch) return this.flight(String(args[0]));
@@ -1232,9 +1232,9 @@ export class Runtime {
         const n = shownIn(m.tag), given = n && region.lookup(n[0]);
         if (given && "constant" in given && typeof given.constant === "object" && given.constant) {   // RG-4c
           const view = Object.getOwnPropertyDescriptor(given.constant, n![1])?.value;
-          if (!(view instanceof ViewFn)) return this.inst1({ k: "read", e: { k: "bin", op: "??", l: { k: "member", o: { k: "id", name: n![0] }, p: n![1] }, r: { k: "lit", v: "" } } }, region);   // plain content, as it is
+          if (!(view instanceof ViewFn)) return { k: "text", s: "" };   // none was given
           const r = new Region(region, this, region.boundary, view.region);   // owned where it is shown, names from where it is written
-          const parts = this.parts(m, region), s = this.spread({}, parts);
+          const s = this.spread({}, this.parts(m, region), new Set());
           for (const p of view.m.params) r.scope.set(p, { constant: s });
           this.declare(view.m.decls, r);
           return { k: "comp", inst: { region: r, items: view.m.body.map(c => this.inst1(c, r)) } };
@@ -1246,11 +1246,13 @@ export class Runtime {
           const views = new Set(["children"]); for (const c of m.children) if (c.k === "mview" && c.prop) views.add(c.prop);
           const props = this.spread({}, this.parts(m, region), views);
           for (const c of m.children) if (c.k === "mview" && c.prop) Object.defineProperty(props, c.prop, { enumerable: true, configurable: true, value: new ViewFn(c, region) });
-          const view = m.children.find(c => c.k === "mview" && !c.prop);
-          const shows = !!view || (!m.children.length && shown(comp, this.typeDecls).get("children")?.mixed === false);
-          if (shows) Object.defineProperty(props, "children", { enumerable: true, value: view?.k === "mview" ? new ViewFn(view, region) : undefined });
+          const takes = this.shown.get(comp)?.get("children"), content = m.children.filter(c => c.k !== "mview");
+          if (takes) {                                             // RG-4c: a view; plain content, where it is taken, is one that asks nothing
+            const view = m.children.find(c => c.k === "mview" && !c.prop) ?? (content.some(c => c.k !== "text" || c.s.trim()) ? { k: "mview" as const, params: [], decls: [], body: content } : undefined);
+            Object.defineProperty(props, "children", { enumerable: true, value: view?.k === "mview" ? new ViewFn(view, region) : undefined });
+          }
           let children: ViewValue | null = null;                   // RG-4c: instantiated where first read — owned by the reader's region, named by the caller's
-          if (!shows) Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, m.children.filter(c => c.k !== "mview").map(c => this.inst1(c, cr))); } return children; } });
+          if (!takes) Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, content.map(c => this.inst1(c, cr))); } return children; } });
           r.scope.set(comp.props, { constant: props });
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };

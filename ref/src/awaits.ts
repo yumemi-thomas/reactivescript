@@ -38,43 +38,22 @@ export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
 
 /** 07 §3: the expressions a region's own view reads — readers, attributes (not handlers), `if` conditions, `for` collections,
  *  `loading on(…)` and fallbacks, `portal to(…)` — but not its sub-regions', which are hoisted where they are set up. Their
- *  awaits are hoisted with `nonTailAwaits(e, false)`. An `errored` fallback binds its error, so it stays out. */
-export function viewReaders(ms: Markup[]): Expr[] {
+ *  awaits are hoisted with `nonTailAwaits(e, false)`. An `errored` fallback binds its error, so it stays out.
+ *  `own`: a component whose content is a view (RG-4c), a block of its own. */
+export function viewReaders(ms: Markup[], own: (tag: string) => boolean): Expr[] {
   return ms.flatMap((m): Expr[] => {
     switch (m.k) {
       case "read": return [m.e];
-      case "el": return [...m.attrs.filter(a => !(/^on[A-Z:]/.test(a.name) || a.name === "ref")).map(a => a.e), ...viewReaders(m.children)];
+      case "el": return [...m.attrs.filter(a => !(/^on[A-Z:]/.test(a.name) || a.name === "ref")).map(a => a.e), ...(own(m.tag) ? [] : viewReaders(m.children, own))];
       case "mif": return [m.c];
       case "mfor": return [m.xs];
       case "mview": return [];
-      case "loading": return [...(m.on ? [m.on] : []), ...viewReaders(m.fallback)];
+      case "loading": return [...(m.on ? [m.on] : []), ...viewReaders(m.fallback, own)];
       case "portal": return m.to ? [m.to] : [];
       default: return [];
     }
   });
 }
-
-const has = (x: unknown, is: (o: Record<string, unknown>) => boolean): boolean => !!x && typeof x === "object" && (is(x as Record<string, unknown>) || Object.values(x).some(y => has(y, is)));
-/** What a view reads in its own place: not in a block (an `if` branch, a row, a boundary's content), which has an owner of its
- *  own, nor in the children of a component that is `apart`. */
-function inPlace(ms: Markup[], apart: (tag: string) => boolean): Expr[] {
-  return ms.flatMap((m): Expr[] => {
-    switch (m.k) {
-      case "read": return [m.e];
-      case "el": return [...m.attrs.map(a => a.e), ...(apart(m.tag) ? [] : inPlace(m.children, apart))];
-      case "mif": return [m.c];
-      case "mfor": return [m.xs];
-      case "loading": return [...(m.on ? [m.on] : []), ...inPlace(m.fallback, apart)];
-      case "errored": return inPlace(m.fallback, apart);
-      case "portal": return m.to ? [m.to] : [];
-      default: return [];
-    }
-  });
-}
-/** RG-7b, 08: whether what is written between `<P>` and `</P>` reads a context in its own place (`rx`: an .rx component's children
- *  are its own). With an `await` there it does not: that is hoisted to where it is written, and what is asked and what is
- *  shown are of one place (proposals/bugs/36). */
-export const placed = (kids: Markup[], rx: (tag: string) => boolean): boolean => inPlace(kids, rx).some(e => has(e, o => o.k === "use" || o.ctx === true)) && !inPlace(kids, () => false).some(e => has(e, o => o.k === "await"));
 
 /** R-f-4 inside an equation: each `x catch alt` that is not the equation's result and holds no `await` — the compiler gives it
  *  one boundary of its own, made once beside the equation, not a new boundary on every run of the equation's memo. Its guards
