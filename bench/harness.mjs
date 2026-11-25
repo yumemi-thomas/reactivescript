@@ -221,7 +221,7 @@ const browsers = [], upBrowsers = new Set();
 async function lendBrowser() {
   if (!tools.enabled) return { env: {}, back() {} };
   let b; while ((b = browsers.pop()) && b.gone);
-  if (!b) try { const server = await pw().chromium.launchServer(); b = { server, gone: false }; upBrowsers.add(b); server.on("close", () => { b.gone = true; upBrowsers.delete(b); }); } catch { return { env: {}, back() {} }; }
+  if (!b) try { const server = await pw().chromium.launchServer({ handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false }); b = { server, gone: false }; upBrowsers.add(b); server.on("close", () => { b.gone = true; upBrowsers.delete(b); }); } catch { return { env: {}, back() {} }; }
   return { env: { RX_BROWSER: b.server.wsEndpoint() }, back() { if (!b.gone) browsers.push(b); } };
 }
 export const end = async () => { await Promise.all([tools.end(), ...[...upBrowsers].map(b => b.server.close().catch(() => {}))]); };

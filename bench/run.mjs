@@ -201,6 +201,8 @@ if (cover) {
 // several browsers and a process a core: one such run at a time on a machine (scripts/lib/lock.mjs; a filtered run does not wait)
 if (!args.some((a, i) => !a.startsWith("--") && args[i - 1] !== "--shard")) given(await heavy("bench", { want: Number(process.env.BENCH_JOBS) || undefined }));
 workspace(); shareKeys();
+// (a run that is told to stop ends, and what it started with it: Playwright, left to itself, takes the signal for its own)
+for (const [s, n] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]]) process.on(s, () => process.exit(n));
 process.env.RX_RUN = path.join(ws, `.run-${process.pid}`); mkdirSync(process.env.RX_RUN, { recursive: true }); process.on("exit", () => rmSync(process.env.RX_RUN, { recursive: true, force: true }));
 const filters = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--shard");
 const ids = readdirSync(path.join(here, "tasks"), { withFileTypes: true }).filter(e => e.isDirectory() && existsSync(path.join(here, "tasks", e.name, "task.mjs"))).map(e => e.name).sort().filter(id => !filters.length || filters.some(f => id.includes(f)));
