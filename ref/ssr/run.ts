@@ -458,8 +458,9 @@ async function run(f: string): Promise<Result & { hit?: boolean }> {
 }
 const end = async () => { await browser?.close(); http.close(); };
 if (queued) {
+  process.on("disconnect", () => process.exit(1));   // (the run that asked is gone)
   await new Promise<void>(done => { process.on("message", async (i: number | null) => { if (i === null) return done(); const r = await run(names[i]); process.send!({ at: i, ...r }); }); process.send!({}); });
-  await end(); process.disconnect(); process.exit(0);
+  await end(); process.removeAllListeners("disconnect"); process.disconnect(); process.exit(0);
 }
 const results: Result[] = [];
 for (const f of names) { const r = await run(f); report([r]); results.push(r); }

@@ -11,7 +11,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import path from "node:path";
-import * as cache from "./lib/cache.mjs";
+import { heavy } from "./lib/lock.mjs";
 
 const repo = path.resolve(import.meta.dirname, ".."), args = process.argv.slice(2), flag = f => args.includes(f), opt = (f, d) => { const i = args.indexOf(f); return i < 0 ? d : args[i + 1]; };
 const quick = flag("--quick"), cached = (quick || flag("--cached")) && !flag("--no-cache") && !process.env.CI && process.env.RX_NO_CACHE !== "1";
@@ -94,17 +94,22 @@ const watch = setInterval(() => {
   const p = new Map(ps.split("\n").map(l => /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean).map(m => [Number(m[1]), { up: Number(m[2]), rss: Number(m[3]), c: m[4] }]));
   for (const [pid, x] of p) if (x.rss > LIMIT) { let q = x.up, k = 0; while (q > 1 && q !== process.pid && k++ < 60) q = p.get(q)?.up ?? 0; if (q === process.pid) { console.log(`${at()}  stopped ${pid} (${x.c}): ${Math.round(x.rss / 1024)} MB`); try { process.kill(pid, "SIGKILL"); } catch { /* ended */ } } }
 }, 2000);
-const stopAll = () => { for (const c of running.values()) try { process.kill(-c.child.pid, "SIGTERM"); } catch { /* ended */ } };
+const stopAll = () => { for (const c of running.values()) if (c.child) try { process.kill(-c.child.pid, "SIGTERM"); } catch { /* ended */ } };
 process.on("exit", stopAll); for (const s of ["SIGINT", "SIGTERM"]) process.on(s, () => process.exit(130));
 
-function start(s) {
-  const file = path.join(log, `${s.id}.log`), n = Math.min(s.n ?? 1, jobs), cmd = s.heavy ? `node ${JSON.stringify(path.join(repo, "scripts/heavy.mjs"))} ${s.id} -- bash -c 'eval "$RX_STEP"'` : s.run;
-  const child = spawn("bash", ["-c", `exec >${JSON.stringify(file)} 2>&1; time { ${cmd}\n} 2>&1; code=$?; exit $code`], { cwd: path.join(repo, s.dir), env: { ...env, RX_JOBS: String(n), BENCH_JOBS: String(n), ...(s.heavy ? { RX_STEP: s.run } : {}) }, stdio: "ignore", detached: true });
-  let late = false; const soft = quick && s.soft ? setTimeout(() => { late = true; try { process.kill(-child.pid, "SIGTERM"); } catch { /* ended */ } }, s.soft * 1000) : null;
+/** A heavy step waits for the machine's lock first (its time is its own, not the wait's); in the quick tier, 30 s: a machine
+ *  that is busy with another suite is no reason to wait for it. */
+async function start(s) {
+  const n0 = Math.min(s.n ?? 1, jobs); running.set(s.id, { child: null, s, n: n0 });
+  const release = s.heavy ? await heavy(`${quick ? "quick" : "ci"} ${s.id}`, quick ? { wait: 30, orNot: true, log() {} } : { log: t => console.log(`${at()}  ${t}`) }) : () => {};
+  if (!release) { running.delete(s.id); done.set(s.id, { not: "another heavy run holds the machine (node scripts/heavy.mjs --who)" }); console.log(`${at()}  part ${s.id.padEnd(22)} not run: the machine is busy`); return next(); }
+  const file = path.join(log, `${s.id}.log`), n = Math.min(s.n ?? 1, jobs), cmd = s.run;
+  const child = spawn("bash", ["-c", `exec >${JSON.stringify(file)} 2>&1; time { ${cmd}\n} 2>&1; code=$?; exit $code`], { cwd: path.join(repo, s.dir), env: { ...env, RX_JOBS: String(n), BENCH_JOBS: String(n), RX_LOCK_HELD: process.env.RX_LOCK_HELD ?? "" }, stdio: "ignore", detached: true });
+  let late = false; const soft = quick && s.soft ? setTimeout(() => { late = true; try { process.kill(-child.pid, "SIGTERM"); } catch { /* ended */ } setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, 3000); }, s.soft * 1000) : null;
   const began = Date.now(), wall = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, (s.limit ?? (Number(process.env.RX_CI_LIMIT) || 1200)) * 1000);
   running.set(s.id, { child, s, n });
   child.on("close", code => {
-    clearTimeout(wall); clearTimeout(soft); running.delete(s.id);
+    clearTimeout(wall); clearTimeout(soft); release(); running.delete(s.id);
     if (late && code !== 0) { done.set(s.id, { not: `stopped after ${s.soft} s with part of it run (kept): again, or scripts/ci, for the rest`, wall: (Date.now() - began) / 1000 }); console.log(`${at()}  part ${s.id.padEnd(22)} ${((Date.now() - began) / 1000).toFixed(1).padStart(6)} s  more is new than there was time for`); return next(); }
     const text = existsSync(file) ? readFileSync(file, "utf8") : "", m = /(\d+[.,]\d+) (\d+[.,]\d+) (\d+[.,]\d+)\s*$/.exec(text), cpu = m ? Number(m[2].replace(",", ".")) + Number(m[3].replace(",", ".")) : null;
     const used = /cache: .*? — --no-cache/.exec(text)?.[0]?.replace(" — --no-cache", "");

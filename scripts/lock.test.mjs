@@ -38,5 +38,12 @@ h.kill("SIGKILL"); await h.end;
 { const n = said().length; await go(job, { RX_LOCK_HELD: id }).end; assert.deepEqual(said().slice(n), ["in", "out"]); }
 // a holder that ends on a signal gives it up
 reset(); const t = go(`await heavy("term", opt); say("held"); await nap(60000);`); await until(() => said()[0] === "held"); t.kill("SIGTERM"); await t.end; assert.ok(!existsSync(path.join(dir, "lock")));
+// a holder that hangs, and one that holds too long; one whose child works does not hang
+reset(); const z = go(`await heavy("hangs", opt); say("held"); await nap(60000);`); await until(() => said()[0] === "held");
+await go(job, { RX_LOCK_IDLE: "2" }).end; assert.match(said()[1], /taken from hangs .*did nothing/); assert.deepEqual(said().slice(2), ["in", "out"]); z.kill("SIGKILL"); await z.end;
+reset(); const y = go(`import { spawn } from "node:child_process"; await heavy("works", opt); const c = spawn(process.execPath, ["-e", "const t = Date.now(); while (Date.now() - t < 6000);"]); say("held"); c.on("close", () => { say("done"); process.exit(0); });`); await until(() => said()[0] === "held");
+await go(job, { RX_LOCK_IDLE: "2" }).end; await y.end; assert.deepEqual(said(), ["held", "done", "in", "out"]);
+reset(); const x = go(`await heavy("long", opt); say("held"); await nap(60000);`); await until(() => said()[0] === "held");
+await go(job, { RX_LOCK_HOLD: "1" }).end; assert.match(said()[1], /taken from long .*held it for/); x.kill("SIGKILL"); await x.end;
 rmSync(dir, { recursive: true, force: true });
 console.log("lock: one at a time, dead holders, reused numbers, bounded waits, nesting, CI: as stated");

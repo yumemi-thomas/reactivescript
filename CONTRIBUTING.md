@@ -219,7 +219,9 @@ node scripts/heavy.mjs <name> -- <command…>       # any command under the mach
 - **One heavy run at a time.** A whole benchmark, `generated`, and
   `scripts/ci`'s steps with several browsers take a lock of the machine's
   (`scripts/lib/lock.mjs`) and wait for it at most `RX_LOCK_WAIT` seconds
-  (3600), then go on. A holder that is gone holds nothing. Off in CI and
+  (3600), then go on. A holder that is gone holds nothing; one whose
+  processes do nothing for 180 s (`RX_LOCK_IDLE`), or that has held it 2400 s
+  (`RX_LOCK_HOLD`), loses it to the next. Off in CI and
   under `RX_LOCK=0`; a run of one task does not take it.
 - A new suite that keeps results says in its key everything it reads: a
   key that leaves something out is a check that no longer checks. The
