@@ -67,13 +67,13 @@ export default component App() {
 
 An argument left out is told, of an optional view and of one that takes plain content as of any:
 
-<!-- types branch=TS2322 upstream=PARSE -->
+<!-- types branch=TS2322 upstream=PARSE+TS2604 -->
 ```rx
 component T(props: { children?: View | ((s: { n: number }) => View) }) { <props.children /> }
 export default component App() { <T>{view (s) { {s.n + 1} }}</T> }
 ```
 
-<!-- types branch=TS2322 upstream=UNKNOWN_COMPONENT -->
+<!-- types branch=TS2322 upstream=TS2322 -->
 ```rx
 component T(props: { cell?: (s: { n: number }) => View }) { {if props.cell { <props.cell {...{ n: "x" }} /> }} }
 export default component App() { <T /> }

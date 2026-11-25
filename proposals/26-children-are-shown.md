@@ -58,7 +58,7 @@ to ask of it, and no program of the three trees asks it.
 What is newly **refused** though every runner agreed before: 233 of the 1,147 (a view through a context 66, a snapshot
 78, an effect 30, a handler 31, a closure 14, a record 14; none real, see "Against"), 13 of the 979 (`pre` of a view, a
 view compared, a snapshot; and five whose `<div>` is given on as an argument into a `<p>`, which the browser's parser
-moved on hydration: the content model now follows a named view where it is shown), 14 of the 635 and 716 of the 3,802
+moved on hydration: the content model now follows a named view where it is shown; a sixth, spread, since), 14 of the 635 and 716 of the 3,802
 (`VIEW_NOT_SHOWN`, the review's set being written around snapshots, contexts and records).
 
 ## Proposal
@@ -81,7 +81,7 @@ RG-4c's first sentence is replaced; 08's stands.
 
 Shown twice is made twice, and what is hidden is disposed:
 
-<!-- frames branch=pass -->
+<!-- frames branch=pass upstream=fail -->
 ```rx
 context c: string = "out"
 component Seen() { source n := 0
@@ -100,9 +100,9 @@ export default component App() { <Twice><Seen />{use c}</Twice> }
 | 1 | handler `on := false` | `in0in` | |
 | 2 | handler `on := true` | `in0indeep0deep` | log(made) |
 
-Asked for, content is not made (the independent review found that on upstream the `if` makes it, and makes it again to show it: a hydration key miss with an element in it; not run on upstream here):
+Asked for, content is not made. On upstream the `if` makes it, and makes it again to show it: the program below fails there, on the server and after hydration (run on `origin/main` e650b851 by `proposals/check.mjs --upstream`, as every mark of this page):
 
-<!-- frames branch=pass runner=ssr -->
+<!-- frames branch=pass upstream=fail runner=ssr -->
 ```rx
 component Opt(p: { children?: View }) { {if p.children { <div>{p.children}</div> } else { <i>none</i> }} }
 component Made() { effect () { log("made") }
@@ -114,7 +114,7 @@ export default component App() { <Opt><Made /></Opt><Opt /> }
 | --- | --- | --- | --- |
 | 0 | mount | `xnone` | log(made) |
 
-<!-- check branch=VIEW_NOT_SHOWN -->
+<!-- check branch=VIEW_NOT_SHOWN upstream=ok -->
 ```rx
 context c: string = "out"
 component P(p: { children: View }) { provide c = "in"
@@ -133,8 +133,8 @@ export default component App() { <P>{use c}</P> }
 | --- | --- | --- |
 | 1,147 generated (37 ways to show children × 15 forms of content × a default or a provision above) | 375 refused, 592 agree, 175 accepted and different, 5 on which all throw alike | 346 refused, 800 agree, 1 on which all throw alike (`provide c = use c` with nothing above: the check does not look above a provision, as before) |
 | … served and hydrated | not run | 800 of 800, in both emitters |
-| 979 written for the review's findings (100 of bindings and types; 495 of "was it given": 15 ways to ask × 17 ways to give × the children or a named view; 384 of a view given on: 6 things content asks of its place × 8 ways to give it on × 6 places that show it) | 143 refused, 709 agree, 115 different, 12 alike in error | 156 refused, 823 agree, none different; both checkers say the same of all 979 and the emitters lower them alike |
-| 635 of the earlier reviews | 308 refused, 234 agree, 85 different or not compiled, 8 alike in error | 267 refused, 328 agree, 30 different or not compiled, 2 that differ on the server only (a portal, a hidden row; not run on the server before), 8 alike |
+| 979 written for the review's findings (100 of bindings and types; 495 of "was it given": 15 ways to ask × 17 ways to give × the children or a named view; 384 of a view given on: 6 things content asks of its place × 8 ways to give it on × 6 places that show it) | 143 refused, 709 agree, 115 different, 12 alike in error | 157 refused, 822 agree, none different; both checkers say the same of all 979 and the emitters lower them alike; served and hydrated 822 of 822, in both emitters |
+| 635 of the earlier reviews | 308 refused, 234 agree, 85 different or not compiled, 8 alike in error | 267 refused, 328 agree, 30 different or not compiled, 2 that differ on the server only (a portal, a hidden row: the same on 54571c1d and on PR #1), 8 alike |
 | 3,802 of the independent review (three runners before) | 1,590 refused, 1,629 agree, 583 different or not compiled | 2,163 refused, 1,532 agree, 62 different or not compiled, 45 alike in error; 716 that agreed are refused, each `VIEW_NOT_SHOWN` |
 
 What the agreeing ones *show*, before and after, is the first section of this page.
@@ -191,7 +191,9 @@ A `View` is the view that asks nothing; `(s: T) => View` is one with a parameter
 - "it is named nowhere else" is `VIEW_NOT_SHOWN`'s list, with one exception fewer to learn;
 - `if props.children` of `View | ((s) => View)`, refused in 25 because the question would have made the content, can be accepted: asking makes nothing now. Not done here.
 
-In the prototype the two rules still have their own code (`otherMention`, `viewUses`); one walk would do.
+- what was learned for a `View` holds for a view with a parameter and is not yet applied to it: 25's "named nowhere else" (`otherMention`) is still by spelling, where `viewUses` follows bindings and declared types. One walk would do, and should be the second.
+
+"Was it given" is the same question in both: of a view with a parameter, `if props.cell` is whether a function was given (25); of a `View`, whether something was written. Neither reads or makes what it asks of.
 
 ## Cost
 

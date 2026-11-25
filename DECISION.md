@@ -188,6 +188,10 @@ a view shown twice 0, given on as an argument 0, a spread with no content 0, ask
 S-context-3). The one class that gives something up: an argument that is written and is no literal (`part={s}`) is
 given whatever its value is, where before its value answered (28 generated, 0 real).
 
+Served and hydrated on the final code, in both emitters: 800 of 800 of the generated set, 822 of 822 of the 979 (157
+refused; the frames expected are what the four runners agree on, `../w/fill2.py`). Both checkers say the same of all
+1,147 and all 979, and the two emitters lower them alike.
+
 ### Each finding
 
 | finding | what was done | test |
