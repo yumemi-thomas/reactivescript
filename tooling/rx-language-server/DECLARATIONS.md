@@ -431,7 +431,7 @@ proves, it is a defect of `rx-declare`.
 everything but a list of shapes known unsafe, and the list was found incomplete twice: of 671 packages written to break it,
 about 190 drafts had a false word. The new one has none on those 671, nor on the 757 written against it. Over the 193
 modules of the coverage suite (rows with the word, before → after): `pure` 421 → 296, `instantiates` 376 → 226, `handler`
-984 → 971, `uses` 25 → 1, `provides` 37 → 1, `draft` 1 → 0, `rejects` 0, `ref` parts 435 → 438. (A third review, the same day, found 13 false `pure`, 47 `handler`,
+984 → 971, `uses` 25 → 1, `provides` 37 → 1, `draft` 1 → 0, `rejects` 0, `ref` parts 435 → 438. (A third review, the same day, found 17 false `pure`, 47 `handler`,
 23 `draft`, 16 `provides`, 9 `instantiates`, 4 `uses` and 5 `rejects` in 1,275 packages, and a hole: a view may call a function of a `pure` fn's answer. `draft` and `rejects` are no longer written, and over the same 193
 modules `pure` is 126, `instantiates` 218, `handler` 943, `uses` and `provides` 0: of the 170 `pure` rows lost, 96 are controllers, made of functions that keep state. None is false over those 1,275, the 1,900 before and 900 written around each fix.) `handler` was 10 until a listener given to the platform had the
 standing of a JSX handler (compiler/words/DESIGN.md, *A listener*); the two false ones (`toEffect`, `workerScope`) stay out. What was lost and was true: makers of signals

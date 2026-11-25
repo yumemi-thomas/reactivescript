@@ -4,7 +4,7 @@
 
 **The words a tool writes, after a third review** (compiler/words, DESIGN.md there; spec/09 MO-8v; tooling/rx-language-server/DECLARATIONS.md)
 
-- **Fixed: false words in drafts and in generated declarations**, 111 over 1,275 packages written to break them, and wrong types: a result that may be absent or be
+- **Fixed: false words in drafts and in generated declarations**, 121 over 1,275 packages written to break them, and wrong types: a result that may be absent or be
   another value was drafted as if it were there (`ref`, a bare function). A row TypeScript does not hold is left out.
 - **Changed: a fn is `pure` only where every function it answers is too** (a controller's `open()` could be called by a view), and nothing it answers is changed later.
   **If a program of yours is refused after this** (`IO_IN_REACTIVE` at a call that makes a controller or a setter): write `pure` in your own declaration of it, or make it in a handler or at the
