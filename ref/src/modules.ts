@@ -380,7 +380,7 @@ export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set
 export type Shown = { optional: boolean; mixed: boolean; param?: string };
 export function shown(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[] }, decls: Decl[]): Map<string, Shown> {
   const out = new Map<string, Shown>();
-  for (const f of shownFields(d)) { const t = fieldType(d.propsType, f, decls), v = t && viewType(t.type); if (v && (!v.mixed || f === "children")) out.set(f, { optional: t.optional, ...v }); }
+  for (const f of shownFields(d)) { const t = fieldType(d.propsType, f, decls), v = t && viewType(t.type); if (v && f !== "ref" && (!v.mixed || f === "children")) out.set(f, { optional: t.optional, ...v }); }
   return out;
 }
 /** `<props.f … />`: the name of the props, and the field. */

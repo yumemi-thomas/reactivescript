@@ -2,7 +2,7 @@
 
 RG-4c sends content that is *created more than once, or conditionally owned* to *a function prop instead, which is ordinary*. No `.rx` function makes markup, so the rule names a form that cannot be written. Every piece of one exists: MO-11k's `view (s) { … }`, a component's application, TypeScript's function type. This puts them together. Prototyped on a local branch (`proto-children`, not published).
 
-<!-- frames branch=pass upstream=refused -->
+<!-- frames branch=pass upstream=fail -->
 ```rx
 component Toggle(props: { children: (s: { pressed: boolean }) => View }) {
   source lit := false
@@ -32,7 +32,7 @@ A component so typed that does not show it this way is as it was. The tag is ref
 
 **An application, not a call.** A call is a reader: it makes the view again at each change (4 elements for 3 presses, measured for [24](24-view-functions.md)). Here nothing is made again; state in the view is kept:
 
-<!-- frames branch=pass upstream=refused -->
+<!-- frames branch=pass upstream=fail -->
 ```rx
 component T(props: { children: (s: { n: number }) => View }) {
   source n := 0
@@ -53,7 +53,7 @@ export default component App() {
 
 **A list that owns its loop, with a typed row.** Over a context this is `any` (24):
 
-<!-- types branch=TS2339 upstream=UNKNOWN_COMPONENT+VIEW_FN_MISPLACED -->
+<!-- types branch=TS2339 upstream=PARSE -->
 ```rx
 component List(props: { rows: { id: number; name: string }[]; row: (r: { item: { id: number; name: string } }) => View; children?: View }) {
   <ul>{for x in props.rows { <li><props.row item={x} /></li> }}</ul>
@@ -67,7 +67,7 @@ A *generic* row needs type parameters on a component; [20](20-generic-fns.md) ha
 
 **Stored, forwarded, called: refused.** `<Inner>{view (s) { <props.children n={s.n} /> }}</Inner>` forwards.
 
-<!-- check branch=VIEW_FN_MISPLACED upstream=UNKNOWN_COMPONENT -->
+<!-- check branch=VIEW_FN_MISPLACED upstream=PARSE -->
 ```rx
 context c: any
 component T(props: { children: (s: { n: number }) => View }) {
@@ -77,7 +77,7 @@ component T(props: { children: (s: { n: number }) => View }) {
 export default component App() { <T>{view (s) { <b>{s.n}</b> }}</T> }
 ```
 
-<!-- check branch=REGION_ESCAPE upstream=UNKNOWN_COMPONENT+VIEW_FN_MISPLACED -->
+<!-- check branch=REGION_ESCAPE upstream=PARSE -->
 ```rx
 component T(props: { children: (s: { go: () => number }) => View }) {
   source n := 1
@@ -93,9 +93,9 @@ export default component App() {
 
 | | |
 | --- | --- |
-| UI SDK's Toggle and trigger, rewritten with it | 2 of its 3 refused correct lines accepted (the third is a `ref` on a component: another matter); its 12 mistakes caught; 44 of 44 of its suite, 5 of 5 leak gates, its Playwright specs as before the rewrite (548 pass; the 2 that fail fail there too) |
+| UI SDK's Toggle and trigger, rewritten with it | 2 of its 3 refused correct lines accepted (the third is a `ref` on a component: another matter); its 12 mistakes caught; 44 of 44 of its suite, 5 of 5 leak gates, its Playwright specs as before the rewrite (548 pass; the 2 that fail fail there too, run here) |
 | Kobalte's `Select.Value` and `as`, TanStack Router's `Link`, `MatchRoute`, `Await` | written and run (S-view-6), as they are used: a function or plain content |
-| programs run in both checkers, the interpreter, the oracle, both emitters, the server and hydration | 105 right, 171 refused (S-view-3 to S-view-6) |
+| programs run in both checkers, the interpreter, the oracle, both emitters, the server and hydration | 85 tables right, 22 programs accepted, 154 refused (S-view-3 to S-view-6); in Solid's production build as well |
 | programs of this tree and upstream's that change verdict, projection or code | 0 of 1,170 (one message's words) |
 
 A view is a block, so what is hard for plain children is right by what exists: a `use` in it reads where it is shown ([33](bugs/33-use-in-children.md)), an `await` in it is asked there ([36](bugs/36-await-by-a-childs-context.md)).
@@ -105,7 +105,7 @@ A view is a block, so what is hard for plain children is right by what exists: a
 | | |
 | --- | --- |
 | rules | one paragraph of RG-4c; `view`, `value(…)` and `f-at` in a printed signature |
-| code | about 560 lines in the crate, 430 in `ref/`, one function in the runtime (bug 33, bug 37's gate included) |
+| code | 774 lines added and 158 removed in the crate, 375 and 81 in `ref/`, 10 in the runtime (bugs 33, 34, 37's gate and 38 included) |
 | check | 798 programs in 0.19 s, before and after |
 | 1,000 rows, production, one run: mount / reverse / change all | a plain `for` 5.1 / 0.8 / 0.6 ms; a view 6.6 / 0.9 / 0.4; a child reading a context 8.2 / 0.8 / 1.2 |
 | the module, minified | 1,227; 1,402; 1,538 bytes |

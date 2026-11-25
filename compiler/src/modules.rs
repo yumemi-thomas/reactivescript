@@ -767,7 +767,7 @@ pub fn shown(props: &str, props_type: Option<&str>, decls: &[Decl], view: &[Mark
     let Some(t) = props_type else { return out };
     for f in shown_fields(props, decls, view) {
         let Some((ty, optional)) = field_type(t, &f, types, 0) else { continue };
-        if let Some((mixed, param)) = view_type(&ty).filter(|v| !v.0 || f == "children") {
+        if let Some((mixed, param)) = view_type(&ty).filter(|v| f != "ref" && (!v.0 || f == "children")) {
             out.insert(f, Shown { optional, mixed, param });
         }
     }

@@ -1505,6 +1505,18 @@ export default component App() {
 
 ```rx
 -- accept
+component T(props: { cell?: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div>{if props.cell { <p><props.cell n={n} go={() => n} /></p> }}{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  r = { a: 1 }
+  <T {...r}>x</T><T {...r}>{view cell (s) { <b>{s.n}</b> }}</T>
+}
+```
+
+```rx
+-- accept
 component T(props: { children: (s: { n: number }) => string }) {
   source n := 1
   <b>{str(props.children({ n: 1 }))}</b>
@@ -2980,6 +2992,37 @@ component T(props: { cell: (s: { n: number, go: () => void }) => View, foot?: ()
 }
 export default component App() {
   <T>{view cell (s) { <b>1</b> }}</T>
+}
+```
+
+```rx
+-- reject: UNKNOWN_COMPONENT
+component T(props: { ref: (s: { n: number }) => View }) { <props.ref n={1} /> }
+export default component App() {
+  <p>x</p>
+}
+```
+
+```rx
+-- reject: VIEW_FN_EXPECTED
+component T(props: { cell?: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div>{if props.cell { <p><props.cell n={n} go={() => n} /></p> }}{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  r = { a: 1, cell: (s) => "x" }
+  <T {...r}>x</T>
+}
+```
+
+```rx
+-- reject: VIEW_FN_EXPECTED
+component T(props: { cell?: (s: { n: number, go: () => void }) => View, foot?: () => View, children?: View }) {
+  source n := 1
+  <div>{props.children}</div>{if props.cell { <p><props.cell n={n} go={() => n} /></p> }}{if props.foot { <props.foot /> }}
+}
+export default component App() {
+  <T {...{ cell: (s) => "x" }}>x</T>
 }
 ```
 

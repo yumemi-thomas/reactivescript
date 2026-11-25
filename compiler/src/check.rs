@@ -7442,7 +7442,7 @@ impl<'a> Checker<'a> {
                             }
                             for (f, v) in takes.iter().filter(|(f, v)| *f != "children" && !v.mixed) {
                                 let n = children.iter().filter(|x| matches!(&x.kind, MarkupKind::Mview { prop: Some(p), .. } if p == f)).count();
-                                if attrs.iter().any(|a| a.name == *f) || n > 1 || (n == 0 && !v.optional) {
+                                if attrs.iter().any(|a| a.name == *f) || n > 1 || (n == 0 && (!v.optional || attrs.iter().any(|a| a.name == "..." && self.spreads(&a.e, f, env, 0)))) {
                                     self.expects_view(tag, Some(f));
                                 }
                             }
@@ -7878,6 +7878,20 @@ impl<'a> Checker<'a> {
             }
         }
         self.apply_factory(s, kids, line);
+    }
+    /// Whether a spread is of a record written with that field: a value is no view.
+    fn spreads(&self, e: &Expr, f: &str, env: EId, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        match &e.k {
+            ExprKind::Rec(fields) => fields.iter().any(|x| match x {
+                Field::Spread(v) => self.spreads(v, f, env, depth + 1),
+                Field::Kv { key, .. } => key == f,
+            }),
+            ExprKind::Id(n) => self.lookup(env, n).and_then(|s| self.syms[s].expr).is_some_and(|(x, at)| self.spreads(x, f, at, depth + 1)),
+            _ => false,
+        }
     }
     /// RG-4c
     fn expects_view(&mut self, tag: &str, view: Option<&String>) {

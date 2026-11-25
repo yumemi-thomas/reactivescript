@@ -2815,7 +2815,7 @@ class Checker {
                 }
                 for (const [f, v] of takes) if (f !== "children" && !v.mixed) {
                   const a = m.attrs.find(a => a.name === f), n = m.children.filter(x => x.k === "mview" && x.prop === f).length;
-                  if (a || n > 1 || (!n && !v.optional)) this.expectsView(m.tag, f);
+                  if (a || n > 1 || (!n && (!v.optional || m.attrs.some(x => x.name === "..." && this.spreads(x.e, f, env))))) this.expectsView(m.tag, f);
                 }
               }
               this.markup([...m.children.filter(x => !apart.has(x)), ...this.throughChildren(m, s, env), ...values.values()], new Env(env, kids));
@@ -3127,6 +3127,12 @@ class Checker {
   }
   /** RG-4c: a view of another name, which a component shows where it says, not among its children. */
   private viewElsewhere(s: Sym, x: Markup): string | undefined { return x.k === "mview" && x.prop && this.shownBy(s)?.has(x.prop) ? x.prop : undefined; }
+  /** Whether a spread is of a record written with that field: a value is no view. */
+  private spreads(e: Expr, f: string, env: Env, depth = 0): boolean {
+    if (depth > 8) return false;
+    if (e.k === "rec") return e.fields.some(x => "spread" in x ? this.spreads(x.spread, f, env, depth + 1) : x.key === f);
+    const s = e.k === "id" ? env.lookup(e.name) : undefined; return !!s?.expr && !!s.env && this.spreads(s.expr, f, s.env, depth + 1);
+  }
   private expectsView(tag: string, view?: string) { this.err("VIEW_FN_EXPECTED", "RG-4c", `<${tag}> shows its ${view ?? "children"} with what it knows, as one view with one parameter: write ${view === undefined ? "them" : "it"} as \`{view ${view === undefined ? "" : `${view} `}(s) { … }}\`, \`s.x\` for what it passes as \`x\``); }
   private readsChildren(e: Expr, env: Env) { return e.k === "member" && e.p === "children" && e.o.k === "id" && env.lookup(e.o.name)?.kind === "props"; }
   /** SV-7d: every element, text and component root of a view against the elements open above it (in this view; a view's
