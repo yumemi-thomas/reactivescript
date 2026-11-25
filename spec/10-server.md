@@ -400,6 +400,14 @@ author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
   in a heading, an `<li>`/`<dd>`/`<dt>` in its own kind. A view's root is
   an unknown place. Executable: S-server-4; `repros/sv7d-table/` shows the
   page it prevents — served rows in a `<tbody>`, a later row outside it.
+  *A value shown is its text (2026-11-26).* `{n}` in the table modes is
+  text as written text is, wherever it is written: in place, as content,
+  in a view with a parameter, through a context that holds a view, as a
+  component's root (the row `roots #text` of its shape). What is no
+  value is not text: a view the component was given, under whatever
+  name; a field of a view's parameter declared `View`; a view a context
+  holds; a loop; a choice of the component's views. A field of the props
+  whose type is not read is as it was. S-server-6.
 - **SV-7e (The wire).** An answer must survive the trip: a value the
   serializer cannot carry is `WIRE_VALUE` (12 SF-6a), at run time while
   types are text, statically once they are not.

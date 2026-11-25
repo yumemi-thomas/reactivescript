@@ -2831,7 +2831,7 @@ class Checker {
           if (!viewRoot) this.err("STYLE_PLACEMENT", "CSS-1", "a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there");
           else if (++styles > 1) this.err("STYLE_PLACEMENT", "CSS-1", "a second <style> in one view: a view has one stylesheet");
           break;
-        case "read": if (this.throughReads.has(m)) { this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break; }   // MO-14f: no expression of the program's
+        case "read": this.readEnv.set(m, env); if (this.throughReads.has(m)) { this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break; }   // MO-14f: no expression of the program's
           this.comp("reader", env, { at: "{…}" }, () => { const was = this.shownUse; this.shownUse = m.e.k === "use" ? m.e : null; try { this.expr(m.e, env, { scope: "reactive" }); } finally { this.shownUse = was; } }); this.keep(m.e, env); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
           for (const a of m.attrs) if (a.name === "ref") for (const x of a.e.k === "arr" ? a.e.items : [a.e]) this.refCalls.add(x);
@@ -3207,7 +3207,7 @@ class Checker {
     const walk = (ms: Markup[], anc: string[], scoped: boolean, env: Env) => {
       for (const m of ms) switch (m.k) {
         case "text": if (!anc.length) roots.add("#text"); break;
-        case "read": { const fs = places?.get(m); if (fs) for (const f of fs) put(f, anc); else if (this.readsChildren(m.e, env)) sh.childrenAt.push(anc); else { const k = this.viewShown(m.e, env); if (k) shownAt(k.key, anc, scoped, k.dflt); } break; }
+        case "read": { const fs = places?.get(m); if (fs) for (const f of fs) put(f, anc); else if (this.readsChildren(m.e, env)) sh.childrenAt.push(anc); else { const k = this.viewShown(m.e, env); if (k) shownAt(k.key, anc, scoped, k.dflt); else if (!anc.length && this.showsText(m, env)) roots.add("#text"); } break; }   // a value shown is its text
         case "el": {
           if (m.tag === "") { walk(m.children, anc, scoped, env); break; }
           if (/^[A-Z]/.test(m.tag)) {
@@ -3329,6 +3329,18 @@ class Checker {
   private expectsView(tag: string, view?: string) { this.err("VIEW_FN_EXPECTED", "RG-4c", `<${tag}> shows its ${view ?? "children"} with what it knows, as one view with one parameter: write ${view === undefined ? "them" : "it"} as \`{view ${view === undefined ? "" : `${view} `}(s) { … }}\`, \`s.x\` for what it passes as \`x\``); }
   /** The places of the views of the component a scope is in (`ViewUses.at`). */
   private placesOf(env: Env): Map<unknown, string[]> | undefined { const c = env.region.component && this.compSyms.get(env.region.component); return c ? this.usesOf(c)?.at : undefined; }
+  /** SV-7d: a read that shows a value, which is its text: not a view the component was given (under whatever name), nor
+   *  one a context holds, nor a field of the props or of a view's parameter that is declared a view or whose type is not read. */
+  private readEnv = new Map<Markup, Env>();   // the scope a read is written in: a view's parameter, a loop's variable, a block's names
+  private showsText(m: Extract<Markup, { k: "read" }>, env: Env): boolean {
+    env = this.readEnv.get(m) ?? env;
+    if (this.placesOf(env)?.get(m) || this.readsChildren(m.e, env) || this.viewShown(m.e, env)) return false;
+    const e = m.e, p = e.k === "member" && e.o.k === "id" ? env.lookup(e.o.name) : e.k === "id" ? env.lookup(e.name) : undefined;
+    if (p?.kind !== "props") return true;
+    if (e.k !== "member") return false;
+    const c = p.viewOf ? undefined : this.compSyms.get(p.region)?.comp;
+    return takesView(p.viewOf ? this.shownBy(p.viewOf.comp)?.get(p.viewOf.view)?.param : c?.propsType, this.types, e.p, c?.tparams) === false;
+  }
   private readsChildren(e: Expr, env: Env) { return e.k === "member" && e.p === "children" && e.o.k === "id" && env.lookup(e.o.name)?.kind === "props"; }
   /** SV-7d: every element, text and component root of a view against the elements open above it (in this view; a view's
    *  root is an unknown place), and a component's caller's children where that component places them. */
@@ -3338,7 +3350,7 @@ class Checker {
       if (m.line) this.line = m.line;
       switch (m.k) {
         case "text": if (m.s.trim()) report("text", misnested(anc, "#text")); break;
-        case "read": { const k = this.viewShown(m.e, env); if (k) { if (k.dflt) report(`the text ${(m.e as { name: string }).name} may hold (its default, or a value it is given)`, misnested(anc, "#text")); this.shownCheck(k.key, anc); } break; }   // RG-4c: a context that holds a view, shown: what is given to a provider around this place
+        case "read": { const k = this.viewShown(m.e, env); if (k) { if (k.dflt) report(`the text ${(m.e as { name: string }).name} may hold (its default, or a value it is given)`, misnested(anc, "#text")); this.shownCheck(k.key, anc); } else if (this.showsText(m, env)) report("the text of the value shown here, `{…}`,", misnested(anc, "#text")); break; }   // RG-4c: a context that holds a view, shown: what is given to a provider around this place
         case "el": {
           if (m.tag === "") { this.contentCheck(m.children, env, anc); break; }
           if (/^[A-Z]/.test(m.tag)) {

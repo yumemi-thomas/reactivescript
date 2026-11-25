@@ -2079,6 +2079,8 @@ pub struct Opts<'a> {
 pub struct Checker<'a> {
     /// MO-6d: the module's namespaces
     nss: Vec<String>,
+    /// SV-7d: the scope a read is written in (a view's parameter, a loop's variable, a block's names)
+    read_env: HashMap<usize, EId>,
     /// MO-11f: the components in a factory call's arguments (values there, not reads), and each factory's, by its symbol
     value_ids: HashSet<*const Expr>,
     /// MO-11u: the calls of `renders(H)` fns that were given components (H's key, its name, the fn, the root the
@@ -2583,6 +2585,7 @@ impl<'a> Checker<'a> {
     pub fn new(opts: Opts<'a>) -> Self {
         Checker {
             nss: vec![],
+            read_env: HashMap::new(),
             holds_mode: Cell::new(false),
             value_ids: HashSet::new(),
             hosted_calls: vec![],
@@ -7650,6 +7653,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 MarkupKind::Read(e) => {
+                    self.read_env.insert(m as *const Markup as usize, env);
                     let was = std::mem::replace(&mut self.shown_use, matches!(e.k, ExprKind::Use(_)).then_some(e as *const Expr));
                     self.comp("reader", env, None, Some("{…}".into()), |c| c.expr(e, env, Ctx::reactive(), None));
                     self.shown_use = was;
@@ -8040,6 +8044,8 @@ impl<'a> Checker<'a> {
                         sh.children_at.push(anc.to_vec());
                     } else if let Some((key, dflt)) = self.view_shown(e, env) {
                         self.shape_shown(&key, anc, scoped, dflt, sh, roots);
+                    } else if anc.is_empty() && self.shows_text(m, e, env) {
+                        roots.insert("#text".into()); // a value shown is its text
                     }
                 }
                 MarkupKind::El { tag, attrs, children } => {
@@ -8105,6 +8111,34 @@ impl<'a> Checker<'a> {
             if !held.is_empty() {
                 self.prop_held.insert(r, held);
             }
+        }
+    }
+    /// SV-7d: a read that shows a value, which is its text: not a view the component was given (under whatever name), nor
+    /// one a context holds, nor a field of the props or of a view's parameter that is declared a view or whose type is
+    /// not read. `ref/src/check.ts` `showsText`.
+    fn shows_text(&mut self, m: &Markup, e: &Expr, env: EId) -> bool {
+        let env = self.read_env.get(&(m as *const Markup as usize)).copied().unwrap_or(env);
+        self.ensure_places(env);
+        if self.view_places.contains_key(&(m as *const Markup as usize)) || self.reads_children(e, env) || self.view_shown(e, env).is_some() {
+            return false;
+        }
+        let (root, field) = match &e.k {
+            ExprKind::Member { o, p, .. } => match &o.k {
+                ExprKind::Id(n) => (n.as_str(), Some(p.as_str())),
+                _ => return true,
+            },
+            ExprKind::Id(n) => (n.as_str(), None),
+            _ => return true,
+        };
+        let Some(ps) = self.lookup(env, root).filter(|&s| self.syms[s].kind == SymKind::Props) else { return true };
+        let Some(field) = field else { return false };
+        if let Some((c, view)) = self.syms[ps].view_of.clone() {
+            let t = self.shown_by(c).get(&view).and_then(|v| v.param.clone());
+            return takes_view(t.as_deref(), &self.opts.types, field, None) == Some(false);
+        }
+        match self.comp_syms.get(&self.syms[ps].region).and_then(|&c| self.syms[c].comp) {
+            Some(Decl::Component { props_type, tparams, .. }) => takes_view(props_type.as_deref(), &self.opts.types, field, tparams.as_deref()) == Some(false),
+            _ => false,
         }
     }
     fn reads_children(&self, e: &Expr, env: EId) -> bool {
@@ -8887,6 +8921,9 @@ impl<'a> Checker<'a> {
                             self.report_content(anc, format!("the text {n} may hold (its default, or a value it is given)"), why);
                         }
                         self.shown_check(&key, anc);
+                    } else if self.shows_text(m, e, env) {
+                        let why = misnested(anc, "#text");
+                        self.report_content(anc, "the text of the value shown here, `{…}`,".into(), why);
                     }
                 }
                 MarkupKind::El { tag, attrs, children } => {
