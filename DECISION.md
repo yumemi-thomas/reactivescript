@@ -302,3 +302,102 @@ here says it cannot be proved; nothing was proved. What is known is what was kno
 (`RX_VIEW_WIDE`), the earlier 134 programs of a carried `View` agree in every runner, and the checkers refuse a correct
 program whose provision is the carrier's own. Kobalte's Select, Combobox and Pagination in their own API shape were not
 written.
+
+## After the second independent review (2026-11-25, `../review-astra2/REVIEW.md`: fix first)
+
+The core rule held (a view is shown, and made where it is shown). What "was it given" answered did not. It is
+redesigned; the review's other findings are fixed; then the widening (a context that holds a view) is done, in commits of
+its own. Every case of the review was reproduced first (`../w/r2`).
+
+### Presence, redesigned (decided)
+
+The question is asked of the argument **as it was written**, read with each view in it standing for itself; nothing is
+made. Content, a named view block: given. A view given on (argument, content `{p.x}`, spread, rest, default, a name,
+through any number of components): what its giver's argument answers. A choice (`?:`, `??`, `&&`, `||`): its branch,
+whose condition is read where the question is asked, and tracked. Any other expression: the value's own answer, as
+JavaScript has it and as before the rule. The table is proposals/26, Proposal 2.
+
+How: `__rt.ask(() => e)` reads the argument's getter in a mode where `__rt.slot(make)` (content, a component given by
+name) answers a token and makes nothing; everything else is the expression that was written, so JavaScript's operators
+give the answer and a forward needs no code. The token is given only to the computation that asks (the owner is
+compared): a memo of a JavaScript host in between makes the view and keeps it. The descriptor test (`__rt.given`), the
+wrapper that made a value a read (`__rt.v`) and the interpreter's side table are deleted: in the interpreter a view is a
+value that is not made until shown.
+
+Considered and not chosen: a predicate object beside each prop (a hidden sibling key: a spread and a later explicit
+argument pair the wrong predicate with the value, and the key leaks onto elements); a view passed as a tagged thunk (a
+JavaScript library that looks at `typeof children` would see a function). The mode costs one comparison where content is
+read.
+
+JavaScript hosts (decided): data answers by its value. A getter is **read**, as Solid reads it and as before the rule
+(the first prototype answered "given" without reading, which is wrong for `{cond && <X />}` and could not be kept through
+a spread); it is made once more to answer. A host that minds offers `slot(make, when?)`, exported by the runtime.
+
+### Each finding of the second review
+
+| finding | what was done | test |
+| --- | --- | --- |
+| 1. `label={0}` through an explicit argument, a spread and a rest: `L0 / -0 / L0`, and the oracle `L0` three times | **fixed** by the redesign: `-0 -0 -0` in every runner, as before the rule | S-context-7; 1,642 programs |
+| 2. `label={maybe}`: `Ldefault → Lok` where it was `default → Lok`; absent through three forwards `LD -D -D` | **fixed**: a value answers by its value, a forward asks its giver: `default → Lok`, `-D -D -D` | S-context-7 (with a click before hydration) |
+| … "can it be asked without making the view?" | yes, for everything `.rx` writes; a JavaScript getter is read, or offers `slot` | `compiler/test/js-host.mjs` |
+| … Kobalte DateField / TimeField | `{props.children \|\| text}` is their fallback for a value and for a view that was not given; markup that renders nothing by its own control flow is content (stated) | `../w/k1`; proposals/26 |
+| 3. a streamed flag in a choice (`x = p.on ? p.title : undefined`): the oracle showed the error fallback | **fixed**: the oracle read the condition while it made the `if`; what is bound is known from the text | S-context-7; 110 programs with an awaited flag |
+| 4. `provide c = (use c) + "!"` nested, the outer one updated: `RangeError` after hydration | **fixed**, and it was every Solid-based runner on any update, not hydration: the provision read itself on its second computation. A provision's own expression reads what is above it each time (`__rt.over`) | S-context-7 |
+| 5. `<p>{p.children && "yes"}</p>` with a `<div>` for content: `CONTENT_MODEL` | **fixed**: the left of `&&` is asked, and placed nowhere; `\|\|` and `??` show it and are placed | S-context-7, and its rejected twin |
+| … a `View` spread onto a numeric prop | **fixed** where the component's type is read (the same module): refused like the argument | S-context-7, rejected |
+| … an argument to an imported component "of the same type name" | **not closed in the language checker**: an imported component is known by its printed signature, which has no word for "this prop takes a value" (and a module is checked against signatures as against bodies, MO-9). The type pass refuses both programs of the review (`TS2322`, `../w/res/r2-5`). A word in the signature would close it; none was added | stated |
+| … a union of records each with a `View` field permits `str(p.part)` | **fixed**: a field that is a view in one record of a union is one | S-context-7, rejected |
+| a JS node shown twice; a module compiled now on an older runtime | as before: one made node is one node; `__rt.ask` / `__rt.slot` / `__rt.over` are not in 0.3.1's runtime, and nothing says so but the failing call | proposals/26, Cost, Against |
+| the seventh class ("every non-literal argument is given") is too broad | **gone** (below) | |
+
+Found on the way and fixed: the oracle gave content that is one expression as a memo, so `??` of content given on that
+was not given showed nothing; the oracle showed a component's children by its own rule (a portal among them printed
+`[null]`, and beside an element could not be printed): it is the compiled module's rule now.
+
+### What changed in programs that ran (measured again)
+
+1,642 programs written for this (`../w/mkp.py`: 14 forms of the argument × 13 ways it is given on × 12 ways it is asked,
+each with a change over time; 110 with an awaited flag), on 54571c1d, on PR #1 07b2e368 (its last commit changes no
+runner; the two answer alike on all 1,642) and now, in the interpreter, the oracle and both emitters:
+
+- now: **1,642 agree** (before: 1,553, and 89 on which the runners differed);
+- the 1,060 whose argument is a value: **996 answer exactly as before; 64 differ only in that a view slot holding
+  `undefined` shows nothing where it showed the word; none otherwise**;
+- 263 changed in all, in five of the classes of the first round: asked, content is not made (61); the word `undefined`
+  (65); children that were not written are not given (33); a spread or a rest hands the children on (58); content that is
+  a choice of the children follows its branch (46). The class that cost something is gone: the 72 programs of the 979
+  that it had changed answer as before the rule again.
+- SSR_P6
+
+The earlier sets on the new code: 1,147: 800 agree, 346 refused, 1 alike in error (as in the first round; 63 changed, the
+same). 979: 822 agree, 157 refused; against before the rule 182 changed (188 in the first round), none of them "not
+given → given". 635 and 3,802: no output differs from the first round. SSR_OLD
+
+### The widening: a context that holds a view (done; proposals/27, S-context-8)
+
+`context item: View` or `(row: T) => View`; `provide item = props.item`; `{use item}` or `<use.item row={r} />`; shown
+and nothing else; not exported. Decided on the way:
+
+- **Module-local.** The checker already carries what a provision's value needs to each `use` of the context, inside a
+  module. Across modules that needs a contract in the context's signature; a view context is refused if exported, and
+  the components that provide and show it carry the facts in their own signatures.
+- **Flow**: from each place that shows it up to that component's root, then from the provider's block (above every such
+  place) to the provider's root. Sound; what the caller writes around the part alone is not read, and that refuses one
+  correct shape (proposals/27, with its program in `../w/mkc.py`).
+- **HTML**: real linking, not a worst case (a worst case refused a select inside a `<form>` and `<li>{use item}</li>`):
+  a provider's shape says `item-at use:<key>`, a part's `use:<key>-at ul`, and each application links them, through
+  content, forwards and portals. No word added to a signature.
+- **`<use.item … />`** for a view with a parameter (a tag, as `<props.f … />`); a context's type may be a function's
+  (the parser stopped at `=>`).
+
+Proof: 505 programs with the expected verdict in each name (`../w/mkc.py`, `ckc.py`): PART2_NUMBERS. Kobalte's Select,
+Combobox and Pagination in their shape, each a library module and a caller, in every runner; the parts are `SelectItem`,
+not `Select.Item` (a record of components is not a value in `.rx`).
+
+### Lines
+
+LINES_ALL
+
+### Suites on the final code
+
+SUITES

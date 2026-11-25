@@ -7,6 +7,7 @@
 - **Fixed: a closure as a component's children** (`<T>{n => …}</T>`, `props.children(n)`) threw in the interpreter and the oracle (S-view-2; proposals/bugs/34).
 - **Fixed: `NESTED_NOT_RENDERED`, twice on a line**, in the same order in both checkers (S-module-41; proposals/bugs/39).
 - **Proposed: a view a component is given is only shown, and is made where it is shown** (RG-4c; `VIEW_NOT_SHOWN`; S-context-4, S-context-5; proposals/26).
+- **Proposed: a context that holds a view** (RG-4c; proposals/27; S-context-8): `context item: View`, or `(row: T) => View`, given a view the component was given (`provide item = props.item`) and shown by `{use item}` or `<use.item row={r} />`; shown and nothing else, not exported, checked at every place that shows it. Whether a view was given is asked of the argument as it was written (S-context-7).
   A `use` or an `await` in a component's content is of the place that shows it, in every runner (proposals/bugs/33, 36); whether content was given
   is asked without making it; `AMBIGUOUS_CONTEXT` and the crate's refusal of an `await` in content are gone. Read as a value, a view is refused.
 - **Fixed: an `await` in a component's children** was not compiled by the crate (S-view-1; proposals/bugs/37). It is still not, in a module where

@@ -89,6 +89,7 @@ Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bug
 | **children** | | | |
 | [25](25-views.md) views | a component shows what it is given with what it knows; prototyped (`proto-children`, not published) | medium: three libraries, one rewritten | – |
 | [26](26-children-are-shown.md) children are shown | a view a component is given is only shown, and is made where it is shown: RG-4c's sentence against 08's; prototyped (`proto-children-rule`, not published) | high: 180 of 1,147 generated programs accepted and different today, none with it | – |
+| [27](27-a-context-that-holds-a-view.md) a context that holds a view | a context declared `View`, or a function giving one, carries a view to the parts that show it (`{use item}`, `<use.item … />`), checked at each; not exported; prototyped on 26 (`proto-children-rule`, not published) | medium: the shape of Kobalte's `Select`, `Combobox`, `Pagination`; 505 programs, each as its name says | – |
 | [24](24-view-functions.md) where a `use` in children reads | a question; a fix tried and held back (`proto-view-fn` a05f579a, not published) | – | – |
 | **tooling** | | | |
 | [22](22-generated-drafts.md) drafts | for a person to review | medium | 03 |

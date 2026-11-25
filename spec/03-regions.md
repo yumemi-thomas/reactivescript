@@ -172,7 +172,15 @@ A component is a function from a props value to a region whose tail is a view.
   value — kept by `peek`, a source or `pre`, carried by a context, read by an
   effect or a handler, answered by a closure, held in a record or a list,
   given to a fn, or given on to a prop whose declared type is a value's — it
-  is `VIEW_NOT_SHOWN` (S-context-4, S-context-5, S-context-6, S-context-7). Content that takes what the component knows is
+  is `VIEW_NOT_SHOWN` (S-context-4, S-context-5, S-context-6, S-context-7).
+  A context whose declared type is `View`, or a function giving one
+  (`context item: (row: T) => View`), holds a view (proposed, proposals/27):
+  it is given one the component was given (`provide item = props.item`, of a
+  prop of the context's type) and shown, `{use item}` or `<use.item row={r} />`,
+  and nothing else; it is not exported. Each place that shows it has its own;
+  what the view uses, waits on and fails with goes up from that place to its
+  component's root, then from the block that provides it; its elements are
+  placed there (SV-7d), through content, forwards and portals (S-context-8). Content that takes what the component knows is
   a view with a parameter, below. (Until this proposal: "evaluated in the
   caller's region: its readers are the caller's, its lifetime is the caller's,
   and the child only decides where it is placed", which 08 and RG-7b
