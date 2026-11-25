@@ -209,7 +209,7 @@ console.log("rx-verify tells the words the code proves from the ones written by 
   let compiles = false; try { compiles = typeof require(require.resolve("@solidjs/compiler", { paths: [ws] })).transform("const a = <p>x</p>;", { filename: "a.jsx" }).code === "string"; } catch { compiles = false; }
   const draftRun = compiles ? spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "tabs.d.rx"], { cwd: ws, encoding: "utf8" }) : { stdout: "" };
   if (!compiles) { pass++; console.log("  ✓ (the draft of a JSX module is not run here: @solidjs/compiler is not built in this checkout)"); }
-  else ok("the draft of a module, run: no word it read is contradicted (its components need a page to mount: --dom)", !/MISMATCH.*read from/.test(draftRun.stdout) && /useTabs: uses\(tabs\) (holds: with no provider it fails|is proven by the code)/.test(draftRun.stdout) && /words: \d+ read from the code/.test(draftRun.stdout.replace(/\([^)]*\)/g, "")), draftRun.stdout + draftRun.stderr);
+  else ok("the draft of a module, run: no word it read is contradicted (its components need a page to mount: --dom)", !/MISMATCH.*read from/.test(draftRun.stdout) && /useTabs: uses\(tabs\) (holds: with no provider it fails|is read from the code)/.test(draftRun.stdout) && /words: \d+ read from the code/.test(draftRun.stdout.replace(/\([^)]*\)/g, "")), draftRun.stdout + draftRun.stderr);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
