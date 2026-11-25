@@ -8906,7 +8906,10 @@ impl<'a> Checker<'a> {
         let top = self.esc(None);
         // MO-11i: a record's children are nested in its component — which renders them among its own children, or nowhere
         let hosted_view = self.opts.file.as_deref().is_some_and(|f| f.ends_with(".host.rx"));
-        for ((name, line), (c, word)) in self.nested.clone() {
+        // (by line, then name: a tree is met in whatever order it is asked for)
+        let mut nested: Vec<_> = self.nested.clone().into_iter().collect();
+        nested.sort_by(|a, b| (a.0 .1, &a.0 .0).cmp(&(b.0 .1, &b.0 .0)));
+        for ((name, line), (c, word)) in nested {
             if self.pf(c, "children").iter().any(|p| p.term.is_none()) {
                 continue;
             }

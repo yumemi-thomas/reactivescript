@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Fixed: `NESTED_NOT_RENDERED`, twice on a line**, in the same order in both checkers (S-module-41; proposals/bugs/39).
 - **Fixed: an `await` in a component's children** was not compiled by the crate (S-view-1; proposals/bugs/37). It is still not, in a module where
   children read a context (proposals/bugs/36).
 

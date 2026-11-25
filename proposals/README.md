@@ -38,7 +38,7 @@ build, no Chromium for bug 15) is reported as `SETUP`, apart, and is no verdict.
 
 ## Bugs of `main`, in the order to take them
 
-Each was run on e650b85. 35, and a question. [37](bugs/37-await-in-children-not-compiled.md) is this branch's own, and fixed. 33 to 36 are not fixed here: 36 is refused by the crate.
+Each was run on e650b85. 35, and a question. [37](bugs/37-await-in-children-not-compiled.md) and [39](bugs/39-order-of-one-lines-diagnostics.md) are this branch's own, and fixed. 33 to 36 are not fixed here: 36 is refused by the crate.
 
 1. [03](bugs/03-effect-loses-cleanup.md) an effect's cleanup tears a live listener down, in silence
 2. [05](bugs/05-action-in-a-value.md) an action in a value
