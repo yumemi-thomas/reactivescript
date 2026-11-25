@@ -579,8 +579,9 @@ CPU): **41 passed, 4 failed, 2 not run here**. The four, each looked at and run 
 Not run here: `t-vite-hosts`, `t-vite-watch` (they need a built Solid Vite plugin, as on every branch).
 
 Beside it: `compiler/test/js-host.mjs` 17 of 17; `proposals/check.mjs` with `--upstream` (the export of e650b851): 347
-verdicts over 72 documents, all as stated but one of upstream's own (`bugs/25`, the type pass on that export says
-`TS2322` where the document says it accepts: not looked into, and no mark of this branch); `examples/rx-std`: its
+verdicts over 72 documents, all as stated (one of upstream's own, `bugs/25`, the type pass on that export, said
+`TS2322` in a first run and what the document says in the second: not looked into, and no mark of this branch);
+`examples/rx-std`: its
 twelve packages build, 230 of 276 and 31 of 34 as on `rx-std`, `std/test/browser.mjs` 39 of 39; `examples/rx-ui-sdk`:
 44 of 44.
 
