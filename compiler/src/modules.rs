@@ -786,12 +786,12 @@ fn children_type(t: &str, decls: &[Decl], depth: usize) -> Option<(String, bool)
         return None;
     }
     for part in split_top(t, "&") {
-        let part = part.trim();
+        let part = part.js_trim();
         if let Some(body) = part.strip_prefix('{').and_then(|p| p.strip_suffix('}')) {
             for f in split_top(body, ",;\n") {
                 if let Some((k, ty)) = f.split_once(':') {
                     if !k.is_empty() && field_name(k) == "children" {
-                        return Some((ty.trim().to_string(), k.trim().ends_with('?')));
+                        return Some((ty.js_trim().to_string(), k.js_trim().ends_with('?')));
                     }
                 }
             }
@@ -801,7 +801,7 @@ fn children_type(t: &str, decls: &[Decl], depth: usize) -> Option<(String, bool)
         let Some(text) = decls.iter().find_map(|d| match d { Decl::TypeDecl { name, text, .. } if *name == n => Some(text), _ => None }) else { continue };
         let text = text.trim_start_matches("export").trim_start();
         let body = if text.starts_with("interface") { text.find('{').map(|i| &text[i..]) } else { text.find('=').map(|i| &text[i + 1..]) };
-        if let Some(r) = body.and_then(|b| children_type(b.trim().trim_end_matches(';'), decls, depth + 1)) {
+        if let Some(r) = body.and_then(|b| children_type(b.js_trim().trim_end_matches(';'), decls, depth + 1)) {
             return Some(r);
         }
     }
@@ -809,16 +809,16 @@ fn children_type(t: &str, decls: &[Decl], depth: usize) -> Option<(String, bool)
 }
 /// `(s: T) => View`, `() => View`.
 fn view_type(t: &str) -> Option<Option<String>> {
-    let t = t.trim();
+    let t = t.js_trim();
     let end = t.starts_with('(').then(|| crate::parse::closes(t, 0)).flatten()?;
-    if t[end..].trim_start().strip_prefix("=>").map(str::trim) != Some("View") {
+    if t[end..].js_trim().strip_prefix("=>").map(|r| r.js_trim()) != Some("View") {
         return None;
     }
-    let ps: Vec<String> = split_top(&t[1..end - 1], ",").into_iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+    let ps: Vec<String> = split_top(&t[1..end - 1], ",").into_iter().map(|p| p.js_trim().to_string()).filter(|p| !p.is_empty()).collect();
     match &ps[..] {
         [] => Some(None),
         [p] => p.split_once(':').and_then(|(n, ty)| {
-            let (n, ty) = (n.trim_end(), ty.trim());
+            let (n, ty) = (n.js_trim(), ty.js_trim());
             let name = n.bytes().next().is_some_and(|b| !b.is_ascii_digit()) && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
             (name && !ty.is_empty()).then(|| Some(ty.to_string()))
         }),
