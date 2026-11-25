@@ -18,7 +18,7 @@ symlinkSync(plugin, path.join(ws, "node_modules/@solidjs/vite-plugin"), "dir");
 for (const d of ["vite", "@solidjs/compiler", "solid-js"]) { const from = path.resolve(plugin, "../..", d); if (existsSync(from) && !existsSync(path.join(ws, "node_modules", d))) symlinkSync(from, path.join(ws, "node_modules", d), "dir"); }
 writeFileSync(path.join(ws, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "nodenext", moduleResolution: "nodenext", strict: true, noEmit: true, skipLibCheck: true, types: [] }, include: ["*.ts", "*.mts"] }));
 writeFileSync(path.join(ws, "package.json"), JSON.stringify({ name: "fixture", type: "module" }));
-const tsc = path.resolve(pkg, "../ref/node_modules/typescript/bin/tsc");
+const tsc = path.resolve(pkg, "../tooling/rx-language-server/node_modules/tsrs/bin/tsrs");
 const run = text => { writeFileSync(path.join(ws, "config.ts"), text); try { execFileSync(process.execPath, [tsc, "-p", ws], { encoding: "utf8" }); return ""; } catch (e) { return (e.stdout || "") + (e.stderr || "") || String(e); } };
 
 let fail = 0;

@@ -21,7 +21,6 @@
   },
   "devDependencies": {
     "rolldown": "1.2.19",
-    "playwright": "1.63.0",
-    "typescript": "^6.0.3"
+    "playwright": "1.63.0"
   }
 }

@@ -63,6 +63,6 @@
     "@solidjs/web": "2.0.3",
     "rolldown": "1.2.19",
     "solid-js": "2.0.3",
-    "typescript": "^6.0.3"
+    "tsrs": "7.1.0-beta.tsrs5"
   }
 }

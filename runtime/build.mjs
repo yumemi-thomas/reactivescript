@@ -17,7 +17,7 @@ for (const [from, to] of [["rt-web.ts", "web"], ["rt-server.ts", "server"]]) {
 }
 // declarations, unchecked: the runtime uses Solid internals its types leave out (createErrorBoundary, sharedConfig,
 // runInServerComponentScope); Solid's types resolve from this package's node_modules
-const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc");
+const tsc = path.join(path.dirname(createRequire(import.meta.url).resolve("tsrs/package.json")), "bin/tsrs");
 const config = path.join(here, ".tsconfig.build.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { declaration: true, emitDeclarationOnly: true, outDir: "dist/types", rootDir: src, module: "nodenext", moduleResolution: "nodenext", target: "es2022", skipLibCheck: true, allowImportingTsExtensions: true, noCheck: true, paths: { "*": ["./node_modules/*"] } },
