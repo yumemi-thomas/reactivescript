@@ -14,7 +14,8 @@ fs.rmSync(ws, { recursive: true, force: true });
 fs.mkdirSync(path.join(ws, "node_modules/kit"), { recursive: true });
 for (const d of fs.readdirSync(path.join(repo, "ref/node_modules"))) if (!d.startsWith(".")) fs.symlinkSync(path.join(repo, "ref/node_modules", d), path.join(ws, "node_modules", d), "dir");
 fs.writeFileSync(path.join(ws, "package.json"), '{"type":"module"}');
-fs.writeFileSync(path.join(ws, "node_modules/kit/package.json"), JSON.stringify({ name: "kit", version: "1.0.0", type: "module", exports: { ".": { types: "./index.d.ts", default: "./index.cjs" } } }));
+fs.writeFileSync(path.join(ws, "node_modules/kit/package.json"), JSON.stringify({ name: "kit", version: "1.0.0", type: "module", exports: { ".": { types: "./index.d.ts", default: "./index.js" }, "./cjs": { types: "./index.d.ts", default: "./index.cjs" } } }));
+fs.writeFileSync(path.join(ws, "node_modules/kit/index.js"), "export const mystery = x => x.unknown();\n");
 fs.writeFileSync(path.join(ws, "node_modules/kit/index.cjs"), "exports.mystery = x => x;\n");
 fs.writeFileSync(path.join(ws, "node_modules/kit/index.d.ts"), "export declare function mystery(x: any): any;\n");
 let pass = 0, fail = 0;
@@ -32,8 +33,16 @@ console.log("a package: a word holds under every host that can load it, and a ho
   });
   ok("the same under each host, and no data: pure; pure in the browser's build and not in the server's: not", pure("two", "same", "differs") === "true,false", pure("two", "same", "differs"));
   ok("an export through `export *` and a renaming `export { … } from` is followed", pure("two", "half", "renamed") === "true,true");
-  ok("a subpath; a call into a package with no ES module is code that is not read", pure("two/one", "alone", "viaOther") === "true,false");
-  ok("a package with no ES module has no words", /no ES module/.test(pure("kit", "mystery")));
+  ok("a subpath; a call of what nobody here knows is code that is not read", pure("two/one", "alone", "viaOther") === "true,false");
+  ok("a package with no ES module has no words", /no ES module/.test(pure("kit/cjs", "mystery")));
+  put("loadscjs", { exports: { ".": { types: "./index.d.ts", default: "./index.js" } } }, { "index.d.ts": d, "index.js": 'import "kit/cjs";\nexport const twice = n => n * 2;\n' });
+  ok("…nor has one that loads it: a file that is not read may change a built-in as it loads", /it loads kit\/cjs, which is not read/.test(pure("loadscjs", "twice")), pure("loadscjs", "twice"));
+  put("patcher", { exports: { ".": { types: "./index.d.ts", default: "./index.js" } } }, { "index.d.ts": d, "patch.js": "const put = (o, k, v) => { o[k] = v; };\nput(Array.prototype, \"map\", () => []);\n", "index.js": 'import "./patch.js";\nexport const twice = n => n * 2;\n' });
+  ok("a package a file of which changes a built-in has no words", /replaces? a part of a built-in/.test(pure("patcher", "twice")), pure("patcher", "twice"));
+  put("worker", { exports: { ".": { types: "./index.d.ts", worker: "./worker.js", default: "./index.js" } } }, { "index.d.ts": d, "worker.js": "export const twice = n => { globalThis.x = n; };\nexport const half = n => { n / 2; };\n", "index.js": "export const twice = n => { n * 2; };\nexport const half = n => { n / 2; };\n" });
+  ok("a condition the package asks about (`worker`) is read too", pure("worker", "twice", "half") === "false,true", pure("worker", "twice", "half"));
+  put("workercjs", { exports: { ".": { types: "./index.d.ts", deno: "./deno.cjs", default: "./index.js" } } }, { "index.d.ts": d, "deno.cjs": "exports.twice = n => n;", "index.js": "export const twice = n => n * 2;\n" });
+  ok("…and where it loads what is not read, there are no words", /under the conditions deno it loads other files/.test(pure("workercjs", "twice")), pure("workercjs", "twice"));
   put("withsource", { exports: { ".": { types: "./index.d.ts", solid: "./src.jsx", default: "./index.js" } } }, { "index.d.ts": d, "src.jsx": "export const twice = n => n * 2;\nexport const half = n => n / 2;\n", "index.js": "export const twice = n => { globalThis.x = n; };\nexport const half = n => n / 2;\n" });
   ok("the `solid` condition's source and the other build must each show it; two builds that answer data show neither", pure("withsource", "twice", "half") === "false,false", pure("withsource", "twice", "half"));
   put("field", { main: "./main.cjs", module: "./index.js", types: "./index.d.ts", type: undefined }, { "index.d.ts": d, "main.cjs": "exports.twice = n => n;", "index.js": "export const twice = n => n * 2;\n" });
@@ -56,6 +65,8 @@ fs.writeFileSync(path.join(ws, "api.js"), [
   "export function moveItem(list, from, to) { const [x] = list.splice(from, 1); list.splice(to, 0, x); }",
   "export function total(list) { let n = 0; for (const x of list) n += x; return n; }",
   "export function log(list) { console.log(list); }",
+  "export const adder = a => ({ add: b => a + b, of: [a] });",
+  "export const ticking = () => { const o = { n: 0 }; setTimeout(() => { o.n = 1; }); return o; };",
   "export const createCounter = start => { let n = start; return [() => n, () => { n++; }]; };",
   "export const fmt = (n, unit = \"\") => `${n}${unit}`;",
   "export function sub(a, b) { (b ?? a)(); }",
@@ -71,6 +82,8 @@ fs.writeFileSync(path.join(ws, "api.d.ts"), [
   "export declare function moveItem<T>(list: T[], from: number, to: number): void;",
   "export declare function total(list: number[]): number;",
   "export declare function log(list: number[]): void;",
+  "export declare function adder(a: number): { add: (b: number) => number; of: number[] };",
+  "export declare function ticking(): { n: number };",
   "export declare function createCounter(start: number): [() => number, () => void];",
   "export declare function fmt(n: number): string;",
   "export declare function fmt(n: number, unit: string): string;",
@@ -84,28 +97,30 @@ const draft = fs.existsSync(path.join(ws, "api.d.rx")) ? fs.readFileSync(path.jo
 if (process.env.VERBOSE) console.log(draft, r.stderr);
 const rowOf = n => draft.split("\n").find(l => new RegExp(`^export (?:pure )?fn ${n}\\b`).test(l)) ?? "";
 const above = n => { const ls = draft.split("\n"); const i = ls.findIndex(l => new RegExp(`^export (?:pure )?fn ${n}\\b`).test(l)); return i > 0 ? ls[i - 1] : ""; };
-ok("a loader that only computes and waits: `pure`, and what it rejects with", rowOf("fetchPerson") === "export pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)", rowOf("fetchPerson") + r.stderr);
+ok("a loader that only computes and waits, and throws a class any importer may change: no `pure`, and no `rejects` (none is written)", rowOf("fetchPerson") === "export fn fetchPerson(id: string): Promise<{ name: string }>", rowOf("fetchPerson") + r.stderr);
 ok("…with no line above it (MO-8w): which words were read is said once, at the head of the draft, and again by --audit and rx-verify from the code", !/\/\/@ inferred/.test(draft), above("fetchPerson"));
-ok("…and neither question is asked", !/TODO fetchPerson/.test(draft));
+ok("…and both are asked", (draft.match(/TODO fetchPerson/g) ?? []).length === 2, draft);
 ok("one that writes and fetches is io, and its question stays", rowOf("savePerson") === "export fn savePerson(id: string, name: string): Promise<Response>" && /TODO savePerson: io as drafted, .*\n\/\/ TODO savePerson: its promise rejects with Error as far as/.test(draft), rowOf("savePerson"));
 ok("a callback given to a listener: `handler`", rowOf("onKey") === "export fn onKey(key: string, run: handler () => void): () => void", rowOf("onKey"));
 ok("a callback called while the call runs: no `handler`; one that answers nothing is run for what it does: no `pure`", rowOf("each") === "export fn each(list: number[], visit: (n: number) => void): void", rowOf("each"));
 ok("a listener's callback: `handler`, beside one the call runs (what that one does is the caller's)", rowOf("watch") === "export fn watch(opts: { onStart: () => void; onChange: handler (n: number) => void }): void", rowOf("watch"));
 ok("…and nothing is asked: a closure given to an io fn may write already", !/TODO watch/.test(draft), draft.split("\n").filter(l => /TODO watch/.test(l)).join("\n"));
-ok("a parameter changed in place: `draft`, and no question", rowOf("moveItem") === "export fn moveItem<T>(draft list: T[], from: number, to: number): void" && !/TODO moveItem/.test(draft), rowOf("moveItem"));
+ok("a parameter changed in place: `draft` is asked, not written", rowOf("moveItem") === "export fn moveItem<T>(list: T[], from: number, to: number): void" && /TODO moveItem: .*`draft list`/.test(draft), rowOf("moveItem") + draft);
 ok("a parameter only read: `pure`, no `draft`", rowOf("total") === "export pure fn total(list: number[]): number", rowOf("total"));
 ok("a parameter never changed, in a fn that answers nothing: the question is not asked", rowOf("log") === "export fn log(list: number[]): void" && !/TODO log/.test(draft), draft.split("\n").filter(l => /TODO log/.test(l)).join("\n"));
-ok("a primitive by its name that only computes: `pure`, and the name's question is not asked", /^export pure fn createCounter\(/.test(rowOf("createCounter")) && !/TODO createCounter/.test(draft), rowOf("createCounter"));
-ok("the draft says how many words were read from the code", /^\/\/ Read from the code that runs \(MO-8v\): 4 pure, 2 handler, 1 rejects, 1 draft/m.test(draft), draft.split("\n")[1]);
+ok("a fn that answers functions which keep state: not `pure`, since a view could call them", /^export fn createCounter\(/.test(rowOf("createCounter")) && /createCounter: pure not proven — a function it answers \(0\) is not shown to only compute: n is kept between calls of it and written/.test(r.stderr), rowOf("createCounter") + r.stderr);
+ok("…one whose functions only compute is", rowOf("adder") === "export pure fn adder(a: number): { add: (b: number) => number; of: number[] }", rowOf("adder"));
+ok("…and one whose answer a timer changes is not", /^export fn ticking\(/.test(rowOf("ticking")) && /ticking: pure not proven — what it answers may be changed later/.test(r.stderr), rowOf("ticking") + r.stderr);
+ok("the draft says how many words were read from the code, and what was read", /^\/\/ Read from the code that runs \(MO-8v\): 3 pure, 2 handler —/m.test(draft) && /^\/\/ Read as it is loaded by `import`, under Node, and under Vite's .*What `require` loads is not read\.$/m.test(draft), draft.split("\n").slice(0, 4).join("\n"));
 ok("several signatures that are one row to the checker: a note for --explain, not a question", !/TODO fmt/.test(draft) && /rx-declare: fmt: 2 signatures in the library's types/.test(r.stderr), draft + r.stderr);
 ok("…and a question where they differ in what the checker reads (a callback first in one, second in the other)", /TODO sub: one of 2 signatures/.test(draft), draft);
-ok("--why: each word proven with what shows it", /fetchPerson: pure proven/.test(r.stderr) && /onKey: handler\(run\) proven — .*\[api\.js:6\]/.test(r.stderr), r.stderr);
+ok("--why: each word proven with what shows it", /total: pure proven/.test(r.stderr) && /onKey: handler\(run\) proven — .*\[api\.js:6\]/.test(r.stderr), r.stderr);
 ok("…and each refused with the first thing in the way, and its place", /savePerson: pure not proven — .*saves.*\[api\.js:\d\]/.test(r.stderr) && /each: handler\(visit\) not proven — it is handed to code that is not followed \[api\.js:7\]/.test(r.stderr), r.stderr);
 {
   const plain = declare("./api.js", "--no-infer");
   ok("--no-infer: the draft from the types alone, every question asked", !/\/\/@ inferred|^export pure fn|: handler \(|rejects\(N|draft list:/m.test(plain.stdout) && /TODO fetchPerson: its promise rejects/.test(plain.stdout) && /TODO total: io as drafted, refused in a view or an equation/.test(plain.stdout), plain.stdout);
   ok("the same module is drafted to the same bytes, from a process of its own", declare("./api.js").stdout === draft && declare("./api.js", "--no-infer").stdout === plain.stdout, draft);
-  fs.writeFileSync(path.join(ws, "ask.js"), "import { isServer } from \"solid-js\";\nimport { mystery } from \"kit\";\nexport function stamp(n) { return n + Date.now(); }\nexport function title(n) { return document.title + n; }\nexport function unsure(n) { return mystery(n); }\nexport function where(n) { return isServer ? 1 : n; }\nexport function acts(n) { mystery(n); }\n");
+  fs.writeFileSync(path.join(ws, "ask.js"), "import { isServer } from \"@solidjs/web\";\nimport { mystery } from \"kit\";\nexport function stamp(n) { return n + Date.now(); }\nexport function title(n) { return document.title + n; }\nexport function unsure(n) { return mystery(n); }\nexport function where(n) { return isServer ? 1 : n; }\nexport function acts(n) { mystery(n); }\n");
   fs.writeFileSync(path.join(ws, "ask.d.ts"), ["stamp", "title", "unsure", "where"].map(n => `export declare function ${n}(n: number): number;\n`).join("") + "export declare function acts(n: number): void;\n");
   const asked = [...declare("./ask.js").stdout.matchAll(/^\/\/ TODO (\w+): io as drafted/gm)].map(m => m[1]).join();
   ok("`pure` is asked where the reading stops, not where an effect is shown (the clock, the environment) nor of a fn that answers nothing", asked === "unsure,where", asked);
@@ -201,10 +216,10 @@ console.log("rx-verify runs each word the code proves: an observation against it
   fs.writeFileSync(path.join(app, "twins.d.ts"), ["export declare function copies(list: number[], x: number): number[];", "export declare function maps(rows: { a?: string }[], key: \"a\"): { a?: string; label: string }[];", "export declare function constantTable(id: number): { name: string } | undefined;", "export declare function listener(el: EventTarget, cb: (e: Event) => void): () => void;", "export declare function timer(cb: (ms: number) => void, ms: number): () => void;", "export declare class NotFound extends Error {}", "export declare class Stale extends Error {}", "export declare function twoClasses(id: string): Promise<string>;", ""].join("\n"));
   const d = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./twins.js", "--out", "twins.d.rx"], { cwd: app, encoding: "utf8", env: { ...process.env, RX_DECLARE_INFER: "" } });
   const twins = fs.existsSync(path.join(app, "twins.d.rx")) ? fs.readFileSync(path.join(app, "twins.d.rx"), "utf8") : d.stderr;
-  ok("the twins' draft has its words: 3 pure, 2 handler, 1 rejects", /3 pure, 2 handler, 1 rejects/.test(twins), twins);
+  ok("the twins' draft has its words: 2 pure, 1 handler (a list read under a name that is computed may be the platform's)", /2 pure, 1 handler —/.test(twins), twins);
   fs.writeFileSync(path.join(app, "twins.probe.mjs"), ["let last;", "export const probes = {", "  copies: { args: () => [[3, 1], 2] }, maps: { args: () => [[{ a: \" x \" }, {}], \"a\"] }, constantTable: { args: () => [1] },", "  listener: { args: () => [(last = new EventTarget()), () => {}], act: () => last.dispatchEvent(new Event(\"click\")) },", "  timer: { args: () => [() => {}, 1] },", "  twoClasses: { args: () => [\"7\"], fail: () => [\"0\"] },", "};", ""].join("\n"));
   const tv = spawnSync(process.execPath, ["--conditions=browser", path.join(__dirname, "../bin/verify.js"), "twins.d.rx"], { cwd: app, encoding: "utf8" });
-  ok("…and run, none is contradicted: every probed word holds", tv.status === 0 && /copies: pure is read from the code \(its own code only computes[^)]*\), and no run contradicts it/.test(tv.stdout) && /timer: callback cb holds/.test(tv.stdout) && /twoClasses: under the probe's failing arguments it rejects with Stale, as its row says/.test(tv.stdout), tv.stdout + tv.stderr);
+  ok("…and run, none is contradicted: every probed word holds", tv.status === 0 && /copies: pure is read from the code \(its own code only computes[^)]*\), and no run contradicts it/.test(tv.stdout) && /timer: callback cb holds/.test(tv.stdout), tv.stdout + tv.stderr);
 }
 
 // ---- `ref` on a part only shaped as an accessor (`() => T`): where the code shows a reader, and nowhere else ----
@@ -220,6 +235,7 @@ console.log("a function of nothing is `ref` where the code shows that calling it
     reassigned: "let [g] = createSignal(x); g = () => Date.now(); return g;", secondPart: "const [, set] = createSignal(x); return { v: set };", listed: "const ls = []; return () => ls.push(x);", lookalike: "const createMemo2 = f => f; let n = 0; return createMemo2(() => n++);", asyncs: "return async () => 1;", another: "return other;", viaHelper: "const [g, set] = createSignal(x); const bump = () => { set(1); }; return () => { bump(); return g(); };", viaRecord: "const [g, set] = createSignal(x); const api = { bump: () => set(1) }; return () => { api.bump(); return g(); };", viaValue: "const [g, set] = createSignal(x); return () => { [1].forEach(set); return g(); };", viaPair: "const s = createSignal(x); return () => { s[1](2); return s[0](); };", store: "const [st, setSt] = createStore({ n: 0 }); return () => { setSt(d => { d.n++; }); return st.n; };",
   };
   const body = { ...READS, ...NOT };
+  fs.writeFileSync(path.join(app, "elsewhere.js"), "export const other = x => x;\n");
   fs.writeFileSync(path.join(app, "readers.js"), `import { createMemo, createSignal, createStore } from "solid-js";\nimport { other } from "./elsewhere.js";\n${Object.entries(body).map(([n, b]) => `export function ${n}(x) { ${b} }`).join("\n")}\n`);
   const type = (n, b) => /\{ v: /.test(b) ? "{ v: () => number }" : n === "tuple" ? "[() => number, (v: number) => void]" : "() => number";
   fs.writeFileSync(path.join(app, "readers.d.ts"), Object.entries(body).map(([n, b]) => `export declare function ${n}(x: any): ${type(n, b)};`).join("\n") + "\n");

@@ -12,7 +12,8 @@ fs.rmSync(ws, { recursive: true, force: true });
 fs.mkdirSync(path.join(ws, "node_modules/kit"), { recursive: true });
 for (const d of fs.readdirSync(path.join(repo, "ref/node_modules"))) if (!d.startsWith(".")) fs.symlinkSync(path.join(repo, "ref/node_modules", d), path.join(ws, "node_modules", d), "dir");
 fs.writeFileSync(path.join(ws, "package.json"), JSON.stringify({ type: "module" }));
-fs.writeFileSync(path.join(ws, "node_modules/kit/package.json"), JSON.stringify({ name: "kit", version: "1.0.0", type: "module", exports: { ".": { types: "./index.d.ts", default: "./index.cjs" } } }));
+fs.writeFileSync(path.join(ws, "node_modules/kit/package.json"), JSON.stringify({ name: "kit", version: "1.0.0", type: "module", exports: { ".": { types: "./index.d.ts", default: "./index.js" }, "./cjs": { types: "./index.d.ts", default: "./index.cjs" } } }));
+fs.writeFileSync(path.join(ws, "node_modules/kit/index.js"), "export const mystery = x => x.unknown();\n");
 fs.writeFileSync(path.join(ws, "node_modules/kit/index.cjs"), "exports.mystery = x => x;\n");
 fs.writeFileSync(path.join(ws, "node_modules/kit/index.d.ts"), "export declare function mystery(x: any): any;\n");
 let pass = 0, fail = 0;
@@ -58,14 +59,14 @@ ok("a part that reads it on every path, and whose prop is an element's event: us
 ok("a hook that reads it: uses(tabs), and its question is not asked", /^export fn useTabs\(\): .* uses\(tabs\)$/.test(rowOf("useTabs")) && !/TODO useTabs: .*uses/.test(draft), rowOf("useTabs"));
 ok("a hook that reads a context no row provides: no word — it would refuse every program — and one question, by what the code shows", !/uses\(/.test(rowOf("useLoose")) && /TODO useLoose: useLoose reads Loose, and a call with no provider above it is accepted\. `uses\(<context>\)`.*no component here is shown to provide it \(tabs\.jsx:\d+\)/.test(draft) && /useLoose: uses not proven — it reads Loose on every path/.test(r.stderr), rowOf("useLoose") + r.stderr + draft);
 ok("a hook that reads none: no word, and no question", !/uses\(/.test(rowOf("useNothing")) && !/TODO useNothing: .*uses/.test(draft), rowOf("useNothing"));
-ok("a hook that reads one on a path only: no word, and no question — the word says every call", !/uses\(/.test(rowOf("useSometimes")) && !/TODO useSometimes: .*uses/.test(draft), rowOf("useSometimes"));
+ok("a hook that reads one on a path only: no word, and no question — the word says every call", !/uses\(/.test(rowOf("useSometimes")) && !/TODO useSometimes: .*uses\(/.test(draft), rowOf("useSometimes"));
 ok("a provider around something other than its children: no provides", /^export component Sidebar\(/.test(rowOf("Sidebar")) && !/provides\(/.test(rowOf("Sidebar")), rowOf("Sidebar"));
 ok("a component named …Provider that renders none: the question is answered, no", !/TODO PlainProvider/.test(draft) && !/provides\(/.test(rowOf("PlainProvider")), draft);
 ok("the draft says once which words it read, and no row has a line above it", /^\/\/ Read from the code that runs \(MO-8v\): .*2 uses, 1 provides/m.test(draft) && !/\/\/@ inferred/.test(draft), draft.split("\n")[1]);
 {
   const said = JSON.parse(fs.readFileSync(path.join(ws, "tabs.causes.json"), "utf8")).inferred ?? {};
   ok("--causes says which, export by export (what the benchmark counts)", JSON.stringify(said.Tabs) === JSON.stringify(["provides(tabs)"]) && JSON.stringify(said.Tab) === JSON.stringify(["handler(onSelect)", "uses(tabs)"]), JSON.stringify(said));
-  ok("--why says each: proven with what shows it, refused with the first thing in the way", /Tabs: provides\(tabs\) proven — everything it is given that may be a view/.test(r.stderr) && /Sidebar: provides not proven — what it answers is no provider whose children are read \[tabs\.jsx:\d+\]/.test(r.stderr), r.stderr);
+  ok("--why says each: proven with what shows it, refused with the first thing in the way", /Tabs: provides\(tabs\) proven — everything it is given that may be a view/.test(r.stderr) && /Sidebar: provides not proven — what it answers is no provider of a value that is shown to be one, whose children are read \[tabs\.jsx:\d+\]/.test(r.stderr), r.stderr);
 }
 
 // ---- a component a fn is given: rendered where the fn is called, or kept for a component of the library's ----
@@ -173,24 +174,24 @@ fs.writeFileSync(path.join(ws, "lib.d.rx"), [
   const is = (name, word, verdict, says) => ok(`${name}: ${word} is ${verdict}`, v(name, word).startsWith(`${verdict}:`) && (!says || says.test(v(name, word))), v(name, word));
   is("sortedCopy", "pure", "proven");
   is("sortedInPlace", "pure", "unproven", /it may change in place a list that is not its own \(\.sort\(\)\) \[lib\.js:7\]/);
-  is("loads", "pure", "unproven", /code that is not read: .*kit.*no ES module/);
+  is("loads", "pure", "unproven", /it calls \.unknown\(\)/);
   is("onLater", "handler(cb)", "proven");
   is("onNow", "handler(cb)", "unproven", /called while the call runs/);
   is("onUnknown", "handler(cb)", "unproven", /not followed/);
-  is("moves", "draft(list)", "proven");
+  is("moves", "draft(list)", "unproven", /is not read/);
   is("reads", "draft(list)", "unproven");
-  is("finds", "rejects(NotFound)", "proven");
-  is("findsOther", "rejects(NotFound)", "unproven", /it may throw Stale, which the row does not name/);
+  is("finds", "rejects(NotFound)", "unproven", /what it throws is not read/);
+  is("findsOther", "rejects(NotFound)", "unproven", /what it throws is not read/);
   is("useIt", "uses(it)", "proven");
   is("useNone", "uses(it)", "unproven", /no context is shown/);
   is("Gives", "provides(it)", "proven");
-  is("GivesBeside", "provides(it)", "unproven", /no provider whose children are read/);
+  is("GivesBeside", "provides(it)", "unproven", /no provider of a value that is shown to be one, whose children are read/);
   is("GivesAFunction", "provides(it)", "unproven");
   is("patches", "pure", "unproven", /an argument that is no data/);
   is("useOwnScope", "uses(scope)", "unproven", /no context is shown/);
   ok("rx-declare --audit answers: what it does not prove is unproven, not false", a.status === 0, String(a.status));
   const text = declare("--audit", "lib.d.rx").stdout;
-  ok("…and lists what is not proven, with what to check", /lib\.d\.rx:5: sortedInPlace: pure unproven — it may change/.test(text) && /lib\.d\.rx:6: loads: pure unproven — it uses code that is not read/.test(text) && /lib\.d\.rx: 9 words read from the code, 12 it does not show/.test(text), text);
+  ok("…and lists what is not proven, with what to check", /lib\.d\.rx:5: sortedInPlace: pure unproven — it may change/.test(text) && /lib\.d\.rx:6: loads: pure unproven — it calls \.unknown\(\)/.test(text) && /lib\.d\.rx: 5 words read from the code, 16 it does not show/.test(text), text);
 }
 
 // ---- rx-verify ----
@@ -202,7 +203,7 @@ console.log("rx-verify tells the words the code proves from the ones written by 
   ok("a word that is false is a mismatch where the probe runs it", /MISMATCH\s+sortedInPlace: declared pure, but when it is called it changes what it is given \(\[3,1,2\] to \[1,2,3\]\)/.test(said) && /MISMATCH\s+onNow: /.test(said) && v.status === 1, said.slice(0, 1500));
   ok("a `pure` the code proves is run against what the reading claims, with no mark in the file", /sortedCopy: pure is read from the code \(its own code only computes[^)]*\), and no run contradicts it/.test(said), said.split("\n").filter(l => /sortedCopy/.test(l)).join("\n"));
   ok("…a `handler` and a `rejects(E)` too", /onLater: callback cb holds/.test(said) && /finds: under the probe's failing arguments it rejects with NotFound, as its row says/.test(said), said.split("\n").filter(l => /onLater|finds:/.test(l)).join("\n"));
-  ok("…and the file's words are counted", /words: 9 read from the code .* 12 it does not show/.test(said), said.split("\n").filter(l => /words:/.test(l)).join("\n"));
+  ok("…and the file's words are counted", /words: 5 read from the code .* 16 it does not show/.test(said), said.split("\n").filter(l => /words:/.test(l)).join("\n"));
   // (a module that ships JSX is run compiled, by the project's Solid compiler — a native addon: where it is not built,
   // the draft is not run here, and says so)
   let compiles = false; try { compiles = typeof require(require.resolve("@solidjs/compiler", { paths: [ws] })).transform("const a = <p>x</p>;", { filename: "a.jsx" }).code === "string"; } catch { compiles = false; }
