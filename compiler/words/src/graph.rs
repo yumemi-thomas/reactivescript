@@ -46,6 +46,8 @@ pub struct Module<'a> {
     pub with_arguments: HashSet<NodeId>,
     returns: HashMap<NodeId, Vec<NodeId>>,
     lines: Vec<u32>,
+    /// By symbol: one declaration, and no write but it.
+    known: Vec<bool>,
 }
 
 /// The name at the root of a chain of members, and the first property read off it.
@@ -74,7 +76,8 @@ impl<'a> Module<'a> {
         let program: &'a Program<'a> = alloc.alloc(ret.program);
         let sem = SemanticBuilder::new().with_build_nodes(true).build(program).semantic;
         let (scoping, nodes) = sem.into_scoping_and_nodes();
-        let mut m = Module { path: path.to_string(), source, program, scoping, nodes, imports: HashMap::new(), exports: HashMap::new(), stars: vec![], handed_out: Default::default(), script: false, banned: None, patch: Default::default(), waits: vec![], with_this: HashSet::new(), with_arguments: HashSet::new(), returns: HashMap::new(), lines: source.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| i as u32).collect() };
+        let mut m = Module { path: path.to_string(), source, program, scoping, nodes, imports: HashMap::new(), exports: HashMap::new(), stars: vec![], handed_out: Default::default(), script: false, banned: None, patch: Default::default(), waits: vec![], with_this: HashSet::new(), with_arguments: HashSet::new(), returns: HashMap::new(), lines: source.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| i as u32).collect(), known: vec![] };
+        m.known = (0..m.scoping.symbols_len()).map(|i| { let s = SymbolId::from_usize(i); m.scoping.symbol_redeclarations(s).is_empty() && !m.scoping.symbol_is_mutated(s) }).collect();
         let mut esm = false;
         for s in &program.body {
             match s {
@@ -191,7 +194,7 @@ impl<'a> Module<'a> {
     pub fn symbol(&self, i: &IdentifierReference) -> Option<SymbolId> { i.reference_id.get().and_then(|r| self.scoping.get_reference(r).symbol_id()) }
     /// A name with one declaration and no write but it: it stands for its first value.
     pub fn known_symbol(&self, s: SymbolId) -> bool {
-        self.scoping.symbol_redeclarations(s).is_empty() && !self.scoping.symbol_is_mutated(s)
+        self.known.get(s.index()).copied().unwrap_or(false)
     }
     /// A name of the global scope, declared nowhere in the module.
     pub fn is_global(&self, i: &IdentifierReference, name: &str) -> bool { i.name == name && self.symbol(i).is_none() && self.banned.is_none() }

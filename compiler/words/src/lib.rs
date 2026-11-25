@@ -110,7 +110,11 @@ pub fn request(params: &Value, read: &Read) -> Value {
     for n in params["contexts"].as_array().into_iter().flatten().filter_map(|n| n.as_str()) {
         if let Origin::Symbol(m, s) = mods.exported(l.host, l.hi, l.entry, n, &mut vec![]) { ctx.insert(n.into(), json!(context_key(&mods, m, s))); }
     }
-    json!({ "exports": out, "contexts": ctx, "files": loaded.iter().map(|l| mods.get(l.entry).path.clone()).collect::<BTreeSet<_>>() })
+    // the conditions the package's maps ask about, besides those the nine hosts ask with: each was read too
+    let mut asked = BTreeSet::new();
+    for l in &loaded { for i in &l.files { if let Some((_, pj)) = mods.res.borrow_mut().package_of(resolve::dirname(&mods.get(*i).path)) { resolve::conditions(&pj, &mut asked); } } }
+    asked.retain(|c| c != "default" && c != "import" && c != "require" && !c.starts_with("types") && !resolve::READ.contains(&c.as_str()));
+    json!({ "exports": out, "conditions": asked, "contexts": ctx, "files": loaded.iter().map(|l| mods.get(l.entry).path.clone()).collect::<BTreeSet<_>>() })
 }
 
 fn context_key(mods: &Modules, m: usize, s: oxc_syntax::symbol::SymbolId) -> String { format!("{}#{}", mods.get(m).path, mods.get(m).scoping.symbol_name(s)) }

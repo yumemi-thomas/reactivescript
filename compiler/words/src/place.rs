@@ -25,12 +25,13 @@ pub struct Place<'m, 'a, 'r> {
     pub mods: &'m Modules<'a, 'r>, pub h: Host, pub hi: usize, pub entry: usize, pub types: &'m Types,
     pub steps: Cell<u32>,
     pub spent: Cell<u32>,
+    pub importers: std::cell::OnceCell<super::patch::Importers>,
 }
 
 type Body<'m, 'a> = Result<&'m [Statement<'a>], &'m Expression<'a>>;
 
 impl<'m, 'a, 'r> Place<'m, 'a, 'r> {
-    pub fn new(mods: &'m Modules<'a, 'r>, h: Host, hi: usize, entry: usize, types: &'m Types) -> Self { Place { mods, h, hi, entry, types, steps: Cell::new(0), spent: Cell::new(0) } }
+    pub fn new(mods: &'m Modules<'a, 'r>, h: Host, hi: usize, entry: usize, types: &'m Types) -> Self { Place { mods, h, hi, entry, types, steps: Cell::new(0), spent: Cell::new(0), importers: Default::default() } }
     pub fn m(&self, mi: usize) -> &'m Module<'a> { self.mods.get(mi) }
     pub fn line(&self, m: usize, at: u32) -> (String, usize) { let x = self.m(m); (x.path.clone(), x.line(at)) }
 

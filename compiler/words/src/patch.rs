@@ -7,7 +7,7 @@ use super::graph::{Module, Origin};
 use oxc_ast::{ast::*, AstKind};
 use oxc_semantic::NodeId;
 use oxc_span::GetSpan;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Default, Clone, Debug)]
 pub struct Patch {
@@ -48,7 +48,7 @@ fn rooted(m: &Module, e: &Expression) -> bool {
             "__proto__" | "constructor" => true,
             // (of a class or a function written there, it is the code's own)
             "prototype" => !own_class(m, &p.object),
-            n => rooted(m, &p.object) || matches!(unwrap(&p.object), Expression::Identifier(i) if holder(m, i) && (BUILTINS.contains(&n) || HOLDERS.contains(&n))),
+            n => rooted(m, &p.object) || (BUILTINS.contains(&n) && !own(m, &p.object, 0)) || matches!(unwrap(&p.object), Expression::Identifier(i) if holder(m, i) && (BUILTINS.contains(&n) || HOLDERS.contains(&n))),
         },
         Expression::ComputedMemberExpression(p) => rooted(m, &p.object) || matches!(unwrap(&p.object), Expression::Identifier(i) if holder(m, i)) || matches!(unwrap(&p.expression), Expression::StringLiteral(s) if matches!(s.value.as_str(), "__proto__" | "prototype" | "constructor")),
         Expression::CallExpression(c) => matches!(unwrap(&c.callee), Expression::StaticMemberExpression(p) if p.property.name == "getPrototypeOf"),
@@ -174,6 +174,8 @@ pub fn read(m: &Module) -> Patch {
                     if matches!(name, "__proto__" | "constructor") && !compared(m, id) && !(name == "constructor" && in_class(m, &x.object, id)) { p.stands.push((id, if name == "constructor" { MAKER } else { BUILTIN })); }
                     if name == "constructor" && makes_code(m, id) && !in_class(m, &x.object, id) { p.done = Some("it may make code of text (`constructor`)"); }
                     if matches!(name, "eval" | "Function") && matches!(unwrap(&x.object), Expression::Identifier(i) if holder(m, i)) { p.done = Some("it may make code of text"); }
+                    // (`const put = Object.assign`: a write, whatever it is given)
+                    if matches!(unwrap(&x.object), Expression::Identifier(i) if is_global(m, i) && matches!(i.name.as_str(), "Object" | "Reflect")) && !called(m, id) { if WRITERS.contains(&name) { p.may_write.get_or_insert(x.span.start); p.may_write_global.get_or_insert(x.span.start); } if name == "getPrototypeOf" { p.taken = true; } }
                     if BUILTINS.contains(&name) && matches!(unwrap(&x.object), Expression::Identifier(i) if holder(m, i)) && lets_go(m, id) { p.stands.push((id, BUILTIN)); }
                 }
             }
@@ -204,12 +206,14 @@ pub fn read(m: &Module) -> Patch {
                 }
                 if let Expression::Identifier(i) = unwrap(&c.callee) { if is_global(m, i) && matches!(i.name.as_str(), "setTimeout" | "setInterval") && matches!(arg(0).map(unwrap), Some(Expression::StringLiteral(_) | Expression::TemplateLiteral(_) | Expression::BinaryExpression(_))) { p.done = Some("it makes code of text (a timer's)"); } }
             }
-            AstKind::BindingProperty(b) => match static_key(&b.key, b.computed).as_deref() { Some("prototype" | "__proto__" | "constructor") => p.taken = true, _ => {} },
+            AstKind::BindingProperty(b) => match static_key(&b.key, b.computed).as_deref() { Some("prototype" | "__proto__" | "getPrototypeOf") => p.taken = true, Some("constructor") => p.done = Some("it may make code of text (`constructor`)"), Some(n) if WRITERS.contains(&n) => { p.may_write.get_or_insert(b.span.start); p.may_write_global.get_or_insert(b.span.start); } _ => {} },
             _ => {}
         }
     }
     p
 }
+const WRITERS: &[&str] = &["assign", "defineProperty", "defineProperties", "setPrototypeOf", "__defineGetter__", "__defineSetter__"];
+fn called(m: &Module, id: NodeId) -> bool { let o = m.outer(id); matches!(m.nodes.parent_kind(o), AstKind::CallExpression(c) if c.callee.span() == m.nodes.kind(o).span()) }
 fn written_builtin(m: &Module, object: &Expression, name: &str) -> bool {
     if matches!(unwrap(object), Expression::Identifier(i) if holder(m, i)) { return BUILTINS.contains(&name) || GLOBAL_FNS.contains(&name) || name == "__proto__"; }
     // (`new this.constructor()`, `this.constructor.n = …`: whatever it is)
@@ -351,11 +355,25 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
                 BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(mi, s, kind, files, seen)),
                 // (its members, read)
                 BindingPattern::ObjectPattern(x) if x.rest.is_none() && x.properties.iter().all(|q| static_key(&q.key, q.computed).is_some_and(|k| !matches!(k.as_str(), "prototype" | "__proto__" | "constructor") && !BUILTINS.contains(&k.as_str()) && !HOLDERS.contains(&k.as_str()))) => Goes::Stays,
+                // `const { Math: m } = globalThis`
+                BindingPattern::ObjectPattern(x) if global && x.rest.is_none() => {
+                    let mut out = Goes::Stays;
+                    for q in &x.properties {
+                        let to = match (static_key(&q.key, q.computed).as_deref(), &q.value) {
+                            (Some(k), BindingPattern::BindingIdentifier(b)) if BUILTINS.contains(&k) || HOLDERS.contains(&k) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(mi, s, if HOLDERS.contains(&k) { GLOBAL } else { BUILTIN }, files, seen)),
+                            (Some(k), _) if !BUILTINS.contains(&k) && !HOLDERS.contains(&k) => Goes::Stays,
+                            _ => Goes::Changed(mi, q.span.start),
+                        };
+                        match to { Goes::Stays => {} Goes::Changed(a, b) => return Goes::Changed(a, b), g => out = g }
+                    }
+                    out
+                }
                 _ => Goes::Away,
             },
             AstKind::AssignmentExpression(a) if a.right.span() == span => match &a.left { AssignmentTarget::AssignmentTargetIdentifier(i) => m.symbol(i).map_or(Goes::Away, |s| self.goes_name(mi, s, kind, files, seen)),
                 // (`P.prototype = Object.prototype`, as Solid's compiler writes the props it makes: nothing else names the prototype)
                 AssignmentTarget::StaticMemberExpression(p) if p.property.name == "prototype" && own_class(m, &p.object) => { let Expression::Identifier(i) = unwrap(&p.object) else { return Goes::Away }; let s = m.symbol(i); if s.is_some_and(|s| !m.handed_out.contains(&s) && m.references(s).iter().all(|r| *r == i.node_id.get() || matches!(m.nodes.parent_kind(m.outer(*r)), AstKind::NewExpression(n) if n.callee.span() == m.nodes.kind(m.outer(*r)).span()))) { Goes::Stays } else { Goes::Away } }
+                AssignmentTarget::ObjectAssignmentTarget(_) => Goes::Changed(mi, span.start),
                 _ => Goes::Away },
             AstKind::AssignmentPattern(a) => match &a.left { BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(mi, s, kind, files, seen)), _ => Goes::Away },
             AstKind::FormalParameter(a) => match &a.pattern { BindingPattern::BindingIdentifier(b) => b.symbol_id.get().map_or(Goes::Away, |s| self.goes_name(mi, s, kind, files, seen)), _ => Goes::Away },
@@ -401,8 +419,9 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
                     _ => None,
                 };
                 let Some(s) = name.filter(|s| m.known_symbol(*s)) else { return Goes::Away };
-                let mut out = Goes::Stays;
-                for (j, r) in self.uses_of(mi, s, files) {
+                let (uses, away) = self.uses_of(mi, s, files);
+                let mut out = if away { Goes::Away } else { Goes::Stays };
+                for (j, r) in uses {
                     let mj = self.m(j);
                     let ro = mj.outer(r);
                     match mj.nodes.parent_kind(ro) {
@@ -418,17 +437,41 @@ impl<'m, 'a, 'r> super::place::Place<'m, 'a, 'r> {
         }
     }
     fn goes_name(&self, mi: usize, s: oxc_syntax::symbol::SymbolId, kind: u8, files: &BTreeSet<usize>, seen: &mut BTreeSet<(usize, usize)>) -> Goes {
-        let mut out = Goes::Stays;
-        for (j, r) in self.uses_of(mi, s, files) { if self.m(j).scoping_write(r) { continue; } match self.goes(j, r, kind, files, seen) { Goes::Stays => {} Goes::Away => out = Goes::Away, Goes::AwayTo(k) => out = Goes::AwayTo(k), g => return g } }
+        let (uses, away) = self.uses_of(mi, s, files);
+        let mut out = if away { Goes::Away } else { Goes::Stays };
+        for (j, r) in uses { if self.m(j).scoping_write(r) { continue; } match self.goes(j, r, kind, files, seen) { Goes::Stays => {} Goes::Away => out = Goes::Away, Goes::AwayTo(k) => out = Goes::AwayTo(k), g => return g } }
         out
     }
-    fn uses_of(&self, mi: usize, s: oxc_syntax::symbol::SymbolId, files: &BTreeSet<usize>) -> Vec<(usize, NodeId)> {
+    /// Where a name of a module stands, in every file; whether it stands in more: a namespace that goes where it is not followed.
+    fn uses_of(&self, mi: usize, s: oxc_syntax::symbol::SymbolId, files: &BTreeSet<usize>) -> (Vec<(usize, NodeId)>, bool) {
         let mut uses: Vec<(usize, NodeId)> = self.m(mi).references(s).into_iter().map(|r| (mi, r)).collect();
+        let mut away = false;
         if self.m(mi).handed_out.contains(&s) {
-            for j in files { if *j == mi { continue; } let mj = self.m(*j); for y in mj.imports.keys() { if let Origin::Symbol(a, b) = self.mods.symbol(self.h, self.hi, *j, *y, &mut vec![]) { if a == mi && b == s { uses.extend(mj.references(*y).into_iter().map(|r| (*j, r))); } } } }
+            let imp = self.importers.get_or_init(|| {
+                let mut out = Importers::default();
+                for j in files { for y in self.m(*j).imports.keys() { match self.mods.symbol(self.h, self.hi, *j, *y, &mut vec![]) { Origin::Symbol(a, b) => out.names.entry((a, b)).or_default().push((*j, *y)), Origin::Ns(n) => out.spaces.push((*j, *y, n)), _ => {} } } }
+                out
+            });
+            for (j, y) in imp.names.get(&(mi, s)).into_iter().flatten() { if *j != mi { uses.extend(self.m(*j).references(*y).into_iter().map(|r| (*j, r))); } }
+            // (what a namespace hands out under a name)
+            let mut mine: HashMap<usize, Vec<String>> = HashMap::new();
+            for (j, y, n) in &imp.spaces {
+                let mj = self.m(*j);
+                let mine = mine.entry(*n).or_insert_with(|| if *n == mi || !self.m(*n).stars.is_empty() || self.m(*n).exports.values().any(|e| matches!(e, super::graph::Export::From(..) | super::graph::Export::Local(_))) { self.mods.every_name(self.h, self.hi, *n).unwrap_or_default().into_iter().filter(|x| matches!(self.mods.exported(self.h, self.hi, *n, x, &mut vec![]), Origin::Symbol(a, b) if a == mi && b == s)).collect() } else { vec![] });
+                if mine.is_empty() { continue; }
+                for r in mj.references(*y) {
+                    let o = mj.outer(r);
+                    let pid = mj.nodes.parent_id(o);
+                    match mj.nodes.kind(pid) { AstKind::StaticMemberExpression(p) => if mine.iter().any(|x| *x == p.property.name.as_str()) { uses.push((*j, pid)); }, AstKind::ComputedMemberExpression(p) if key_text(mj, &p.expression, 0).is_some() => if key_text(mj, &p.expression, 0).is_some_and(|k| mine.contains(&k)) { uses.push((*j, pid)); }, AstKind::CallExpression(_) | AstKind::VariableDeclarator(_) | AstKind::AssignmentExpression(_) => away |= !mj.handed_out.contains(y), _ => {} }
+                }
+            }
         }
-        uses
+        (uses, away)
     }
 }
 /// `AwayTo`: into a function of that module's, which is not followed.
 enum Goes { Stays, Away, AwayTo(usize), Changed(usize, u32) }
+
+/// Which names of which modules are a module's name, and which are namespaces, over a graph.
+#[derive(Default)]
+pub struct Importers { names: HashMap<(usize, oxc_syntax::symbol::SymbolId), Vec<(usize, oxc_syntax::symbol::SymbolId)>>, spaces: Vec<(usize, oxc_syntax::symbol::SymbolId, usize)> }

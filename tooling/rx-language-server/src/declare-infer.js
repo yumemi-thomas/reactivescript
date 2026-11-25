@@ -196,7 +196,8 @@ function apply(spec, from, lines, why, more = {}) {
   }
   if (ctxRows.length) { const at0 = out.findIndex(l => !l.startsWith("//") || /^\/\/ TODO /.test(l)); out.splice(at0 < 0 ? 0 : at0, 0, ...ctxRows); }
   const total = Object.values(count).reduce((a, b) => a + b, 0);
-  const head = total ? [`// Read from the code that runs (MO-8v): ${Object.entries(count).filter(([, n]) => n).map(([w, n]) => `${n} ${w}`).join(", ")} — read, not guessed. Which words, and how: \`rx-declare --why\`; \`rx-verify\` tells them from the words written by hand, and runs each.`] : [];
+  const head = total ? [`// Read from the code that runs (MO-8v): ${Object.entries(count).filter(([, n]) => n).map(([w, n]) => `${n} ${w}`).join(", ")} — read, not guessed. Which words, and how: \`rx-declare --why\`; \`rx-verify\` tells them from the words written by hand, and runs each.`,
+    `// Read as it is loaded by \`import\`, under Node, and under Vite's client and server builds, development and production, with the \`solid\` condition and without${r.conditions?.length ? `; and under ${r.conditions.map(c => `\`${c}\``).join(", ")}` : ""}. What \`require\` loads is not read.`] : [];
   return { lines: out, head, count, words, unread: total ? undefined : unread, facts, provided, at };
 }
 
