@@ -2189,6 +2189,8 @@ pub struct Checker<'a> {
     /// MO-10i: the closures being walked (ids, innermost last), and the last id given
     fn_stack: Vec<usize>,
     fn_seq: usize,
+    /// ST-5a (bug 42): the plain source whose seed is being walked, and the fn_stack's depth there
+    seed: Option<(String, usize)>,
     /// MO-10i: a draft path's updater (`d.n := v => v + 1`): applied where it is written, not a closure that runs later
     updaters: HashSet<*const Expr>,
     /// MO-10i: the draft callbacks being walked, innermost last (their `fn_stack` ids)
@@ -2679,6 +2681,7 @@ impl<'a> Checker<'a> {
             callback_fns: HashSet::new(),
             draft_fns: HashMap::new(),
             fn_stack: vec![],
+            seed: None,
             updaters: HashSet::new(),
             draft_cbs: vec![],
             ch_fns: HashSet::new(),
@@ -3161,6 +3164,9 @@ impl<'a> Checker<'a> {
                         self.err("DUPLICATE_DECLARATION", "E-7", format!("{} is declared twice in one block", name));
                     }
                     let contract = if ty.as_ref().is_some_and(|t| ROW_WORDS.is_match(t)) || *exported { Some(contract_of(ty.as_deref())) } else { None };
+                    if crate::modules::generic_ctx(ty.as_ref().map(|t| ROW_WORDS.replace(t, "").to_string()).as_deref(), &self.opts.types) {
+                        self.err("GENERIC_CONTEXT", "RG-7a", format!("context {name} is declared a generic function type: a context is declared once, at module level, and has no type parameter — every provision and `use` of it is of one type. Write the parameter's place `any` or `unknown` (`context {name}: (p: {{ item: any }}) => View`); a generic root's props type the caller's view"));
+                    }
                     if *source {
                         self.err("SOURCE_CONTEXT", "O-4", format!("context {}: source … is withdrawn (RG-7c, 2026-10-31): what is provided is read beneath it — provide the writes you allow, as actions (`context {}: {{ current: T; set: (v: T) => void }}`)", name, name));
                     }
@@ -4246,7 +4252,9 @@ impl<'a> Checker<'a> {
                 let c2 = Ctx { in_fn: ctx.in_fn, ..Ctx::reactive() };
                 self.comp("seed", env, Some(name.clone()), None, |c| {
                     c.model.snap += 1;
+                    let was = c.seed.replace((name.clone(), c.fn_stack.len()));
                     c.expr(init, env, c2, None);
+                    c.seed = was;
                 });
             }
             Decl::Eq { name, e, deferred, key, ty, .. } => {
@@ -6658,6 +6666,10 @@ impl<'a> Checker<'a> {
                         "AC-1",
                         format!("`{}` inside an expression of imperative scope: a run suspends only at a statement — bind it first, `let v = {}` (a `catch (e) => alt` may follow it)", sh, sh),
                     );
+                } else if let Some((n, _)) = self.seed.as_ref().filter(|s| !ctx.imperative && self.fn_stack.len() == s.1) {
+                    // ST-5a (bug 42): a seed is taken once, and a source written `:=` has no question to wait on
+                    let msg = format!("`{}` in the seed of `source {n} := …`: a seed is a snapshot, taken once, with nothing to wait on — write `source {n} = …`, a source whose question waits and is asked again when what it reads changes, and which a write overrides", show(e));
+                    self.err("AWAIT_IN_EXPRESSION", "ST-5a", msg);
                 } else if !ctx.imperative && (ctx.lifted || !self.fn_stack.is_empty()) {
                     // R-1, 07 §3: an `await` is a flight of the expression it is written in; a closure's and a lifted fn's
                     // (E-9) body is computed wherever it is called
@@ -6945,7 +6957,11 @@ impl<'a> Checker<'a> {
                         None => kind == Some(SymKind::Fn) && instantiating,
                     };
                     if refused {
-                        self.err("INSTANTIATION_NOT_BOUND", "E-9", format!("{}(…) declares state or reads a context: bind it, `x = {}(…)` (RG-6)", fname, fname));
+                        let why = match s.and_then(|s| self.syms[s].fn_decl) {
+                            Some(Decl::Fn { params, decls, .. }) if kind == Some(SymKind::Fn) => crate::ast::instantiates_why(params, decls),
+                            _ => "declares state or reads a context".into(),
+                        };
+                        self.err("INSTANTIATION_NOT_BOUND", "E-9", format!("{}(…) {}: bind it, `x = {}(…)` (RG-6)", fname, why, fname));
                     }
                     if kind == Some(SymKind::Comp) {
                         self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} called as a function: apply it in a view", fname));

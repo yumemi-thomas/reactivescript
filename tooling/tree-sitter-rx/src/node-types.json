@@ -6859,6 +6859,10 @@
           {
             "type": "property_identifier",
             "named": true
+          },
+          {
+            "type": "string",
+            "named": true
           }
         ]
       }
@@ -6973,6 +6977,10 @@
           },
           {
             "type": "property_identifier",
+            "named": true
+          },
+          {
+            "type": "string",
             "named": true
           }
         ]

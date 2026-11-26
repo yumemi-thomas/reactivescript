@@ -2024,3 +2024,31 @@ export default component App() {
             (member_expression
               (identifier)
               (property_identifier))))))))
+
+================================================================================
+A printed signature: a prop whose key is no identifier, quoted
+================================================================================
+
+//@ signature b.rx
+export component B(props: { ...props; n; "tc-button"; "a:b": view }) retains("on-pick": module)
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop)
+      (signature_prop
+        (property_identifier))
+      (signature_prop
+        (string
+          (string_fragment)))
+      (signature_prop
+        (string
+          (string_fragment))
+        (signature_view))
+      (signature_retains
+        (string
+          (string_fragment))))))

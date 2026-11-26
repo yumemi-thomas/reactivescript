@@ -119,7 +119,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   clear and that reverts to the truth when the hold ends (examples/users.rx,
   examples/cart.rx). Solid: `createSignal(fn)`, `createStore(fn, seed)`;
   written both plainly and optimistically, a `createSignal(fn)` truth under
-  a `createOptimistic(() => truth())` layer.
+  a `createOptimistic(() => truth())` layer. Only this form waits: the seed
+  of `source x := e` is a snapshot taken once (E-4), with no question to
+  wait on, and an `await` in it is `AWAIT_IN_EXPRESSION` (2026-11-26, bug
+  42: it was accepted and never compiled) — write `source x = await …`.
 - **ST-5b.** Its question (V-9) is `e`'s inputs. `refresh x` re-asks it
   quietly; `affects x` declares that in-flight work will change it (H-9).
 - **ST-5c.** Any source, and an equation (V-2), are the legal targets of

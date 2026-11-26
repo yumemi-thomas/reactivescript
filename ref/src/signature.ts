@@ -61,9 +61,18 @@ function resultOf(t: string): Result | undefined {
 /** R-io-3: the parts of a result that are actions, as paths. */
 const resultActions = (r: Result): string[] => (r.k === "io" ? [""] : r.k === "leaf" ? r.actions : (r.k === "rec" ? r.fields : r.items.map((x, i): [string, Result] => [String(i), x])).flatMap(([k, v]) => resultActions(v).map(p => p === "" ? k : `${k}.${p}`))).sort();
 const dir = (p: string) => p.split("/").slice(0, -1).join("/");
+/** A prop's name in a row: `...props` for the spread, a key that is no identifier quoted (`"tc-button"`, X5). */
+const fieldText = (f: string): string => f === "*" ? "...props" : /^[A-Za-z_$][\w$]*$/.test(f) ? f : JSON.stringify(f);
+/** A row's prop name and what follows its `:`, read back (a quoted name may hold a `:`). */
+function fieldOf(s: string): [string, string] {
+  const t = s.trim();
+  if (t.startsWith('"')) { const m = /^"(?:[^"\\]|\\.)*"/.exec(t); if (m) { const rest = t.slice(m[0].length).trim(); return [JSON.parse(m[0]) as string, rest.startsWith(":") ? rest.slice(1).trim() : rest]; } }
+  const i = t.indexOf(":"); const f = (i < 0 ? t : t.slice(0, i)).trim();
+  return [f === "...props" ? "*" : f, i < 0 ? "" : t.slice(i + 1).trim()];
+}
 /** O-3: the props a component stores where they outlive it, and where. */
 const retainsText = (file: string, st?: Record<string, string[]>) => {
-  const xs = Object.entries(st ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).flatMap(([f, ts]) => ts.map(t => `${f === "*" ? "...props" : f}: ${t === "module" ? t : relKey(file, t)}`));
+  const xs = Object.entries(st ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).flatMap(([f, ts]) => ts.map(t => `${fieldText(f)}: ${t === "module" ? t : relKey(file, t)}`));
   return xs.length ? ` retains(${xs.join(", ")})` : "";
 };
 /** A context key relative to the module whose signature names it (`./theme.rx#theme`). */
@@ -141,7 +150,7 @@ function line(file: string, name: string, x: ExportSig): string {
         }
         if (v.action) parts.push(`action ${v.action.name} catches(${cls(v.action.f)})`);
         if (v.pure) parts.push("pure");                                                       // SC-4b: an `on…` prop typed to answer a value: no handler
-        return `${f === "*" ? "...props" : f}${parts.length ? `: ${parts.join(" ")}` : ""}`;
+        return `${fieldText(f)}${parts.length ? `: ${parts.join(" ")}` : ""}`;
       });
       const own = [...new Set(s.own.map(o => o.cls))];
       return `export component ${name}${s.tparams ?? ""}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${s.made ? " made" : ""}${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${retainsText(file, s.stored)}${s.hosts ? ` ${hostsText(file, s.hosts)}` : ""}${shapeText(s.shape)}`;
@@ -229,8 +238,7 @@ export function parseSignature(src: string, file: string): ModSig {
     if (cp !== undefined && (m = /^props:\s*(\{.*\})$/.exec(cp)) && (m = ["", cm![1], m[1], g.text.slice(cm![0].length + cp.length + 1)] as unknown as RegExpExecArray)) {
       const sig: CompSig = { own: [], requires: [], props: {}, shape: undefined, ...(g.tparams ? { tparams: g.tparams } : {}) };
       for (const f of split(m[2].slice(1, -1), ";")) {
-        const [fname0, spec0 = ""] = f.includes(":") ? [f.slice(0, f.indexOf(":")).trim(), f.slice(f.indexOf(":") + 1).trim()] : [f.trim(), ""];
-        const fname = fname0 === "...props" ? "*" : fname0;
+        const [fname, spec0] = fieldOf(f);
         const v: CompSig["props"][string] = { f: new Set(), p: new Set(), rendered: true };
         let spec = spec0; { const vw = /^view(\??)(\s*\|\s*View)?(?:\s|$)/.exec(spec); if (vw) {   // RG-4c
           spec = spec.slice(vw[0].length).trim(); v.view = { optional: !!vw[1], mixed: !!vw[2], values: [] };
@@ -255,7 +263,7 @@ export function parseSignature(src: string, file: string): ModSig {
       if (/^\s*made\b/.test(tail)) sig.made = true;   // MO-11j: a JS factory's component, applied as JSX's <X />
       const fl = /\bfails\(([^)]*)\)/.exec(tail); if (fl) sig.own = classesOf(fl[1]).map(c => ({ cls: c, what: `${m![1]}'s root`, at: file.split("/").pop() }));
       const us = /\buses\(([^)]*)\)/.exec(tail); if (us) sig.requires = us[1].split(",").map(k => absKey(file, k.trim()));
-      const so = /\bretains\(([^)]*)\)/.exec(tail); if (so) { sig.stored = {}; for (const x of split(so[1], ",")) { const i = x.indexOf(":"); const f0 = x.slice(0, i).trim(); const f = f0 === "...props" ? "*" : f0; const t = x.slice(i + 1).trim(); (sig.stored[f] ??= []).push(t === "module" ? t : absKey(file, t)); } }   // O-3
+      const so = /\bretains\(([^)]*)\)/.exec(tail); if (so) { sig.stored = {}; for (const x of split(so[1], ",")) { const [f, t] = fieldOf(x); (sig.stored[f] ??= []).push(t === "module" ? t : absKey(file, t)); } }   // O-3
       sig.shape = contentShapeOf(/\bshape\(([^)]*)\)/.exec(tail)?.[1], true);
       exports.set(m[1], { kind: "comp", sig }); return;
     }

@@ -588,6 +588,14 @@ export const units: [string, () => void][] = [
     const back = parseSignature(text, "/a.rx"); deepStrictEqual(printSignature(back), text);
     deepStrictEqual([...back.exports.values()].map(e => e.kind === "fn" ? e.params.map(p => [p.name, !!p.opt]) : []), [[["a", false], ["b", true], ["c", true]], [["a", false], ["b", true]]]);
   }],
+  ["a_props_key_that_is_no_identifier_is_printed_quoted_and_read_back", () => {   // MO-9b, X5: `"tc-button"` was printed bare
+    const src = 'export component B(props: { "tc-button": string; "a:b"?: string; n: number; onPick: (v: number) => void }) { <b {...props} onClick={() => { props.onPick(1) }}>{props.n}{props["tc-button"]}{props["a:b"] ?? ""}</b> }\n';
+    const text = printSignature(checkModules(loadModules("/a.rx", files({ "/a.rx": src }))).sigs.get("/a.rx")!);
+    const row = text.trim().split("\n")[1];
+    for (const k of ['"tc-button"', '"a:b"', "n"]) if (!row.includes(`; ${k}`) && !row.includes(`{ ${k}`)) throw new Error(`${k} not in ${row}`);
+    const back = parseSignature(text, "/a.rx"); deepStrictEqual(printSignature(back), text);
+    const b = back.exports.get("B"); deepStrictEqual(b?.kind === "comp" ? Object.keys(b.sig.props).sort() : [], ["*", "a:b", "n", "tc-button"]);
+  }],
   ["a_generic_fns_type_parameters_are_text_and_printed" , () => {   // 07 §2, MO-9b
     const says = (s: string) => { try { const d = parseProgram(`fn f${s} => 1\n`).decls[0]; return d.k === "fn" ? `${d.tparams ?? "-"} ${d.params.map(p => p.name)}` : d.k; } catch { return "PARSE"; } };
     deepStrictEqual(["(a)", "<T>(a: T)", "<T extends (x: number) => string, U = T>(a: T)", "<const T extends { a: Array<Array<number>> }>(a)", "<T>\n  (a)", "<T", "<T>", "(a)<T>"].map(says), ["- a", "<T> a", "<T extends (x: number) => string, U = T> a", "<const T extends { a: Array<Array<number>> }> a", "<T> a", "PARSE", "PARSE", "PARSE"]);

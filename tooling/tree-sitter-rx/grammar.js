@@ -130,7 +130,7 @@ module.exports = grammar(tsx, {
       )),
     ),
     signature_prop: $ => seq(
-      field('name', choice(alias($.identifier, $.property_identifier), '...props')),
+      field('name', choice(alias($.identifier, $.property_identifier), $.string, '...props')),
       optional(seq(':', repeat1(choice(
         alias('unrendered', $.row_word),
         $.signature_takes,
@@ -153,7 +153,7 @@ module.exports = grammar(tsx, {
     signature_path: _ => token(/[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*/),
     // `uses(./ui.rx#who, loading)`: context keys relative to the signature's module (MO-13b), and SV-7b's `loading`
     signature_uses: $ => seq('uses', '(', commaSep1(choice($.context_key, 'loading')), ')'),
-    signature_retains: $ => seq('retains', '(', commaSep1(seq(field('name', choice(alias($.identifier, $.property_identifier), '...props')), ':', choice('module', $.context_key))), ')'),
+    signature_retains: $ => seq('retains', '(', commaSep1(seq(field('name', choice(alias($.identifier, $.property_identifier), $.string, '...props')), ':', choice('module', $.context_key))), ')'),
     // MO-11u, the components a fn declared `renders(H)` is given. `hosts(./kit.d.rx#Toaster catches(Error)
     // provides(./theme.rx#theme); ./kit.d.rx#Toaster)`: each place a component (or, as a row of its own, the module)
     // applies H — what is discharged and provided above H's children there

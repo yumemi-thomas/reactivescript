@@ -1016,6 +1016,28 @@ pub fn instantiates(params: &[Param], decls: &[Decl], tail: &Expr) -> bool {
 pub fn has_region(decls: &[Decl], tail: &Expr) -> bool {
     !decls.is_empty() || reads_context(crate::check::Node::E(tail))
 }
+/// E-9: what makes it instantiate, for a message (bug 22): its first `ref` parameter, its first declaration, or a context.
+pub fn instantiates_why(params: &[Param], decls: &[Decl]) -> String {
+    if let Some(p) = params.iter().find(|p| p.r#ref) {
+        return format!("takes a `ref` parameter, `{}`", p.name);
+    }
+    let named = |what: &str, n: &str| if n.is_empty() { what.to_string() } else { format!("{what}, `{n}`") };
+    match decls.first() {
+        Some(Decl::Source { name, .. }) => format!("declares {}", named("a source", name)),
+        Some(Decl::Eq { name, .. }) => format!("declares {}", named("an equation", name)),
+        Some(Decl::TypeDecl { name, .. }) => format!("declares {}", named("a type", name)),
+        Some(Decl::Effect { .. }) => "declares an effect".into(),
+        Some(Decl::Provide { name, .. }) => format!("provides {}", named("a context", name)),
+        Some(Decl::Error { name, .. }) => format!("declares {}", named("an error", name)),
+        Some(Decl::Fn { name, .. }) => format!("declares {}", named("a fn", name)),
+        Some(Decl::Component { name, .. }) => format!("declares {}", named("a component", name)),
+        Some(Decl::Action { name, .. }) => format!("declares {}", named("an action", name)),
+        Some(Decl::Server { name, .. }) => format!("declares {}", named("a server", name)),
+        Some(Decl::Context { name, .. }) => format!("declares {}", named("a context", name)),
+        Some(Decl::Import { .. }) => "declares an import".into(),
+        None => "reads a context".into(),
+    }
+}
 
 fn reads_own(n: crate::check::Node, me: &str) -> bool {
     matches!(n, crate::check::Node::E(Expr { k: ExprKind::Pre { name, .. }, .. }) if name == me) || crate::check::children(n, true).into_iter().any(|c| reads_own(c, me))

@@ -2,7 +2,7 @@
 
 Not fixed in this branch: a question first. See [proposal 21](../21-locals-in-fns.md).
 
-<!-- check prototype=ok branch=INSTANTIATION_NOT_BOUND upstream=INSTANTIATION_NOT_BOUND says-upstream="declares state" -->
+<!-- check prototype=ok branch=INSTANTIATION_NOT_BOUND upstream=INSTANTIATION_NOT_BOUND says-branch="declares an equation, `half`" says-upstream="declares state" -->
 ```rx
 fn area(w: number, h: number): number { half = w / 2
   half * h }
@@ -25,6 +25,8 @@ export default component App() { <p>{id(1)}</p> }
 
 **Cause.** Any declaration in the body makes the fn instantiate, in both checkers.
 
-**Fix in this branch.** None.
+**Fix in this branch.** The message (2026-11-26): it names what makes the fn instantiate — its first `ref` parameter,
+the first thing its body declares (`declares an equation, \`half\``, `declares a type, \`Unused\``), or the context it
+reads. The verdict stays until locals in fns (E-9, proposal 21) are taken.
 
-**Test.** None. The message at least should say *declares an equation*.
+**Test.** S-check-5 (the message); the verdict, proposal 21.

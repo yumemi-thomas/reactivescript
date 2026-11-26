@@ -147,7 +147,8 @@ named.
 | `UNTIL_PREDICATE`                 | S   | 06 AC-6: `until`'s argument is not a predicate `() => e` | S-action-2 |
 | `HOOK_CALLBACK` (new)             | S   | 02 EF-7, EF-8: `onSettled`'s or `onFlush`'s argument is not a closure `() => { … }` | S-flush-1 |
 | `SETTLED_CLEANUP_UNOWNED`, `IO_IN_REACTIVE` (EF-7, EF-8) | S | an `onSettled` callback returning a cleanup; either hook called in reactive scope | S-settled-1, S-flush-1 |
-| `AWAIT_IN_EXPRESSION` (new)       | S   | 06 AC-1: an `await` inside an expression of imperative scope — a run suspends only at a statement (`await e`, `let v = await e`, either with a `catch`) | S-await-1 |
+| `AWAIT_IN_EXPRESSION` (new)       | S   | 06 AC-1: an `await` inside an expression of imperative scope — a run suspends only at a statement (`await e`, `let v = await e`, either with a `catch`); 06 ST-5a: an `await` in the seed of a plain source, `source x := await …` (write `source x = …`, 2026-11-26) | S-await-1, S-check-5 |
+| `GENERIC_CONTEXT` (new)           | S   | 03 RG-7a: a context's type is a generic function type (`context c: <T>(p: { item: T }) => View`) | S-check-5 |
 | `TOP_LEVEL_MARKUP`                | S   | 09 MO-1c: markup at a module's top level — the view is `export default component App` | every scenario |
 | `CONTENT_MODEL`                   | S   | 10 SV-7d: nesting the HTML parser restructures, across templates (component roots, branches, placed children) | S-server-4 |
 | `IMPORT_ROW_MISMATCH` (SF-5)      | S   | `server`/`client` on an import that a `.d.rx` declares otherwise | S-sf-1 |
