@@ -721,6 +721,15 @@ function parseDecl(c: Cursor): Decl {
   const line = c.line;
   if (c.keyword("export")) { c.ws();
     if (c.keyword("default")) { c.ws(); const d = parseDecl(c); if (d.k !== "component") c.fail("export default: only a component is a module's default export (the app's entry, MO-1c)"); d.exported = true; d.isDefault = true; return d; }
+    if (c.eat("{")) {   // MO-6e (2026-11-26): `export { a, b as c } from "./m.rx"`, a re-export: what the module names is the declaring module's
+      c.ws(); const names: { name: string; alias: string }[] = [];
+      while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("export name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.bound("alias"); c.ws(); } c.binds(alias); names.push({ name, alias }); c.imported.add(alias); if (!c.eat(",")) break; c.ws(); }
+      c.expect("}"); c.ws();
+      if (!c.keyword("from")) c.fail("export { … } from \"./m.rx\": a module re-exports what another declares (a name of its own is exported where it is declared, `export fn f`)"); c.ws();
+      const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
+      if (!/\.rx$/.test(from.v)) c.fail(`export { … } from ${JSON.stringify(from.v)}: a re-export names an .rx module — what a JavaScript module exports is declared by a declaration file, and imported`);
+      return { k: "import", names, from: from.v, pure: false, line, reexport: true };
+    }
     const d = parseDecl(c); if (d.k === "import" || d.k === "effect" || d.k === "provide") c.fail("export of a non-declaration"); (d as { exported?: boolean }).exported = true; return d; }
   if (c.keyword("import")) {                                           // 07 §1: `import pure? { a, b as c } from "m"` / `import X from "m"`
     c.ws();

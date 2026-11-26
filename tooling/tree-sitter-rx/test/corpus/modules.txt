@@ -2104,3 +2104,22 @@ export component T(props: { n }) shape(roots #text span; closes-p)
         (property_identifier))
       (signature_shape
         (shape_words)))))
+
+================================================================================
+A re-export
+================================================================================
+
+export { Root, Item as SelectItem } from "./root.rx"
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (export_clause
+      (export_specifier
+        (identifier))
+      (export_specifier
+        (identifier)
+        (identifier)))
+    (string
+      (string_fragment))))

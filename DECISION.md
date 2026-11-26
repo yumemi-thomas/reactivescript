@@ -959,6 +959,44 @@ is what "never the body's form" asks.
 | census | nothing newly refused: scenarios, `bench/run.mjs --check --strict`, rx-packages (check.json byte for byte, tests both ways as before), rx-std (13 build; tests identical), UI SDK (check identical, 44 of 44) |
 | rows printed for JavaScript, every package | one changed, `createKeyHold`, fixed by its row |
 
+### Step 7: L1 — a re-export, stage 1 (sources)
+
+*Taken* (09 MO-6e, both parsers, both loaders, the grammar): `export { Root, Item as SelectItem } from "./root.rx"`. A
+re-exported name is the declaring module's: each loader, when a module's imports are loaded, sends an import of such a
+name to the module that declares it (through a chain of re-exports), as a namespace import is expanded at load — so a
+context keeps its identity, and no checker or runner sees the entry in between. *Decided:* the names a module re-exports
+are its imports too (TypeScript's `export … from` binds none; here the module may use them, which is harmless and one
+rule less); only an `.rx` module is re-exported; a cycle is `MODULE_CYCLE`.
+
+*Found on the way, older, fixed:* two imports under one name were both taken, the second silently
+(`import { A } from "./x.rx"; import { B as A } from "./y.rx"`): `DUPLICATE_DECLARATION` now, in both checkers. And the
+type reader of both loaders looped on an import cycle that names one name (it followed the import without marking it):
+it stops there.
+
+*Left for stage 2* (said in MO-6e): a package's entry — its printed signature (the context's origin must be carried, or
+an importer reading `index.d.rx` would make a second context), the ES re-export `rx-lib` writes, the `.d.ts` re-export.
+
+| | |
+| --- | --- |
+| programs (`mk7.py`: a kit behind one entry named four ways — by name, by namespace, both, partly from the declaring module —; a chain; aliases; a context provided through one name and read through another; a type; a module using what it re-exports; a source and an action; six mistakes) | 18: 6 refused by both checkers, 12 accepted, each as named; both checkers, lowered, projected, the type pass alike |
+| the 12 with frames, served and hydrated in both | 12 of 12 alike |
+| S-module-50 | every runner, served and hydrated, the type pass, crate parity |
+| census | nothing newly refused: scenarios, `bench/run.mjs --check --strict`, rx-packages (check.json byte for byte, every package builds), rx-std 13 of 13, UI SDK (build, check identical) |
+| grammar | 100 corpus tests; 1,023 of 1,023 files of the repository |
+
+### Read again under the user's rule of 2026-11-26: no rule bent around a Solid bug
+
+The rule: a Solid bug is never a reason to refuse correct code or to shape a language rule; it is recorded as a DV
+with a memo. Steps 1 to 7 were read again against it and against the drafts of plain-Solid bugs
+(`solid-main.noindex/drafts/SUMMARY.md`): none of their rules was shaped by one, and none was changed. Step by step:
+1, the five defects are the language's or our tools' own; 2, W-6's functional write is the language's (Solid's setter
+does the same, by design); 3, R-io-3 is the language's — Solid's development build stopping on
+`ACTION_CALLED_IN_OWNED_SCOPE` is a check of its own, not a bug, and only showed the hole; 4, B3 ends where a handler goes
+because of SC-3 and of JavaScript that may call while it computes; 5, the hydration failure W4's set found (undeclared
+children read twice as values) is Solid's documented behaviour of children, not one of the drafts' bugs, and the rule is
+"a view is only shown", the language's; 6 and 7 touch nothing of Solid's. X6 (`REF_READS_REF_WRITE`, the rc.22 ref
+regression) is track 3's to judge, and is not touched here.
+
 ## Roadmap, track 2: every runner agrees (2026-11-26)
 
 The second track of `ROADMAP-fable.md` (X1, W5, W3 + X6, X2, X7), beside track 1 on the same PR. The sets and logs are

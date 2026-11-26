@@ -2435,12 +2435,61 @@
     "fields": {}
   },
   {
+    "type": "export_clause",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "export_specifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "export_specifier",
+    "named": true,
+    "fields": {
+      "alias": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "export_statement",
     "named": true,
     "fields": {
       "declaration": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "action_declaration",
@@ -2507,7 +2556,27 @@
             "named": true
           }
         ]
+      },
+      "source": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
       }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "export_clause",
+          "named": true
+        }
+      ]
     }
   },
   {

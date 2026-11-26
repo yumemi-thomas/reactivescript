@@ -237,6 +237,7 @@ function loadProgram(entry: string, read: (path: string) => string | undefined, 
       if (state.get(to) !== "done" && read(to) === undefined) { diags.push({ code: "MODULE_NOT_FOUND", rule: "MO-6", line: d.line, file: path, msg: `no module ${d.from} (from ${path})` }); continue; }
       visit(to, [...stack, path]);
     }
+    reexported(p, path, new Map([...programs].filter(([k]) => state.get(k) === "done")));
     nameMethods(p, declarations); nameLocals(p, (from, name) => instantiatingExport(from, name, programs, signatures, declarations));
     state.set(path, "done"); order.push(path);
   };
@@ -244,6 +245,37 @@ function loadProgram(entry: string, read: (path: string) => string | undefined, 
   return { entry, conformance, programs, order, diags, declarations, signatures, declarationIds, printed };
 }
 
+/** A module's path from another's, as an import writes it (`./kit/root.rx`, `../a.rx`); undefined where it does not read back. */
+function relativeSpec(fromFile: string, to: string): string | undefined {
+  const from = fromFile.split("/").slice(0, -1), parts = to.split("/"); let i = 0;
+  while (i < from.length && i < parts.length - 1 && from[i] === parts[i]) i++;
+  const spec = (from.length > i ? "../".repeat(from.length - i) : "./") + parts.slice(i).join("/");
+  return joinPath(fromFile, spec) === to ? spec : undefined;
+}
+/** MO-6e (2026-11-26): a name a module re-exports (`export { Item } from "./item.rx"`) is the declaring module's: an import of
+ *  it is an import from that module, as a namespace import is the named imports of its members (MO-6d). So a context
+ *  keeps its identity, and the checkers and every runner see only the module that declares. Run when the modules a
+ *  program imports are loaded, each with its own re-exports already resolved (a chain is followed so). */
+function reexported(p: Program, path: string, programs: Map<string, Program>): void {
+  const out: Decl[] = [];
+  for (const d of p.decls) {
+    const from = d.k === "import" && d.resolved ? programs.get(d.resolved) : undefined;
+    if (d.k !== "import" || !from) { out.push(d); continue; }
+    const by = new Map<string, { decl: Extract<Decl, { k: "import" }>; name: string }>();
+    for (const x of from.decls) if (x.k === "import" && x.reexport && x.resolved) for (const n of x.names) by.set(n.alias, { decl: x, name: n.name });
+    const kept = d.names.filter(n => !by.has(n.name)); const moved = new Map<string, Extract<Decl, { k: "import" }>>();
+    for (const n of d.names) {
+      const r = by.get(n.name); if (!r) continue;
+      const to = r.decl.resolved!; let m = moved.get(to);
+      if (!m) moved.set(to, m = { ...d, names: [], from: relativeSpec(path, to) ?? d.from, resolved: to });
+      m.names.push({ name: r.name, alias: n.alias });
+    }
+    if (!moved.size) { out.push(d); continue; }
+    if (kept.length) out.push({ ...d, names: kept });
+    out.push(...moved.values());
+  }
+  p.decls.splice(0, p.decls.length, ...out);
+}
 /** Whether an import's name is one whose call instantiates: an `.rx` fn (its source, or its signature), a declared primitive. */
 function instantiatingExport(d: Extract<Decl, { k: "import" }>, name: string, programs: Map<string, Program>, signatures: Map<string, ModSig>, declarations: Map<string, JsDecl[]>): boolean {
   if (d.resolved) {
@@ -506,7 +538,7 @@ export function typesOf(set: ModuleSet | undefined, path: string): Types {
         const body = expand(h.body, n => ps.includes(n) ? undefined : one(path, n, [...busy, at]), 0, n => ps.includes(n) ? undefined : named(path, n, [...busy, at]));
         return { body, ...(h.tparams ? { tparams: h.tparams } : {}) };
       }
-      if (d.k === "import" && d.resolved) { const n = d.names.find(n => n.alias === name); if (n) { if (set.programs.has(d.resolved)) return named(d.resolved, n.name, busy); const x = set.signatures?.get(d.resolved)?.exports.get(n.name); return x?.kind === "type" && x.text !== undefined ? { body: x.text, ...(x.tparams ? { tparams: x.tparams } : {}) } : undefined; } }   // MO-9: a signature says what it stands for
+      if (d.k === "import" && d.resolved) { const n = d.names.find(n => n.alias === name); if (n) { if (set.programs.has(d.resolved)) return named(d.resolved, n.name, [...busy, at]);   /* an import cycle that names one name ends here */ const x = set.signatures?.get(d.resolved)?.exports.get(n.name); return x?.kind === "type" && x.text !== undefined ? { body: x.text, ...(x.tparams ? { tparams: x.tparams } : {}) } : undefined; } }   // MO-9: a signature says what it stands for
     }
     return undefined;
   };

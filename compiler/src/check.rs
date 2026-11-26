@@ -3334,6 +3334,12 @@ impl<'a> Checker<'a> {
         for d in decls {
             self.line = d.line() as i64;
             if let Decl::Import { names, .. } = d {
+                // 2026-11-26: the second was taken in silence
+                for n in names {
+                    if self.envs[env].vars.contains_key(n.alias.as_str()) {
+                        self.err("DUPLICATE_DECLARATION", "E-7", format!("{} is imported twice in one module: one name, one import (`import {{ … as other }}`)", n.alias));
+                    }
+                }
                 if matches!(d, Decl::Import { resolved: Some(_), .. }) {
                     self.import_rx(d, env);
                 } else if matches!(d, Decl::Import { declared: Some(_), .. }) {

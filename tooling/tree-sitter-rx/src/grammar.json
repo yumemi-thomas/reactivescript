@@ -105,6 +105,27 @@
               }
             }
           ]
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "export"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "export_clause"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "_from_clause"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "_semicolon"
+            }
+          ]
         }
       ]
     },
@@ -16253,6 +16274,14 @@
     [
       "object",
       "_property_name"
+    ],
+    [
+      "export_clause",
+      "_equation_object_pattern"
+    ],
+    [
+      "_module_export_name",
+      "_equation_object_pattern"
     ],
     [
       "index_type_query",

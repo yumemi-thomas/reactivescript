@@ -2942,6 +2942,42 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             }
             return Ok(d);
         }
+        if c.eat("{") {
+            // MO-6e (2026-11-26): `export { a, b as c } from "./m.rx"`, a re-export: what the module names is the declaring module's
+            c.ws(true);
+            let mut names = vec![];
+            while !c.starts_with("}") {
+                let name = c.ident_or("export name")?;
+                c.ws(true);
+                let mut alias = name.clone();
+                if c.keyword("as") {
+                    c.ws(true);
+                    alias = c.bound("alias")?;
+                    c.ws(true);
+                }
+                c.binds(alias.clone());
+                names.push(ImportName { name, alias: alias.clone() });
+                c.imported.insert(alias);
+                if !c.eat(",") {
+                    break;
+                }
+                c.ws(true);
+            }
+            c.expect("}")?;
+            c.ws(true);
+            if !c.keyword("from") {
+                return c.fail("export { … } from \"./m.rx\": a module re-exports what another declares (a name of its own is exported where it is declared, `export fn f`)");
+            }
+            c.ws(true);
+            let from = match parse_primary(c)?.k {
+                ExprKind::Lit(Lit::Str(s)) => s,
+                _ => return c.fail("module path"),
+            };
+            if !from.ends_with(".rx") {
+                return c.fail(&format!("export {{ … }} from {}: a re-export names an .rx module — what a JavaScript module exports is declared by a declaration file, and imported", serde_json::to_string(&from).unwrap_or_default()));
+            }
+            return Ok(Decl::Import { ns: None, names, from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, prelude: false, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None, reexport: true });
+        }
         let mut d = parse_decl(c)?;
         if matches!(d, Decl::Import { .. } | Decl::Effect { .. } | Decl::Provide { .. }) {
             return c.fail("export of a non-declaration");
@@ -2960,7 +2996,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             if from.ends_with(".rx") {
                 return c.fail(&format!("import \"{}\": an .rx module is imported for what it exports, `import {{ … }} from \"{}\"`", from, from));
             }
-            return Ok(Decl::Import { ns: None, names: vec![], from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, prelude: false, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None });
+            return Ok(Decl::Import { ns: None, names: vec![], from, pure: false, side: None, line, span: Span::NONE, fails: None, resolved: None, prelude: false, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None, reexport: false });
         }
         let side = if IMPORT_SIDE.is_match(c.rest()) {
             if c.keyword("server") {
@@ -3029,7 +3065,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         let save = c.i;
         c.ws(false);
         let prelude = crate::names::is_prelude(&from);
-        let mk = |fails| Decl::Import { ns, names, from, pure, side, line, span: Span::NONE, fails, resolved: None, prelude, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None };
+        let mk = |fails| Decl::Import { ns, names, from, pure, side, line, span: Span::NONE, fails, resolved: None, prelude, declared: None, declared_errors: None, declared_error_fields: None, declared_pure: None, declared_side: None, reexport: false };
         if c.keyword("fails") {
             c.ws(true);
             let fails = parse_classes(c)?.unwrap_or_else(|| vec!["Error".to_string()]);
