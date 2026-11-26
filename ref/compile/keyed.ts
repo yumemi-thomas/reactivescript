@@ -14,13 +14,16 @@
 // key holds at any depth, as Solid's does. Nothing is written that the list's reconcile would not write: the rows'
 // readers are told of the fields that changed, once, as they were.
 //
-// Memo (2026-11-26): this is a workaround of a Solid bug, not a design of the language. Solid's documentation promises a
-// kept proxy for a kept key; the plain-Solid issue is solidjs/solid#5220 (open), fix PR #5222 (open): reproduced on main
-// ad1f561, 2.0.4, 2.0.0, rc.23, rc.21, and again on main 50a4bfdde after #4906 deleted `store/reconcile.ts` — the thin
-// engine's reconcile prunes the same way (solid-main.noindex/drafts/1-reconcile-kept-row/repro.mjs: `none` remakes both
-// rows). Once Solid keeps the proxy itself, `keyedWrite` can become `reconcile(v, key)` again, with compiler/test/rows.mjs
-// and S-store-kept-row as the check. (Until the pin moved to 50a4bfdde, `isStore` was `x[$TARGET] !== undefined`; the
-// thin engine answers `$TARGET` with nothing, and every row was taken for a plain object: S-store-kept-row made a row twice.)
+// Memo (2026-11-26, 2026-11-27): this works around Solid, not a design of the language. Solid's documentation promises a
+// kept proxy for a kept key; its code prunes a row nothing has subscribed to, a prune ruled intended in solidjs/solid#2902
+// and pinned by a test. Filed upstream as solidjs/solid#5220 (open), fix proposed in #5222 (open); reproduced on main
+// ad1f561, 2.0.4, 2.0.0, rc.23, rc.21 (solid-main.noindex/drafts/1-reconcile-kept-row; the cause in `descend()`), and
+// again on main 50a4bfdde after #4906 deleted `store/reconcile.ts`: the thin engine's `merge` prunes the same way (the
+// draft's repro.mjs, `none`, remakes both rows). Once Solid keeps the proxy itself, `keyedWrite` can become
+// `reconcile(v, key)` again, with compiler/test/rows.mjs and S-store-kept-row as the check. If Solid documents the prune
+// instead, this stays, as the language's own lowering of ST-4a (proposals/32). (Until the pin moved to 50a4bfdde,
+// `isStore` was `x[$TARGET] !== undefined`; the thin engine answers `$TARGET` with nothing for every value, so every row
+// was taken for a plain object and S-store-kept-row made a row twice.)
 type Reconcile = (v: any, key: string) => (state: any) => void;
 const isObj = (v: unknown): v is Record<PropertyKey, any> => v !== null && typeof v === "object";
 

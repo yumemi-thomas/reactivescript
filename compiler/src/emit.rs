@@ -1169,7 +1169,8 @@ impl<'p> Gen<'p> {
             None => {
                 let mut h = self.hoist_all(&view_readers(view, &|t| t.starts_with(|c: char| c.is_ascii_uppercase())), env)?;
                 out.append(&mut h);
-                let m = self.markup(view, env)?;
+                // a block with no view returns null, which a fn's body drops (strip_return_null)
+                let m = if view.is_empty() { E::Null } else { self.markup(view, env)? };
                 out.push(S::Return(Some(m)));
             }
         }
@@ -2498,11 +2499,9 @@ impl<'p> Gen<'p> {
     // ---- views: JSX, which Solid's compiler lowers for the DOM, the server and the test renderer
     /// A view: a fragment of children. Text is a string child; `{e}` is `{__rt.show(e)}` (a value is formatted, a view is
     /// inserted); control flow is Solid's components. What is a hole, a scope or a memo is the compiler's to decide. An empty
-    /// view is null, not `<></>` (an empty array loses its slot in the universal renderer: DV-13).
+    /// view is `<></>`, as any other (it was `null` while Solid's universal renderer lost an empty array's slot, DV-13: fixed
+    /// in solidjs/solid#4276, 2026-10-26).
     fn markup(&mut self, ms: &[Markup], env: Env) -> R<E> {
-        if ms.is_empty() {
-            return Ok(E::Null);
-        }
         Ok(E::Jsx(Box::new(Jsx::Frag(self.kids(ms, env)?, None))))
     }
     /// MO-11k: a render prop, an arrow over the view, its parameters bound as values.

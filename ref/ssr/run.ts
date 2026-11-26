@@ -242,7 +242,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
     if (m[1] === "reject") f.reject(value instanceof Error ? value : new Error(String(value))); else f.resolve(value);
     return true;
   };
-  let ok = true; const shown: string[] = []; const mark = lines.length; const rpcBefore = rpcApps.length;
+  let ok = true; const shown: string[] = []; const rpcBefore = rpcApps.length;
   for (let i = 0; i <= chains.length; i++) {   // (i === chains.length: hydrating after the last row)
     const c = chains[i] ?? []; const r = c[0];
     if (i === at && chunks === 0 && at < served) at++;   // nothing has arrived to take over yet (a held shell, SV-1c): the client loads with the shell
@@ -269,10 +269,10 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
       });
       const cf = clientFns(sc, src); d.asked = d.asked.filter((k: string) => !cf.has(k.split(":")[0]));   // a client question is the browser's to ask (SV-7b)
       // SV-3a: where hydration leaves the frame as the server drew it, every element is the server's (adopted, none rebuilt);
-      // where the client draws a later frame at once (a landing the stream could not carry, DV-9), it builds what changed
+      // where the client draws a later frame at once (a landing the stream could not carry, DV-26), it builds what changed
       const same = before === norm(await textOf());
       const issues = [same && (d.fresh.length || d.dropped.length) ? `rebuilt instead of adopting: built ${d.fresh.join(" ") || "nothing"}, dropped ${d.dropped.join(" ") || "nothing"}` : "", d.asked.length ? `asked again: ${d.asked.join(", ")}` : "", d.left ? `${d.left} server element(s) never claimed` : "", pageErrors.length ? `page errors: ${pageErrors.join(" | ")}` : ""].filter(Boolean);
-      // DV-15: a recorded `hydrated` divergence at this instant whose frame is the one shown: Solid rebuilt what it should adopt
+      // a recorded `hydrated` divergence at this instant whose frame is the one shown: Solid rebuilt what it should adopt (DV-28's `<Show>`; DV-15's, until Solid fixed it)
       const rec = known(chains[at - 1][chains[at - 1].length - 1]);
       if (issues.length && rec && issues.every(x => x.startsWith("rebuilt")) && norm(rec.frame) === norm(await textOf())) lines.push(`  ≠ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}  — recorded (hydrated)`);
       else if (issues.length) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}`); }
@@ -305,10 +305,6 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   const calls = rpcApps.length - rpcBefore; const bodyShipped = /\.serverCall\(/.test(clientJs);
   if (bodyShipped) { ok = false; lines.push(`  ✗ ${t.title} [${label}]: a server function's body is in the browser bundle`); }
   if (ok) lines.push(`  ✓ ${t.title} [${label}]: ${dedupe(shown).map(x => `'${x}'`).join(" → ")}${calls ? `  (${calls} server function request${calls > 1 ? "s" : ""})` : ""}`);
-  // DV-9: a boundary that failed on the server before the client took over is the client's to render, and Solid's client
-  // re-renders it from scratch — asking its questions again — instead of drawing the failure it was sent
-  const dv9 = !scope && at > 0 && chains.slice(0, at).flat().some(r => sc.divergences.some(d => d.runner === "server" && d.table === t.title && d.instant === r.instant));
-  if (!ok && dv9) { for (let i = mark; i < lines.length; i++) lines[i] = lines[i].replace("  ✗ ", "  ≠ ") + (i === mark ? "  — DV-9" : ""); return true; }
   return ok;
 }
 
@@ -330,7 +326,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   }
   // the client's frames for these instants: the spec's, or the oracle's where a divergence is recorded — every row of a
   // chain, since the server runs no effect (SV-2) and shows the frame before an effect's chain lands
-  // (a `server` divergence: what Solid's server render shows there instead — DV-9)
+  // (a `server` divergence: what Solid's server render shows there instead — DV-26)
   const served1 = (f: string) => f.split(" » ")[0];   // PT-3: the server renders nothing for a portal — the browser does, once it has the page
   // (07 §4, SV-2: nor does the server call a `ref` — it makes no element. Where a `ref` writes as the view is made, the
   // server's mount is the frame before it, which the scenario's `## Server frames` gives; the browser shows the mount's)

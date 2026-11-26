@@ -7,6 +7,7 @@ of `main` with its smallest program. Nothing here has been sent or opened as an 
 - The spec of this branch (`spec/`) is the prototype's, not a proposal's text. Rule ids that begin with MO-8d to MO-8w, MO-10f and after, MO-11, MO-12, MO-13 and MO-14, and C-3a, EF-5a, W-1a and CP-4c, CP-4d
   are **proposed** ids: upstream has none of them.
 - A sceptical review of the first set is acted on here. What it rejected is under *Not proposed*.
+- Where the language follows a ruling of Solid's, and where it keeps its own rule beside a Solid bug: [32](32-where-the-language-follows-solid.md) (a record, not a proposal).
 
 ## Words
 

@@ -1461,3 +1461,119 @@ alike on every program below). Nothing is refused or accepted differently.
 
 Nothing stricter dropped and nothing correct refused: the checkers are untouched. A Solid bug was not involved: F-3 is
 Solid's ruling, the three fixes are ours.
+
+## Audit: rules and Solid bugs (2026-11-27)
+
+*The rule given (the user, 2026-11-27):* every real Solid issue is the user's to file; we account it as a Solid issue and
+do what is right. A Solid bug is a divergence (DV) with a memo: it never refuses correct code and never shapes a rule;
+the design does what is right as if Solid were fixed. A deliberate Solid rule — ruled by its maintainers, pinned in its
+tests or changelog, closed "by design" — is followed (F-3, yesterday). Track 1 read only its own steps against this.
+This audit reads every older rule against it.
+
+*How.* Every `DV-n` of spec 05, 09 and 10, the repros README, the scenarios' `## Divergences` sections, the plain-Solid
+drafts (`solid-main.noindex/drafts`, read only), and the history (`git log -S'DV-'`, every commit that names a Solid
+issue, a repin or a workaround), each bug's live window set against the rules, diagnostics, refusals, checker cases,
+emitter and runtime choices and scenario frames made in it. Every repro was run on the pin of the day (30e7805) and on
+Solid main 50a4bfdde, the pin the user is moving to (their run, `rx-pin.noindex/logs/repros-new.txt`, and mine for
+DV-26's after-shell case and DV-19's store mode); a hydration repro in Chromium. Issue states read with `gh`, read only.
+
+### Inventory
+
+"Fixed" is judged at 50a4bfdde. *Bug*: Solid's own rules or maintainers call it one. *Ruling*: a deliberate rule of
+Solid's, which the language follows (`proposals/32`). *Ours*: a rule or a harness of this project.
+
+| DV | what | whose | status | Solid issue / fix | at 50a4bfdde |
+| --- | --- | --- | --- | --- | --- |
+| 1 | the mount rendered partially | ours (the harness mounted with `insert`) | resolved 2026-10-22 | — | — |
+| 2 | a failed action's plain writes commit | ruling (D-7) | adopted 2026-10-22 | — | the oracle's frames |
+| 3 | a render effect in a re-armed fallback holds the content's reveal | bug | fixed 2026-10-26 | #4268, fix #4282 | `content c2` first ✓ |
+| 4 | a derived store's per-key `isPending` false under a boundary | bug | fixed 2026-10-26 | #4269, #4278 | `1 pending` ✓ |
+| 5 | `pre` is the value before the most recent change | ruling (the memo's `prev`) | adopted 2026-10-23 | — | — |
+| 6 | `SNAPSHOT_INITIALIZER` | ours (E-4) | — | — | — |
+| 7 | an outer boundary that took a rethrow from an inner fallback does not recover | bug | fixed 2026-10-26 | #4270, #4277 | `ok0` ✓ |
+| 8 | a keyed projection swallows later failures and pending | bug | fixed 2026-10-26 | #4271, #4280 | ✓ |
+| 8b | `pending?` of a projection read nothing | ours (the lowering), against ruling D-24 | fixed 2026-10-27 | — | `keys`, `length` ✓ |
+| 9 | a failed boundary drew no fallback on the server; hydration asked again | bug | fixed 2026-10-27 | #4287 | streamed and hydrated `failed: no user` ✓ |
+| 10 | `latest` of a guess reads ahead of its held lane; the one-effect grouping | ruling (#4284 closed; `verdict-contract.test.ts`) and a bug in it | adopted 2026-10-26; the bug fixed | #4284 | `one` and `two`: `1 x1 / 5` ✓ |
+| 11 | the hydration window | ruling | adopted 2026-10-26 | #4272, closed by design | as ruled |
+| 12 | a boundary hydrated in its error state never recovers | bug | fixed 2026-10-26 | #4273, #4279 | `pear` ✓ |
+| 13 | an empty fragment loses its slot (universal) | bug | fixed 2026-10-26 | #4274, #4276 | ✓ |
+| 14 | replayed events share one instant | bug | fixed 2026-10-26 | #4285, #4299 | `2` ✓ |
+| 15 | a client question's served fallback is rebuilt | bug | fixed 2026-10-27 | #4286 | nothing dropped ✓ |
+| 16 | a reader reading `latest` first publishes an empty slot | bug | fixed 2026-10-26 | #4275, #4281 | both orders `off` ✓ |
+| 17 | two mounts under one boundary merge their holds | bug | fixed 2026-10-26 | #4283, #4302 | ✓ |
+| 18 | a keyed projection's rows miss later landings (regression of #4280) | bug | fixed 2026-10-27 | #4305 | ✓ |
+| 19 | `latest` of a shown guess answers the truth after a re-ask | bug against ruling #4695 decision 3 | fixed in rc.22 (the signal form; the same in rc.23 and 2.0.4) | #4689 | signal mode ✓; the store mode, which nothing displays, answers `3` — outside the ruling (a *displayed* slot), not a DV; noted in 05 and the README |
+| 20 | a guess read by effects alone reverts under the action's refresh | bug | fixed in rc.22 | #4690 | ✓ |
+| 21 | posture is per read | ruling, not built | open (Solid's `it.fails`) | #4695 decision 1 | recorded in S-solid-27, 49, 50 |
+| 22 | `pending?` under a new question under a guess | ruling, not built | open | #4695, S-44 | recorded in S-solid-44 |
+| 23 | a branch a probe opens is born held | ruling | built in rc.22 | #4695 decision 4 | ✓ |
+| 24 | a component value is owned at its application | ours (a static assumption, MO-11c) | — | — | — |
+| 25 | a write beside a shown error fallback shows at once | ruling F-3 | followed 2026-11-26 | #4908 (rc.23), `lean.test.ts` E1 | `#2 nobody` (F-3's) |
+| 26 | a failure caught above a part's `loading` streams an empty fragment | bug | **open** | remainder of #4287 (a stated limit of #4303); the before-shell case's fix is PR #5225 (open); draft 2 unfiled | before and after the shell, `part` and `prop` blank |
+| 27 | a store a `ref` writes while hydrating keeps the server's text | bug | **fixed at 50a4bfdde** (open in 2.0.4) | fixed by #4906 (2026-11-26); draft 6 being written | hydrated `2/2/5` ✓ (`1/2/5` at 30e7805) |
+| 28 | a `ref` in a `<For>` row or a `<Show>` reads an earlier `ref`'s write; a `<Show>` rebuilt on hydration | bug: a regression in rc.22 (#4768) against the maintainer's ruling in #5110 ("refs are like event handlers") | **open** | draft 5 unfiled; related #5098, #5110 | open (the pin's run); recorded in S-server-8 |
+| (X1) | `reconcile(v, key)` gives an unsubscribed kept row a new proxy | Solid's code (the #2902 prune, pinned) against its documentation | **open** | #5220, fix PR #5222 (both open) | draft 1: reproduced at 50a4bfd |
+| (—) | a server projection over a pending store throws; then it stops following its source when hydrated | bug | fixed at both pins and in 2.0.4; live in 2.0.3 | #5097 (fix fc0dac0cd), #5146 (fix #5150) | `rendered: A`; `Y,B` ✓ |
+
+The eval fuzzers' Solid issues (#4831 to #5104, `eval/`) are no DVs: no spec text, rule, checker or runtime line cites
+one; the one workaround they caused, in the guide (#5039), went on 2026-11-19.
+
+### Rules and code written while a bug was live, judged
+
+(a) right on its own; (b) shaped by the bug, the language must change; (c) a workaround in generated code or the runtime.
+
+| bug | what was written in its window | judgment |
+| --- | --- | --- |
+| DV-3 | S-22 row 3′ ported with the ruled frame; nothing lowered around it | (a) |
+| DV-4 | the lowering at JSX granularity (each `{…}` its own insert, 2026-10-24) | (a): it is what Solid's compiler emits; DV-4 stopped showing as a side effect |
+| DV-7 | a typed boundary's fallback and a reactive `catch` handed a failure of another class out as a value (`Fallback`/`Forward`), and a memo around the boundary threw it; the server reserved the memo's id | **(c), fixed in Solid: removed.** The fallback throws it itself, in the oracle and both client runtimes, as the server runtime always did; the reserved id goes. A change of class is re-decided because the fallback reads the failure |
+| DV-8 | a keyed equation lowered to `createProjection` | (a); DV-8b's key reads follow Solid's D-24, (a) |
+| DV-9 | the `ssr` runner on Solid's production server build | (a): it is what serves a user, and SV-5b's generic error is the production build's |
+| DV-9 | `ref/ssr/run.ts` turned every hydration failure of a table with a `server` divergence into "≠ … DV-9" | **(c), a harness leniency for a fixed bug: removed.** The one table it still covered, S-server-7 (DV-26), passes without it, served and hydrated, both emitters |
+| DV-13 | the emitters wrote an empty view as `null` | **(c), fixed in Solid: removed**, an empty view is `<></>` again. The same `null` was also how a block with no view says "nothing to show", which a fn's body drops (`strip_return_null`, the reference's `return null;` filter): that use is kept, now explicit, since it is right on its own |
+| DV-12, 14, 15 | SV-3a, SV-3e, SV-6 kept the ruled frames; `ssr/run.ts` reads a recorded `hydrated` divergence where the frame shown is the record's | (a); the comment named DV-15 and now names DV-28, whose `<Show>` it serves |
+| DV-16 | the interpreter holds in both orders | (a): D-28 |
+| DV-17 | S-5 kept two independent holds; MO-1c mounts one entry | (a): D-3, D-4; MO-1c is the language's |
+| DV-18, 20 | nothing | — |
+| DV-19 | 2026-11-05 (8190e1ea) H-11 followed Solid's behaviour of the day; reverted the next day when #4695 ruled it a bug; the eval references read the count under the list's region | (a): the rule now is the ruling; the references are right either way |
+| DV-22 | the guide's `GUESS_WHILE_LOADING` advice, to test `pending? x` in the handler too | (a) for the checker (it accepts the covered program, as the ruling makes it right); the guide's line is a user-side note for today's Solid, labelled DV-22 |
+| DV-26 | nothing refused; S-server-7 records the `server` frame | (a) |
+| DV-27 | nothing refused; S-server-9 records the `hydrated` frame; `ssr/run.ts` reads a `hydrated` record at the hydration instant | (a) |
+| DV-28 | SC-4c rewritten (a `ref` reads the screen), `REF_READS_REF_WRITE` withdrawn (track 3) | (a), and now pinned: Solid's maintainer ruled the same on 2026-11-20 (#5110) |
+| X1 | `ref/compile/keyed.ts` keeps a kept row's proxy; the updater's rows and a list in a row reconciled by key | **(c), open: stays**, memo updated (#5220, #5222, the #2902 prune). The updater and depth cases are ST-4a itself, (a). Not a (b): see "Written up" |
+| #5097/#5146 | `rt-server.ts`: the server renders the truth and makes the client's optimistic layer for its owner slot only | **(c), fixed at both pins and in 2.0.4, live in 2.0.3, which the runtime installs and its peer range allows: stays**, memo updated. It goes when the runtime moves to Solid ≥ 2.0.4 (upstream's line renders the layer) |
+| DV-25 (ruled) | `CATCH_NOT_ON_AWAIT` (2026-11-19, the day DV-25 was recorded) | (a): the commit cites Ryan's ruling of the language that day, not the record |
+| H-12 | a re-armed `loading` over an error fallback takes its pending content (2026-10-24, "Solid's behaviour") | (a): Solid's F-4 and D-12 (an armed boundary catches what is pending under it) |
+
+**No (b) case was found.** No rule, diagnostic, refusal or checker case of the language was shaped by a Solid bug that is
+still standing; the one that was (X6's refusal) was withdrawn yesterday. Both checkers are untouched by this audit.
+
+### Written up, not changed
+
+- **X1, if Solid documents the prune instead of fixing it.** Options: (1) keep ST-4a (a kept key keeps its row) and the
+  runtime's keep pass as the language's own lowering; (2) follow Solid's prune, so a row that reads nothing of its item
+  is remade on a fresh list. Recommended: (1). (2) is not writable as a rule a user can follow (it depends on what the
+  row reads, which an edit changes), and it loses state silently. Nothing to decide until #5220 is answered.
+- **The runtime's Solid.** Moving `runtime/`, the examples and the benchmark from 2.0.3 to 2.0.4 (and the runtime's peer
+  to `^2.0.4`) removes the #5097 workaround. It changes what every example installs, so it is a step of its own, not
+  this audit's.
+
+### Census of what the two removals change
+
+Neither checker changed, so no verdict can move; what can move is output. The census asks whether it does.
+
+| | |
+| --- | --- |
+| the review sets (`rx-t3.noindex/sets/runaudit.mjs`, `cmpaudit.mjs`, `out-audit/`): the 835 of the 18,798 that hold what the removals reach — a typed boundary (`fallback(e: …)`), a `catch`, an empty block (`{}`) — through `scripts/matrix.mjs`, before (c4b77fbc, `rx-t3.noindex/before`) and after: interpreter, oracle, both emitters, both checkers, both lowerings | **nothing moved**: every runner's output of every program the same; the four runners alike on the same 108 before and after (the rest are refused alike); `same` and `lower` 835 of 835 |
+| the sets whose frames are all written, served and hydrated in both emitters, before and after | 203 programs, **nothing moved**; three fail the same way on both (`w-635`: `am2_fn-await`, `pa_Cprobe-gate-*`, a parse error and two of the harness's tables) |
+| scenarios (`scripts/quick` on 30e7805): interpreter, oracle, both emitters, crate parity and lowering, served and hydrated, the type pass, the benchmark | all pass (oracle and compiled 242 of 242); `spec-refs` asked for DV-7's entry, now in spec 05. S-server-7 served and hydrated without the DV-9 leniency, both emitters |
+| `examples/rx-packages` `build.mjs`, `check.mjs` | 65 built; `check.json` unchanged byte for byte |
+| `examples/rx-ui-sdk` `build.mjs`, `check/run.mjs` | builds (its source maps differ only by the worktree's path); the rewrite's column accepts the good program and the correct lines, as before |
+| `std/test/browser.mjs` | 39 of 39 |
+| the full `scripts/ci`, uncached, with the Vite plugin fork, on 30e7805 (`bench --check --strict`, `proposals/check.mjs`, every runner and suite) | 47 of 47 passed, nothing kept from before (731 s) |
+
+Nothing stricter dropped, nothing correct refused, nothing accepted that a runner shows differently.
+
+The DV status on Solid main 50a4bfdde, the pin the user is moving to, is the pin's own step to write (its #4906 replaced
+the store engine). Its repros: DV-27 fixed; X1, DV-19's store form, DV-26 and DV-28 open; the rest as above.

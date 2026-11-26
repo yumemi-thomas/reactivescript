@@ -264,7 +264,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     question(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
       const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); return landDraft(draft, r, key); };
-      if (mode.optimistic && mode.structured && mode.plain && !mode.derived) { const [truth] = (createStore as any)(derive, key && !mode.record ? [] : {}, key ? { key } : undefined); (createOptimisticStore as any)(() => (key && !mode.record ? [] : {}), key && !mode.record ? [] : {}, key ? { key } : undefined); return ro(() => truth); }   // the client's layer, created for its owner slot only: the server shows the truth (it has no guesses), since Solid's server runs a projection's fn at once and one over a pending store throws NotReadyError out of the component (solidjs/solid#5097; fixed in main, fc0dac0cd, and not in the release the runtime is installed with, 2.0.3 — upstream renders the layer: take its line once a release has the fix)
+      if (mode.optimistic && mode.structured && mode.plain && !mode.derived) { const [truth] = (createStore as any)(derive, key && !mode.record ? [] : {}, key ? { key } : undefined); (createOptimisticStore as any)(() => (key && !mode.record ? [] : {}), key && !mode.record ? [] : {}, key ? { key } : undefined); return ro(() => truth); }   // the client's layer, created for its owner slot only: the server shows the truth (it has no guesses), since Solid's server runs a projection's fn at once and one over a pending store throws NotReadyError out of the component (solidjs/solid#5097; fixed in main, fc0dac0cd, with its follow-up #5146 fixed by #5150, both at the pin and in 2.0.4 — checked 2026-11-27 — but not in 2.0.3, which the runtime is installed with and its peer range allows: take upstream's line, which renders the layer, when the runtime's Solid is 2.0.4 or later)
       if (mode.optimistic && mode.structured) { const [store] = (createOptimisticStore as any)(derive, key && !mode.record ? [] : {}, key ? { key } : undefined); return ro(() => store); }
       if (mode.optimistic && mode.derived) { const [get] = createOptimistic(fn as any, o as any); return ro(get as Acc); }   // AC-3 over an equation: the client's createOptimistic(fn), so the owner trees (and hydration keys) match
       if (mode.optimistic) { const [truth] = createSignal(fn as any, o as any); const [get] = createOptimistic(() => (truth as Acc)()); return ro(get as Acc); }
@@ -432,14 +432,12 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     opt: (v: unknown) => v === undefined ? v : isView(v) ? v : fmt(v),
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
     kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
-    /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. The
-     *  client's unwrapping memo has no counterpart here: its id is reserved. */
+    /** A failure of another class passes to the boundary above (R-f-4): a rethrow from the fallback, as on the client. */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
       const out = createComponent(Errored as any, {
         fallback: (err: Acc) => { const ok = createMemo(() => isA(err(), props.classes)); if (!ok()) throw err(); return props.fallback(err); },
         get children() { return props.children; },
       });
-      reserve();
       return out;
     },
   };
