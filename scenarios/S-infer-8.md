@@ -100,3 +100,23 @@ export default component App() {
 The functional write counts right, but `n` was read from the committed
 `seq`, so the second click still mints `1` again: a functional write
 beside a plain read of its source in a held change is the same error.
+
+```rx
+-- reject: STALE_NEXT_READ
+export default component App() {
+  source seq := 0
+  source cards := ""
+  action add(ids: number[]) {
+    for (const id of ids) {
+      let r = await fetch("add" + str(id)) catch (e) => ""
+      cards := v => v + "/" + r
+    }
+  }
+  <button onClick={() => { let n = seq + 1; seq := n; add([n]) }}>{seq}:{cards}</button>
+}
+```
+
+An action whose only `await` is in a loop's body waits as much as one that
+awaits at its top: the handler's write joins its change, and the next
+click reads the committed `seq` (both checkers took it, until 2026-11-26,
+for an action that settles as it returns).

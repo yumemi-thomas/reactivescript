@@ -1010,6 +1010,18 @@ draft's result is no claim and stays so.
 | S-module-48 (`renderItem={use item}` moved from refused to a variant with its frame), S-server-6 (L7: a declared `View` accepted, an `any` refused) | every runner, served and hydrated, the type pass, crate parity |
 | census | nothing newly refused (it only accepts more): scenarios, `bench/run.mjs --check --strict`, rx-packages (check.json, builds; its B4 repro `view-spread.rx` is accepted), rx-std, UI SDK |
 
+### Step 8b: an action that waits only in a loop was taken for one that settles as it returns (found reading for step 9)
+
+*Fixed, both checkers* (`actionWaits`, `action_waits`): whether an action's change can outlast its call (AC-1h's
+"held") looked into a branch and a `try` but not into a `for` body. An action whose only `await` is in a loop
+(`for (const id of ids) { let r = await …; … }`) was taken as one that never waits, and a handler beside it that writes
+`seq := seq + 1` and calls it was accepted: the next click reads the committed `seq` and mints the same id again
+(accepted and wrong, silent). The spec already said "a write that some path of the body carries to an `await`"; the
+checkers did not follow it. AC-1d, AC-1e and AC-1g follow awaits into a loop already (probed). S-infer-8 has the case as
+a rejected variant. Census, every program's diagnostics before and after (`census9.ts`: every scenario program and
+accepted variant, bench, rx-packages, rx-std, the UI SDK, std, the examples and eval's 340 .rx files, 1,593 programs): none
+differs; the only newly refused program is the new variant. Not a Solid matter.
+
 ### Read again under the user's rule of 2026-11-26: no rule bent around a Solid bug
 
 The rule: a Solid bug is never a reason to refuse correct code or to shape a language rule; it is recorded as a DV

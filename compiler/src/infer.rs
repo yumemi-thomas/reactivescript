@@ -290,13 +290,15 @@ pub struct RunOpts<'o> {
     pub is_action: Option<&'o dyn Fn(&str) -> bool>,
 }
 
-/// AC-1h: whether an action's change can outlast its call — its body (not a closure's) awaits, re-asks, or declares `affects`.
+/// AC-1h: whether an action's change can outlast its call — its body (not a closure's) awaits, re-asks, or declares `affects`,
+/// in a branch, a `try` or a loop's body (a loop's was missed until 2026-11-26).
 pub fn action_waits(ss: &[Stmt]) -> bool {
     ss.iter().any(|s| {
         stmt_await(s)
             || matches!(s.k, StmtKind::Refresh(_) | StmtKind::Affects(_))
             || match &s.k {
                 StmtKind::Sif { t, f, .. } => action_waits(t) || action_waits(f),
+                StmtKind::For { body, .. } => action_waits(body),
                 StmtKind::Try { body, handler, fin, .. } => action_waits(body) || handler.as_deref().is_some_and(action_waits) || fin.as_deref().is_some_and(action_waits),
                 _ => false,
             }

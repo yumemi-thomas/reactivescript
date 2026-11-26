@@ -85,8 +85,10 @@ export function guessFacts(stmts: Stmt[], hook: (n: string) => boolean): GuessFa
   go(stmts, new Map(), hook);
   return { ...(!starts && first ? { holdless: first } : {}), ...(late ? { late } : {}) };
 }
-/** AC-1h: whether an action's change can outlast its call — its body (not a closure's) awaits, re-asks, or declares `affects`. */
-export const actionWaits = (ss: Stmt[]): boolean => ss.some(s => stmtAwait(s) || s.k === "refresh" || s.k === "affects" || (s.k === "sif" && (actionWaits(s.t) || actionWaits(s.f))) || (s.k === "try" && (actionWaits(s.body) || actionWaits(s.handler ?? []) || actionWaits(s.fin ?? []))));
+/** AC-1h: whether an action's change can outlast its call — its body (not a closure's) awaits, re-asks, or declares `affects`,
+ *  in a branch, a `try` or a loop's body (a loop's was missed until 2026-11-26: an action that waits in a `for` was taken as
+ *  one that settles as it returns, and a handler beside it could mint one id twice, AC-1h's fault). */
+export const actionWaits = (ss: Stmt[]): boolean => ss.some(s => stmtAwait(s) || s.k === "refresh" || s.k === "affects" || (s.k === "sif" && (actionWaits(s.t) || actionWaits(s.f))) || (s.k === "for" && actionWaits(s.body)) || (s.k === "try" && (actionWaits(s.body) || actionWaits(s.handler ?? []) || actionWaits(s.fin ?? []))));
 export const triggerText = (t: Trigger): string => t === "write+await" ? "it writes and awaits" : `it has \`${t === "optimistic" ? "guess" : t}\``;
 
 export type Finding = { code: "HELD_WRITE" | "STALE_OWN_READ" | "STALE_WRITE_BACK" | "STALE_CAPTURE" | "STALE_NEXT_READ"; name: string; via?: string };
