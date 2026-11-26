@@ -150,8 +150,8 @@ function verdict(res, n) {
   const said = core.filter(x => x !== "?"); if (!said.length) return ["not run", null];
   if (new Set(said).size !== 1 || said.length !== core.length) return ["differ", null];
   if (/^(ERR|THROW)/.test(said[0])) return ["same error", said[0]];
-  const first = said[0].split(" / ")[0].split("|")[0];
-  return srv.some(x => !["PASS", "SKIP", said[0], first].includes(x)) ? ["server differs", said[0]] : ["agree", said[0]];
+  const first = said[0].split(" / ")[0].split("|")[0], unportaled = first.split(" » ")[0];   // 03 PT-3: the server renders nothing for a portal (what follows ` » ` in a frame)
+  return srv.some(x => !["PASS", "SKIP", said[0], first, unportaled].includes(x)) ? ["server differs", said[0]] : ["agree", said[0]];
 }
 
 // ---- run ----

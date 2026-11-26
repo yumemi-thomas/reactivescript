@@ -89,6 +89,7 @@ const steps = [
   { id: "runtime-resolve", dir: ".", run: "node compiler/test/runtime-resolve.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"] },
   { id: "leaks", dir: ".", run: "node compiler/test/leaks.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"] },
   { id: "js-host", dir: ".", run: "node compiler/test/js-host.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"] },
+  { id: "rows", dir: ".", run: "node compiler/test/rows.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"], quick: true },
   { id: "measure", dir: ".", run: "node bench/measure.test.mjs", after: ["wasm", "npm-language-server"], quick: true },
   { id: "generated", dir: ".", run: `${strip} bench/generated.mjs`, after: ["wasm", "node-build", "bench-install", "runtime", "npm-language-server"], uses: ["ws"], n: jobs, heavy: true },
   // the tasks and the coverage suite, in one pool (CI runs them apart: --tasks-only, --coverage-only, --shard)

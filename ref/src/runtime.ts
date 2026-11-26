@@ -747,16 +747,30 @@ export class Runtime {
     n.state = "clean"; n.evaluated = true;
     return n.value;
   }
-  /** ST-4a: reconcile a new collection by key — same key: the old object, updated in place per key; new key: the new object. */
+  /** ST-4a: reconcile a new collection by key — same key: the old object, updated in place per key; new key: the new object.
+   *  The key holds at any depth, as Solid's (`reconcile(v, key)`): a list inside a row is reconciled by it too, and a row
+   *  with no key is paired by its position (Solid: "unkeyed items fall back to position"). */
   private reconcile(old: unknown[], nu: unknown[], key: string): unknown[] {
     const byKey = new Map<unknown, Record<string, unknown>>();
-    for (const o of old) if (isObj(o)) byKey.set(o[key], o);
-    return nu.map(e => { if (!isObj(e)) return e; const o = byKey.get(e[key]); if (!o) return e; this.applyDiff(o, e); return o; });
+    for (const o of old) if (isObj(o) && !Array.isArray(o) && o[key] !== undefined && !byKey.has(o[key])) byKey.set(o[key], o);
+    return nu.map((e, i) => {
+      if (!isObj(e) || Array.isArray(e)) return e;
+      let o: Record<string, unknown> | undefined;
+      if (e[key] !== undefined) { o = byKey.get(e[key]); if (o) byKey.delete(e[key]); }   // one row for one key (ST-4d)
+      else { const p = old[i]; if (isObj(p) && !Array.isArray(p) && p[key] === undefined) o = p; }
+      if (!o) return e; if (o !== e) this.applyDiff(o, e, key); return o;
+    });
   }
-  private applyDiff(o: Record<string, unknown>, e: Record<string, unknown>) {
+  private applyDiff(o: Record<string, unknown>, e: Record<string, unknown>, key?: string) {
+    if (key !== undefined && Array.isArray(o) && Array.isArray(e)) {   // a list inside a row: by the key, as the root is
+      const r = this.reconcile(o, e, key);
+      for (let i = 0; i < r.length; i++) if (!Object.is(o[i], r[i]) || !(i in o)) { o[i] = r[i]; this.notify(o, String(i)); }
+      if (o.length !== r.length) { o.length = r.length; this.notify(o, "length"); }
+      return;
+    }
     for (const k of new Set([...Object.keys(o), ...Object.keys(e)])) {
       const a = o[k], b = e[k];
-      if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b)) { this.applyDiff(a, b); continue; }
+      if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b)) { this.applyDiff(a, b, key); continue; }
       if (Object.is(a, b) && (k in o) === (k in e)) continue;
       if (!(k in e)) delete o[k]; else o[k] = b;
       this.notify(o, k);

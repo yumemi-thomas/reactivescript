@@ -755,3 +755,62 @@ Tooling: the tree-sitter grammar reads a component's type parameters and a signa
 a namespace import needed no grammar change. The language server runs the crate's wasm: nothing of its own changed,
 and no test of it was added for these forms. Its untracked copy of the wasm was refreshed by hand before the suite.
 
+
+## Roadmap, track 2: every runner agrees (2026-11-26)
+
+The second track of `ROADMAP-fable.md` (X1, W5, W3 + X6, X2, X7), beside track 1 on the same PR. The sets and logs are
+outside the tree (`/Users/thomas/dev/rx-t2.noindex/sets`, `logs`; generators in `gen/`).
+
+### a. X1: a kept keyed row is remade (decided: the interpreter is right)
+
+The third review's three s1 programs reduce to one line of Solid: `reconcile(v, key)` keeps a surviving row's proxy only
+where something below the row was read under tracking (`store/reconcile.ts` `descend`, §6d; the same in
+`@solidjs/signals` 2.0.4, run). A row whose body reads nothing of the row (`for r in p.rows { <Made /> }`, a view given by
+the caller and shown in each row) got a new proxy, and `<For>` made it again: its state was lost, silently in
+production. No context and no prop are needed (`for r in rows { <Made v="x" /> }` alone); the prop is only where it is
+met. Bug page: `proposals/bugs/45`.
+
+**Which side the spec takes.** ST-4a: a row whose key is kept keeps its identity and its region, wherever the new list
+puts it. Nothing in ST-4a or RG-2a makes this depend on what the row reads, and a rule that did could not be written: a
+row that reads nothing today reads a field after an edit, and its state would start to survive. So the interpreter is
+right, and the runtime follows it: `ref/compile/keyed.ts` reconciles each surviving row into its own proxy first, then
+the list (used by `rt-web.ts`, `rt.ts`, and the oracle). Rejected: (a) emitting `<For keyed={r => r.id}>` — the emitters
+do not know the key of a list that comes through a prop, and the row would become an accessor; (b) reading every row
+under tracking to give it a node — a node for each row, kept for the row's life, for nothing it shows; (c) a checker
+refusal — the programs are ordinary.
+
+Two more things the same programs showed, decided the same way:
+
+- **An updater's fresh rows** (`rows := rs => [{ id: "b", … }, …]`) were adopted whole by Solid's setter (every row
+  made again, also where the row is read); the interpreter reconciles them by the key (W-6: a functional write applies
+  to the slot, and ST-4a reconciles what is written). Now both runtimes and the oracle reconcile what an updater answers
+  by the key.
+- **A list inside a row** (`groups key id`, `g.items`): ST-4a says "the key applies at any depth, as Solid's"; the
+  interpreter paired an inner list's rows by position. It now reconciles them by the key, and a row with no key by its
+  position, as Solid does.
+
+The oracle did not reconcile a keyed source by its key at all (it replaced by position): that was most of W5's "48 in
+the oracle alone" of the s1 set, which now reads 149 of 149 with nothing else changed.
+
+**Programs whose output changed.** The review's sets (a505, a1642, p1, p2, p3, v1, m1, t1, e1, y1, k1, x1–x3: 4,231)
+and this step's 139 (`gen/mkx1.py`: five places of the loop × four bodies × seven writes, a view shown in each row three
+ways, the key at depth), through interpreter, oracle, both emitters, on c8ed3aa6 and after: 140 went from differ to
+agree; **no program that agreed shows anything else**; 66 differ as before, all the interpreter alone (36 a pending
+attribute it does not wait for, 30 the quotes of an error's text: X7, step e). The s1 set, with both servers: 149 of
+149 (the ten that differed on the server are portals, which PT-3 does not serve: `scripts/matrix.mjs` now compares the
+served frame with the mount's frame before its portal).
+
+**Proof.** `scenarios/S-store-kept-row.md` (four runners); `compiler/test/rows.mjs`, in CI (a row's own count kept,
+direct, through a prop, and read; rendered and hydrated; development and production: 12 of 12 fail on the old runtime);
+bench `keyed-edits` and S-check-3 as before.
+
+### b. W5: the oracle and an applied view's rows (closed by a)
+
+"The oracle remakes a kept row of a keyed loop for any applied view" (proposals/27, and the s1 set's 48) was not about
+applied views: the oracle wrote a keyed source by position (`setStore(() => v)`, no key), so a swap, a drop, an
+addition or a path write next to a fresh list made rows again wherever a fresh list came after; the view in the row
+only made it visible (its `Made` logs). With a's keyed write in the oracle, 48 programs (`gen/mkw5.py`: a keyed, a
+plain, a derived keyed and a selected list × four writes then a fresh list × a view applied through a prop, through a
+context, and one that reads nothing): 24 differed in the oracle alone before, 48 agree after. The s1 set reads 149 of
+149 and the 505 of proposals/27 has no row in the oracle alone (its 334 accepted agree in four runners). Nothing of
+the oracle's lowering of an applied view changed.
