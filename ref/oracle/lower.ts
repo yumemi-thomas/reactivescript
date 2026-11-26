@@ -285,13 +285,20 @@ export class Oracle {
   /** 07 §3 / R-1: each `await` that is not the equation's result becomes its own async memo, asked only while the conditions
    *  that reach it hold (E-11); the equation reads it where the `await` was (ref/src/awaits.ts). */
   hoistedByName = new WeakMap<Scope, Map<string, (() => unknown)[]>>();
+  /** R-f-4: `await e catch (x: C) => alt` — a rejection of `C` is the answer, as the compiled `settle`. */
+  private settled(r: unknown, c: Extract<Expr, { k: "catch" }>, scope: Scope): unknown {
+    if (!(r instanceof Promise)) return r;
+    const classes = this.classValues(c.classes, scope);
+    return r.then(v => v, err => { if (!isA(err, classes)) throw err; const en = new Map<string, unknown>(); if (c.name) en.set(c.name, err); return untrack(() => this.ev(c.alt, scope, en)); });
+  }
   private hoistAwaits(name: string | null, e: Expr, scope: Scope, tail = true) {
     for (const h of nonTailAwaits(e, tail)) {
+      const c = h.caught;
       const lv = h.node.init ? { loadingValue: untrack(() => this.ev(h.node.init!, scope)) } : undefined;
       const m = createMemo(() => {
         for (const g of h.guards) { const v = this.ev(g.e, scope); if (!(g.nullish ? v == null : g.neg ? !v : !!v)) return undefined; }
         const was = this.currentEq; this.currentEq = name;
-        try { const v = this.ev(h.node.e, scope); return !h.node.stream && v instanceof Flight ? v.first : v; } finally { this.currentEq = was; }   // a plain await: one answer
+        try { const v = this.ev(h.node.e, scope); const r = !h.node.stream && v instanceof Flight ? v.first : v; return c ? this.settled(r, c, scope) : r; } finally { this.currentEq = was; }   // a plain await: one answer; R-f-4: under a catch, a matching rejection is the answer where it is awaited (05 H-4)
       }, lv as any);
       let map = hoistedOf.get(scope); if (!map) hoistedOf.set(scope, (map = new Map())); map.set(h.node, m);
       if (name === null) continue;
@@ -460,10 +467,10 @@ export class Oracle {
           }
           const fnDecl = this.fnOf(d.e, scope);
           if (fnDecl && instantiates(fnDecl)) { scope.vars.set(d.name, { k: "memo", get: this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, fnDecl, scope) }); break; }   // RG-6
-          if (d.e.k === "catch" && d.e.e.k === "await" && !d.deferred) {   // R-f-4 over a tail await: a matching rejection is the answer, where it is awaited (as the compiled `settle`)
+          if (d.e.k === "catch" && d.e.e.k === "await") {                   // R-f-4 over a tail await: a matching rejection is the answer, where it is awaited (as the compiled `settle`); a `deferred` one too (it threw at the mount through a boundary)
             const c = d.e; const classes = this.classValues(c.classes, scope); const compute = this.computeOf(d.name, c.e, scope) as (p: unknown) => unknown;
             const alt = (err: unknown) => { const en = new Map<string, unknown>(); if (c.name) en.set(c.name, err); return untrack(() => this.ev(c.alt, scope, en)); };
-            const get = createMemo(((prev: unknown) => { const r0 = compute(prev); const r = r0 instanceof Flight ? r0.first : r0; return r instanceof Promise ? r.then(v => v, err => { if (isA(err, classes)) return alt(err); throw err; }) : r; }) as any, this.loadingValue(c.e, scope) as any);
+            const get = (d.deferred ? createDeferred : createMemo)(((prev: unknown) => { const r0 = compute(prev); const r = r0 instanceof Flight ? r0.first : r0; return r instanceof Promise ? r.then(v => v, err => { if (isA(err, classes)) return alt(err); throw err; }) : r; }) as any, this.loadingValue(c.e, scope) as any);
             scope.vars.set(d.name, { k: "memo", get });
             break;
           }

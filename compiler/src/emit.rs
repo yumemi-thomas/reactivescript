@@ -1288,6 +1288,20 @@ impl<'p> Gen<'p> {
             let ExprKind::Await { e: inner, init, stream } = &h.node.k else { unreachable!() };
             let body0 = self.expr(inner, env, &Ctx { tail: true, ..Ctx::default() })?;
             let body = if *stream { body0 } else { rtc("awaited", vec![body0]) };
+            // R-f-4: a matching rejection is the answer where it is awaited, as in tail position (05 H-4)
+            let body = match h.caught.map(|c| &c.k) {
+                Some(ExprKind::Catch { name: cn, classes, alt, .. }) => {
+                    let inner = self.new_env(Some(env));
+                    if let Some(n) = cn {
+                        self.set(inner, n, val(mg(n)));
+                    }
+                    let cls = self.classes(classes.as_deref(), env)?;
+                    let a = self.expr(alt, inner, &reactive())?;
+                    let pn = cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
+                    rtc("settle", vec![body, arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&pn], a)])
+                }
+                _ => body,
+            };
             self.hoisted.insert(h.node as *const Expr, v.clone());
             let lv = match init {
                 Some(i) => rtc("firstPaint", vec![thunk(self.expr(i, env, &reactive())?)]),

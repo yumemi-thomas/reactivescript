@@ -347,7 +347,9 @@ class Gen {
     return nonTailAwaits(e, tail).map(h => {
       const v = `a$${name ?? ""}$${this.hoistSeq++}`;
       const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
-      const body0 = this.expr(h.node.e, env, { imp: false, tail: true }); const body = h.node.stream ? body0 : `__rt.awaited(${body0})`;
+      const body0 = this.expr(h.node.e, env, { imp: false, tail: true }); const body1 = h.node.stream ? body0 : `__rt.awaited(${body0})`;
+      const c = h.caught, inner = new Env(env); if (c?.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
+      const body = c ? `__rt.settle(${body1}, (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })})` : body1;   // R-f-4: a matching rejection is the answer where it is awaited, as in tail position (05 H-4)
       this.hoisted.set(h.node, v);
       if (name) this.claims = true;
       const lv = h.node.init ? `__rt.firstPaint(() => ${this.expr(h.node.init, env, { imp: false })})` : "undefined";

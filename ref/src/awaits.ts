@@ -5,16 +5,18 @@
 import type { Expr, Markup } from "./ast.ts";
 
 export type Guard = { e: Expr; neg?: boolean; nullish?: boolean };
-export type Hoisted = { node: Extract<Expr, { k: "await" }>; guards: Guard[] };
+/** `caught`: the `catch` whose operand the `await` is — a matching rejection is the answer, settled where it is awaited (R-f-4),
+ *  as the tail form is, so the reader of a catch's answer holds like the reader of any answer (05 H-4: never a fallback). */
+export type Hoisted = { node: Extract<Expr, { k: "await" }>; guards: Guard[]; caught?: Extract<Expr, { k: "catch" }> };
 export type HoistedCatch = { node: Extract<Expr, { k: "catch" }>; guards: Guard[] };
 
 /** `tail = false`: every await of `root` — a reader of a view, an effect's input or a provision, whose expression is not an
  *  equation's own memo, so even its result-position `await` is a flight of its own (07 §3). */
 export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
   const out: Hoisted[] = [];
-  const walk = (x: Expr, tail: boolean, g: Guard[]): void => {
+  const walk = (x: Expr, tail: boolean, g: Guard[], caught?: Extract<Expr, { k: "catch" }>): void => {
     switch (x.k) {
-      case "await": walk(x.e, false, g); if (x.init) walk(x.init, false, g); if (!tail) out.push({ node: x, guards: g }); return;   // one inside another's question first: the outer one reads it
+      case "await": walk(x.e, false, g); if (x.init) walk(x.init, false, g); if (!tail) out.push(caught ? { node: x, guards: g, caught } : { node: x, guards: g }); return;   // one inside another's question first: the outer one reads it
       case "if": walk(x.c, false, g); walk(x.t, tail, [...g, { e: x.c }]); walk(x.f, tail, [...g, { e: x.c, neg: true }]); return;
       case "bin":
         walk(x.l, false, g);
@@ -23,7 +25,7 @@ export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
         else if (x.op === "??") walk(x.r, false, [...g, { e: x.l, nullish: true }]);
         else walk(x.r, false, g);
         return;
-      case "catch": walk(x.e, tail, g); walk(x.alt, false, g); return;
+      case "catch": walk(x.e, tail, g, x.e.k === "await" ? x : undefined); walk(x.alt, false, g); return;
       case "fn": case "draft": return;                                  // a closure's body runs later; a draft's statements are its own
       default:
         for (const v of Object.values(x as object)) {

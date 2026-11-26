@@ -518,9 +518,11 @@ export class Runtime {
       case "el": { for (const a of i.attrs) if (this.pull(a.node) instanceof PendingVal) this.holdPending(a.node, holding, boundary); for (const c of i.children) this.settleItem(c, holding, boundary); return; }   // a pending attribute waits as a pending read does: its boundary catches it, or it holds (X7: the interpreter showed the element at once)
       case "mif": {
         const c = this.pull(i.cond);
+        const behind = (c instanceof PendingVal || i.cond.served.size > 0) && this.behindErrorFallback(i.cond, boundary);   // H-4: behind a shown error fallback the condition holds nothing
         if (isErr(c)) { this.erroredControl(i.cond, c, boundary); if (i.inflight) this.settle(i.inflight.inst, holding, boundary); return; }   // H-12: an errored condition is a failed reader — its boundary takes it; the branch stays (found by S-ai2-settings)
         const want = c instanceof PendingVal ? (i.inflight?.branch ?? null) : (c ? "t" : "f");
         if (want === null) { this.holdPending(i.cond, holding, boundary); return; }
+        if (c instanceof PendingVal && !behind) this.holdPending(i.cond, holding, boundary);   // H-4: a pending condition holds with its branch shown, as a pending read does (an `await` in the condition: it held nothing)
         if (i.inflight?.branch !== want) {
           if (i.inflight && i.inflight !== i.committed) i.inflight.inst.region.dispose();   // an uncommitted branch is replaced
           const existing = i.committed?.branch === want ? i.committed : null;
@@ -537,6 +539,7 @@ export class Runtime {
       }
       case "mfor": {
         const xs = this.pull(i.xs);
+        if ((xs instanceof PendingVal || i.xs.served.size) && this.behindErrorFallback(i.xs, boundary) && xs instanceof PendingVal) return;   // H-4: behind a shown error fallback the collection holds nothing
         if (xs instanceof PendingVal) { this.holdPending(i.xs, holding, boundary); return; }
         if (isErr(xs)) { this.erroredControl(i.xs, xs, boundary); for (const r of i.inflightRows) this.settle(r.inst, holding, boundary); return; }   // H-12, as for `if` (found by S-ai2-tracker)
         const arr = Array.isArray(xs) ? xs : [];
@@ -584,10 +587,18 @@ export class Runtime {
     const openE = [...node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
     node.heldOn = openE.length || node.taint.has(this.instant) ? this.find(openE[0] ?? this.instant) : null;
   }
+  /** H-4 (Solid F-3): a control reader behind a shown error fallback, pending or served a held value, is not the display: it
+   *  holds nothing and keeps the fallback up (D-41) — what it was served is no flight a display waits on, so a change only it
+   *  needs reveals at once (as a plain read there, `settleItem`'s "read").
+   *  An armed `loading` above takes it instead (H-12): false, and `holdPending` decides. */
+  private behindErrorFallback(node: Node, boundary: BoundaryItem | null): boolean {
+    const eb = erroredShowing(boundary); if (!eb || armedAbove(eb)) return false;
+    eb.stillWaiting = true; node.served.clear(); node.heldOn = null; return true;
+  }
   /** A pending control reader (`if`/`for`) holds or is caught exactly as a pending read is (H-4, H-5). */
   private holdPending(node: Node, holding: Node[], boundary: BoundaryItem | null) {
     const eb = erroredShowing(boundary); const above = eb ? armedAbove(eb) : null; if (above) { above.caught.push(node); node.heldOn = null; return; }
-    if (eb) { eb.stillWaiting = true; node.heldOn = null; return; }
+    if (eb) { eb.stillWaiting = true; node.served.clear(); node.heldOn = null; return; }
     const lb = nearest(boundary, "loading"); if (lb && lb.armed) { lb.caught.push(node); node.heldOn = null; return; }
     const open = [...node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
     for (const c of open) this.union(open[0], c);

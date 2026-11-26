@@ -15,6 +15,9 @@ pub struct Hoisted<'a> {
     /// an `ExprKind::Await`
     pub node: &'a Expr,
     pub guards: Vec<Guard<'a>>,
+    /// the `ExprKind::Catch` whose operand the `await` is: a matching rejection is the answer, settled where it is awaited
+    /// (R-f-4), as the tail form is, so the reader of a catch's answer holds like the reader of any answer (05 H-4)
+    pub caught: Option<&'a Expr>,
 }
 
 fn with<'a>(g: &[Guard<'a>], x: Guard<'a>) -> Vec<Guard<'a>> {
@@ -27,44 +30,45 @@ fn with<'a>(g: &[Guard<'a>], x: Guard<'a>) -> Vec<Guard<'a>> {
 /// equation's own memo, so even its result-position `await` is a flight of its own (07 §3).
 pub fn non_tail_awaits(root: &Expr, tail: bool) -> Vec<Hoisted<'_>> {
     let mut out = vec![];
-    walk(Node::E(root), tail, &[], &mut out);
+    walk(Node::E(root), tail, &[], &mut out, None);
     out
 }
 
-fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>) {
+fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>, caught: Option<&'a Expr>) {
     let g0 = |e| Guard { e, neg: false, nullish: false };
     if let Node::E(x) = n {
         match &x.k {
             ExprKind::Await { e, init, .. } => {
                 // one inside another's question first: the outer one reads it
-                walk(Node::E(e), false, g, out);
+                walk(Node::E(e), false, g, out, None);
                 if let Some(i) = init {
-                    walk(Node::E(i), false, g, out);
+                    walk(Node::E(i), false, g, out, None);
                 }
                 if !tail {
-                    out.push(Hoisted { node: x, guards: g.to_vec() });
+                    out.push(Hoisted { node: x, guards: g.to_vec(), caught });
                 }
                 return;
             }
             ExprKind::If { c, t, f } => {
-                walk(Node::E(c), false, g, out);
-                walk(Node::E(t), tail, &with(g, g0(c)), out);
-                walk(Node::E(f), tail, &with(g, Guard { e: c, neg: true, nullish: false }), out);
+                walk(Node::E(c), false, g, out, None);
+                walk(Node::E(t), tail, &with(g, g0(c)), out, None);
+                walk(Node::E(f), tail, &with(g, Guard { e: c, neg: true, nullish: false }), out, None);
                 return;
             }
             ExprKind::Bin { op, l, r } => {
-                walk(Node::E(l), false, g, out);
+                walk(Node::E(l), false, g, out, None);
                 match op.as_str() {
-                    "&&" => walk(Node::E(r), false, &with(g, g0(l)), out),
-                    "||" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: true, nullish: false }), out),
-                    "??" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: false, nullish: true }), out),
-                    _ => walk(Node::E(r), false, g, out),
+                    "&&" => walk(Node::E(r), false, &with(g, g0(l)), out, None),
+                    "||" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: true, nullish: false }), out, None),
+                    "??" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: false, nullish: true }), out, None),
+                    _ => walk(Node::E(r), false, g, out, None),
                 }
                 return;
             }
             ExprKind::Catch { e, alt, .. } => {
-                walk(Node::E(e), tail, g, out);
-                walk(Node::E(alt), false, g, out);
+                let takes = matches!(e.k, ExprKind::Await { .. }).then_some(x);
+                walk(Node::E(e), tail, g, out, takes);
+                walk(Node::E(alt), false, g, out, None);
                 return;
             }
             // a closure's body runs later; a draft's statements are its own
@@ -73,7 +77,7 @@ fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>
         }
     }
     for c in children(n, false) {
-        walk(c, false, g, out);
+        walk(c, false, g, out, None);
     }
 }
 
@@ -129,7 +133,7 @@ fn walk_catch<'a>(n: Node<'a>, root: bool, g: &[Guard<'a>], out: &mut Vec<Hoiste
                     walk_catch(Node::E(e), false, g, out);
                     walk_catch(Node::E(alt), false, g, out);
                 } else if !has_await(x) {
-                    out.push(Hoisted { node: x, guards: g.to_vec() });
+                    out.push(Hoisted { node: x, guards: g.to_vec(), caught: None });
                 }
                 return;
             }

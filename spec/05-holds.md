@@ -110,13 +110,52 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   not when any change does (S-solid-11 instant 1).
 
 - **H-4 (Who holds).** [F-3] A reader holds the group it joined iff it is
-  pending after its pass, it is still the display (its region is live and it
-  will still be a reader after the instant), no armed boundary catches it
-  (H-5 — the catch takes precedence over being served), and it is not a lane
-  reader (H-7). A reader the instant itself removes holds nothing; a reader
-  behind a fallback holds nothing; an effect's compute half, an unread
+  pending after its pass, it is still the display (its region is live, it
+  will still be a reader after the instant, and it is not behind a
+  fallback), no armed boundary catches it (H-5 — the catch takes precedence
+  over being served), and it is not a lane reader (H-7). A reader is
+  **behind a fallback** when a boundary above it — a `loading` or an
+  `errored` region — shows its fallback: that content is not on screen, so
+  it holds nothing, and neither does what it was served — a `{…}` reader,
+  an attribute, an `if` condition, a `for` collection alike. A reader the
+  instant itself removes holds nothing; an effect's compute half, an unread
   equation, a snapshot, or a probe holds nothing. A held reader's pass is
   re-run every instant: it is the display, and serving happens in the pass.
+
+  **A change only content behind a fallback needs reveals at once** (Solid
+  F-3, "a boundary on its fallback is the display of everything under it";
+  pinned by its test E1, "a write publishes beside a shown error fallback",
+  since 2.0.0-rc.23, #4908). The case that matters is the error fallback:
+  after a source's question has failed into an `errored` region's fallback,
+  a change that makes it ask again — a plain write, an action's writes, an
+  input of a `throw` (S-module-1 instant 3: `#2 nobody Z`), through a prop
+  or not — commits in its own instant. Every reader of the change that is
+  the display shows it, beside the old fallback, with the question in
+  flight (`pending?` of the source reads `true` there); the fallback stays
+  until an answer replaces the error (H-12, D-41), and the content behind it
+  waits there holding nothing. What still holds such a change, exactly:
+  - a reader that is the display and pending on it — another question the
+    change asks, read in the open or under a boundary not on its fallback.
+    The failed question's answer, if it lands first, is staged with that
+    hold and reveals with its frame (D-41's mirror: S-solid-42 instants
+    6–8, S-fail-2 instants 5–7);
+  - the reader of a `catch` answer. A matching rejection is an answer, a
+    value like any (R-f-4), not a fallback: its reader is the display, and
+    the next question holds it as it holds any reader (S-fail-2's `other`).
+    So wherever the `catch` stands — an equation's result, inside an
+    expression, a view's reader, an `if` condition — its `await` is settled
+    where it is awaited (an effect's input holds nothing either way). A failure a typed `catch` does
+    not take passes to the boundary above, and is that boundary's fallback;
+  - an armed `loading` above the error fallback (fresh, or re-armed by its
+    `on`): it takes the pending content and shows its own fallback with the
+    change's frame (H-12, S-hold-6);
+  - an action's body, until it returns (AC-1); its writes then reveal as a
+    plain write's do.
+
+  Until 2026-11-26 this paragraph was not written, and DV-25 recorded F-3 as
+  a divergence (see there): the rule was already H-4's for an `errored`
+  region; the interpreter missed it for a control reader, and an inline
+  `catch` was lowered onto Solid as an error boundary.
 
 - **H-5 (Armed boundary catches).** [F-4] A `loading` region is **armed**
   until it has shown content, and again after `on`. While armed, pending
@@ -276,7 +315,8 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   catch it — and it is not an answer either: an `errored` region on its
   fallback stays there while the content under it is pending, and leaves
   only when a value replaces the error (Solid D-41; found by `ref/`:
-  S-hold-5 instant 2) — unless a `loading` above it is armed (re-armed by
+  S-hold-5 instant 2), while the change that asked again shows at once
+  beside it (H-4, Solid F-3) — unless a `loading` above it is armed (re-armed by
   its `on`): that boundary takes the pending content behind the error
   fallback and shows its own fallback over both (S-hold-6; found by
   S-ai2-search, Solid's behaviour). A typed boundary (`fallback(e: A | B)`) takes only
@@ -447,25 +487,37 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   probe opens whose content read the held write plainly attaches with its
   slot empty and removes the old arm (S-solid-46 instant 2: `0 d0`); ruled:
   it is born held and the old arm stays until the landing.
-- **DV-25 (a reader out of an error state does not hold the change) —
-  Solid's intended behaviour since 2.0.0-rc.23 (#4908), not a regression;
-  reproduced 2026-11-19; still in 2.0.3 (99db9bce4), where S-fail-2's client
-  runners show the ruled frame and its hydrated page does not**
-  (`ref/oracle/repros/dv25-errored-reask.mjs`, plain Solid: rc.21 and rc.22
-  hold, rc.23 and after do not). *Memo (2026-11-26):* this was recorded as a
-  2.0.1 regression; the plain-Solid draft
-  (`solid-main.noindex/drafts/3-errored-reask-write`, not to be filed) finds
-  it is #4908's change, pinned by Solid's own test (`lean.test.ts` "E1 a write
-  publishes beside a shown error fallback") and its rule F-3 ("a boundary on
-  its fallback is the display of everything under it … a change that only such
-  content needed reveals at once"), in the 2.0.0 changelog. So the spec's rule
-  below and Solid's ruling differ by design, not by a bug. After a source's question fails into a `catch` value or
-  an `errored` fallback, a change that makes it ask again shows at once:
-  the new input beside the old fallback, with the question in flight
-  (S-module-1 instant 3: `#2 nobody Z`; S-fail-2 instant 6: `zzznone`, the
-  recovered readers beside `other`'s old value). H-4 and D-41 rule that
-  the change holds until the question answers, as rc.21 showed; the spec
-  frames stand.
+- **DV-25 (a reader out of an error state does not hold the change) — not
+  a divergence: Solid's rule F-3, which the language follows; closed
+  2026-11-26.** History, for what cites it. Recorded 2026-11-19 on the
+  repin to Solid 2.0.1 as a regression (rc.21 and rc.22 held; plain Solid:
+  `ref/oracle/repros/dv25-errored-reask.mjs`, `#2 nobody` at the re-ask). It
+  is Solid's intended rule since 2.0.0-rc.23 (#4908, F-3 and F-12, its test
+  E1; the plain-Solid draft `solid-main.noindex/drafts/3-errored-reask-write`
+  says so, and is not to be filed). What the record met was not H-4, which
+  already said that a reader behind a fallback holds nothing (S-hold-5,
+  S-solid-38), but a `catch` lowered onto Solid as an error boundary whose
+  fallback is the catch's value: under F-3 that boundary's content holds
+  nothing, so a `catch` answer's reader stopped holding the next question
+  in Solid while R-f-4 makes it an answer that holds. The same day
+  `CATCH_NOT_ON_AWAIT` replaced S-module-1's catch over a read by an
+  `errored` region, whose frame moved to `#2 nobody Z` (F-3's), so the
+  record there matched its own frame from then on; the oracle settled a
+  tail `await … catch` where it is awaited, as the compiled code did, which
+  ended S-fail-2's client records; its hydrated record (`zzznone` at
+  instant 6) no longer reproduces at the pin (30e7805: every runner holds
+  there, as F-3 says — `other`'s reader is the display). Two instances were
+  left, found by the probes of 2026-11-26 (`rx-t3.noindex/probes/f3`, 24
+  programs × every runner): the interpreter held a change for an `if`
+  condition or a `for` collection behind a shown error fallback, which
+  Solid and H-4 do not (fixed: `behindErrorFallback`); and an `await …
+  catch` not in tail position (inside an expression, a view's reader, a
+  condition) was still an error boundary in the oracle
+  and both emitters, so Solid released its reader (fixed: every `await` a
+  `catch` takes is settled where it is awaited, `awaits.ts` `caught`). H-4
+  now states F-3 and what still holds. Changed on the user's decision of
+  2026-11-26: F-3 is Solid's deliberate rule, not a bug, so the language
+  follows it (a Solid bug would have stayed a DV with a memo).
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
   2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts

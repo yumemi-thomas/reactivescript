@@ -1,6 +1,6 @@
 # S-fail-2 — failures through components: a prop's failures are checked where it is read, children's where they are rendered
 
-Rules: R-f-4, R-f-5, R-f-6, R-2, RG-4c, H-4, D-41.
+Rules: R-f-4, R-f-5, R-f-6, R-2, RG-4c, H-4, H-12, D-41.
 
 ## Program
 
@@ -55,17 +55,12 @@ reader holds the change; the three error fallbacks are staged with it (an
 error is an answer, H-12). Instant 4: the rejection is caught into `none`
 and the frame commits as one. (The `catch` on `other` follows its `await`, the
 only place a `catch` may stand, R-f-4.) Instants 5–7: behind their fallbacks the
-readers of `value` hold nothing (H-4) and recover with the answer (D-41);
-`other`'s reader holds the change until `q` lands.
-
-## Divergences (DV-25)
-
-- hydrated "Frames" instant 6: `zzznone`
-
-Solid changed this on purpose in 2.0.0-rc.23 (#4908, its rule F-3; not a regression, see spec 05 DV-25 and the draft `solid-main.noindex/drafts/3-errored-reask-write`) (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
-does not hold the change, so the screen shows the new input beside the old fallback while the question is in flight.
-rc.21 and rc.22 held it, as the spec rules; the spec frames stand. On 2.0.3 (99db9bce4) the client runners show the ruled frame
-here; the hydrated page still does not, and S-module-1 and the plain-Solid repro still show the change.
+readers of `value` hold nothing (H-4, Solid F-3) and recover with the answer (D-41);
+`other`'s reader holds the change until `q` lands: `none` is an answer, not a
+fallback, so its reader is the display, and `z` waits with that hold (D-41's
+mirror). (Instant 6 was recorded as a divergence, DV-25, until 2026-11-26: the
+hydrated page showed `zzznone` on 2.0.3 at 99db9bce4; at the pin every runner
+shows the frame above. See spec 05.)
 
 ## Rejected variants
 

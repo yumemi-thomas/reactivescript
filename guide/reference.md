@@ -96,7 +96,8 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
 - `catch` follows an `await` only: `await f(x) catch (e) => alt` makes a matching rejection the answer
   (CATCH_NOT_ON_AWAIT, R-f-4). A handler or action that reads a value which can fail uses `try`/`catch`.
 - An error stays on screen until a new answer replaces it: `refresh x` (quiet) retries; changing an input asks a new
-  question (H-12, D-41).
+  question (H-12, D-41). What is behind the error fallback does not hold that change: the new input shows at once beside
+  the old fallback (H-4, Solid F-3). A `catch` answer is a value, so its reader does hold the next question.
 - A value borrowed from another section (a list passed into a detail) carries that section's failures: put its
   readers in an `errored` region of their own, or the other section's error shows in this one.
 - A handler reads what its region shows, and passes it on as plain values.

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**A write beside a shown error fallback** (spec/05 H-4, Solid's F-3)
+
+- **Changed: an `await … catch` inside an expression, a view's reader or a condition holds the next question**, as the
+  same `catch` as an equation's result always did: its answer is a value, not a fallback. It was compiled as an error
+  boundary, so after a failure a change showed at once beside the old answer (`5none!` where the language shows
+  `2none!` until `c:5` answers).
+- **Fixed (interpreter): an `if` or a `for` behind a shown error fallback no longer holds a change**, and an `await`
+  written in an `if` condition now does — as Solid does in both cases.
+
 **The words a tool writes, after a third review** (compiler/words, DESIGN.md there; spec/09 MO-8v; tooling/rx-language-server/DECLARATIONS.md)
 
 - **Fixed: false words in drafts and in generated declarations**, 121 over 1,275 packages written to break them, and wrong types: a result that may be absent or be

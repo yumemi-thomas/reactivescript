@@ -1371,5 +1371,65 @@ function). S-server-8 now shows the screen's frames, with Solid's as `oracle` an
 intended behaviour since rc.23 (#4908, its rule F-3, test E1), not a 2.0.1 regression (draft 3); wording fixed in spec 05,
 S-fail-2, S-module-1 and the repro. **Flagged, not changed:** our H-4 and D-41 (a change holds until a re-asked question
 answers, also beside a shown error fallback) were not shaped to avoid DV-25, but they now disagree with a ruling of
-Solid's, not with a bug: whether the language keeps H-4 there or follows F-3 is a design question for the user. DV-27 has
+Solid's, not with a bug: whether the language keeps H-4 there or follows F-3 is a design question for the user.
+(Decided by the user the same day: the language follows F-3 — "F-3 followed" below, which also finds that H-4 already
+said so for an `errored` region and that the disagreement was narrower than this paragraph says.) DV-27 has
 no draft yet.
+
+### F-3 followed: a write beside a shown error fallback shows at once (the user's decision, 2026-11-26)
+
+*Decided by the user:* the language follows Solid's deliberate rule F-3 (#4908, since 2.0.0-rc.23; Solid's
+`lean.test.ts` "E1 a write publishes beside a shown error fallback"). It is not a Solid bug — that is why it is followed;
+a bug would have stayed a DV with a memo (the standing rule).
+
+*What F-3 is, read in Solid's source* (`packages/signals/src/boundaries.ts` at the pin, 30e7805: `hiddenBy`, the error
+boundary's pass, `freshAbove`): a reader under a boundary whose last pass chose its fallback is off screen and holds
+nothing, whatever it reads; an error boundary on its fallback with a retry pending under it keeps the fallback and holds
+nothing outside it — unless a `<Loading>` above has not shown content, which then catches the pending; a reader outside
+the boundary that reads the same async still holds, one hold per reader that is the display. A `try`/`catch` around an
+`await` in a memo is the memo's own value (F-12), not a fallback.
+
+*The rule as now written* (spec 05 H-4, H-12's clause; DV-25 closed with its history): after a source's question has
+failed into an `errored` region's fallback, a change that makes it ask again commits in its own instant — every reader of
+the change that is the display shows it beside the old fallback, with the question in flight (`pending?` reads `true`);
+the fallback stays until an answer replaces the error; the content behind it (`{…}` readers, attributes, `if`
+conditions, `for` collections, a component's content through a prop) holds nothing. What still holds such a change: a
+reader that is the display and pending on it (another question of the change — the failed question's answer, if first,
+is staged and reveals with that hold, D-41's mirror); the reader of a `catch` answer, which is a value (R-f-4), wherever
+the `catch` stands; an armed `loading` above the error fallback, which takes the content and shows its own fallback with
+the change's frame; an action's body until it returns.
+
+*What was found when it was measured.* H-4 already said "a reader behind a fallback holds nothing", and S-module-1's
+frame had been F-3's (`#2 nobody Z`) since `CATCH_NOT_ON_AWAIT` (fee49e0e): its DV-25 record matched its own frame.
+S-fail-2's (`zzznone`, hydrated) no longer reproduces at the pin; every runner holds there, as F-3 says (`other` is a
+`catch` answer: its reader is the display). So the user's two examples split: S-module-1 instant 3 is F-3 and stays;
+S-fail-2 instant 6 is not F-3 (Solid itself holds it), and its frame stays `unavailable-missing none`. DV-25 had been a
+`catch` lowered onto Solid as an error boundary, meeting F-3. 24 probes (`rx-t3.noindex/probes/mkf3.mjs`: E1's three
+variants, S-module-1's throw, an action, a prop, two fallbacks, a typed boundary passing, `loading on`, a probe beside
+the fallback, a held recovery, controls behind the fallback, `catch` in seven places) through every runner, before
+(821fa264) and after, found three things, all fixed:
+
+| | before | now |
+| --- | --- | --- |
+| an `if` condition or a `for` collection behind a shown error fallback (the interpreter) | held the change: what the control reader had been served still counted as a flight a display waits on | holds nothing, as a plain read there (`behindErrorFallback`, `ref/src/runtime.ts`) |
+| an `await … catch` not an equation's result — inside an expression, a view's reader, a condition (the oracle, both emitters) | lowered as an error boundary whose fallback is the catch's value, so Solid released its reader (F-3) where the interpreter held: the last live DV-25 | the `await` a `catch` takes is settled where it is awaited, as the result form always was (`awaits.ts`/`awaits.rs` `caught`; `emit.ts`, `emit.rs`, `oracle/lower.ts`) |
+| an `await` written in an `if` condition (the interpreter; found by the `catch` probes, no `catch` needed) | held nothing: a pending condition with a branch shown counted only what it was served | holds as a pending read (H-4, "a pending control reader holds or is caught as a pending read is") |
+
+Also: the oracle's `deferred x = await … catch` threw through a boundary at the mount (`1none`); it is settled as the
+plain form (the emitters do not lower a deferred catch yet: unchanged). Pinned by `scenarios/S-hold-7.md` (the E1 shape
+with a condition and a probe, four runners; a variant where an inline catch's answer holds).
+
+*Checkers.* No diagnostic, refusal or advice rested on the hold: neither checker reads it, and neither changed (`same`
+alike on every program below). Nothing is refused or accepted differently.
+
+| census | |
+| --- | --- |
+| the 24 probes, every runner, before → after | 4 differ → agree (`catch-inexpr`, `catch-reader`, `if-behind`, `for-behind`); 17 agree as before; `catch-if` differs before and after, and agrees once the third fix is in (two more probes, `probes/f3b`: an `await` in a condition, with and without an equation); `catch-effect` is my table's (an effect's write is an instant it does not list), and shows an effect's input never holds; `catch-deferred` is not compiled by the emitters (before too). `same` and `lower` 24 of 24 |
+| the review sets, as "Review sets on 3395c64e" ran them (`sets/runf3.mjs`, `out-f3/`): the 3,774 of the 18,798 that hold `errored` or `catch` — the only ones either change can reach (the interpreter's needs a shown error fallback; no program without one has an `await` in a condition) — interpreter, oracle, both emitters, both checkers, both lowerings, before (821fa264) and after; filled sets served and hydrated after | **nothing moved**: every verdict the same, no program both revisions agree on shows anything else, `same` and `lower` alike on all 3,774. Served misses, all as before: DV-26 (`p3-err-aw-ifinner-app`), X14 (`v1-aw-loop-*`, two of the 505), the 505's 12 portal tables; one more in the 635, `p7_y-hidden` (children with an `await` given to a hidden `if` under `loading`, hydrated late: the frame before `w`), never served before, the same on 821fa264 — not this change, not reduced |
+| scenarios (`scripts/quick`, then the full run below) | S-hold-7 new; S-module-1 and S-fail-2 lose their DV-25 records and keep their frames; nothing else moves (all four runners, served and hydrated, the crate's parity and lowering, the type pass) |
+| `examples/rx-packages`: `build.mjs`, `check.mjs` | all built; `check.json` unchanged byte for byte. No program there has an `await … catch` in reactive scope (the one `catch` is an action's `try`), and the interpreter is not theirs |
+| `examples/rx-std`, `examples/rx-ui-sdk` | build; the UI SDK's `check/run.mjs`: the rewrite's column accepts the good program and all 8 correct lines, as before (its drafts column reads `DECLARATION_VERSION` here, the pin check against this checkout's installed package: no checker or declaration changed) |
+| the full `scripts/ci`, uncached, with the Vite plugin fork (`bench --check --strict`, `proposals/check.mjs`, every runner and suite) | 47 of 47 passed, nothing kept from before (1,728 s) |
+
+Nothing stricter dropped and nothing correct refused: the checkers are untouched. A Solid bug was not involved: F-3 is
+Solid's ruling, the three fixes are ours.

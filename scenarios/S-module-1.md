@@ -104,17 +104,9 @@ Instant 2: the write goes through `store.rx`'s action; `user` throws
 `NotFound` with no await and `Name`'s typed boundary shows its fallback.
 Instant 3: the new question's reader is behind that fallback, which holds
 nothing (H-4, D-41): `#2` shows at once and the fallback stays until an
-answer replaces the error. Instant 4: the answer is an `Error`, which
+answer replaces the error — Solid's F-3 (its test E1), in every runner. (This
+instant was recorded as a divergence, DV-25, until 2026-11-26: see spec 05.) Instant 4: the answer is an `Error`, which
 `Name`'s boundary passes and `Card` takes.
-
-## Divergences (DV-25)
-
-- oracle "Frames" instant 3: `#2 nobody Z`
-- hydrated "Frames" instant 3: `#2 nobody Z`
-
-Solid changed this on purpose in 2.0.0-rc.23 (#4908, its rule F-3; not a regression, see spec 05 DV-25 and the draft `solid-main.noindex/drafts/3-errored-reask-write`), still so in 2.0.3 (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
-does not hold the change, so the screen shows the new input beside the old fallback while the question is in flight.
-rc.21 and rc.22 held it, as the spec rules; the spec frames stand.
 
 ## Rejected variants
 
