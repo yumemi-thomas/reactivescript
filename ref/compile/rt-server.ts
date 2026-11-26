@@ -360,7 +360,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     module(key: unknown, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
     // ---- context (RG-7): the server build's owner context, keyed by the declaration ----
     owner: () => getOwner(),
-    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, id: Symbol(name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any) as Acc } : null }; },
+    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, id: Symbol(name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any, { lazy: true } as any) as Acc } : null }; },   // lazy: a default is read where a part asks for it, so it may name what the module declares after the context (as the oracle and the interpreter have it)
     // (a component runs under an owner. None here means the component was rendered by another copy of Solid than the one
     // this runtime imports: a dev server that bundles the app with its development build of Solid and leaves the runtime
     // to Node, which loads its own. Said in words: the bare failure was "Cannot read properties of null")

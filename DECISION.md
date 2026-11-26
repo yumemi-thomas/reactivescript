@@ -924,3 +924,37 @@ fixes add a few hundred bytes), the primitives' tests (untouched).
 Found on the way, not a step: the rewritten cmdk, hydrated, makes Solid's development build report
 `STRICT_READ_UNTRACKED` ("reactive value read directly in an effect callback"): an effect's apply reads by design, so
 this is a read the runtime does not wrap; recorded, not reduced.
+
+### e. X7: the runners that disagree on accepted programs
+
+The 635 and the 3,802 of "What is still different on some runner" run again on this tree (`../w/old`, `../w/opus`;
+4,437, the two sets share programs), interpreter, oracle and both emitters: **63 differed**. Then, with the fixes
+below, against c8ed3aa6: 14 differ → agree, 2 differ → the same error, none that agreed shows anything else.
+
+Fixed:
+
+- **A pending attribute** (`<b class={await fetch(use c)}>` under a `loading`): the interpreter showed the element at
+  once; it now waits as a pending read in content does (its boundary catches it, or it holds). The oracle and both
+  emitters already did (the 2 of DECISION, and a third shape).
+- **A context's default that names what the module declares after it** (`source d := "x"` below `context c = d`): both
+  emitters threw `Cannot access v$d before initialization`; the runtimes made the default's memo when the context was
+  declared. Made lazy (Solid's `lazy` memo), as the oracle and the interpreter read it. Accepted and wrong, in
+  production too.
+- **An error's text**: the interpreter named a flight `"k"` where the others say `k` (32 "differ" of the review's p3
+  and v1 sets, and 2 here, were that alone).
+- The oracle's keyed lists (`p0_lst`, `p1_list`, `pr_list-comp`): fixed by a.
+
+Left, and why (the 45 that still differ, by kind):
+
+| kind | programs | whose |
+| --- | --- | --- |
+| a closure given as content or as `children: any`, shown or called (`<T>{n => 5}</T>` to `children?: View`, `{props.children}` of a function prop): the compiled code throws, the interpreter shows something | q34-*, c34-*, 18 | the checkers: accepted and wrong. It is W4's subject (a view only to a prop declared to take one) and proposals' "closure as children" (34): track 1, step 5 |
+| `x = r(…)` where `r` instantiates, through an alias, an argument, a prop, a record, a source | p7_x-*, pa_Cprobe-*, 14 | the interpreter refuses at run time (E-9), the checkers accept: L8 (locals in fns, E-9) is track 1's step 6, which decides this |
+| a handler written in the scenario's table that holds `use` or reads `props`, an action named `chained` | am2_hand, p4_clos-handler, p1_register, 6 | the harness |
+| a closure given as children and later shown again, with a source in it (`V_mixed`, `V_fn-inst`, …) | V_*, V2_*, 10 | the interpreter re-runs where the others do not; read, not reduced — with the first row, a closure as children |
+| the order of two views given on (`vf-alt2`), an inline `ref` the interpreter does not call (`A-ref-inline`), a store path the oracle prints `NaN` (`g-store-path`), a provision the oracle reads outside (`so14`) | 6 | one each, the interpreter or the oracle (test instruments); not reduced |
+
+The p3 set's 36 "unread await" programs (`p3-el-attr-*`) are frames alike in every runner: the compiled code asks a
+question nothing shows (an `await` whose answer is only in content that a presence test reads), the interpreter
+does not (E-3, demand). The spec's side is the interpreter's; Solid's memo is eager, and making the runtime's memos
+lazy is a change of what every component runs first, so it is recorded, not made, here.

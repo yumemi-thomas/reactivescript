@@ -299,7 +299,7 @@ export class Runtime {
     let f: Flight | undefined;
     if (/^".*"$/.test(target)) f = this.flights.get(target.slice(1, -1));
     else { const n = this.findNode(target); f = n?.flight ?? undefined; if (!n) throw new Error(`no node ${target}`); if (!f) throw new Error(`${target} has no flight`); }
-    if (!f) throw new Error(`no flight ${target}`);
+    if (!f) throw new Error(`no flight ${target.replace(/^"(.*)"$/, "$1")}`);   // the flight's key, as the other runners name it
     this.answer(f, reject ? "rejected" : "resolved", reject ? (value instanceof Error ? value : new Error(String(value))) : value);   // `reject x NotFound("…")`: a declared class (MO-8)
     const w = this.pendingWrites; this.pendingWrites = [];
     return this.step(w);
@@ -510,7 +510,7 @@ export class Runtime {
         if (ownServed) { i.node.heldOn = this.find(this.instant); holding.push(i.node); i.shown = fmt(v); return; }        // served this change's own flight: publishes committed-derived text, holds the change (S-solid-27)
         i.node.heldOn = null; i.shown = fmt(v); return;                                                                    // only committed / served values: shows now (Solid D-3)
       }
-      case "el": { for (const a of i.attrs) this.pull(a.node); for (const c of i.children) this.settleItem(c, holding, boundary); return; }
+      case "el": { for (const a of i.attrs) if (this.pull(a.node) instanceof PendingVal) this.holdPending(a.node, holding, boundary); for (const c of i.children) this.settleItem(c, holding, boundary); return; }   // a pending attribute waits as a pending read does: its boundary catches it, or it holds (X7: the interpreter showed the element at once)
       case "mif": {
         const c = this.pull(i.cond);
         if (isErr(c)) { this.erroredControl(i.cond, c, boundary); if (i.inflight) this.settle(i.inflight.inst, holding, boundary); return; }   // H-12: an errored condition is a failed reader — its boundary takes it; the branch stays (found by S-ai2-settings)
