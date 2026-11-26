@@ -144,6 +144,7 @@ export class Runtime {
   effects: EffectRec[] = [];
   view!: ViewInst;
   pendingWrites: Write[] = [];
+  private refCalls: (() => void)[] = [];                // 07 §4: the `ref`s of the elements made, not yet called
   pendingCleanups: (() => void)[] = [];
   subs = new Map<Target, Map<string, Set<Node>>>();
   flights = new Map<string, Flight>();
@@ -266,8 +267,16 @@ export class Runtime {
   step(writes: Write[]): { frame: string; effects: string[] }[] {
     const out: { frame: string; effects: string[] }[] = [];
     let w = writes;
+    let fold = false;
     for (;;) {
-      do { this.instant++; out.push(this.runInstant(w)); w = this.pendingWrites; this.pendingWrites = []; } while (w.length && w.some(x => this.effective(x)));   // W-3: an apply's writes that are all equal open no instant
+      // 07 §4: a `ref` is called as its element is made, in the creating pass, and what it writes is in that frame (Solid's
+      // ref()): here each is a run of its own after the instant that made the element, and the instant its write opens is
+      // shown as that one. The next `ref` reads what the one before wrote.
+      do {
+        this.instant++; const f = this.runInstant(w); if (fold && out.length) { f.effects.unshift(...out[out.length - 1].effects); out[out.length - 1] = f; } else out.push(f);
+        w = this.pendingWrites; this.pendingWrites = []; fold = false;
+        while (!w.some(x => this.effective(x)) && this.refCalls.length) { this.refCalls.shift()!(); w = this.pendingWrites; this.pendingWrites = []; fold = w.some(x => this.effective(x)); }
+      } while (w.length && w.some(x => this.effective(x)));   // W-3: an apply's writes that are all equal open no instant
       const logBefore = this.log.length;
       const stray = this.pendingSettled.filter(s => s.change === null); this.pendingSettled = this.pendingSettled.filter(s => s.change !== null);
       for (const s of stray) this.fireSettled(s.f);                    // EF-7: registered by a run whose writes opened no instant — it fires now, with this one
@@ -1297,6 +1306,12 @@ export class Runtime {
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };
         }
+        // 07 §4: an element's `ref` is called once, with the element, as it is made (Solid's ref(): untracked, in the
+        // creating pass, where a write is a handler's); what it is given stands for the element
+        for (const a of m.attrs) if (a.name === "ref" || a.name === "...") {
+          const v = this.untracked(() => this.evalExpr(a.e, region)), f = a.name === "ref" ? v : isObj(v) ? this.untracked(() => v.ref) : undefined;
+          for (const g of [f].flat(Infinity as 1)) if (typeof g === "function") this.refCalls.push(() => { this.untracked(() => g({ tagName: m.tag })); });
+        }
         return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, (/^on[A-Z:]/.test(a.name) || a.name === "ref") ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
       }
       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.askedAt(rt.evalExpr(m.c, region)); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
@@ -1314,7 +1329,7 @@ export class Runtime {
     }
   }
   /** The arguments of an application, each a node of the caller's. */
-  private parts(m: Extract<Markup, { k: "el" }>, region: Region) { return m.attrs.map(a => ({ name: a.name, node: this.mkNode("eq", `${m.tag}.${a.name}`, region, rt => rt.evalExpr(a.e, region)) })); }
+  private parts(m: Extract<Markup, { k: "el" }>, region: Region) { return m.attrs.map(a => ({ name: a.name, node: this.mkNode("eq", `${m.tag}.${a.name}`, region, /^on[A-Z:]/.test(a.name) || a.name === "ref" ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })); }   // SC-4, SC-4b: a handler given to a component is an imperative closure, as an element's
   /** `views`: the fields that are no argument's, defined on the target: a view given, the children. */
   private spread(props: Record<string, unknown>, parts: { name: string; node: Node }[], views = new Set(["children"])): Record<string, unknown> {
     if (!parts.some(p => p.name === "...")) { for (const p of parts) Object.defineProperty(props, p.name, { enumerable: true, get: () => this.readNode(p.node) }); return props; }   // a prop read is a read of the argument's node: taint, lanes, serving (found by S-fail-2)

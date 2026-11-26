@@ -93,6 +93,7 @@ Then, accepted and wrong when run: [04](bugs/04-effect-over-a-list.md), [08](bug
 | [28](28-generic-components.md) generic components and types | `component List<T>(…)`, `type Item<T> = …`, inferred at the tag, none written there; a type parameter is a value's type, never a view; built on `rx-best` (not published) | medium: every typed list a library owns (Select, Combobox, Table) | 20, 25 |
 | [29](29-a-tag-chosen-by-a-value.md) a tag chosen by a value | decided: **not added**. A closed set is an `if`; a tag or a component the caller chooses is `render`, a view shown with the part's attributes. 153 programs for the two forms, all runners | – | 25 |
 | [30](30-a-namespace-of-parts.md) a kit's parts by a namespace | `import * as Select from "./select.rx"`, `<Select.Item>`, `Select.Opt`: no value, nothing made; read by every runner as named imports; built on `rx-best` (not published) | medium to high: every kit of parts | – |
+| [31](31-ref-on-a-component.md) a `ref` given to a component | a component written in `.rx` is given `ref` as it is given `on…`, a handler; inside it a handler prop is io, as an action is (the same hole closed for `on…`, on `main` too); 456 programs, S-view-10 in every runner | high: 22 of 23 correct programs refused over 65 rewritten packages | – |
 | [24](24-view-functions.md) where a `use` in children reads | a question; a fix tried and held back (`proto-view-fn` a05f579a, not published) | – | – |
 | **tooling** | | | |
 | [22](22-generated-drafts.md) drafts | for a person to review | medium | 03 |

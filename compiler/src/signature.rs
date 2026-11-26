@@ -48,6 +48,8 @@ pub struct PropSig {
     pub f: Catch,
     pub p: Catch,
     pub rendered: bool,
+    /// SC-4b: an `on…` prop typed to answer a value: a function the component calls for what it answers, no handler
+    pub pure: bool,
     pub action: Option<(Catch, String)>,
     /// MO-11c: a JS component's prop that takes a component value
     pub component: bool,
@@ -504,6 +506,9 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                     if let Some((af, an)) = &v.action {
                         parts.push(format!("action {} catches({})", an, cls(af)));
                     }
+                    if v.pure {
+                        parts.push("pure".to_string());
+                    }
                     format!("{}{}", if f == "*" { "...props" } else { f }, if parts.is_empty() { String::new() } else { format!(": {}", parts.join(" ")) })
                 })
                 .collect();
@@ -570,6 +575,7 @@ re!(T_PROPS, r"^props:\s*(\{.*\})$");
 re!(P_PART, r"^([A-Za-z0-9_$.-]+)\s*:\s*io$");
 re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
 re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(([^)]*)\)");
+re!(P_PURE, r"(^|\s)pure(\s|$)");
 re!(P_UNRENDERED, r"(^|[^A-Za-z0-9_])unrendered([^A-Za-z0-9_]|$)");
 re!(P_TAKES, r"(^|[^A-Za-z0-9_])takes\(((?:[^()]|\([^()]*\))*)\)");
 re!(P_VIEW, r"^view(\??)(\s*\|\s*View)?(?:\s|$)");
@@ -782,7 +788,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     None => (crate::parse::js_trim(&f).to_string(), String::new()),
                 };
                 let fname = if fname0 == "...props" { "*".to_string() } else { fname0 };
-                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, action: None, component: false, components: false, takes: vec![], view: None };
+                let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, pure: false, action: None, component: false, components: false, takes: vec![], view: None };
                 let mut spec = spec;
                 if let Some(m) = P_VIEW.captures(&spec) {
                     // RG-4c
@@ -824,6 +830,9 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
                     }
                 }
                 let rest = P_TAKES.replace(&rest, "$1").to_string();
+                if P_PURE.is_match(&rest) {
+                    v.pure = true;
+                }
                 if P_UNRENDERED.is_match(&rest) {
                     v.rendered = false;
                     v.f = Catch::All;

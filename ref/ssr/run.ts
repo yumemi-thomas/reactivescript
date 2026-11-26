@@ -331,7 +331,10 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   // chain, since the server runs no effect (SV-2) and shows the frame before an effect's chain lands
   // (a `server` divergence: what Solid's server render shows there instead — DV-9)
   const served1 = (f: string) => f.split(" » ")[0];   // PT-3: the server renders nothing for a portal — the browser does, once it has the page
-  const frameOf = (r: Row) => { const sv = !scope && sc.divergences.find(d => d.runner === "server" && d.table === t.title && d.instant === r.instant); if (sv) return norm(sv.frame); const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return norm(served1(div ? div.frame : r.frame)); };
+  // (07 §4, SV-2: nor does the server call a `ref` — it makes no element. Where a `ref` writes as the view is made, the
+  // server's mount is the frame before it, which the scenario's `## Server frames` gives; the browser shows the mount's)
+  const refMount = t === base && sc.server[0]?.action === "mount" && /\bref=/.test(JSON.stringify(src)) ? sc.server[0] : undefined;
+  const frameOf = (r: Row) => { if (refMount && r.action === "mount") return norm(served1(refMount.frame)); const sv = !scope && sc.divergences.find(d => d.runner === "server" && d.table === t.title && d.instant === r.instant); if (sv) return norm(sv.frame); const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return norm(served1(div ? div.frame : r.frame)); };
   const want = served.slice(from).flatMap(c => c.map(frameOf));
   const res = await serve(sc, src, served.map(c => c[0]), t.title, lines);
   if (!res) return res !== false;

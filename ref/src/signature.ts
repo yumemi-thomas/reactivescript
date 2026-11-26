@@ -16,7 +16,9 @@
 //   export context theme: source pending Theme = …          rows, then the written type; `= …` a default
 //   export component Panel(props: { title; children: catches(Error) provides(./theme.rx#theme) }) fails(Error) uses(./theme.rx#theme, loading) shape(roots section; children-at section)
 //
-// A prop field: bare (rendered, discharges nothing), `catches(A | B)` / `catches(*)`, `provides(…)` (children), `unrendered`
+// A prop field: bare (rendered, discharges nothing), `catches(A | B)` / `catches(*)`, `provides(…)` (children), `unrendered`;
+// `pure`: an `on…` prop typed to answer a value, no handler (SC-4b). `...props`: the props handed on whole; a field
+// that goes somewhere the whole does not is named beside it (`...props; children: provides(…)`)
 // (only an action reads it), `action save catches(…)` (an action reads it). `uses(loading)` is SV-7b's need for a `loading`
 // above a reader of a client question. `retains(onPick: module, onFocus: ./form.rx#fields)` names the props the component
 // stores where they outlive it (O-3) — in its module's sources, or through a provision above it — so a closure passed for one
@@ -138,6 +140,7 @@ function line(file: string, name: string, x: ExportSig): string {
           if (!(v.p instanceof Set && v.p.size === 0)) parts.push(`provides(${v.p === "all" ? "*" : [...v.p].map(k => relKey(file, k)).join(", ")})`);
         }
         if (v.action) parts.push(`action ${v.action.name} catches(${cls(v.action.f)})`);
+        if (v.pure) parts.push("pure");                                                       // SC-4b: an `on…` prop typed to answer a value: no handler
         return `${f === "*" ? "...props" : f}${parts.length ? `: ${parts.join(" ")}` : ""}`;
       });
       const own = [...new Set(s.own.map(o => o.cls))];
@@ -241,6 +244,7 @@ export function parseSignature(src: string, file: string): ModSig {
           v.takes = split(tk[2], ",").flatMap(part => { const path = part.trim().split(/\s+/)[0] ?? ""; const fl = /fails\(([^)]*)\)/.exec(part); return path ? [[path, /(^|\s)pending(\s|$)/.test(part.trim()), fl ? fl[1].split("|").map(c => c.trim()).filter(Boolean) : []] as [string, boolean, string[]]] : []; });
           rest = rest.replace(tk[0], tk[1]);
         }
+        if (/(^|\s)pure(\s|$)/.test(rest)) v.pure = true;                                     // SC-4b
         if (/\bunrendered\b/.test(rest)) { v.rendered = false; v.f = "all"; v.p = "all"; }
         const c = /\bcatches\(([^)]*)\)/.exec(rest); if (c) v.f = catchOf(c[1]);
         const p = /\bprovides\(([^)]*)\)/.exec(rest); if (p) v.p = p[1].trim() === "*" ? "all" : new Set(p[1].split(",").map(k => absKey(file, k.trim())).filter(Boolean));

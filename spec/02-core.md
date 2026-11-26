@@ -94,6 +94,24 @@ Function application `f(e…)` covers both language functions and FFI imports;
   with `context cart: { add: (id: string) => void }`. A call of a pure fn that
   answers a handler (`onClick={pick(id)}`) is an expression like any
   other.
+- **SC-4b A handler a component is given (2026-11-26).** A component written
+  in `.rx` is given `on…` props, and `ref`, as an element is: an arrow literal
+  there is imperative scope (SC-4, 07 §4). Inside the component such a prop
+  (`props.onPick`, `props.ref`; the same read off a destructuring, a rest or a
+  copy of its props) is **io, as an action is**: it is given on — to an
+  element, to another component's handler — or called from imperative scope.
+  Called in reactive scope, by its name (`IO_IN_REACTIVE`), carried in a
+  record or an array of the component, or given to what calls it while the
+  call runs (`ACTION_CALLED_IN_OWNED_SCOPE`, R-io-3, 09 MO-8j), it is
+  refused: where the component is applied its closure may write, and
+  would write while the view computes. A prop of such a name whose type, as
+  written, answers a value (`onFormat: (n: number) => string`) is no
+  handler but a function the component calls for what it answers: a
+  closure given to it is pure (SC-3), and the component's printed
+  signature says `pure` of it.
+  A JavaScript component is what its declaration says (09 MO-10g):
+  `handler` on the prop's type; with no declaration, `ref` is no handler.
+  S-view-10.
 
 ---
 

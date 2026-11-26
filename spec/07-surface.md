@@ -262,9 +262,21 @@ attributes are equations, children are readers, components are applied as
   closure is a handler's (imperative scope, SC-4): it may write a source.
   That is how an element reaches a JS library, through a callback that reads
   the source (`getScrollElement: () => scroller`, 09 MO-10g). S-module-15.
-  This is an element's attribute only (revised 2026-11-21): a `ref` passed
-  to a component is a prop, which the component calls when it likes, and is
-  read as the component's declaration says (09 MO-10g, S-module-28).
+  A `ref` passed to a JavaScript component is a prop, which the component
+  calls when it likes, and is read as the component's declaration says
+  (revised 2026-11-21; 09 MO-10g, S-module-28). A component written in
+  `.rx` is given `ref` as an element is, a handler (revised 2026-11-26,
+  02 SC-4b, S-view-10): inside it the prop is io, so it reaches an element —
+  `<input ref={props.ref}>`, `<input {...rest}>` — or is called from
+  imperative scope, and nowhere is it called while the view computes.
+  Solid calls a `ref` in the pass that makes its element (`ref()`:
+  untracked, where a write is a handler's), once, and not again when the
+  element goes; what it writes is in the frame that shows the element. A
+  server makes no element and calls no `ref` (10 SV-2): its frame is the
+  one before. What a `ref` reads of a source another `ref` wrote in the same
+  pass is not ruled (a browser that renders reads the write; one that takes
+  a served page over reads the value before it): a `ref` that counts writes
+  by a function of the value (`n := v => v + 1`, W-6).
 
 ## 5. Imperative scope (02 SC-2, 06 AC)
 

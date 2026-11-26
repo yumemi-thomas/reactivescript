@@ -96,7 +96,7 @@ const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "
 const escAbove = (chain: Step[], name: string) => { const i = chain.findIndex(s => s.p && (s.p === "all" || s.p.has(name))); return i < 0 || escP(chain.slice(i + 1), name); };
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { /** 07 §2: `<T>`, as text */ tparams?: string; made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; view?: { optional: boolean; mixed: boolean; values: string[]; type?: string }; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean; }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; through?: boolean };   // through: MO-14f (2026-11-25), in a host's view — the component's view applies a component the host renders through, so it renders its applier's children there (not printed: a host's view is checked from source)   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
+export type CompSig = { /** MO-11a: a JavaScript component's declaration (not printed) */ js?: boolean; /** 07 §2: `<T>`, as text */ tparams?: string; made?: boolean; own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string }; component?: boolean; render?: boolean; renderOptional?: boolean; view?: { optional: boolean; mixed: boolean; values: string[]; type?: string }; callback?: boolean; pure?: boolean; takes?: [string, boolean, string[]][]; components?: boolean; }>; hosts?: Record<string, HostSite[]>; shape?: Shape; stored?: Record<string, string[]>; through?: boolean };   // through: MO-14f (2026-11-25), in a host's view — the component's view applies a component the host renders through, so it renders its applier's children there (not printed: a host's view is checked from source)   // keeps: MO-11l, the props whose value never leaves the component   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 /** MO-11u: one application of a component a declared fn `renders(…)` beneath, as the components that fn is given see it:
  *  what is discharged and provided between that application's children and the root of the component it is written in
  *  (in a module's own list: the program's). */
@@ -1133,7 +1133,7 @@ class Checker {
     const undoes = (ret: string) => tyUndoes(ret, n => { const y = decls.find(y => y.kind === "type" && y.name === n); return y?.kind === "type" && y.text !== undefined ? aliasText(y.text) : undefined; });   // EF-5a
     const bindComp = (x: Extract<JsDecl, { kind: "comp" }>, alias: string) => {   // MO-11a: a Solid component — its declaration is its summary
         const gives = jsKeys(x.provides);   // MO-12c: provided to everything it renders
-        const sig: CompSig = { own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
+        const sig: CompSig = { js: true, own: x.fails.map(cls => ({ cls, what: `${alias}'s root`, at: file })), requires: jsKeys(x.uses), props: { "*": { f: new Set(), p: new Set(gives), rendered: true } }, shape: x.content };   // MO-11b: an undeclared prop is read too; MO-12b: what it uses itself
         for (const p of x.props) sig.props[p.name] = { f: p.catches === "*" ? "all" : new Set(p.catches ?? []), p: new Set(gives), rendered: true, ...(p.component ? { component: true } : {}), ...(p.components ? { components: true } : {}), ...(p.render ? { render: true, ...(p.optional ? { renderOptional: true } : {}) } : {}), ...(p.callback ? { callback: true } : {}), ...(p.pure ? { pure: true } : {}) };
         const r = this.region(null, "imported", { component: true, name: alias }); r.sig = sig; r.js = true;
         if (decls.some(y => y.kind === "fn" && y.renders === x.name)) r.hostKey = `${d.declared}#${x.name}`;   // MO-11u: its applications are where a fn's components render
@@ -2305,6 +2305,26 @@ class Checker {
   /** R-io-3 (2026-11-24): the parts of a value that are actions, as paths ("": the value itself) — carrying an action is not
    *  a call, and the value's type carries the row: through the names and the fns it goes by, as far as their literals say. */
   private partsMemo = new Map<Sym, Set<string>>();
+  /** SC-4b (2026-11-26): a handler the component is given — `props.onPick`, `props.ref`, the same read off a rest or a copy
+   *  of its props. Its closure was written in imperative scope where the component is applied (SC-4), so inside the
+   *  component it is io: given on to what takes a handler, or called from imperative scope. */
+  private handlerProp(e: Expr, env: Env): boolean {
+    const k = e.k === "member" ? e.p : e.k === "index" ? litKey(e.i) : undefined; if (k === undefined || !isHandler(k)) return false;
+    if (tyAnswersValue(this.declTy(e, env))) return false;                                    // typed as a function called for what it answers: pure, no handler
+    const of = (o: Expr, en: Env, depth: number): boolean => {
+      if (depth > 16) return false;
+      switch (o.k) {
+        case "id": { const s = en.lookup(o.name); return !!s && (s.kind === "props" || ((s.kind === "eq" || s.kind === "value") && !!s.val && !s.rowOf && of(s.val.e, s.val.env, depth + 1))); }
+        case "omit": return !o.keys.includes(k) && of(o.e, en, depth + 1);
+        case "peek": return of(o.e, en, depth + 1);
+        case "if": return of(o.t, en, depth + 1) || of(o.f, en, depth + 1);
+        case "bin": return (o.op === "??" || o.op === "||" || o.op === "&&") && ((o.op !== "&&" && of(o.l, en, depth + 1)) || of(o.r, en, depth + 1));
+        case "rec": { const f = o.fields.findLast(f => "spread" in f || f.key === k); return !!f && "spread" in f && of(f.spread, en, depth + 1); }
+        default: return false;
+      }
+    };
+    return of((e as { o: Expr }).o, env, 0);
+  }
   private actionParts(e: Expr, env: Env): Set<string> {
     const out = new Set<string>();
     const go = (x: Expr) => this.actionParts(x, env);
@@ -2313,11 +2333,12 @@ class Checker {
     const put = (k: string, v: Expr) => { for (const p of [...out]) if (p === k || p.startsWith(`${k}.`)) out.delete(p); if (!k.includes(".")) for (const p of go(v)) out.add(p === "" ? k : `${k}.${p}`); };
     switch (e.k) {
       case "id": { const s = env.lookup(e.name); if (!s) return out; if (s.kind === "action") return out.add(""); if (s.actionParts) return new Set(s.actionParts); return (s.kind === "eq" || s.kind === "value") && s.val ? named(s, s.val) : out; }
-      case "member": return at(go(e.o), e.p);
-      case "index": return at(go(e.o), litKey(e.i));
+      case "member": return this.handlerProp(e, env) ? out.add("") : at(go(e.o), e.p);   // SC-4b: a handler the component is given is io, as an action is
+      case "index": return this.handlerProp(e, env) ? out.add("") : at(go(e.o), litKey(e.i));
       case "rec": for (const f of e.fields) if ("spread" in f) { out.clear(); for (const p of go(f.spread)) out.add(p); } else put(f.key, f.v); return out;
       case "arr": for (const [i, x] of e.items.entries()) { if (x.k === "spread") break; put(String(i), x); } return out;
       case "if": for (const x of [e.t, e.f]) for (const p of go(x)) out.add(p); return out;
+      case "bin": if (e.op === "??" || e.op === "||" || e.op === "&&") for (const x of e.op === "&&" ? [e.r] : [e.l, e.r]) for (const p of go(x)) out.add(p); return out;   // `h = props.onPick ?? other`
       case "peek": return go(e.e);
       case "call": { const f = e.f.k === "id" ? env.lookup(e.f.name) : undefined; return f?.kind !== "fn" ? out : f.actionParts ? new Set(f.actionParts) : named(f, { e: f.fnTail, env: f.fnEnv }); }
       default: return out;
@@ -2477,13 +2498,15 @@ class Checker {
         // as its closure `(x) => name(x)` is: the language's own methods and functions that call what they are given, and a
         // fn of the module whose body calls that parameter. What may keep it (a JavaScript import, a prop) is as it was.
         if (ctx.scope === "reactive") e.args.forEach((a, i) => {
-          const s = a.k === "id" ? env.lookup(a.name) : undefined; if (!s?.io && s?.kind !== "action") return;
+          const s = a.k === "id" ? env.lookup(a.name) : undefined; const named = !!s?.io || s?.kind === "action";
+          if (!named && a.k !== "id" && a.k !== "member" && a.k !== "index") return;                       // …or carried: a part of a record, a handler the component is given (SC-4b)
           const f = e.f.k === "id" ? env.lookup(e.f.name) : undefined;
           const now = e.f.k === "member" ? CALLS_NOW.has(e.f.p) : e.f.k === "id" && (f ? f.kind === "fn" && !!f.fnDecl && paramCalledNow(f.fnDecl, i) : lang(env, e.f.name) === "fn" && CALLS_NOW.has(e.f.name));
           if (!now) return;
-          const n = (a as { name: string }).name;
-          if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${n} is io, and ${show(e.f)}(…) calls it; a fn is pure by definition`);
-          else this.err(s.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${n} is io, and ${show(e.f)}(…) calls it while the call runs: it is called in reactive scope (R-io-3), as \`(x) => ${n}(x)\` would be — call it from a handler or an action`);
+          const n = show(a);
+          const say = () => { if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${n} is io, and ${show(e.f)}(…) calls it; a fn is pure by definition`);
+            else this.err(named && s!.kind !== "action" ? "IO_IN_REACTIVE" : "ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${n} is io, and ${show(e.f)}(…) calls it while the call runs: it is called in reactive scope (R-io-3), as \`(x) => ${n}(x)\` would be — call it from a handler or an action`); };
+          if (named) say(); else { const line = this.line; this.later.push(() => { if (this.actionParts(a, env).has("")) { const at = this.line; this.line = line; say(); this.line = at; } }); }
         });
         // W-1a (2026-11-22): the value of a source, an equation or a prop is changed by a write, never in place:
         // `rows.push(x)` changes the array every reader holds and tells none of them
@@ -2516,7 +2539,10 @@ class Checker {
           else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers a promise, so calling it starts work, here on every computation, with nothing waiting for it — call it from a handler or an action; if it only asks, \`await\` it`);
         }
         // R-io-3: …and an action that a value carries (a fn's result, a record of this module's) is one wherever it is called
-        if (ctx.scope !== "imperative" && !this.voidMethod(e.f, env)) this.carriedAction(e, env, () => ctx.inFn ? this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (an action); a fn is pure by definition`) : this.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${show(e.f)}(…) is an action, called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action`));
+        // SC-4b: a handler the component is given (`props.onPick`, `props.ref`) is called when its event happens
+        const given = ctx.scope !== "imperative" && !this.voidMethod(e.f, env) && this.handlerProp(e.f, env);
+        if (given) this.err(ctx.inFn ? "IO_IN_FN" : "IO_IN_REACTIVE", ctx.inFn ? "R-io-2" : "IO-2", `${show(e.f)}(…) is a handler the component is given (SC-4b), called in reactive scope (R-io-3): where the component is applied its closure may write, so it would write while the view computes — call it from a handler or an action, or give it on to an element (\`onClick={${show(e.f)}}\`)`);
+        if (ctx.scope !== "imperative" && !given && !this.voidMethod(e.f, env)) this.carriedAction(e, env, () => ctx.inFn ? this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (an action); a fn is pure by definition`) : this.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${show(e.f)}(…) is an action, called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action`));
         // MO-8t: a method of an io import, with no row of its own, is io as its object is
         { const of = ctx.scope !== "imperative" && !this.voidMethod(e.f, env) && !this.promiseMethod(e.f, env) ? this.ioMember(e.f, env) : undefined;
           if (of !== undefined) {
@@ -2889,7 +2915,8 @@ class Checker {
               } }
             const values = this.componentValues(m, env);
             const args = m.attrs.filter(a => !values.has(a));
-            const handles = (n: string) => { const d = s?.compRegion?.sig?.props[n]; return !!d?.callback || (n !== "ref" && !d?.pure && isHandler(n)); };   // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure), whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element only (07 §4): on a component, a handler only when declared one
+            const handles = (n: string) => { const d = s?.compRegion?.sig?.props[n]; const own = s?.compRegion && !s.compRegion.sig && s.comp?.propsType !== undefined ? tyStep(fieldRows(s.comp.propsType).text, { field: n }) : undefined;
+              return !!d?.callback || (!d?.pure && !tyAnswersValue(own) && isHandler(n) && (n !== "ref" || (!!s?.compRegion && !s.compRegion.sig?.js))); };   // SC-4b: `ref`, on a component written in .rx; a prop typed to answer a value is no handler   // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure), whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element only (07 §4): on a component, a handler only when declared one
             for (const a of args) { if (handles(a.name)) this.handlerCalled(a.e, env, a.name); this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" })); if (!handles(a.name)) this.keep(a.e, env); }   // R-2: an argument is read where the component reads it
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
@@ -3599,10 +3626,12 @@ class Checker {
       out = dedupe(out); rBusy.delete(R); rMemo.set(R, out); return out;
     };
     // PF: where a component's prop field goes once read — up to its root, or out of an action
-    const occ: { comp: Region; field: string; pre: Step[]; via: () => PFEntry[] }[] = [];
+    // (`via(want)`: where the occurrence is the whole of the props spread on a component, `<Root {...props} />`, a field
+    // of them goes where that component's field of the same name goes — its children are Root's children)
+    const occ: { comp: Region; field: string; pre: Step[]; via: (want?: string) => PFEntry[]; into?: Region }[] = [];
     for (const r of readerF) for (const pr of r.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => routes(r.region).flatMap(q => pr.from ? routes(pr.from).map(q2 => ({ chain: [...q, ...q2], term: null })) : [{ chain: q, term: null }]) });   // RG-4c: a view shown through a context: up from where it is shown to that component's root, then from the block that provides it (which is above every such place)
     for (const x of this.shownAt) occ.push({ comp: x.comp, field: x.view, pre: [], via: () => routes(x.region).flatMap(q => x.from ? routes(x.from).map(q2 => ({ chain: [...q, ...q2], term: null })) : [{ chain: q, term: null }]) });   // RG-4c
-    for (const a of argF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => PF(a.app.comp, a.field).flatMap(p => p.term ? [p] : routes(a.app.site).map(q => ({ chain: [...p.chain, ...q], term: null }))) });
+    for (const a of argF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), ...(pr.field === "*" && a.field === "*" ? { into: a.app.comp } : {}), via: want => PF(a.app.comp, pr.field === "*" && a.field === "*" && want !== undefined ? want : a.field).flatMap(p => p.term ? [p] : routes(a.app.site).map(q => ({ chain: [...p.chain, ...q], term: null }))) });
     for (const a of actF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => [{ chain: [], term: { line: a.line, name: a.name } }] });
     const pfMemo = new Map<string, PFEntry[]>(); const pfBusy = new Set<string>();
     const PF = (G: Region, field: string): PFEntry[] => {
@@ -3614,7 +3643,7 @@ class Checker {
       }
       const k = `${G.id}:${field}`; if (pfMemo.has(k)) return pfMemo.get(k)!; if (pfBusy.has(k)) return []; pfBusy.add(k);
       const out: PFEntry[] = [];
-      for (const o of occ) if (o.comp === G && (o.field === field || o.field === "*" || field === "*")) for (const v of o.via()) out.push({ chain: [...o.pre, ...v.chain], term: v.term });
+      for (const o of occ) if (o.comp === G && (o.field === field || o.field === "*" || field === "*")) for (const v of o.via(o.field === "*" ? field : undefined)) out.push({ chain: [...o.pre, ...v.chain], term: v.term });
       const res = dedupe(out); pfBusy.delete(k); pfMemo.set(k, res); return res;
     };
     // what escapes each component's root (and the program's): failures and provisions
@@ -3673,14 +3702,25 @@ class Checker {
       const inner = record(new Map([...sitesOf(c.root)].map(([k, xs]) => [k, xs.map(x => ({ f: x.f, p: x.p === "all" ? "all" as const : new Set([...x.p, ...c.credit]) }))])));
       return { host: c.host, name: c.name, fn: c.fn, line: c.line, fails: [...new Set(e.fails.map(i => i.cls))].sort(), requires: [...new Set(e.reqs.map(r => r.name))].filter(k => !c.credit.includes(k)).sort(), ...(Object.keys(inner).length ? { inner } : {}) };
     });
+    // the fields a component's summary names: those it reads, and those of a component its whole props are spread on
+    const fieldsOf = (G: Region, seen = new Set<Region>()): Set<string> => {
+      if (G.sig) return new Set(Object.keys(G.sig.props)); if (seen.has(G)) return new Set(); seen.add(G);
+      const out = new Set<string>();
+      for (const o of occ) if (o.comp === G) { out.add(o.field); if (o.into) for (const f of fieldsOf(o.into, seen)) out.add(f); }
+      return out;
+    };
     this.compSig = (G: Region): CompSig => {
-      const fields = new Set(occ.filter(o => o.comp === G).map(o => o.field));
+      const own = new Set(occ.filter(o => o.comp === G).map(o => o.field)), fields = fieldsOf(G);
       const props: CompSig["props"] = {};
       for (const f of fields) {
         const es = PF(G, f); let df: Catch = "all", dp: Catch = "all", da: Catch | null = null; let an = ""; let rendered = false;
         for (const e of es) { if (e.term) { da = da === null ? along(e.chain, "f") : meet(da, along(e.chain, "f")); an = e.term.name; } else { rendered = true; df = meet(df, along(e.chain, "f")); dp = meet(dp, along(e.chain, "p")); } }
-        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}), ...this.viewSig(G, f), ...((() => { const ts = (this.propHeld.get(G) ?? []).flatMap(([p, h, c]) => p.startsWith(`${f}.`) ? [[p.slice(f.length + 1), h, c] as [string, boolean, string[]]] : []); return ts.length ? { takes: ts } : {}; })()) };
+        const pure = isHandler(f) && tyAnswersValue(((t?: string) => t === undefined ? undefined : tyStep(t, { field: f }))(this.propsTy.get(G)));   // SC-4b
+        props[f] = { f: df, p: dp, rendered, ...(pure ? { pure: true } : {}), ...(da !== null ? { action: { f: da, name: an } } : {}), ...this.viewSig(G, f), ...((() => { const ts = (this.propHeld.get(G) ?? []).flatMap(([p, h, c]) => p.startsWith(`${f}.`) ? [[p.slice(f.length + 1), h, c] as [string, boolean, string[]]] : []); return ts.length ? { takes: ts } : {}; })()) };
       }
+      // a field that came with a spread is named where it goes somewhere the spread as a whole does not
+      { const k = (x: CompSig["props"][string]) => `${ck(x.f)}~${ck(x.p)}~${x.rendered}~${!!x.pure}~${x.action ? `${ck(x.action.f)}${x.action.name}` : ""}`; const all = props["*"];
+        for (const f of fields) if (!own.has(f) && all && k(props[f]) === k(all) && !props[f].view && !props[f].takes) delete props[f]; }
       const e = esc(G);
       const file = (this.opts.file ?? "main.rx").split("/").pop();
       const cs = this.compSyms.get(G);
@@ -3743,6 +3783,13 @@ export function tyStep(t: string, s: TStep): string | undefined {
   if (s === "call") { if (!t.startsWith("(")) return undefined; const end = closes(t, 0); if (end === undefined) return undefined; const rest = t.slice(end).trim(); return rest.startsWith("=>") ? rest.slice(2).trim() : undefined; }
   if (s === "elem") { if (t.endsWith("[]")) return t.slice(0, -2).trim(); for (const w of ["Array<", "ReadonlyArray<"]) if (t.startsWith(w)) return t.endsWith(">") ? t.slice(w.length, -1).trim() : undefined; return undefined; }
   return tyFields(t)?.find(f => f[0] === s.field)?.[1];
+}
+/** SC-4b: a function type that, as written, answers a value — one a component calls for what it answers. A prop of
+ *  that type is no handler, whatever its name (`onSettled: (x: number) => string`): pure, as any closure made in reactive
+ *  scope is. A type that does not say (`any`, a named type) leaves the name to say. */
+export function tyAnswersValue(t: string | undefined): boolean {
+  const r = t === undefined ? undefined : tyStep(t, "call"); if (r === undefined) return false;
+  return !["void", "Promise<void>", "any", "unknown", "undefined", "never"].includes(tyClean(r));
 }
 /** Whether a type, as written, is an array's: `T[]`, `Array<T>`, a tuple. */
 function tyList(t: string): boolean { const ms = tyMembers(t, true); return ms.length === 1 && (ms[0].endsWith("[]") || /^(Readonly)?Array</.test(ms[0]) || (ms[0].startsWith("[") && ms[0].endsWith("]"))); }

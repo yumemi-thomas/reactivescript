@@ -537,6 +537,7 @@ function topRangesOf(t: string, _sep: string): string | undefined {
 /** A type with what its names stand for written out: records, lists, unions, a function's parameters and what it answers; a name it does not know is left. */
 export const expandType = (t: string, types: Types) => expand(t, n => types.has(`${n}<`) ? undefined : types.get(n), 0, n => { const body = types.get(n); return body === undefined ? undefined : { body, ...(types.has(`${n}<`) ? { tparams: types.get(`${n}<`)! } : {}) }; });
 function expand(t: string, named: (n: string) => string | undefined, depth = 0, alias?: (n: string) => Alias | undefined): string {
+  if (depth === 0) t = t.replace(/\u0085/g, " ");   // a next-line character between tokens is space to the parser, and no part of a type's name
   t = t.trim(); if (depth > 8 || t.length > 4000) return t;
   const go = (x: string) => expand(x, named, depth + 1, alias);
   if (t.startsWith("(")) {

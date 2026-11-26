@@ -9,7 +9,7 @@ import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { instantiates, keptParts, ownUses, usesNow } from "../src/ast.ts";
 import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
-import { getObserver } from "@solidjs/signals";
+import { getObserver, runRefCallback } from "@solidjs/signals";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
   createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, isDisposed, createOwner, runWithOwner, $TARGET, createErrorBoundary, omit, merge
@@ -800,7 +800,10 @@ export class Oracle {
           return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); s2.givens.set(comp.props, { props: { less: [], views: this.views.get(comp) ?? new Set() } }); return this.region(comp.decls, comp.view, s2); }, props);
         }
         const el = R.createElement(m.tag);
-        for (const a of m.attrs) { if (a.name === "...") { R.effect(() => this.ev(a.e, scope), (v: any) => { for (const k of v && typeof v === "object" ? Object.keys(v) : []) R.setProp(el, k, v[k]); }); continue; } if (/^on[A-Z:]/.test(a.name)) { const h = untrack(() => { this.imperative++; try { return this.ev(a.e, scope); } finally { this.imperative--; } }); R.setProp(el, a.name, h); } else R.effect(() => this.ev(a.e, scope), v => { R.setProp(el, a.name, v); }); }   // 07 §5: a handler is an imperative closure
+        for (const a of m.attrs) { if (a.name === "...") { R.effect(() => this.ev(a.e, scope), (v: any) => { for (const k of v && typeof v === "object" ? Object.keys(v) : []) R.setProp(el, k, v[k]); });
+            { const h = untrack(() => { this.imperative++; try { return (this.ev(a.e, scope) as any)?.ref; } finally { this.imperative--; } }); runRefCallback(() => { for (const g of [h].flat(Infinity as 1)) if (typeof g === "function") g(el); }); }   // a `ref` a spread gives, as Solid's spread()
+            continue; } if (a.name === "ref") { const h = untrack(() => { this.imperative++; try { return this.ev(a.e, scope); } finally { this.imperative--; } }); runRefCallback(() => { for (const g of [h].flat(Infinity as 1)) if (typeof g === "function") g(el); }); continue; }   // 07 §4: Solid's ref(), called once as the element is made
+          if (/^on[A-Z:]/.test(a.name)) { const h = untrack(() => { this.imperative++; try { return this.ev(a.e, scope); } finally { this.imperative--; } }); R.setProp(el, a.name, h); } else R.effect(() => this.ev(a.e, scope), v => { R.setProp(el, a.name, v); }); }   // 07 §5: a handler is an imperative closure
         for (const item of (untrack(() => this.fragment(m.children, scope, true)) as unknown[]).flat(Infinity)) { const marker = R.createTextNode(""); R.insertNode(el, marker); R.insert(el, item as never, marker); }
         return el;
       }

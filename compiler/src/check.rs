@@ -1859,7 +1859,9 @@ enum Via {
     Reader(RId),
     /// RG-4c: a view shown through a context: up from where it is shown to that component's root, then from the block that provides it
     ReaderFrom(RId, RId),
-    Arg { comp: RId, field: String, site: RId },
+    /// `whole`: the whole of the props spread on a component, `<Root {...props} />` — a field of them goes where that
+    /// component's field of the same name goes (its children are Root's children)
+    Arg { comp: RId, field: String, site: RId, whole: bool },
     Action { line: i64, name: String },
 }
 #[derive(Clone)]
@@ -1947,6 +1949,8 @@ enum Later<'a> {
     Escape { target: &'a Target, e: &'a Expr, tsym: Option<SId>, env: EId, line: i64 },
     /// R-io-3: a call in reactive scope that may be of an action a value carries
     Carried { e: &'a Expr, env: EId, line: i64, attr: Option<String>, in_fn: bool },
+    /// MO-8j: a value that may carry an action, given to what calls it while the call runs
+    Given { a: &'a Expr, f: &'a Expr, env: EId, line: i64, in_fn: bool },
 }
 
 /// E-5a: whether a value can change: by what this module sees (`yes`), or only if one of `deps` does — a prop of a component
@@ -3049,6 +3053,20 @@ impl<'a> Checker<'a> {
                     None => self.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", format!("{}(…) is an action, called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action", show(f))),
                 }
             }
+            Later::Given { a, f, env, line, in_fn } => {
+                if !self.action_parts(a, env).contains("") {
+                    return;
+                }
+                let at = self.line;
+                self.line = line;
+                let n = show(a);
+                if in_fn {
+                    self.err("IO_IN_FN", "R-io-2", format!("{n} is io, and {}(…) calls it; a fn is pure by definition", show(f)));
+                } else {
+                    self.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", format!("{n} is io, and {}(…) calls it while the call runs: it is called in reactive scope (R-io-3), as `(x) => {n}(x)` would be — call it from a handler or an action", show(f)));
+                }
+                self.line = at;
+            }
             Later::Escape { target, e, tsym, env, line } => {
                 self.line = line;
                 self.escape(target, e, tsym, env);
@@ -3245,7 +3263,7 @@ impl<'a> Checker<'a> {
                             };
                             let r = self.region(None, "imported", true, Some(sym.name.clone()));
                             let mut props = IndexMap::new();
-                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, action: None, component: false, components: false, takes: vec![], view: None });
+                            props.insert("*".to_string(), PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(gives), rendered: true, pure: false, action: None, component: false, components: false, takes: vec![], view: None });
                             self.regions[r].sig = Some(CompSig { tparams: None, made: false, own: vec![], requires: vec![], props, shape: Some(crate::content::Shape { children_at: vec![vec![]], ..Default::default() }), stored: IndexMap::new(), hosts: IndexMap::new(), through: false });
                             sym.kind = SymKind::Comp;
                             sym.comp_region = Some(r);
@@ -3519,13 +3537,13 @@ impl<'a> Checker<'a> {
                 let empty = || Catch::Set(IndexSet::new());
                 let given = || Catch::Set(gives.iter().cloned().collect());
                 let mut props = IndexMap::new();
-                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, action: None, component: false, components: false, takes: vec![], view: None });
+                props.insert("*".to_string(), PropSig { f: empty(), p: given(), rendered: true, pure: false, action: None, component: false, components: false, takes: vec![], view: None });
                 for p in xprops {
                     let f = match &p.catches {
                         Some(c) => Catch::of(c),
                         None => empty(),
                     };
-                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, action: None, component: p.component, components: p.components, takes: vec![], view: None });
+                    props.insert(p.name.clone(), PropSig { f, p: given(), rendered: true, pure: false, action: None, component: p.component, components: p.components, takes: vec![], view: None });
                 }
                 let own = xfails.iter().map(|c| Own { cls: c.clone(), what: format!("{}'s root", alias), at: Some(file.clone()) }).collect();
                 let r = c.region(None, "imported", true, Some(alias.to_string()));
@@ -6188,6 +6206,41 @@ impl<'a> Checker<'a> {
     /// R-io-3 (2026-11-24): the parts of a value that are actions, as paths ("": the value itself) — carrying an action is
     /// not a call, and the value's type carries the row: through the names and the fns it goes by, as far as their literals
     /// say.
+    /// SC-4b (2026-11-26): a handler the component is given — `props.onPick`, `props.ref`, the same read off a rest or a
+    /// copy of its props. Its closure was written in imperative scope where the component is applied (SC-4), so inside the
+    /// component it is io: given on to what takes a handler, or called from imperative scope.
+    fn handler_prop(&self, e: &Expr, env: EId) -> bool {
+        let (o, k) = match &e.k {
+            ExprKind::Member { o, p, .. } => (o, Some(p.clone())),
+            ExprKind::Index { o, i, .. } => (o, lit_key(i)),
+            _ => return false,
+        };
+        // typed as a function called for what it answers: pure, no handler
+        k.filter(|k| is_handler(k)).is_some_and(|k| !ty_answers_value(self.decl_ty(e, env, 0).as_deref()) && self.handler_of(o, env, &k, 0))
+    }
+    fn handler_of(&self, o: &Expr, env: EId, k: &str, depth: usize) -> bool {
+        if depth > 16 {
+            return false;
+        }
+        match &o.k {
+            ExprKind::Id(n) => self.lookup(env, n).is_some_and(|s| {
+                let y = &self.syms[s];
+                y.kind == SymKind::Props || (matches!(y.kind, SymKind::Eq | SymKind::Value) && y.row_of.is_none() && y.val.is_some_and(|(e, en)| self.handler_of(e, en, k, depth + 1)))
+            }),
+            ExprKind::Omit { e, keys } => !keys.iter().any(|x| x == k) && self.handler_of(e, env, k, depth + 1),
+            ExprKind::Peek(e) => self.handler_of(e, env, k, depth + 1),
+            ExprKind::If { t, f, .. } => self.handler_of(t, env, k, depth + 1) || self.handler_of(f, env, k, depth + 1),
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => (op != "&&" && self.handler_of(l, env, k, depth + 1)) || self.handler_of(r, env, k, depth + 1),
+            ExprKind::Rec(fields) => match fields.iter().rev().find(|f| match f {
+                Field::Spread(_) => true,
+                Field::Kv { key, .. } => key == k,
+            }) {
+                Some(Field::Spread(x)) => self.handler_of(x, env, k, depth + 1),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
     fn action_parts(&mut self, e: &'a Expr, env: EId) -> IndexSet<String> {
         fn at(o: IndexSet<String>, k: Option<&str>) -> IndexSet<String> {
             let Some(k) = k else { return IndexSet::new() };
@@ -6206,6 +6259,8 @@ impl<'a> Checker<'a> {
                 Some(s) if matches!(self.syms[s].kind, SymKind::Eq | SymKind::Value) => self.named_parts(s, self.syms[s].val),
                 _ => IndexSet::new(),
             },
+            // SC-4b: a handler the component is given is io, as an action is
+            ExprKind::Member { .. } | ExprKind::Index { .. } if self.handler_prop(e, env) => [String::new()].into_iter().collect(),
             ExprKind::Member { o, p, .. } => at(self.action_parts(o, env), Some(p)),
             ExprKind::Index { o, i, .. } => at(self.action_parts(o, env), lit_key(i).as_deref()),
             ExprKind::Rec(fields) => {
@@ -6235,6 +6290,12 @@ impl<'a> Checker<'a> {
             ExprKind::If { t, f, .. } => {
                 let mut out = self.action_parts(t, env);
                 out.extend(self.action_parts(f, env));
+                out
+            }
+            // `h = props.onPick ?? other`
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => {
+                let mut out = if op == "&&" { IndexSet::new() } else { self.action_parts(l, env) };
+                out.extend(self.action_parts(r, env));
                 out
             }
             ExprKind::Peek(x) => self.action_parts(x, env),
@@ -6689,11 +6750,16 @@ impl<'a> Checker<'a> {
                 // given, and a fn of the module whose body calls that parameter. What may keep it is as it was.
                 if !ctx.imperative {
                     for (i, a) in args.iter().enumerate() {
-                        let ExprKind::Id(n) = &a.k else { continue };
-                        let Some(s) = self.lookup(env, n) else { continue };
-                        if !self.syms[s].io && self.syms[s].kind != SymKind::Action {
+                        let s = match &a.k {
+                            ExprKind::Id(n) => self.lookup(env, n),
+                            _ => None,
+                        };
+                        let named = s.is_some_and(|s| self.syms[s].io || self.syms[s].kind == SymKind::Action);
+                        // …or carried: a part of a record, a handler the component is given (SC-4b)
+                        if !named && !matches!(a.k, ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. }) {
                             continue;
                         }
+                        let n = &show(a);
                         let now = match &f.k {
                             ExprKind::Member { p, .. } => CALLS_NOW.contains(&p.as_str()),
                             ExprKind::Id(fname) => match self.lookup(env, fname) {
@@ -6705,10 +6771,12 @@ impl<'a> Checker<'a> {
                         if !now {
                             continue;
                         }
-                        if ctx.in_fn {
+                        if !named {
+                            self.later.push(Later::Given { a, f, env, line: self.line, in_fn: ctx.in_fn });
+                        } else if ctx.in_fn {
                             self.err("IO_IN_FN", "R-io-2", format!("{n} is io, and {}(…) calls it; a fn is pure by definition", show(f)));
                         } else {
-                            let code = if self.syms[s].kind == SymKind::Action { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" };
+                            let code = if s.is_some_and(|s| self.syms[s].kind == SymKind::Action) { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" };
                             self.err(code, "IO-2", format!("{n} is io, and {}(…) calls it while the call runs: it is called in reactive scope (R-io-3), as `(x) => {n}(x)` would be — call it from a handler or an action", show(f)));
                         }
                     }
@@ -6762,8 +6830,14 @@ impl<'a> Checker<'a> {
                         self.err("IO_IN_REACTIVE", "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers a promise, so calling it starts work, here on every computation, with nothing waiting for it — call it from a handler or an action; if it only asks, `await` it", show(f)));
                     }
                 }
+                // SC-4b: a handler the component is given (`props.onPick`, `props.ref`) is called when its event happens
+                let given = !ctx.imperative && !self.void_method(f, env) && self.handler_prop(f, env);
+                if given {
+                    let (code, rule) = if ctx.in_fn { ("IO_IN_FN", "R-io-2") } else { ("IO_IN_REACTIVE", "IO-2") };
+                    self.err(code, rule, format!("{0}(…) is a handler the component is given (SC-4b), called in reactive scope (R-io-3): where the component is applied its closure may write, so it would write while the view computes — call it from a handler or an action, or give it on to an element (`onClick={{{0}}}`)", show(f)));
+                }
                 // R-io-3: …and an action that a value carries (a fn's result, a record of this module's) is one wherever it is called
-                if !ctx.imperative && !self.void_method(f, env) {
+                if !ctx.imperative && !given && !self.void_method(f, env) {
                     self.carried_action(e, env, None, ctx.in_fn);
                 }
                 // MO-8t: a method of an io import, with no row of its own, is io as its object is
@@ -7804,7 +7878,17 @@ impl<'a> Checker<'a> {
                         // a prop as any other, a handler only when the declaration says so (MO-10g, 13 revised 2026-11-21)
                         let cbs = s.and_then(|s| self.syms[s].comp_region).and_then(|r| self.callback_props.get(&r).cloned()).unwrap_or_default();
                         let pures = s.and_then(|s| self.syms[s].comp_region).and_then(|r| self.pure_props.get(&r).cloned()).unwrap_or_default();
-                        let handles = |n: &str| cbs.contains(n) || (n != "ref" && !pures.contains(n) && is_handler(n));
+                        // SC-4b (2026-11-26): a component written in `.rx` is given `ref` as it is given `on…`, a handler —
+                        // inside it the prop is io (it reaches an element, or is called from imperative scope)
+                        let rx = s.and_then(|s| self.syms[s].comp_region).is_some_and(|r| !self.regions[r].js);
+                        // …and a prop typed to answer a value is no handler: by the component's props type, or its summary
+                        let own_ty = s.filter(|&s| self.syms[s].comp_region.is_some_and(|r| self.regions[r].sig.is_none())).and_then(|s| match self.syms[s].comp {
+                            Some(Decl::Component { props_type: Some(t), .. }) => Some(field_rows(t).0),
+                            _ => None,
+                        });
+                        let sig_pure: HashSet<String> = s.and_then(|s| self.syms[s].comp_region).and_then(|r| self.regions[r].sig.as_ref()).map(|g| g.props.iter().filter(|(_, v)| v.pure).map(|(k, _)| k.clone()).collect()).unwrap_or_default();
+                        let answers = |n: &str| sig_pure.contains(n) || ty_answers_value(own_ty.as_deref().and_then(|t| ty_step(t, &TStep::Field(n.to_string()))).as_deref());
+                        let handles = |n: &str| cbs.contains(n) || (!pures.contains(n) && !answers(n) && is_handler(n) && (n != "ref" || rx));
                         for a in &args {
                             let h = handles(&a.name);
                             if h {
@@ -10231,7 +10315,7 @@ impl<'a> Checker<'a> {
         for (i, field, f) in &arg_f {
             for pr in &f.props {
                 let a = &self.apps[*i];
-                occ.push(Occ { comp: pr.comp, field: pr.field.clone(), pre: pre(&pr.pre), via: Via::Arg { comp: a.comp, field: field.clone(), site: a.site } });
+                occ.push(Occ { comp: pr.comp, field: pr.field.clone(), pre: pre(&pr.pre), via: Via::Arg { comp: a.comp, field: field.clone(), site: a.site, whole: pr.field == "*" && field == "*" } });
             }
         }
         for (name, line, f) in &act_f {
@@ -10444,15 +10528,19 @@ impl<'a> Checker<'a> {
         self.r_memo.insert(r0, out.clone());
         out
     }
-    fn via(&mut self, v: &Via) -> Vec<PFEntry> {
+    fn via(&mut self, v: &Via, want: Option<&str>) -> Vec<PFEntry> {
         match v {
             Via::Reader(region) => self.routes(*region).into_iter().map(|q| PFEntry { chain: q, term: None }).collect(),
             Via::ReaderFrom(region, from) => {
                 let (a, b) = (self.routes(*region), self.routes(*from));
                 a.iter().flat_map(|q| b.iter().map(move |q2| PFEntry { chain: q.iter().chain(q2.iter()).cloned().collect(), term: None })).collect()
             }
-            Via::Arg { comp, field, site } => {
+            Via::Arg { comp, field, site, whole } => {
                 let mut out = vec![];
+                let field = match want {
+                    Some(w) if *whole => w,
+                    _ => field.as_str(),
+                };
                 for p in self.pf(*comp, field) {
                     if p.term.is_some() {
                         out.push(p);
@@ -10495,7 +10583,7 @@ impl<'a> Checker<'a> {
         let occ = self.occ.clone();
         for o in &occ {
             if o.comp == g && (o.field == field || o.field == "*" || field == "*") {
-                for v in self.via(&o.via) {
+                for v in self.via(&o.via, (o.field == "*").then_some(field)) {
                     let mut c = o.pre.clone();
                     c.extend(v.chain);
                     out.push(PFEntry { chain: c, term: v.term });
@@ -10629,10 +10717,28 @@ impl<'a> Checker<'a> {
         res
     }
     /// MO-3: the summary an importing module checks a component against.
+    /// The fields a component's summary names: those it reads, and those of a component its whole props are spread on.
+    fn fields_of(&self, g: RId, seen: &mut HashSet<RId>) -> IndexSet<String> {
+        if let Some(sig) = &self.regions[g].sig {
+            return sig.props.keys().cloned().collect();
+        }
+        let mut out = IndexSet::new();
+        if !seen.insert(g) {
+            return out;
+        }
+        for o in self.occ.iter().filter(|o| o.comp == g) {
+            out.insert(o.field.clone());
+            if let Via::Arg { comp, whole: true, .. } = &o.via {
+                out.extend(self.fields_of(*comp, seen));
+            }
+        }
+        out
+    }
     fn comp_sig(&mut self, g: RId) -> CompSig {
-        let fields: IndexSet<String> = self.occ.iter().filter(|o| o.comp == g).map(|o| o.field.clone()).collect();
+        let own: IndexSet<String> = self.occ.iter().filter(|o| o.comp == g).map(|o| o.field.clone()).collect();
+        let fields = self.fields_of(g, &mut HashSet::new());
         let mut props = IndexMap::new();
-        for f in fields {
+        for f in fields.clone() {
             let es = self.pf(g, &f);
             let mut df = Catch::All;
             let mut dp = Catch::All;
@@ -10665,7 +10771,18 @@ impl<'a> Checker<'a> {
                 let ty = v.param.map(|t| one_line(&t)).and_then(|t| printed_type(&t));
                 ViewSig { optional: v.optional, mixed: v.mixed, ty, values }
             });
-            props.insert(f, PropSig { f: df, p: dp, rendered, action: da.map(|d| (d, an)), component: false, components: false, takes, view });
+            // SC-4b
+            let pure = is_handler(&f) && ty_answers_value(self.props_ty.get(&g).and_then(|t| ty_step(t, &TStep::Field(f.clone()))).as_deref());
+            props.insert(f, PropSig { f: df, p: dp, rendered, pure, action: da.map(|d| (d, an)), component: false, components: false, takes, view });
+        }
+        // a field that came with a spread is named where it goes somewhere the spread as a whole does not
+        if let Some(all) = props.get("*").cloned() {
+            let k = |x: &PropSig| format!("{}~{}~{}~{}~{}", ck(&Some(x.f.clone())), ck(&Some(x.p.clone())), x.rendered, x.pure, x.action.as_ref().map(|(c, n)| format!("{}{n}", ck(&Some(c.clone())))).unwrap_or_default());
+            for f in &fields {
+                if !own.contains(f) && props.get(f).is_some_and(|x| k(x) == k(&all) && x.view.is_none() && x.takes.is_empty()) {
+                    props.shift_remove(f);
+                }
+            }
         }
         let e = self.esc(Some(g));
         let file = self.opts.file.clone().unwrap_or_else(|| "main.rx".into()).split('/').last().unwrap_or("").to_string();
@@ -11315,6 +11432,13 @@ pub enum TStep {
     Field(String),
     Call,
     Elem,
+}
+/// SC-4b: a function type that, as written, answers a value — one a component calls for what it answers. A prop of
+/// that type is no handler, whatever its name (`onSettled: (x: number) => string`): pure, as any closure made in reactive
+/// scope is. A type that does not say (`any`, a named type) leaves the name to say.
+pub fn ty_answers_value(t: Option<&str>) -> bool {
+    let Some(r) = t.and_then(|t| ty_step(t, &TStep::Call)) else { return false };
+    !["void", "Promise<void>", "any", "unknown", "undefined", "never"].contains(&ty_clean(&r))
 }
 /// The type text without what does not change what it answers: outer parentheses, `readonly`, the function words.
 fn ty_clean(t: &str) -> &str {

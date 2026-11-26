@@ -98,8 +98,8 @@ named.
 | `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |
 | `SNAPSHOT_INITIALIZER`            | S   | E-4 / DV-6 | S-surface-1 |
 | `SNAPSHOT_KEPT`                   | S   | E-5a  | S-surface-6, S-surface-8 |
-| `IO_IN_REACTIVE`                  | S   | IO-2 / R-io-3; 09 MO-8t (2026-11-25): a method whose row says `fn`, a method with no row whose declared type answers nothing or a promise (a declared value's too), a method of an io import | S-surface-1, S-module-42 |
-| `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | IO-2 / R-io-3 | S-check-1 |
+| `IO_IN_REACTIVE`                  | S   | IO-2 / R-io-3; 09 MO-8t (2026-11-25): a method whose row says `fn`, a method with no row whose declared type answers nothing or a promise (a declared value's too), a method of an io import; 02 SC-4b (2026-11-26): a handler the component is given, called in reactive scope | S-surface-1, S-module-42, S-view-10 |
+| `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | IO-2 / R-io-3; SC-4b: a handler the component is given, carried in a value or given to what calls it | S-check-1, S-view-10 |
 | `IO_IN_FN`                        | S   | R-io-2 | S-check-1 |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`   | U/S | W-2 (a statement position) / SC-3 (a statement-bodied closure in reactive scope) | S-core-1, S-check-1 |
 | `WRITE_TO_NON_SOURCE`             | S   | W-1   | S-core-1, S-check-1 |

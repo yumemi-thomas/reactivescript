@@ -24,8 +24,9 @@ imperative scope where it may write; a function type without it is pure, as any 
 is (MO-10g), however the library calls it. The name does not override the declaration: a library may call
 `onCompare` while it computes. A prop the declaration does not type as a
 function (`onPick: any`) keeps the name's reading. `ref` is a handler on
-an element only, where the DOM calls it once with the node; on a component
-it is a prop as any other, a handler only when the declaration says so.
+an element, where the DOM calls it once with the node; on a JavaScript component
+it is a prop as any other, a handler only when the declaration says so (a
+component written in `.rx` is given it as an element is: SC-4b, S-view-10).
 
 ## Program
 

@@ -1059,6 +1059,9 @@ pub fn expand_type(t: &str, types: &Types, depth: usize) -> String {
     expand(t, depth, &mut |n: &str| types.get(n).cloned())
 }
 fn expand(t: &str, depth: usize, named: &mut dyn FnMut(&str) -> Option<String>) -> String {
+    // a next-line character between tokens is space to the parser, and no part of a type's name
+    let spaced = if depth == 0 && t.contains('\u{85}') { Some(t.replace('\u{85}', " ")) } else { None };
+    let t = spaced.as_deref().unwrap_or(t);
     let t = t.js_trim();
     if depth > 8 || t.len() > 4000 {
         return t.to_string();
