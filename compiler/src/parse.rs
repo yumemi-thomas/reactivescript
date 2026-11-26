@@ -628,7 +628,7 @@ re!(DRAFT_PARAM, r"^draft\s+[A-Za-z_$]");
 re!(TRACKED_WORD, r"\btracked\s+\(");
 re!(HANDLER_WORD, r"\bhandler\s+");
 re!(DRAFT_WORD, r"\bdraft\s+([A-Za-z_$][\w$]*\s*[?:,)])");
-re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|under\(|joins\(|methods\()");
+re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|under\(|joins\(|methods\(|calls\()");
 // a word that can be a type's name is a row word after a type alone
 re!(GONE_WORD, r#"[\w$)\]}>"'`]\s+((?:renders|carries|trusted|forwards)\b)"#);
 /// MO-10b: a part of a declared result. `Fn`: a function called for what it does — one the row marks `io`, or one whose
@@ -2336,6 +2336,10 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
                 hosts.push((name.clone(), h.clone(), paren));
                 renders = Some(h);
                 continue;
+            }
+            if c.keyword("calls") {
+                // W2 (2026-11-26): a printed signature's mark, derived from an .rx fn's body (MO-9b) — no word of a JS declaration
+                return c.fail(&format!("`calls(…)` on fn {name}: it is printed in an .rx module's signature, read off the fn's body (MO-9b), and is no word a JavaScript declaration says — a JS fn that runs a function it is given is declared without `pure` (MO-8j)"));
             }
             if c.keyword("uses") {
                 c.ws(false);

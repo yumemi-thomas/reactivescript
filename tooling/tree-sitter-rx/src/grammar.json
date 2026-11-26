@@ -11823,6 +11823,18 @@
               "type": "BLANK"
             }
           ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "signature_calls"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         }
       ]
     },
@@ -12644,6 +12656,58 @@
                         "value": "loading"
                       }
                     ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
+    "signature_calls": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "calls"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "ALIAS",
+              "content": {
+                "type": "PATTERN",
+                "value": "[\\w$*-]+(\\.[\\w$*-]+)*"
+              },
+              "named": true,
+              "value": "part_path"
+            },
+            {
+              "type": "REPEAT",
+              "content": {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": ","
+                  },
+                  {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "PATTERN",
+                      "value": "[\\w$*-]+(\\.[\\w$*-]+)*"
+                    },
+                    "named": true,
+                    "value": "part_path"
                   }
                 ]
               }

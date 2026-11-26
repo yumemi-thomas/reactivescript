@@ -596,6 +596,13 @@ export const units: [string, () => void][] = [
     const back = parseSignature(text, "/a.rx"); deepStrictEqual(printSignature(back), text);
     const b = back.exports.get("B"); deepStrictEqual(b?.kind === "comp" ? Object.keys(b.sig.props).sort() : [], ["*", "a:b", "n", "tc-button"]);
   }],
+  ["what_a_fn_calls_of_its_parameters_is_printed_and_read_back", () => {   // MO-9b, W2: `calls(…)`
+    const src = "fn inner(g: any) => g.go()\nexport fn ap(f: any, fs: any[], r: any, k: number) => f() + len(fs.map((x) => x())) + inner(r) + k\nexport fn keep(f: any) => [f]\n";
+    const text = printSignature(checkModules(loadModules("/a.rx", files({ "/a.rx": src }))).sigs.get("/a.rx")!);
+    deepStrictEqual(text.trim().split("\n").slice(1), ["export pure fn ap(f: any, fs: any[], r: any, k: number) calls(f, fs.*, fs.map, r.go)", "export pure fn keep(f: any)"]);
+    const back = parseSignature(text, "/a.rx"); deepStrictEqual(printSignature(back), text);
+    const ap = back.exports.get("ap"); deepStrictEqual(ap?.kind === "fn" ? ap.calls : [], ["f", "fs.*", "fs.map", "r.go"]);
+  }],
   ["a_generic_fns_type_parameters_are_text_and_printed" , () => {   // 07 §2, MO-9b
     const says = (s: string) => { try { const d = parseProgram(`fn f${s} => 1\n`).decls[0]; return d.k === "fn" ? `${d.tparams ?? "-"} ${d.params.map(p => p.name)}` : d.k; } catch { return "PARSE"; } };
     deepStrictEqual(["(a)", "<T>(a: T)", "<T extends (x: number) => string, U = T>(a: T)", "<const T extends { a: Array<Array<number>> }>(a)", "<T>\n  (a)", "<T", "<T>", "(a)<T>"].map(says), ["- a", "<T> a", "<T extends (x: number) => string, U = T> a", "<const T extends { a: Array<Array<number>> }> a", "<T> a", "PARSE", "PARSE", "PARSE"]);

@@ -410,6 +410,11 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   - a fn's parameters (`ref`, with written types), `rejects(…)` (absent: it
     returns nothing that rejects), `instantiates` (RG-6) and `uses(…)`
     (RG-7b: the contexts each call reads above the place it is written);
+  - `calls(f, xs.*, r.go)`: the paths of its parameters the fn calls while it
+    runs (04 R-io-3, 2026-11-26) — a parameter, an item of it (`*`), a field.
+    Read off the body by the checkers, never written: a JavaScript
+    declaration that says it is refused by name (a JS fn that runs a function
+    it is given is declared without `pure`, MO-8l);
   - the parts of a fn's result, where they are known (MO-13i): `export pure
     fn createPage(first): pending { page: ref; quote: ref pending; set: io;
     first: value } instantiates`, `[ref, io]` for a tuple, `io` or `value`

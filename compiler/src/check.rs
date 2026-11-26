@@ -318,6 +318,8 @@ struct Sym<'a> {
     /// MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
     /// R-io-3: an import — the parts of its value (a fn's: of its result) that are actions, as paths
     action_parts: Vec<String>,
+    /// MO-9b, W2: an imported fn's row, `calls(…)`: the paths of each parameter it calls while it runs
+    calls: Vec<Vec<String>>,
     /// MO-13i: an imported fn, the parts of its result where they are known
     result: Option<crate::signature::Res>,
     /// MO-13i: an instantiating fn of this module, the names its body declares
@@ -440,6 +442,7 @@ impl<'a> Sym<'a> {
             waits: None,
             cbs: vec![],
             action_parts: vec![],
+            calls: vec![],
             result: None,
             fn_decls: None,
             needs: vec![],
@@ -1645,63 +1648,239 @@ fn js_string(s: &str) -> String {
 /// A short rendering of an expression, for messages.
 /// MO-8j: the language's methods and functions that call a function they are given while the call runs.
 const CALLS_NOW: [&str; 10] = ["map", "filter", "some", "every", "find", "reduce", "forEach", "flatMap", "toSorted", "replace"];
-/// MO-8j: whether a fn's body calls its i-th parameter while the fn runs: called by its name, or given by its name to one
-/// of `CALLS_NOW`, outside any closure or in a closure that is itself given to one of them. A closure kept, a statement
-/// body and a parameter handed on to another fn are not read. `ref/src/check.ts` `paramCalledNow`.
-pub fn param_called_now(d: &Decl, i: usize) -> bool {
-    let Decl::Fn { params, decls, tail, .. } = d else { return false };
-    let Some(p) = params.get(i).map(|x| x.name.as_str()) else { return false };
-    fn calls(x: &Expr, p: &str) -> bool {
-        match &x.k {
-            ExprKind::Call { f, .. } => match &f.k {
-                ExprKind::Member { p: m, .. } => CALLS_NOW.contains(&m.as_str()),
-                ExprKind::Id(n) => CALLS_NOW.contains(&n.as_str()) && n != p,
-                _ => false,
-            },
-            _ => false,
-        }
+/// W2: an Array's methods that answer a list of some of the items it holds, as they are.
+const SAME_ITEMS: [&str; 7] = ["filter", "toSorted", "toReversed", "slice", "concat", "reverse", "sort"];
+/// W2 (2026-11-26): a path into a value — fields by name, an item of a list `*` — "" is the value itself.
+pub fn join_path(a: &str, b: &str) -> String {
+    if a.is_empty() {
+        b.to_string()
+    } else if b.is_empty() {
+        a.to_string()
+    } else {
+        format!("{a}.{b}")
     }
-    fn visit(x: &Expr, p: &str, now: bool) -> bool {
-        let is_p = |a: &Expr| matches!(&a.k, ExprKind::Id(n) if n == p);
+}
+/// …with each index an item (`0.go` is `*.go`).
+pub fn item_path(p: &str) -> String {
+    if p.is_empty() {
+        return String::new();
+    }
+    p.split('.').map(|s| if !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit()) { "*" } else { s }).collect::<Vec<_>>().join(".")
+}
+/// W2: whether a value with these io parts holds one at a path that is called (paths as `item_path` writes them).
+pub fn calls_held<'s>(parts: impl IntoIterator<Item = &'s String>, called: &IndexSet<String>) -> Option<String> {
+    parts.into_iter().map(|q| item_path(q)).find(|n| called.contains(n))
+}
+/// MO-8j, W2 (2026-11-26): the paths of a fn's i-th parameter that its body calls while the fn runs ("": the parameter
+/// itself; `go`: its field; `*`: an item of it). Called by its name or a path of it, or given (by a path) to one of
+/// `CALLS_NOW` — whose callback's parameter is then an item of what it is called on —, or to a parameter of another fn
+/// that calls that one now (`is_fn`: a fn of the module or one imported by its row; `called`: its paths): a fixpoint
+/// over the module's fns, the cycle cut where it closes (by the caller of `called`). Outside any closure, or in a closure
+/// given to one of `CALLS_NOW`. A closure kept, a statement body, a call of JavaScript: not read — what is not known to
+/// call now is not refused. `ref/src/check.ts` `calledPaths`.
+/// What `called_paths` asks of the names a fn's body calls.
+pub trait CalledAsk {
+    fn is_fn(&mut self, n: &str) -> bool;
+    fn called(&mut self, n: &str, j: usize) -> IndexSet<String>;
+}
+pub fn called_paths(d: &Decl, i: usize, ask: &mut dyn CalledAsk) -> IndexSet<String> {
+    let Decl::Fn { params, decls, tail, .. } = d else { return IndexSet::new() };
+    let Some(p) = params.get(i).map(|x| x.name.clone()) else { return IndexSet::new() };
+    // a name for a path of the parameter; None: a name that is no path (a closure's parameter, a local)
+    type Names = IndexMap<String, Option<String>>;
+    fn path_of(x: &Expr, names: &Names) -> Option<String> {
         match &x.k {
-            ExprKind::Call { f, args, .. } => {
-                let c = now && calls(x, p);
-                if now && is_p(f) {
-                    return true;
-                }
-                if c && args.iter().any(is_p) {
-                    return true;
-                }
-                visit(f, p, now)
-                    || args.iter().any(|a| match &a.k {
-                        ExprKind::Fn { body, stmts, .. } => stmts.is_none() && visit(body, p, c),
-                        _ => visit(a, p, now),
-                    })
-            }
-            ExprKind::Fn { body, stmts, .. } => stmts.is_none() && visit(body, p, false),
-            ExprKind::Bin { l, r, .. } => visit(l, p, now) || visit(r, p, now),
-            ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => visit(e, p, now),
-            ExprKind::Await { e, init, .. } => visit(e, p, now) || init.as_ref().is_some_and(|i| visit(i, p, now)),
-            ExprKind::Pre { init, .. } => init.as_ref().is_some_and(|i| visit(i, p, now)),
-            ExprKind::If { c, t, f } => visit(c, p, now) || visit(t, p, now) || visit(f, p, now),
-            ExprKind::Catch { e, alt, .. } => visit(e, p, now) || visit(alt, p, now),
-            ExprKind::Tpl(parts) => parts.iter().any(|q| matches!(q, TplPart::Expr(e) if visit(e, p, now))),
-            ExprKind::Member { o, .. } => visit(o, p, now),
-            ExprKind::Index { o, i, .. } => visit(o, p, now) || visit(i, p, now),
-            ExprKind::Arr(items) => items.iter().any(|y| visit(y, p, now)),
-            ExprKind::Rec(fields) => fields.iter().any(|f| match f {
-                Field::Kv { v, .. } => visit(v, p, now),
-                Field::Spread(e) => visit(e, p, now),
+            ExprKind::Id(n) => names.get(n).cloned().flatten(),
+            ExprKind::Member { o, p, .. } => path_of(o, names).map(|o| join_path(&o, p)),
+            ExprKind::Index { o, i, .. } => path_of(o, names).map(|o| {
+                let k = lit_key(i);
+                join_path(&o, match &k {
+                    Some(k) if !k.bytes().all(|c| c.is_ascii_digit()) || k.is_empty() => k,
+                    _ => "*",
+                })
             }),
-            ExprKind::Draft { seed, .. } => visit(seed, p, now),
-            ExprKind::Lit(_) | ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => false,
+            ExprKind::Peek(e) => path_of(e, names),
+            _ => None,
         }
     }
-    decls.iter().any(|x| match x {
-        Decl::Eq { e, .. } => visit(e, p, true),
-        Decl::Source { init, .. } => visit(init, p, true),
-        _ => false,
-    }) || visit(tail, p, true)
+    fn scoped(names: &Names, ps: &[String], item: Option<String>, k: usize) -> Names {
+        let mut m = names.clone();
+        for q in ps {
+            m.insert(q.clone(), None);
+        }
+        if let (Some(it), Some(q)) = (item, ps.get(k)) {
+            m.insert(q.clone(), Some(it));
+        }
+        m
+    }
+    struct V<'f> {
+        out: IndexSet<String>,
+        ask: &'f mut dyn CalledAsk,
+    }
+    impl V<'_> {
+        fn fn_of(&mut self, n: &str, names: &Names) -> bool {
+            !names.contains_key(n) && self.ask.is_fn(n)
+        }
+        fn visit(&mut self, x: &Expr, now: bool, names: &Names) {
+            match &x.k {
+                ExprKind::Call { f, args, .. } => {
+                    if let Some(fp) = path_of(f, names).filter(|_| now) {
+                        self.out.insert(fp);
+                    }
+                    let method: Option<&str> = match &f.k {
+                        ExprKind::Member { p, .. } => Some(p.as_str()),
+                        ExprKind::Id(n) if !names.contains_key(n) && !self.fn_of(n, names) => Some(n.as_str()),
+                        _ => None,
+                    };
+                    let c = now && method.is_some_and(|m| CALLS_NOW.contains(&m));
+                    let recv: Option<&Expr> = if !c {
+                        None
+                    } else {
+                        match &f.k {
+                            ExprKind::Member { o, .. } => Some(o),
+                            _ => args.first(),
+                        }
+                    };
+                    let rp = recv.and_then(|r| path_of(r, names));
+                    let k = if method == Some("reduce") { 1 } else { 0 };
+                    let member = matches!(f.k, ExprKind::Member { .. });
+                    let g = match &f.k {
+                        ExprKind::Id(n) if self.fn_of(n, names) => Some(n.clone()),
+                        _ => None,
+                    };
+                    if !matches!(f.k, ExprKind::Id(_)) {
+                        self.visit(f, now, names);
+                    }
+                    for (j, a) in args.iter().enumerate() {
+                        let ap = path_of(a, names);
+                        let cb = c && (member || j > 0);
+                        if cb {
+                            if let Some(ap) = ap {
+                                self.out.insert(ap);
+                                continue;
+                            }
+                            if let ExprKind::Fn { params: ps, body, stmts, .. } = &a.k {
+                                if stmts.is_none() {
+                                    let s = scoped(names, ps, rp.as_ref().map(|r| join_path(r, "*")), k);
+                                    self.visit(body, true, &s);
+                                }
+                                continue;
+                            }
+                            if let (ExprKind::Id(n), Some(r)) = (&a.k, &rp) {
+                                if self.fn_of(n, names) {
+                                    for q in self.ask.called(n, k) {
+                                        self.out.insert(join_path(&join_path(r, "*"), &q));
+                                    }
+                                }
+                            }
+                            self.visit(a, now, names);
+                            continue;
+                        }
+                        if let (Some(g), true, Some(ap)) = (&g, now, &ap) {
+                            for q in self.ask.called(g, j) {
+                                self.out.insert(join_path(ap, &q));
+                            }
+                        }
+                        if let ExprKind::Fn { params: ps, body, stmts, .. } = &a.k {
+                            if stmts.is_none() {
+                                let s = scoped(names, ps, None, 0);
+                                self.visit(body, false, &s);
+                            }
+                            continue;
+                        }
+                        self.visit(a, now, names);
+                    }
+                }
+                ExprKind::Fn { params: ps, body, stmts, .. } => {
+                    if stmts.is_none() {
+                        let s = scoped(names, ps, None, 0);
+                        self.visit(body, false, &s);
+                    }
+                }
+                ExprKind::Bin { l, r, .. } => {
+                    self.visit(l, now, names);
+                    self.visit(r, now, names);
+                }
+                ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => self.visit(e, now, names),
+                ExprKind::Await { e, init, .. } => {
+                    self.visit(e, now, names);
+                    if let Some(i) = init {
+                        self.visit(i, now, names);
+                    }
+                }
+                ExprKind::Pre { init, .. } => {
+                    if let Some(i) = init {
+                        self.visit(i, now, names);
+                    }
+                }
+                ExprKind::If { c, t, f } => {
+                    self.visit(c, now, names);
+                    self.visit(t, now, names);
+                    self.visit(f, now, names);
+                }
+                ExprKind::Catch { e, alt, .. } => {
+                    self.visit(e, now, names);
+                    self.visit(alt, now, names);
+                }
+                ExprKind::Tpl(parts) => {
+                    for q in parts {
+                        if let TplPart::Expr(e) = q {
+                            self.visit(e, now, names);
+                        }
+                    }
+                }
+                ExprKind::Member { o, .. } => self.visit(o, now, names),
+                ExprKind::Index { o, i, .. } => {
+                    self.visit(o, now, names);
+                    self.visit(i, now, names);
+                }
+                ExprKind::Arr(items) => {
+                    for y in items {
+                        self.visit(y, now, names);
+                    }
+                }
+                ExprKind::Rec(fields) => {
+                    for f in fields {
+                        match f {
+                            Field::Kv { v, .. } => self.visit(v, now, names),
+                            Field::Spread(e) => self.visit(e, now, names),
+                        }
+                    }
+                }
+                ExprKind::Draft { seed, .. } => self.visit(seed, now, names),
+                ExprKind::Lit(_) | ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => {}
+            }
+        }
+    }
+    let mut names: Names = IndexMap::new();
+    names.insert(p, Some(String::new()));
+    for x in decls {
+        let n = match x {
+            Decl::Source { name, .. } | Decl::Eq { name, .. } | Decl::Error { name, .. } | Decl::TypeDecl { name, .. } | Decl::Fn { name, .. } | Decl::Component { name, .. } | Decl::Action { name, .. } | Decl::Server { name, .. } | Decl::Provide { name, .. } | Decl::Context { name, .. } => Some(name),
+            _ => None,
+        };
+        if let Some(n) = n {
+            names.insert(n.clone(), None);
+        }
+    }
+    let mut v = V { out: IndexSet::new(), ask };
+    for x in decls {
+        match x {
+            Decl::Eq { name, e, .. } => match path_of(e, &names) {
+                Some(ap) => {
+                    names.insert(name.clone(), Some(ap));
+                }
+                None => {
+                    names.insert(name.clone(), None);
+                    v.visit(e, true, &names);
+                }
+            },
+            Decl::Source { init, .. } => v.visit(init, true, &names),
+            _ => {}
+        }
+    }
+    v.visit(tail, true, &names);
+    v.out.iter().map(|p| item_path(p)).collect()
 }
 pub fn show(e: &Expr) -> String {
     match &e.k {
@@ -1955,7 +2134,8 @@ enum Later<'a> {
     /// R-io-3: a call in reactive scope that may be of an action a value carries
     Carried { e: &'a Expr, env: EId, line: i64, attr: Option<String>, in_fn: bool },
     /// MO-8j: a value that may carry an action, given to what calls it while the call runs
-    Given { a: &'a Expr, f: &'a Expr, env: EId, line: i64, in_fn: bool },
+    /// MO-8j, W2: an argument that may hold io at a path the callee calls: `held` 0, its parts; 1, an item of `over`; 2, its parts and its items' (and itself, `named`)
+    Given { a: &'a Expr, over: Option<&'a Expr>, f: &'a Expr, env: EId, line: i64, in_fn: bool, called: IndexSet<String>, held: u8, named: bool, action: bool },
 }
 
 /// E-5a: whether a value can change: by what this module sees (`yes`), or only if one of `deps` does — a prop of a component
@@ -2181,6 +2361,11 @@ pub struct Checker<'a> {
     /// the calls of fns that instantiate, each in its region (RG-6a)
     hook_calls: Vec<(RId, SId, i64, String)>,
     parts_memo: HashMap<SId, IndexSet<String>>,
+    /// W2: the closures a calling method hands an item of a list: the parameter, what it runs over
+    item_of: HashMap<*const Expr, (usize, &'a Expr, EId)>,
+    /// W2: `called_of`'s cycle, and what it answered at the top
+    called_stack: IndexSet<SId>,
+    called_memo: HashMap<(SId, usize), IndexSet<String>>,
     results: HashMap<SId, Option<std::rc::Rc<Plan>>>,
     /// MO-10g: closures passed where a declared JS fn takes a callback
     callback_fns: HashSet<*const Expr>,
@@ -2677,6 +2862,9 @@ impl<'a> Checker<'a> {
             own_ctx: vec![],
             hook_calls: vec![],
             parts_memo: HashMap::new(),
+            item_of: HashMap::new(),
+            called_stack: IndexSet::new(),
+            called_memo: HashMap::new(),
             results: HashMap::new(),
             callback_fns: HashSet::new(),
             draft_fns: HashMap::new(),
@@ -3061,19 +3249,27 @@ impl<'a> Checker<'a> {
                     None => self.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", format!("{}(…) is an action, called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action", show(f))),
                 }
             }
-            Later::Given { a, f, env, line, in_fn } => {
-                if !self.action_parts(a, env).contains("") {
-                    return;
-                }
-                let at = self.line;
+            Later::Given { a, over, f, env, line, in_fn, called, held, named, action } => {
+                let parts: IndexSet<String> = match (held, over) {
+                    (1, Some(o)) => self.item_parts(o, env, 0),
+                    (2, _) => {
+                        let mut ps = self.action_parts(a, env);
+                        for q in self.item_parts(a, env, 0) {
+                            ps.insert(join_path("*", &q));
+                        }
+                        if named {
+                            ps.insert(String::new());
+                        }
+                        ps
+                    }
+                    _ => self.action_parts(a, env),
+                };
+                let Some(hit) = calls_held(parts.iter(), &called) else { return };
+                let was = self.line;
                 self.line = line;
-                let n = show(a);
-                if in_fn {
-                    self.err("IO_IN_FN", "R-io-2", format!("{n} is io, and {}(…) calls it; a fn is pure by definition", show(f)));
-                } else {
-                    self.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", format!("{n} is io, and {}(…) calls it while the call runs: it is called in reactive scope (R-io-3), as `(x) => {n}(x)` would be — call it from a handler or an action", show(f)));
-                }
-                self.line = at;
+                let n = show(over.filter(|_| held == 1).unwrap_or(a));
+                self.say_given(&n, &hit, f, in_fn, named, action);
+                self.line = was;
             }
             Later::Escape { target, e, tsym, env, line } => {
                 self.line = line;
@@ -3425,7 +3621,7 @@ impl<'a> Checker<'a> {
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s
                 }
-                ExportSig::Fn { params, instantiating, rows, fails, rejects, uses, actions, result, .. } => {
+                ExportSig::Fn { params, instantiating, rows, fails, rejects, uses, actions, result, calls, .. } => {
                     let mut s = Sym::new(SymKind::Fn, alias, region, line);
                     s.params = Some(params.clone());
                     s.instantiating = *instantiating;
@@ -3434,6 +3630,7 @@ impl<'a> Checker<'a> {
                     s.rejects = Some(set(rejects));
                     s.needs = uses.clone();
                     s.action_parts = actions.clone();
+                    s.calls = params.iter().map(|q| calls.iter().filter_map(|c| if *c == q.name { Some(String::new()) } else { c.strip_prefix(&format!("{}.", q.name)).map(String::from) }).collect()).collect();
                     s.result = result.clone();
                     s
                 }
@@ -3992,7 +4189,15 @@ impl<'a> Checker<'a> {
                         Some((t, te)) => self.rejects(t, te, &mut HashSet::new()),
                         None => self.syms[s].rejects.clone().unwrap_or_default(),
                     };
-                    ExportSig::Fn { tparams: if let Decl::Fn { tparams, .. } = d { tparams.as_deref().map(one_line) } else { None }, params: self.syms[s].params.iter().flatten().map(|p| SigParam { ty: p.ty.as_deref().map(one_line), ..p.clone() }).collect(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone(), actions: self.sorted_parts(self.syms[s].fn_tail), result: self.fn_result(s).map(|p| p.res()).filter(|r| !r.is_reader()) }
+                    // MO-9b, W2: the paths of its parameters it calls while it runs
+                    let names: Vec<String> = self.syms[s].params.iter().flatten().map(|p| p.name.clone()).collect();
+                    let mut calls = vec![];
+                    for (i, q) in names.iter().enumerate() {
+                        let mut ps: Vec<String> = self.called_of(Some(s), i).into_iter().collect();
+                        ps.sort();
+                        calls.extend(ps.iter().map(|p| join_path(q, p)));
+                    }
+                    ExportSig::Fn { tparams: if let Decl::Fn { tparams, .. } = d { tparams.as_deref().map(one_line) } else { None }, params: self.syms[s].params.iter().flatten().map(|p| SigParam { ty: p.ty.as_deref().map(one_line), ..p.clone() }).collect(), instantiating: self.syms[s].instantiating, rows: arr(rows), fails: arr(fails), rejects: arr(rejects), uses: self.syms[s].needs.clone(), actions: self.sorted_parts(self.syms[s].fn_tail), result: self.fn_result(s).map(|p| p.res()).filter(|r| !r.is_reader()), calls }
                 }
                 SymKind::Action => ExportSig::Action,
                 SymKind::Server => {
@@ -4307,6 +4512,7 @@ impl<'a> Checker<'a> {
                         if let Some(fs) = self.lookup(env, fname) {
                             if self.syms[fs].kind == SymKind::Fn && self.syms[fs].instantiating {
                                 self.call_marks(f, args, env);
+                                self.io_given(f, args, env, false); // W2: an instantiation runs where it is written, in reactive scope
                                 self.mark_callbacks(args, fs);
                                 if self.unplaced_fn(fs) {
                                     self.unplaced(args, env, Some(fs)); // MO-11s, MO-11u
@@ -5879,6 +6085,70 @@ impl<'a> Checker<'a> {
     }
     /// What every call does for the values the checker confines (MO-10i, MO-10k), whether it is written in an
     /// expression or is the instantiation an equation binds.
+    /// MO-8j, W2: a call in reactive scope, of what calls an argument (or a path of it) while it runs, given one that holds
+    /// io there — from the expression walk and from an instantiating fn's call bound to a name. `ref/src/check.ts` `ioGiven`.
+    fn io_given(&mut self, f: &'a Expr, args: &'a [Expr], env: EId, in_fn: bool) {
+        for (i, a) in args.iter().enumerate() {
+            let s = match &a.k {
+                ExprKind::Id(n) => self.lookup(env, n),
+                _ => None,
+            };
+            // …a part of a declared result that is io (MO-10b)
+            let named = s.is_some_and(|s| self.syms[s].io || self.syms[s].kind == SymKind::Action) || self.void_method(a, env);
+            let action = s.is_some_and(|s| self.syms[s].kind == SymKind::Action);
+            let fs = match &f.k {
+                ExprKind::Id(n) => self.lookup(env, n),
+                _ => None,
+            };
+            let method: Option<&str> = match &f.k {
+                ExprKind::Member { p, .. } => CALLS_NOW.contains(&p.as_str()).then_some(p.as_str()),
+                ExprKind::Id(n) if fs.is_none() && self.lang(env, n) == Some(Lang::Fn) && CALLS_NOW.contains(&n.as_str()) => Some(n.as_str()),
+                _ => None,
+            };
+            let over: Option<&'a Expr> = match (method, &f.k) {
+                (None, _) => None,
+                (Some(_), ExprKind::Member { o, .. }) => Some(o),
+                (Some(_), _) if i > 0 => args.first(),
+                _ => None,
+            };
+            let g = match (&a.k, method) {
+                (ExprKind::Id(n), Some(_)) => self.lookup(env, n),
+                _ => None,
+            };
+            let by_name = over.is_some() && g.is_some_and(|g| self.syms[g].kind == SymKind::Fn) && !named;
+            let (called, held) = if by_name {
+                (self.called_of(g, if method == Some("reduce") { 1 } else { 0 }), 1u8)
+            } else if method.is_some() {
+                // …or carried: a part of a record, a handler the component is given (SC-4b)
+                if !named && !matches!(a.k, ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. }) {
+                    continue;
+                }
+                ([String::new()].into_iter().collect(), 0u8)
+            } else if fs.is_some_and(|t| self.syms[t].kind == SymKind::Fn) {
+                (self.called_of(fs, i), 2u8)
+            } else {
+                continue;
+            };
+            if called.is_empty() {
+                continue;
+            }
+            if named && !by_name && called.contains("") {
+                self.say_given(&show(a), "", f, in_fn, named, action);
+            } else {
+                self.later.push(Later::Given { a, over, f, env, line: self.line, in_fn, called, held, named, action });
+            }
+        }
+    }
+    fn say_given(&mut self, n: &str, at: &str, f: &Expr, in_fn: bool, named: bool, action: bool) {
+        let what = if at.is_empty() { format!("{n} is io") } else { format!("{n} holds io at `{at}`") };
+        if in_fn {
+            self.err("IO_IN_FN", "R-io-2", format!("{what}, and {}(…) calls it; a fn is pure by definition", show(f)));
+        } else {
+            let code = if named && at.is_empty() && !action { "IO_IN_REACTIVE" } else { "ACTION_CALLED_IN_OWNED_SCOPE" };
+            let like = if at.is_empty() { format!(", as `(x) => {n}(x)` would be") } else { String::new() };
+            self.err(code, "IO-2", format!("{what}, and {}(…) calls it while the call runs: it is called in reactive scope (R-io-3){like} — call it from a handler or an action", show(f)));
+        }
+    }
     fn call_marks(&mut self, f: &'a Expr, args: &'a [Expr], env: EId) {
         self.callee_ids.insert(f as *const Expr);
         // MO-10i: the callbacks this call hands a library's draft — by the callee's own name, or a part read off
@@ -5940,6 +6210,26 @@ impl<'a> Checker<'a> {
             }
             if matches!(f.k, ExprKind::Fn { .. }) {
                 self.fn_srcs.insert(f as *const Expr, args.iter().map(|x| (x, env)).collect());
+            }
+        }
+        // W2 (2026-11-26): a closure given to one of the language's methods that call now is handed an item of what the
+        // method runs over (the second parameter of `reduce`'s): its parameter holds what an item holds
+        let method: Option<&str> = match &f.k {
+            ExprKind::Member { p, .. } => Some(p.as_str()),
+            ExprKind::Id(n) if self.lang(env, n) == Some(Lang::Fn) => Some(n.as_str()),
+            _ => None,
+        };
+        if let Some(m) = method.filter(|m| CALLS_NOW.contains(m) && *m != "replace") {
+            let (over, cbs): (Option<&'a Expr>, &'a [Expr]) = match &f.k {
+                ExprKind::Member { o, .. } => (Some(o), args),
+                _ => (args.first(), args.get(1..).unwrap_or(&[])),
+            };
+            if let Some(over) = over {
+                for a in cbs {
+                    if matches!(a.k, ExprKind::Fn { .. }) {
+                        self.item_of.insert(a as *const Expr, (if m == "reduce" { 1 } else { 0 }, over, env));
+                    }
+                }
             }
         }
     }
@@ -6347,6 +6637,102 @@ impl<'a> Checker<'a> {
         }
     }
     /// What a name, or a fn's result, holds; one being read by itself adds nothing.
+    /// W2 (2026-11-26): the io parts of an item of a list — what a closure given to one of `CALLS_NOW` over it, or a `for`'s
+    /// row, is handed: the parts of each item of a literal (after a spread too), through the names and the choices it
+    /// goes by, and a list a method only narrows (`filter`, `toSorted`, `slice`, …) holds the same items.
+    fn item_parts(&mut self, e: &'a Expr, env: EId, depth: usize) -> IndexSet<String> {
+        let mut out = IndexSet::new();
+        if depth > 16 {
+            return out;
+        }
+        for p in self.action_parts(e, env) {
+            let (h, rest) = match p.find('.') {
+                Some(i) => (&p[..i], &p[i + 1..]),
+                None => (p.as_str(), ""),
+            };
+            if !h.is_empty() && h.bytes().all(|c| c.is_ascii_digit()) {
+                out.insert(rest.to_string());
+            }
+        }
+        match &e.k {
+            ExprKind::Arr(items) => {
+                for x in items {
+                    let ps = match &x.k {
+                        ExprKind::Spread(y) => self.item_parts(y, env, depth + 1),
+                        _ => self.action_parts(x, env),
+                    };
+                    out.extend(ps);
+                }
+            }
+            ExprKind::Id(n) => {
+                if let Some(s) = self.lookup(env, n) {
+                    if matches!(self.syms[s].kind, SymKind::Eq | SymKind::Value) && self.syms[s].row_of.is_none() {
+                        if let Some((v, ve)) = self.syms[s].val {
+                            out.extend(self.item_parts(v, ve, depth + 1));
+                        }
+                    }
+                }
+            }
+            ExprKind::If { t, f, .. } => {
+                out.extend(self.item_parts(t, env, depth + 1));
+                out.extend(self.item_parts(f, env, depth + 1));
+            }
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => {
+                if op != "&&" {
+                    out.extend(self.item_parts(l, env, depth + 1));
+                }
+                out.extend(self.item_parts(r, env, depth + 1));
+            }
+            ExprKind::Peek(x) => out.extend(self.item_parts(x, env, depth + 1)),
+            ExprKind::Call { f, args, .. } => {
+                if let ExprKind::Member { o, p, .. } = &f.k {
+                    if SAME_ITEMS.contains(&p.as_str()) {
+                        out.extend(self.item_parts(o, env, depth + 1));
+                        if p == "concat" {
+                            for a in args {
+                                out.extend(self.item_parts(a, env, depth + 1));
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        out
+    }
+    /// MO-8j, W2: the paths of a fn's i-th parameter it calls while it runs (`called_paths`): of a fn of the module from
+    /// its body, through the fns it calls (the cycle cut where it closes); of one imported, from its row's `calls(…)`.
+    fn called_of(&mut self, f: Option<SId>, i: usize) -> IndexSet<String> {
+        let Some(f) = f.filter(|&f| self.syms[f].kind == SymKind::Fn) else { return IndexSet::new() };
+        let Some(d) = self.syms[f].fn_decl else { return self.syms[f].calls.get(i).map(|c| c.iter().cloned().collect()).unwrap_or_default() };
+        if let Some(m) = self.called_memo.get(&(f, i)) {
+            return m.clone();
+        }
+        if self.called_stack.contains(&f) {
+            return IndexSet::new();
+        }
+        let Some(env) = self.syms[f].decl_env else { return IndexSet::new() };
+        self.called_stack.insert(f);
+        struct At<'c, 'a> {
+            c: &'c mut Checker<'a>,
+            env: EId,
+        }
+        impl CalledAsk for At<'_, '_> {
+            fn is_fn(&mut self, n: &str) -> bool {
+                self.c.lookup(self.env, n).is_some_and(|s| self.c.syms[s].kind == SymKind::Fn)
+            }
+            fn called(&mut self, n: &str, j: usize) -> IndexSet<String> {
+                let s = self.c.lookup(self.env, n);
+                self.c.called_of(s, j)
+            }
+        }
+        let r = called_paths(d, i, &mut At { c: self, env });
+        self.called_stack.shift_remove(&f);
+        if self.called_stack.is_empty() {
+            self.called_memo.insert((f, i), r.clone());
+        }
+        r
+    }
     fn named_parts(&mut self, s: SId, v: Option<(&'a Expr, EId)>) -> IndexSet<String> {
         if let Some(m) = self.parts_memo.get(&s) {
             return m.clone();
@@ -6789,38 +7175,7 @@ impl<'a> Checker<'a> {
                 // here, as its closure `(x) => name(x)` is: the language's own methods and functions that call what they are
                 // given, and a fn of the module whose body calls that parameter. What may keep it is as it was.
                 if !ctx.imperative {
-                    for (i, a) in args.iter().enumerate() {
-                        let s = match &a.k {
-                            ExprKind::Id(n) => self.lookup(env, n),
-                            _ => None,
-                        };
-                        // …a part of a declared result that is io (MO-10b)
-                        let named = s.is_some_and(|s| self.syms[s].io || self.syms[s].kind == SymKind::Action) || self.void_method(a, env);
-                        // …or carried: a part of a record, a handler the component is given (SC-4b)
-                        if !named && !matches!(a.k, ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. }) {
-                            continue;
-                        }
-                        let n = &show(a);
-                        let now = match &f.k {
-                            ExprKind::Member { p, .. } => CALLS_NOW.contains(&p.as_str()),
-                            ExprKind::Id(fname) => match self.lookup(env, fname) {
-                                Some(t) => self.syms[t].kind == SymKind::Fn && matches!(self.syms[t].fn_decl, Some(d) if param_called_now(d, i)),
-                                None => self.lang(env, fname) == Some(Lang::Fn) && CALLS_NOW.contains(&fname.as_str()),
-                            },
-                            _ => false,
-                        };
-                        if !now {
-                            continue;
-                        }
-                        if !named {
-                            self.later.push(Later::Given { a, f, env, line: self.line, in_fn: ctx.in_fn });
-                        } else if ctx.in_fn {
-                            self.err("IO_IN_FN", "R-io-2", format!("{n} is io, and {}(…) calls it; a fn is pure by definition", show(f)));
-                        } else {
-                            let code = if s.is_some_and(|s| self.syms[s].kind == SymKind::Action) { "ACTION_CALLED_IN_OWNED_SCOPE" } else { "IO_IN_REACTIVE" };
-                            self.err(code, "IO-2", format!("{n} is io, and {}(…) calls it while the call runs: it is called in reactive scope (R-io-3), as `(x) => {n}(x)` would be — call it from a handler or an action", show(f)));
-                        }
-                    }
+                    self.io_given(f, args, env, ctx.in_fn);
                 }
                 // W-1a (2026-11-22): the value of a source, an equation or a prop is changed by a write, never in place:
                 // `rows.push(x)` changes the array every reader holds and tells none of them
@@ -7005,6 +7360,16 @@ impl<'a> Checker<'a> {
                         // MO-10i
                         self.syms[s].js_draft = true;
                         self.syms[s].draft_fn = self.fn_stack.last().copied();
+                    }
+                }
+                // W2: an item of what a calling method runs over
+                if let Some(&(k, over, oenv)) = self.item_of.get(&(e as *const Expr)) {
+                    if let Some(p) = params.get(k) {
+                        let ps = self.item_parts(over, oenv, 0);
+                        if !ps.is_empty() {
+                            let s = self.envs[inner].vars[p.as_str()];
+                            self.syms[s].action_parts = ps.into_iter().collect();
+                        }
                     }
                 }
                 if let Some(ss) = stmts {
@@ -8138,6 +8503,11 @@ impl<'a> Checker<'a> {
                     row.row_of = Some((xs, env));
                     let s = self.new_sym(row);
                     self.envs[inner].vars.insert(name.clone(), s);
+                    // W2: a row holds what an item of the list holds
+                    let ps = self.item_parts(xs, env, 0);
+                    if !ps.is_empty() {
+                        self.syms[s].action_parts = ps.into_iter().collect();
+                    }
                     self.block(decls, body, inner, Ctx::reactive());
                 }
                 MarkupKind::Loading { on, fallback, decls, body } => {

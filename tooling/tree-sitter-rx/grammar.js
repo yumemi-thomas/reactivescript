@@ -105,6 +105,7 @@ module.exports = grammar(tsx, {
       optional($.rejects_clause),
       optional(alias('instantiates', $.row_word)),
       optional($.signature_uses),
+      optional($.signature_calls),
     ),
     signature_parameter: $ => seq(optional($.ref_modifier), field('name', $.identifier), optional('?'), optional(seq(':', field('type', $.type)))),
     signature_rows: $ => repeat1(choice('io', 'pending', 'lane', 'ref', 'value', $.fails_row, $.signature_parts, $.signature_tuple)),
@@ -153,6 +154,8 @@ module.exports = grammar(tsx, {
     signature_path: _ => token(/[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*/),
     // `uses(./ui.rx#who, loading)`: context keys relative to the signature's module (MO-13b), and SV-7b's `loading`
     signature_uses: $ => seq('uses', '(', commaSep1(choice($.context_key, 'loading')), ')'),
+    // W2 (2026-11-26): the paths of its parameters a fn calls while it runs, `calls(f, xs.*.go)`: printed, never written
+    signature_calls: $ => seq('calls', '(', commaSep1(alias(/[\w$*-]+(\.[\w$*-]+)*/, $.part_path)), ')'),
     signature_retains: $ => seq('retains', '(', commaSep1(seq(field('name', choice(alias($.identifier, $.property_identifier), $.string, '...props')), ':', choice('module', $.context_key))), ')'),
     // MO-11u, the components a fn declared `renders(H)` is given. `hosts(./kit.d.rx#Toaster catches(Error)
     // provides(./theme.rx#theme); ./kit.d.rx#Toaster)`: each place a component (or, as a row of its own, the module)

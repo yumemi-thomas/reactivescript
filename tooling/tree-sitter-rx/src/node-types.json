@@ -6449,6 +6449,21 @@
     }
   },
   {
+    "type": "signature_calls",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "part_path",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "signature_catches",
     "named": true,
     "fields": {},
@@ -6702,6 +6717,10 @@
         },
         {
           "type": "row_word",
+          "named": true
+        },
+        {
+          "type": "signature_calls",
           "named": true
         },
         {
@@ -8539,6 +8558,10 @@
   },
   {
     "type": "break",
+    "named": false
+  },
+  {
+    "type": "calls",
     "named": false
   },
   {

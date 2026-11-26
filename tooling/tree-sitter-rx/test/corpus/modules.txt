@@ -2052,3 +2052,36 @@ export component B(props: { ...props; n; "tc-button"; "a:b": view }) retains("on
       (signature_retains
         (string
           (string_fragment))))))
+
+================================================================================
+A printed signature: the paths of its parameters a fn calls while it runs
+================================================================================
+
+//@ signature lib.rx
+export pure fn ap(fs, r) calls(fs.*, r.go)
+export pure fn one(f) instantiates calls(f)
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (signature_parameter
+        (identifier))
+      (signature_parameter
+        (identifier))
+      (signature_calls
+        (part_path)
+        (part_path))))
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (signature_parameter
+        (identifier))
+      (row_word)
+      (signature_calls
+        (part_path)))))
