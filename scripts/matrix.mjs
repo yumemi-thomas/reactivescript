@@ -154,12 +154,14 @@ function verdict(res, n) {
 }
 
 // ---- run ----
+/** The build of the crate a revision's runners use: RX_PROFILE's (`checks`: scripts/quick's), where its runners read it. */
+const profileOf = root => process.env.RX_PROFILE && readFileSync(path.join(root, "ref/crate.ts"), "utf8").includes("RX_PROFILE") ? process.env.RX_PROFILE : "release";
 let programs = [], file = opt("--from") ? JSON.parse(readFileSync(opt("--from"), "utf8")) : { revs: {} };
 if (given.length) {
   const files = given.flatMap(g => statSync(g).isDirectory() ? readdirSync(g).filter(f => f.endsWith(".md")).sort().map(f => path.join(g, f)) : [g]);
   programs = files.map(f => ({ file: path.resolve(f), name: path.basename(f, ".md").replace(/^S-(zz-)?/, "") }));
   if (new Set(programs.map(p => p.name)).size !== programs.length) { console.error("two programs of one name"); process.exit(2); }
-  for (const [n, root] of Object.entries(revs)) for (const f of ["ref/node_modules/solid-js", ...(runners.some(r => /rust|same|lower|project/.test(r)) ? ["compiler/target/release/rxc"] : [])]) if (!existsSync(path.join(root, f))) { console.error(`--rev ${n}: no ${f} in ${root}`); process.exit(2); }
+  for (const [n, root] of Object.entries(revs)) for (const f of ["ref/node_modules/solid-js", ...(runners.some(r => /rust|same|lower|project/.test(r)) ? [`compiler/target/${profileOf(root)}/rxc`] : [])]) if (!existsSync(path.join(root, f))) { console.error(`--rev ${n}: no ${f} in ${root}`); process.exit(2); }
   const release = programs.length > 20 ? await heavy("matrix", jobs ? { want: jobs } : {}) : Object.assign(() => {}, { n: Math.min(4, cores()) });
   jobs ||= release.n;
   // one Chromium: each revision's Playwright must be the one that started it

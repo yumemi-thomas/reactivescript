@@ -16,12 +16,21 @@ const repo = path.resolve(import.meta.dirname, ".."), args = process.argv.slice(
 const quick = flag("--quick"), cached = (quick || flag("--cached")) && !flag("--no-cache") && !process.env.CI && process.env.RX_NO_CACHE !== "1";
 const jobs = Math.max(1, Number(opt("--jobs")) || cores());
 const solid = path.resolve(process.env.SOLID_NEXT || path.join(repo, "../solid-next"));
-const rxc = path.join(repo, "compiler/target/release/rxc"), LS = "tooling/rx-language-server";
+const LS = "tooling/rx-language-server";
 const has = c => { try { execFileSync("sh", ["-c", `command -v ${c}`], { stdio: "ignore" }); return true; } catch { return false; } };
 const targets = (() => { try { return execFileSync("rustup", ["target", "list", "--installed"], { encoding: "utf8" }).split("\n"); } catch { return []; } })();
 const installed = (dir, lock = "package-lock.json") => { try { return statSync(path.join(repo, dir, "node_modules")).mtimeMs >= 0 && statSync(path.join(repo, dir, "node_modules/.package-lock.json")).mtimeMs >= statSync(path.join(repo, dir, lock)).mtimeMs; } catch { return false; } };
 const ci = dir => quick && installed(dir) ? null : "npm ci --no-audit --no-fund";
 const strip = "node --experimental-strip-types --no-warnings", crate = ["", "--spa", "--whole-program", "--lower", "--project", "--text", "--text --lower", "--text --project"];
+// quick's builds: the profile `checks` (compiler/Cargo.toml) — incremental, the crate not optimised, its dependencies as they
+// ship — one compilation of the crate under rxc, the tests and the binding (compiler/checks). `--release`: the builds that ship.
+const fast = quick && !flag("--release"), target = path.join(repo, "compiler/target"), profile = fast ? "checks" : "release", rxc = path.join(target, profile, "rxc");
+const lib = { darwin: "librx_checks.dylib", win32: "rx_checks.dll" }[process.platform] ?? "librx_checks.so", binding = `compiler.${process.platform}-${process.arch}${{ linux: "-gnu", win32: "-msvc" }[process.platform] ?? ""}.node`;
+const FAST = {
+  crate: `cargo build --profile checks -p reactivescript -p rx-checks --lib --bins --tests && cp target/checks/${lib} ${binding}.new && { cmp -s ${binding}.new ${binding} && rm ${binding}.new || mv -f ${binding}.new ${binding}; }`,
+  wasm: "CARGO_PROFILE_CHECKS_OPT_LEVEL=1 cargo build --profile checks -p reactivescript -p rx-words --lib --target wasm32-unknown-unknown",
+  "cargo-test": "cargo test --profile checks -p reactivescript -p rx-checks",
+};
 const napi = "npx napi build --platform --release --features node --manifest-path ./Cargo.toml -- --lib";
 const pluginOf = () => process.env.SOLID_VITE_PLUGIN ? null : "SOLID_VITE_PLUGIN is not set (a Solid plugin with context.resolve: compiler/README.md)";
 
@@ -29,9 +38,9 @@ const pluginOf = () => process.env.SOLID_VITE_PLUGIN ? null : "SOLID_VITE_PLUGIN
 const NEED_VITE = ["vite-types", "ssr-router", "vite-hosts"];
 
 /** The steps. `after`: what they need; `uses`: what two steps may not use at once — cargo's target folder, the bench's
- *  workspace, compiler/test/.out, the package's built files; `n`: how many processes it counts as (it is given that many);
+ *  workspace, compiler/test/.out, the package's built files; `n`: how many processes it counts as (it is given that many; 0: one that mostly waits, on timers);
  *  `soft` (quick): the seconds it has — what it did is kept, and the
- *  next run goes on from there; what it did not is said, and is `scripts/ci`'s; `heavy`: several browsers, under the machine's lock; `quick`: in the quick tier too; `not`: why it cannot run here. */
+ *  next run goes on from there; what it did not is said, and is `scripts/ci`'s; `heavy`: several browsers, under the machine's lock; `eager` (quick): it starts while the steps that run take no more than half the cores, as the longest; `quick`: in the quick tier too; `not`: why it cannot run here. */
 const steps = [
   { id: "npm-compiler", dir: "compiler", run: ci("compiler"), quick: true, skipQuietly: true },
   { id: "npm-runtime", dir: "runtime", run: ci("runtime"), quick: true, skipQuietly: true },
@@ -47,13 +56,13 @@ const steps = [
   { id: "tools", dir: ".", run: "node scripts/lock.test.mjs && node scripts/cache.test.mjs" },
   { id: "tools-worker", dir: ".", run: "node scripts/tools.test.mjs", after: ["wasm", "npm-language-server"] },
   { id: "ref-run", dir: "ref", run: "npm test -s", quick: true },
-  { id: "ref-oracle", dir: "ref", run: "npm run -s oracle", quick: true },
-  { id: "ref-compiled", dir: "ref", run: "npm run -s compiled", uses: ["ref-out"], quick: true },
-  { id: "ref-compiled-crate", dir: "ref", run: "RX_CRATE=1 npm run -s compiled", uses: ["ref-out"], after: ["crate", "cargo-test"], quick: true, only: "quick" },
+  { id: "ref-oracle", dir: "ref", run: "npm run -s oracle", n: 0, quick: true },
+  { id: "ref-compiled", dir: "ref", run: "npm run -s compiled", n: 0, quick: true },
+  { id: "ref-compiled-crate", dir: "ref", run: "RX_CRATE=1 npm run -s compiled", n: 0, after: ["crate", "cargo-test"], quick: true, only: "quick" },
   { id: "ref-types", dir: "ref", run: "npm run -s types", after: ["npm-language-server"], quick: true },
   { id: "ref-crate", dir: "ref", run: `node ../scripts/parallel.mjs ${crate.map(c => `"npm run -s crate -- ${c}"`).join(" ")}`, after: ["node-build"], uses: ["cargo"], n: jobs, quick: true },
   { id: "ref-ssr", dir: "ref", run: "npm run -s ssr", n: jobs, heavy: true, quick: true, soft: 45 },
-  { id: "drafts", dir: ".", run: "node compiler/test/drafts.mjs", after: ["crate", "cargo-test"], quick: true },
+  { id: "drafts", dir: ".", run: "node compiler/test/drafts.mjs", after: ["crate", "cargo-test", "runtime"], quick: true },
   { id: "lib", dir: ".", run: "node compiler/test/lib.mjs", after: ["node-build"], uses: ["binding-read"], quick: true },
   { id: "bench-install", dir: ".", run: 'mkdir -p bench/.out/ws && cd bench/.out/ws && if cmp -s ../../package-lock.json node_modules/.installed-from-lock && cmp -s ../../package.json package.json; then echo installed; else cp ../../package.json ../../package-lock.json . && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock; fi', uses: ["ws"], quick: true },
   { id: "confined", dir: ".", run: "node compiler/test/confined.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws"], quick: true },
@@ -64,7 +73,7 @@ const steps = [
   { id: "generated", dir: ".", run: `${strip} bench/generated.mjs`, after: ["wasm", "node-build", "bench-install", "runtime", "npm-language-server"], uses: ["ws"], n: jobs, heavy: true },
   { id: "bench-tasks", dir: ".", run: "node bench/run.mjs --tasks-only --check --strict", after: ["generated", "confined"], uses: ["ws"], n: jobs, heavy: true },
   { id: "bench-coverage", dir: ".", run: "node bench/run.mjs --coverage-only --check --strict", after: ["bench-tasks"], uses: ["ws"], n: jobs, heavy: true },
-  { id: "bench", dir: ".", run: "node bench/run.mjs --check --strict", after: ["confined", "wasm", "npm-language-server", "runtime"], uses: ["ws", "binding-read"], n: jobs, heavy: true, quick: true, only: "quick", soft: 45 },
+  { id: "bench", dir: ".", run: "node bench/run.mjs --check --strict", after: ["confined", "wasm", "npm-language-server", "runtime"], uses: ["ws", "binding-read"], n: jobs, heavy: true, quick: true, only: "quick", soft: 45, eager: true },
   { id: "tree-sitter", dir: "tooling/tree-sitter-rx", run: "pnpm install --frozen-lockfile && pnpm run generate && git diff --exit-code -- src/ && pnpm test && pnpm run parse:repo && pnpm run query -- ../../examples/*.rx > /dev/null", not: () => has("pnpm") ? null : "no pnpm" },
   { id: "editor-ls", dir: LS, run: `npm test -s && RXC=${rxc} node test/run.js`, after: ["npm-language-server", "wasm", "crate", "runtime", "node-build"], n: jobs },
   { id: "editor-vscode", dir: "tooling/vscode-rx", run: "npm ci --no-audit --no-fund && npm run package && SERVER=dist/server.js node ../rx-language-server/test/run.js && rm -f *.vsix", after: ["editor-ls"], uses: ["ls-pack"] },
@@ -76,7 +85,7 @@ const steps = [
   { id: "node-darwin", dir: "compiler", run: 'RUSTC="$(rustup which rustc)" npx napi build --platform --release --strip --features node --target aarch64-apple-darwin --manifest-path ./Cargo.toml -- --lib && npm test -s', uses: ["cargo", "binding"], n: jobs, last: true, not: () => process.platform === "darwin" && process.arch === "arm64" ? null : "another platform" },
   { id: "node-wasi", dir: "compiler", run: 'RUSTC="$(rustup which rustc)" npx napi build --platform --release --strip --features node --target wasm32-wasip1-threads --manifest-path ./Cargo.toml -- --lib && NAPI_RS_FORCE_WASI=1 npm test -s', uses: ["cargo", "binding"], n: jobs, last: true, not: () => targets.includes("wasm32-wasip1-threads") ? null : "no wasm32-wasip1-threads target" },
   { id: "win-check", dir: "compiler", run: "cargo check --release --features node --lib --target x86_64-pc-windows-msvc", uses: ["cargo"], n: jobs, last: true, not: () => targets.includes("x86_64-pc-windows-msvc") ? null : "no x86_64-pc-windows-msvc target" },
-].filter(s => s.run !== null && (quick ? s.quick : s.only !== "quick"));
+].map(s => !fast ? s : { ...s, run: s.id === "node-build" ? null : FAST[s.id] ?? s.run, after: s.after?.flatMap(d => d === "node-build" ? ["crate", "cargo-test"] : [d]) }).filter(s => s.run !== null && (quick ? s.quick : s.only !== "quick"));
 if (flag("--list")) { for (const s of steps) console.log(s.id); process.exit(0); }
 const names = s => (opt(s, "") || "").split(",").filter(Boolean), only = names("--only"), skip = names("--skip"), byId = new Map(steps.map(s => [s.id, s]));
 let chosen = new Set(steps.map(s => s.id).filter(id => (!only.length || only.some(o => id.startsWith(o))) && !skip.some(o => id.startsWith(o))));
@@ -90,6 +99,7 @@ const env = { ...process.env, SOLID_NEXT: solid, CARGO_BUILD_JOBS: String(jobs),
 if (!cached) env.RX_NO_CACHE = "1";
 // (Node's own cache of compiled code — what a module's text compiles to, by its content: no result of a suite)
 env.NODE_COMPILE_CACHE ??= path.join(repo, ".out/node-code");
+if (fast) Object.assign(env, { RX_PROFILE: profile, RX_WASM: path.join(target, "wasm32-unknown-unknown/checks/reactivescript.wasm"), RX_WORDS_WASM: path.join(target, "wasm32-unknown-unknown/checks/rx_words.wasm") });
 const t0 = Date.now(), at = () => `${((Date.now() - t0) / 1000).toFixed(0).padStart(4)} s`;
 const done = new Map(), running = new Map();
 // what a step may grow to (RX_CI_MEM MB, 4000): a process of ours past it is stopped — ours: a descendant of this one
@@ -109,7 +119,7 @@ async function start(s) {
   const release = s.heavy ? await heavy(`${quick ? "quick" : "ci"} ${s.id}`, quick ? { want: n0, wait: 30, orNot: true, log() {} } : { want: n0, log: t => console.log(`${at()}  ${t}`) }) : () => {};
   if (!release) { running.delete(s.id); done.set(s.id, { not: "another heavy run holds the machine (node scripts/heavy.mjs --who)" }); console.log(`${at()}  part ${s.id.padEnd(22)} not run: the machine is busy`); return next(); }
   const file = path.join(log, `${s.id}.log`), n = Math.min(n0, release.n ?? n0), cmd = s.run;
-  const child = spawn("bash", ["-c", `exec >${JSON.stringify(file)} 2>&1; time { ${cmd}\n} 2>&1; code=$?; exit $code`], { cwd: path.join(repo, s.dir), env: { ...env, RX_JOBS: String(n), BENCH_JOBS: String(n), ...(done.get("crate")?.ok ? { RX_BUILT: "1" } : {}), ...release.env }, stdio: "ignore", detached: true });
+  const child = spawn("bash", ["-c", `exec >${JSON.stringify(file)} 2>&1; time { ${cmd}\n} 2>&1; code=$?; exit $code`], { cwd: path.join(repo, s.dir), env: { ...env, RX_JOBS: String(Math.max(1, n)), BENCH_JOBS: String(Math.max(1, n)), ...(done.get("crate")?.ok ? { RX_BUILT: "1" } : {}), ...release.env }, stdio: "ignore", detached: true });
   let late = false; const soft = quick && s.soft ? setTimeout(() => { late = true; try { process.kill(-child.pid, "SIGTERM"); } catch { /* ended */ } setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, 3000); }, s.soft * 1000) : null;
   const began = Date.now(), wall = setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* ended */ } }, (s.limit ?? (Number(process.env.RX_CI_LIMIT) || 3600)) * 1000);
   running.set(s.id, { child, s, n });
@@ -137,7 +147,7 @@ function next() {
       const busy = [...running.values()].flatMap(r => r.s.uses ?? []), uses = s.uses ?? [];
       if (uses.some(u => (u !== "binding-read" && busy.includes(u)) || (u === "binding" && busy.includes("binding-read")) || (u === "binding-read" && busy.includes("binding")))) continue;
       const load = [...running.values()].reduce((a, r) => a + r.n, 0), n = Math.min(s.n ?? 1, jobs);
-      if (load && load + n > jobs) continue;
+      if (load && load + n > jobs && !(quick && s.eager && load <= jobs / 2)) continue;
       start(s); more = true;
     }
   }

@@ -11,7 +11,7 @@ import path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
-const rxc = process.env.RXC || path.join(repo, "compiler/target/release/rxc");
+const rxc = process.env.RXC || path.join(repo, `compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`);
 if (existsSync(rxc)) process.env.RXC = rxc;   // else the Node-API build
 const { build, exportsOf, foreignKeys } = await import("../lib.mjs");
 

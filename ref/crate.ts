@@ -70,7 +70,7 @@ for (const f of walk(join(root, "examples")).sort()) add(`examples/${f.slice(joi
  *  to wait for ever (macOS: the pipe's other end never found writable). */
 function rxc(command: string, request: string): string {
   const dir = mkdtempSync(join(tmpdir(), "rx-crate-")); const fd = (writeFileSync(join(dir, "in"), request), openSync(join(dir, "in"), "r"));
-  try { return execFileSync(join(root, "compiler/target/release/rxc"), [command], { stdio: [fd, "pipe", "inherit"], maxBuffer: 1 << 30 }).toString(); }
+  try { return execFileSync(join(root, `compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`), [command], { stdio: [fd, "pipe", "inherit"], maxBuffer: 1 << 30 }).toString(); }
   finally { closeSync(fd); rmSync(dir, { recursive: true, force: true }); }
 }
 const plain = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => v instanceof Map ? Object.fromEntries(v) : v instanceof Set ? [...v] : v));
@@ -117,7 +117,7 @@ if (textMode) {
     reqs.push({ ...r, id: `${r.id} (cut ${cut.length})`, files: files(() => cut + ["é", "😀\n", "漢 ", "\"é"][pick(4)]) }, { ...r, id: `${r.id} (${JSON.stringify(ins)} at ${at})`, files: files(t => t.slice(0, at) + ins + t.slice(at)) });
   }
 }
-if (process.env.RX_BUILT !== "1") execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
+if (process.env.RX_BUILT !== "1") execFileSync("cargo", ["build", "--profile", process.env.RX_PROFILE ?? "release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
 if (lowerMode) process.exit(await lower());
 if (projectMode) process.exit(await project());
 const out = rxc("conform", JSON.stringify(reqs));

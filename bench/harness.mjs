@@ -19,7 +19,7 @@ const { declares } = require_("../tooling/rx-language-server/src/load.js");   //
 export const here = path.dirname(fileURLToPath(import.meta.url));
 export const repo = path.resolve(here, "..");
 export const ws = path.join(here, ".out/ws");
-export const rxc = process.env.RXC || path.join(repo, "compiler/target/release/rxc");
+export const rxc = process.env.RXC || path.join(repo, `compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`);
 
 /** An install from a lockfile (`npm ci`), so that every machine has the same tree: `from` holds package.json and
  *  package-lock.json, `at` is where they are installed — once, and again when either changes. A tree npm resolved on
@@ -50,6 +50,8 @@ export function workspace() {
 /** BENCH_PROFILE=<file>: each operation and how long it took, a line each. */
 const timed = (kind, f) => { if (!process.env.BENCH_PROFILE) return f(); const t = performance.now(); const end = () => writeFileSync(process.env.BENCH_PROFILE, `${kind}\t${(performance.now() - t).toFixed(0)}\t${process.argv.slice(2).join(" ")}\n`, { flag: "a" }); let r; try { r = f(); } catch (e) { end(); throw e; } if (r?.then) return r.finally(end); end(); return r; };
 /** What every operation depends on, by content: hashed once, by the process that runs the suite, for those it starts. */
+/** The folders over the workspace that hold packages (none does: a name that is not in the install is in no other). */
+function above() { const out = []; for (let d = path.dirname(ws); ; d = path.dirname(d)) { const f = path.join(d, "node_modules"); if (existsSync(f)) out.push(`${cache.home(f)} ${readdirSync(f).sort().join()}`); if (path.dirname(d) === d) return out; } }
 let shared_;
 function shared() {
   if (shared_) return shared_;
@@ -58,11 +60,11 @@ function shared() {
   shared_ = {
     harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), ...["cache.mjs", "tools.mjs", "tool-worker.cjs", "bundle.mjs"].map(f => at("scripts/lib", f))),
     tools: cache.inputs(...["bin", "src", "package.json", "package-lock.json", "node_modules"].map(f => at("tooling/rx-language-server", f))),
-    installed: [cache.treeHash(nm, { skip: (r, n) => r === "@reactivescript" || r === "@rx-types" || n === ".package-lock.json" }), cache.treeHash(path.join(nm, "@rx-types"))],
+    installed: [cache.treeHash(nm, { skip: (r, n) => r === "@reactivescript" || r === "@rx-types" || n === ".package-lock.json" }), cache.treeHash(path.join(nm, "@rx-types")), above()],
     // (the copies a program runs with, not what they were copied from: `workspace()` makes them again, a task run alone does not)
     runtime: cache.treeHash(path.join(nm, "@reactivescript/runtime")),
     // what a task that runs a build, or a process of its own, may reach: the compiler as it is built, and ref/
-    builds: cache.inputs(rxc, ...["index.js", "vite.mjs", "lib.mjs", "package.json", "scripts", "target/wasm32-unknown-unknown/release/reactivescript.wasm", "target/wasm32-unknown-unknown/release/rx_words.wasm"].map(f => at("compiler", f)), ...(existsSync(at("compiler")) ? readdirSync(at("compiler")).filter(f => f.endsWith(".node")).map(f => at("compiler", f)) : []), ...["src", "compile", "check.ts", "disk.ts", "types"].map(f => at("ref", f))),
+    builds: cache.inputs(rxc, ...["index.js", "vite.mjs", "lib.mjs", "package.json", "scripts"].map(f => at("compiler", f)), process.env.RX_WASM || at("compiler/target/wasm32-unknown-unknown/release/reactivescript.wasm"), wordsWasm, ...(existsSync(at("compiler")) ? readdirSync(at("compiler")).filter(f => f.endsWith(".node")).map(f => at("compiler", f)) : []), ...["src", "compile", "check.ts", "disk.ts", "types"].map(f => at("ref", f))),
     browser: cache.browser(pw()),
   };
   cache.saveIndex();
@@ -82,11 +84,27 @@ function answer(a) {
   if (a.k === "app") return appOf(a.entry, a.target, a.spa);
   if (a.k === "serve") { if (a.rxc || process.env.RXC) { const r = spawnSync(rxc, ["serve"], { input: JSON.stringify({ id: 1, method: a.method, params: a.params }) + "\n", cwd: a.cwd, encoding: "utf8", maxBuffer: 1 << 28 }); return JSON.parse(r.stdout).result; } asked_ ??= require_("../tooling/rx-language-server/src/rxc.js").ask; const was = process.cwd(); try { process.chdir(a.cwd); return asked_(a.method, a.params); } finally { process.chdir(was); } }
 }
+/** The build that reads JavaScript (`words`): what it answers is in the packages' files and the task's — the key's, and the
+ *  folders above, which have no packages (`above`, in the key) — so that, while it is the same file, its answers are. */
+const wordsWasm = process.env.RX_WORDS_WASM || path.join(repo, "compiler/target/wasm32-unknown-unknown/release/rx_words.wasm");
+answer.by = a => a.k === "serve" && a.method === "words" ? cache.fileHash(wordsWasm) ?? undefined : undefined;
+/** The questions for `rxc serve`, from one folder, in one process (it answers a line a line, each alone). */
+answer.many = asks => {
+  const out = new Array(asks.length).fill(undefined), by = new Map();
+  asks.forEach((a, i) => { if (a.k === "serve" && (a.rxc || process.env.RXC)) by.set(a.cwd, [...(by.get(a.cwd) ?? []), i]); });
+  for (const [cwd, is] of by) {
+    if (is.length < 2) continue;
+    const r = spawnSync(rxc, ["serve"], { input: is.map(i => JSON.stringify({ id: i, method: asks[i].method, params: asks[i].params })).join("\n") + "\n", cwd, encoding: "utf8", maxBuffer: 1 << 30 });
+    for (const l of String(r.stdout ?? "").split("\n")) { if (!l) continue; let x; try { x = JSON.parse(l); } catch { continue; } if (is.includes(x.id)) out[x.id] = x.result; }
+  }
+  return out;
+};
+const told = (ask, said) => { const by = answer.by(ask); return { ask, said, ...(by ? { by } : {}) }; };
 const anyTrial = r => JSON.parse(JSON.stringify(r ?? null).replace(/\.\d+\.trial\.d\.rx/g, ".trial.d.rx"));
 /** What a traced process asked of the crate (src/rxc.js, RX_TRACE); null: a log that is not read, and a result that is not kept. */
 function asks(log, viaRxc) {
   let text; try { text = readFileSync(log, "utf8"); } catch { return []; }
-  try { return text.split("\n").filter(Boolean).map(l => { const t = JSON.parse(l), at = { rxc: viaRxc, cwd: t.cwd }; return t.trial !== undefined ? { ask: { k: "trial", at: t.params.file.replace(/\.\d+\.trial\.d\.rx$/, ""), text: t.trial, ...at }, said: cache.said(anyTrial(t.result)) } : { ask: { k: "serve", method: t.method, params: t.params, ...at }, said: cache.said(t.result) }; }); } catch { return null; }
+  try { return text.split("\n").filter(Boolean).map(l => { const t = JSON.parse(l), at = { rxc: viaRxc, cwd: t.cwd }; return t.trial !== undefined ? { ask: { k: "trial", at: t.params.file.replace(/\.\d+\.trial\.d\.rx$/, ""), text: t.trial, ...at }, said: cache.said(anyTrial(t.result)) } : told({ k: "serve", method: t.method, params: t.params, ...at }, cache.said(t.result)); }); } catch { return null; }
 }
 /** 09 MO-8l: the declaration generated for a package as a module imports it (src/generate.js), written where the compiler
  *  finds it; what a suite asks for with `node_modules/.rx-types` empty. */
@@ -137,7 +155,7 @@ function once(kind, args, flags, dir, env, run) {
   let kept; if (!mine) try { kept = JSON.parse(readFileSync(file, "utf8")); } catch { /* none was made */ }
   if (kept) {
     const to = (x, a, b) => JSON.parse(JSON.stringify(x ?? null).replaceAll(JSON.stringify(a).slice(1, -1), JSON.stringify(b).slice(1, -1)));
-    const trace = kept.trace.map(t => { const ask = to(t.ask, kept.dir, dir); let now; try { now = answer(ask); } catch { return null; } return cache.said(to(now, dir, kept.dir)) === t.said ? { ask, said: cache.said(now) } : null; });
+    const trace = kept.trace.map(t => { const ask = to(t.ask, kept.dir, dir); let now; try { now = answer(ask); } catch { return null; } return cache.said(to(now, dir, kept.dir)) === t.said ? told(ask, cache.said(now)) : null; });
     if (trace.every(Boolean)) return { value: kept.value, trace, files: {} };
     return run(false);
   }
@@ -208,7 +226,7 @@ export async function pool(items, fn, few = () => false) {
   const done = new Promise(res => { ended = res; }); if (!items.length) return out;
   const next = () => {
     while (running < jobs) {
-      const k = waiting.findIndex(i => heavy < (jobs >= 8 ? 3 : 2) || !few(items[i])); if (k < 0) break;
+      const k = waiting.findIndex(i => heavy < (jobs >= 8 ? 6 : 2) || !few(items[i])); if (k < 0) break;
       const i = waiting.splice(k, 1)[0], h = few(items[i]); running++; if (h) heavy++;
       fn(items[i], i).then(r => { out[i] = r; }, e => { out[i] = { crash: e.stack ?? String(e) }; }).finally(() => { running--; if (h) heavy--; if (!waiting.length && !running) ended(); else next(); });
     }

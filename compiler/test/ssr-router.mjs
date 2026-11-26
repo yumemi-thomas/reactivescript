@@ -28,7 +28,7 @@ for (const p of ["dist", "package.json"]) cpSync(path.join(repo, "runtime", p), 
 writeFileSync(path.join(ws, "package.json"), `{ "type": "module" }`);
 for (const f of ["router.js", "people.js"]) cpSync(path.join(example, f), path.join(ws, f));
 // the program, for each side: `rxc app` modules import each other by `.rx` path
-const rxc = path.join(repo, "compiler/target/release/rxc");
+const rxc = path.join(repo, `compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`);
 for (const [target, dir, js] of [["ssr", ws, "./"], ["dom", path.join(ws, "client"), "../"]]) {
   const app = JSON.parse(execFileSync(rxc, ["app", path.join(example, "main.rx"), "--target", target], { encoding: "utf8", maxBuffer: 1 << 26 }));
   if (!app.modules) { console.error(JSON.stringify(app).slice(0, 2000)); process.exit(1); }

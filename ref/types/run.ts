@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { loadModules } from "../src/modules.ts";
 
-const rxc = fileURLToPath(new URL("../../compiler/target/release/rxc", import.meta.url));
+const rxc = fileURLToPath(new URL(`../../compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`, import.meta.url));
 /** RX_CRATE=1: the crate's projection of the program, read from the same files ref/ reads. */
 function crateProjection(sc: Scenario, src: string): Projected[] {
   const files: Record<string, string> = {};

@@ -32,11 +32,11 @@ const here = import.meta.dirname, repo = dirname(here);
 const arg = n => { const i = process.argv.indexOf(n); return i < 0 ? undefined : process.argv[i + 1]; };
 const verbose = process.argv.includes("-v"), only = arg("--only"), up = arg("--upstream"), proto = arg("--prototype");
 const roots = { branch: repo, ...(up ? { upstream: resolve(up) } : {}), ...(proto ? { prototype: resolve(proto) } : {}) };
-for (const [name, root] of Object.entries(roots)) for (const f of ["compiler/target/release/rxc", "ref/node_modules/solid-js", "runtime/dist/web.js", "tooling/rx-language-server/node_modules"]) if (!existsSync(join(root, f))) { console.log(`SETUP ${name}: no ${f} in ${root} (README.md says how it is built)`); process.exit(2); }
+for (const [name, root] of Object.entries(roots)) for (const f of [`compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`, "ref/node_modules/solid-js", "runtime/dist/web.js", "tooling/rx-language-server/node_modules"]) if (!existsSync(join(root, f))) { console.log(`SETUP ${name}: no ${f} in ${root} (README.md says how it is built)`); process.exit(2); }
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "rx-proposals-")));
 // each tree's crate is built here, once, and not by the runners (which build it first): on macOS cargo takes the binary away
 // for a moment to write it again, also when nothing changed, and the programs run beside each other would find none
-if (process.env.RX_BUILT !== "1") for (const root of Object.values(roots)) execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
+if (process.env.RX_BUILT !== "1") for (const root of Object.values(roots)) execFileSync("cargo", ["build", "--profile", process.env.RX_PROFILE ?? "release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
 mkdirSync(join(tmp, "bin")); writeFileSync(join(tmp, "bin/cargo"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 process.env.RX_BUILT = "1"; process.env.PATH = `${join(tmp, "bin")}:${process.env.PATH}`;
 /** A process to its end: `{ status, stdout, stderr }`. */
@@ -72,7 +72,7 @@ const said = text => { const c = codes(text); return c.length ? c.join("+") : "o
 const kinds = {
   async check(root, b) {
     const dir = folder(b), flags = (b.attrs.flags ?? "").split(",").filter(Boolean), file = b.attrs.main ?? "main.rx";
-    const a = await run(join(root, "compiler/target/release/rxc"), ["check", ...flags, file], dir);
+    const a = await run(join(root, `compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`), ["check", ...flags, file], dir);
     const c = a.stdout + a.stderr, r = await node(["--experimental-strip-types", join(root, "ref/check.ts"), ...flags.filter(f => f !== "--spa"), file], dir);
     const cv = said(c) === "ok" && a.status !== 0 ? "failed" : said(c), parse = /: parse error: /.test(r) && cv !== "ok";   // a parse error the reference prints without a code
     const rv = parse ? cv : said(r) === "ok" && !/^ok /m.test(r) ? "failed" : said(r);
@@ -90,7 +90,7 @@ const kinds = {
     return { got: /refused by the checker|not compiled/.test(out) ? "refused" : /^PASS S-proposal-1/m.test(out) ? "pass" : "fail", out };
   },
   async app(root, b) {
-    const dir = folder(b), a = await run(join(root, "compiler/target/release/rxc"), ["app", "main.rx"], dir);
+    const dir = folder(b), a = await run(join(root, `compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`), ["app", "main.rx"], dir);
     return { got: a.status || /"diagnostics":\s*\[\s*\{/.test(a.stdout) ? "failed" : "ok", out: a.stdout + a.stderr };
   },
   async scenario(root, b, name, slot) {
@@ -138,7 +138,7 @@ for (const d of docs) for (const b of blocks(d)) for (const [name, root] of Obje
 }
 // a verdict is kept (scripts/lib/cache.mjs) while the program, the runner and everything it runs with are the same
 const keyOf = root => { const at = (...p) => cache.inputs(...p.map(p => join(root, p))), solid = p => cache.treeHash(realpathSync(join(root, "ref/node_modules", p)), { skip: (r, n) => n === "node_modules" || n === "target" || r === "test" || r === "tests" });
-  return { checker: cache.fileHash(import.meta.filename), builds: at("compiler/target/release/rxc", "compiler/target/wasm32-unknown-unknown/release/reactivescript.wasm"), ref: ["src", "compile", "oracle", "ssr", "run.ts", "check.ts", "disk.ts", "units.ts", "solid-version.ts", "SOLID_NEXT"].map(f => cache.inputs(join(root, "ref", f))[0].split(" ").pop()), tools: at("tooling/rx-language-server/bin", "tooling/rx-language-server/src", "tooling/rx-language-server/package.json", "tooling/rx-language-server/node_modules"), beside: at("runtime/dist", "declarations", "examples"), installed: cache.treeHash(join(root, "ref/node_modules"), { skip: (r, n) => n === ".package-lock.json" }), solid: ["@solidjs/compiler", "@solidjs/signals", "@solidjs/universal", "@solidjs/web", "solid-js"].map(solid), browser: cache.browser(createRequire(join(root, "ref/package.json"))("playwright")) }; };
+  return { checker: cache.fileHash(import.meta.filename), builds: at(`compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`, "compiler/target/wasm32-unknown-unknown/release/reactivescript.wasm"), ref: ["src", "compile", "oracle", "ssr", "run.ts", "check.ts", "disk.ts", "units.ts", "solid-version.ts", "SOLID_NEXT"].map(f => cache.inputs(join(root, "ref", f))[0].split(" ").pop()), tools: at("tooling/rx-language-server/bin", "tooling/rx-language-server/src", "tooling/rx-language-server/package.json", "tooling/rx-language-server/node_modules"), beside: at("runtime/dist", "declarations", "examples"), installed: cache.treeHash(join(root, "ref/node_modules"), { skip: (r, n) => n === ".package-lock.json" }), solid: ["@solidjs/compiler", "@solidjs/signals", "@solidjs/universal", "@solidjs/web", "solid-js"].map(solid), browser: cache.browser(createRequire(join(root, "ref/package.json"))("playwright")) }; };
 const keys = cache.enabled ? Object.fromEntries(Object.entries(roots).map(([n, r]) => [n, keyOf(r)])) : {}; cache.saveIndex();
 const judged = (w, out, got) => { const text = w.b.attrs[`says-${w.name}`]; return got === w.want && (!text || out.includes(text)); };
 const results = new Array(work.length); let next = 0, told = 0;

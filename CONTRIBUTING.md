@@ -209,6 +209,22 @@ node scripts/heavy.mjs <name> -- <command…>       # any command under a lease 
   `~/Library/Caches/reactivescript-results`), shared by every checkout, at
   most `RX_CACHE_MB` (512); deleting the folder is safe. `RX_CACHE_LOG=<file>`
   writes each hit and miss, `RX_CACHE_KEYS=1` with the misses' keys.
+- **Quick's builds.** `scripts/quick` builds the crate with the profile
+  `checks` (`compiler/Cargo.toml`): incremental, the crate itself not
+  optimised, its dependencies and `rx-words` as they ship. The crate is
+  compiled once, for `rxc`, its tests and the Node-API binding
+  (`compiler/checks`: `src/node.rs` over the same library), which is put
+  beside `compiler/index.js` as the release one is; the WebAssembly builds
+  are at opt-level 1. Its suites find them by `RX_PROFILE=checks`,
+  `RX_WASM` and `RX_WORDS_WASM`; a suite run by hand uses the release `rxc`
+  unless `RX_PROFILE=checks` is set (`scripts/matrix.mjs` too). After a
+  quick run the binding beside `index.js` is quick's until `npm run build`
+  or `scripts/ci` builds the one that ships: time nothing with it.
+  `scripts/quick --release` builds as `scripts/ci` does.
+- **What `rx-declare` reads, read once.** The benchmark keeps the answers of
+  `rx-words` with the hash of its build: a result whose key (the install,
+  the task's folder, the folders above) is the same and whose `rx-words`
+  is the same file is not asked again. Any other question of the crate is.
 - **Tools in a process that stays up.** Each process of the benchmark's pool has a
   worker (`scripts/lib/tools.mjs`) that runs `rx-declare`, its audit and `rx-tsc`: every
   module of the tool is loaded again for each request; what stays is TypeScript and the
