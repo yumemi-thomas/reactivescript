@@ -7,7 +7,7 @@ license = "MIT"
 publish = false
 
 [workspace]
-members = ["words"]
+members = ["words", "checks"]
 
 [lib]
 name = "reactivescript"
@@ -43,3 +43,19 @@ napi-build = "=2.4.1"   # held with napi and napi-derive: the WASI build's emnap
 
 [profile.release]
 debug = false
+
+[profile.checks]
+inherits = "dev"
+debug = false
+debug-assertions = false
+overflow-checks = false
+
+[profile.checks.package."*"]
+opt-level = 3
+
+# (it runs the packages: not optimised, it is four times slower than it is to build)
+[profile.checks.package.rx-words]
+opt-level = 3
+
+[profile.checks.build-override]
+opt-level = 1

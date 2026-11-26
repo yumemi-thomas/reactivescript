@@ -1,0 +1,21 @@
+[package]
+name = "rx-checks"
+version = "0.3.1"
+edition = "2021"
+description = "The Node-API binding the suites load while working (scripts/quick): src/node.rs over the same rlib as rxc's, so that the crate is compiled once. What ships is the crate's own `--features node` build"
+license = "MIT"
+publish = false
+
+[lib]
+name = "rx_checks"
+path = "lib.rs"
+crate-type = ["cdylib"]
+test = false
+
+[dependencies]
+reactivescript = { path = ".." }
+napi = { version = "=3.12.1", default-features = false, features = ["napi4"] }
+napi-derive = "=3.6.3"
+
+[build-dependencies]
+napi-build = "=2.4.1"

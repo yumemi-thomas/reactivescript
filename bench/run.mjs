@@ -26,7 +26,7 @@ import path from "node:path";
 import { runCoverage } from "./coverage.mjs";
 import * as cache from "../scripts/lib/cache.mjs";
 import { heavy } from "../scripts/lib/lock.mjs";
-import { here, ws, given, workspace, stage, loadRef, shareKeys, reaches, driven, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone, end } from "./harness.mjs";
+import { here, ws, given, workspace, stage, loadRef, shareKeys, reaches, driven, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone, end, longestFirst, prepared } from "./harness.mjs";
 
 /** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
  *  it, and the habits it names), or a name resolves to nothing. */
@@ -35,7 +35,6 @@ const UNWRITABLE = new Set(["PARSE", "ASSIGNMENT", "UNBOUND", "UNKNOWN_COMPONENT
 const args = process.argv.slice(2);
 const flag = f => args.includes(f);
 const one = args.includes("--task") ? args[args.indexOf("--task") + 1] : null;
-const cover = args.includes("--cover") ? args[args.indexOf("--cover") + 1] : null;   // one coverage entry, `<group>/<name>` (bench/coverage.mjs)
 
 /** One task, in this process: `{ id, title, good, types, runtime, bad, unrep }`, each `{ pass, total, fails: [text] }`,
  *  and `decl`: `{ words, any, files }` (harness.mjs, declarations). */
@@ -46,7 +45,7 @@ async function runTask(id, entry) {
   const dir = entry ? stage(id, path.join(here, "coverage", entry)) : stage(id);
   await loadRef();
   if (task.prepare || task.host) reaches(dir);
-  if (task.prepare) await task.prepare(dir);
+  if (task.prepare) await prepared(id, module, dir, task.prepare);
   const cell = () => ({ pass: 0, total: 0, fails: [], notes: [] });
   const res = { id, title: task.title, good: cell(), types: cell(), runtime: cell(), bad: cell(), unrep: cell(), decl: { words: 0, any: 0, inherited: 0, introduced: 0, places: 0, files: [] }, known: task.known ?? {} };
   const mark = (c, name, ok, why) => { c.total++; if (ok) c.pass++; else c.fails.push(`${name}${why ? ` — ${String(why).replace(/\s+/g, " ").slice(0, 420)}` : ""}`); };
@@ -160,7 +159,7 @@ async function runTask(id, entry) {
         const r = spawnSync(process.execPath, [path.join(ws, "node_modules/vite/bin/vite.js"), "build"], { cwd: dir, encoding: "utf8", env: { ...process.env, RX_TYPECHECK: "0" } });
         const out = String(r.stdout ?? "") + String(r.stderr ?? "");
         mark(res.bad, `${b.name} (build: ${b.build.source})`, r.status !== 0 && b.build.test(out), r.status === 0 ? "the build passed" : out);
-        undo(); if (task.prepare) await task.prepare(dir);   // what the build generated from the variant is made again from the good program
+        undo(); if (task.prepare) await prepared(id, module, dir, task.prepare);   // what the build generated from the variant is made again from the good program
       } else if (b.dev) {
         // only the runtime can know: the program compiles, and running it reports the mistake where a developer sees it
         const r = both(entry, b.spa ?? task.spa, task.host);
@@ -183,18 +182,22 @@ if (one) {
   process.exit(0);
 }
 
-// one module drafted whole, for the coverage suite: a module of a listed library that no entry's program imports
-const draftOnly = args.includes("--draft") ? args[args.indexOf("--draft") + 1] : null;
-if (draftOnly) {
-  const id = `draft-${draftOnly.replace(/[^\w.-]+/g, "_")}`;
-  let r; try { const dir = path.join(ws, "tasks", id); mkdirSync(dir, { recursive: true }); const w = draftOf(draftOnly, dir).whole; r = { spec: draftOnly, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, inferred: w.inferred, inferredBy: w.inferredBy, todos: w.todos, todosBy: w.todosBy, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; } catch (e) { r = { spec: draftOnly, crash: e.stack ?? String(e) }; }
-  writeFileSync(path.join(ws, "tasks", `${id}.result.json`), JSON.stringify({ ...r, cache: cache.stats }));
-  process.exit(0);
-}
-if (cover) {
-  const id = `cover-${cover.replaceAll("/", "-")}`;
-  const r = await runTask(id, cover).catch(e => ({ id, entry: cover, crash: e.stack ?? String(e) }));
-  writeFileSync(path.join(ws, "tasks", `${id}.result.json`), JSON.stringify({ ...r, cache: cache.stats }));
+// one module drafted whole, for the coverage suite: a module of a listed library that no entry's program imports; and one
+// coverage entry. Several of each (`--draft a --cover b …`) are run one after the other in this process (bench/coverage.mjs
+// gives a process several that took little time: what they cost was the process), each writing its own result
+const runDraft = async spec => {
+  const id = `draft-${spec.replace(/[^\w.-]+/g, "_")}`;
+  let r; try { const dir = path.join(ws, "tasks", id); mkdirSync(dir, { recursive: true }); const w = draftOf(spec, dir).whole; r = { spec, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, inferred: w.inferred, inferredBy: w.inferredBy, todos: w.todos, todosBy: w.todosBy, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; } catch (e) { r = { spec, crash: e.stack ?? String(e) }; }
+  return [id, r];
+};
+const runCover = async entry => { const id = `cover-${entry.replaceAll("/", "-")}`; return [id, await runTask(id, entry).catch(e => ({ id, entry, crash: e.stack ?? String(e) }))]; };
+const items = args.flatMap((a, i) => a === "--draft" ? [() => runDraft(args[i + 1])] : a === "--cover" ? [() => runCover(args[i + 1])] : []);
+if (items.length) {
+  for (const item of items) {
+    const was = structuredClone(cache.stats), t = Date.now(), [id, r] = await item();
+    const used = { hits: cache.stats.hits - was.hits, misses: cache.stats.misses - was.misses, kept: cache.stats.kept - was.kept, why: Object.fromEntries(Object.entries(cache.stats.why).map(([k, n]) => [k, n - (was.why[k] ?? 0)]).filter(([, n]) => n)) };
+    writeFileSync(path.join(ws, "tasks", `${id}.result.json`), JSON.stringify({ ...r, cache: used, took: (Date.now() - t) / 1000 }));
+  }
   process.exit(0);
 }
 
@@ -212,7 +215,10 @@ if (shard && !(shard.length === 2 && shard[0] >= 1 && shard[0] <= shard[1])) { c
 const mine = flag("--coverage-only") ? [] : ids.filter((id, k) => !shard || k % shard[1] === shard[0] - 1);
 const tasksOf = new Map(await Promise.all(mine.map(async id => [id, (await import(pathToFileURL(path.join(here, "tasks", id, "task.mjs")).href)).default])));
 const long = id => !!tasksOf.get(id).prepare || (tasksOf.get(id).bad ?? []).some(b => b.build);   // (first: they go few at a time, and are not what is left at the end)
-const order = [...mine.filter(long), ...mine.filter(id => !long(id))], inOrder = await pool(order, id => alone(["--task", id], id, crash => ({ id, crash })), long);
+// the coverage suite (bench/coverage.mjs) at the same time, in the same processes: it says what it found after the tasks' card
+let cardSaid; const said = new Promise(res => { cardSaid = res; });
+const coverageRun = flag("--tasks-only") ? Promise.resolve({ problems: [] }) : runCoverage({ filters, check: flag("--check"), strict: flag("--strict"), write: flag("--write"), shard, after: said });
+const order = longestFirst(mine, id => id, long), inOrder = await pool(order, id => alone(["--task", id], id, crash => ({ id, crash })), long);
 const ran = mine.map(id => inOrder[order.indexOf(id)]);
 const results = ran.map(([r, err]) => { if (err) process.stderr.write(err); return r; });
 
@@ -278,7 +284,7 @@ const card = lines.join("\n") + (failing.length ? `\n\nNot green (${failing.leng
 console.log("\n" + card + inferCard + wholeCard);
 
 // the coverage suite (bench/coverage.mjs): every package of the libraries it lists, drafted whole and used once
-const coverage = flag("--tasks-only") ? { problems: [] } : await runCoverage({ filters, check: flag("--check"), strict: flag("--strict"), write: flag("--write"), shard });
+cardSaid(); const coverage = await coverageRun;
 
 const snapshot = Object.fromEntries(results.map(r => [r.id, r.crash ? { crash: true } : { ...Object.fromEntries(cols.map(([k]) => [k, { pass: r[k].pass, total: r[k].total, fails: r[k].fails.map(f => f.split(" — ")[0]) }])), decl: { words: r.decl.words, inferred: r.decl.inferred ?? 0, claims: r.decl.claims, todos: r.decl.todos ?? 0, any: r.decl.any, inherited: r.decl.inherited, introduced: r.decl.introduced, places: r.decl.places, draft: r.decl.draft } }]));
 if (flag("--write") && !flag("--coverage-only") && !shard) {

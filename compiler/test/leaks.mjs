@@ -12,7 +12,7 @@ import { bundle } from "../../scripts/lib/bundle.mjs";
 
 workspace();
 const dir = path.join(ws, "leaks"); rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
-const rxc = process.env.RXC ?? path.join(repo, "compiler/target/release/rxc");
+const rxc = process.env.RXC ?? path.join(repo, `compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`);
 const req = createRequire(path.join(ws, "package.json"));
 writeFileSync(path.join(dir, "lib.d.rx"), `export pure fn make(kind: string): { text: string }\nexport fn keep(kind: string, x: any): void\nexport pure fn ask(kind: string): Promise<{ text: string }>\n`);
 writeFileSync(path.join(dir, "lib.js"), `const made = globalThis.made ??= {};

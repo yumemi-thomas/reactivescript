@@ -13,7 +13,7 @@ import { bundle } from "../../scripts/lib/bundle.mjs";
 
 workspace();
 const dir = path.join(ws, "js-host"); rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
-const rxc = process.env.RXC ?? path.join(repo, "compiler/target/release/rxc"), req = createRequire(path.join(ws, "package.json"));
+const rxc = process.env.RXC ?? path.join(repo, `compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`), req = createRequire(path.join(ws, "package.json"));
 writeFileSync(path.join(dir, "types.js"), "export {};\n");
 writeFileSync(path.join(dir, "types.d.ts"), "export type T = { a: number };\nexport type N = { children: number };\n");
 writeFileSync(path.join(dir, "mid.js"), "export const Mid = p => globalThis.MID(p);\n");

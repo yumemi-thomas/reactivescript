@@ -18,7 +18,7 @@ import { Runtime } from "../../ref/src/runtime.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url)), root = path.resolve(here, "../..");
 const { app: compile } = createRequire(import.meta.url)("../index.js");
-const rxc = path.join(root, "compiler/target/release/rxc");
+const rxc = path.join(root, `compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`);
 const tmp = mkdtempSync(path.join(tmpdir(), "rx-names-")); mkdirSync(path.join(tmp, "node_modules/@reactivescript"), { recursive: true });
 symlinkSync(path.join(root, "runtime"), path.join(tmp, "node_modules/@reactivescript/runtime"));
 for (const d of ["solid-js", "@solidjs", "seroval", "seroval-plugins"]) symlinkSync(path.join(root, "runtime/node_modules", d), path.join(tmp, "node_modules", d));

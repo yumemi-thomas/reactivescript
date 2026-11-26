@@ -18,6 +18,10 @@ miss({ a: 1, b: [1, 2] }, yes); assert.equal(hit({ b: [1, 2], a: 1 }, yes).value
 miss({ a: 1, b: [1, 2] }, { 1: "x" }, { ok: false }); miss({ a: 1, b: [1, 2] }, {}, { ok: false });
 { const n = runs; cache.resultSync("t", { a: 1, b: [1, 2] }, () => { throw new Error(); }, () => { runs++; return { value: 0, trace: [] }; }); assert.equal(runs, n + 1); }
 hit({ a: 1, b: [1, 2] }, yes);
+// a question that a build answers off the key's files: its answer stands while the build is the same, and is asked of another
+{ let build = "b1", asked = 0; const q = () => { asked++; return "a"; }; q.by = () => build; const go = (said = "a") => { const n = runs, r = cache.resultSync("by", { by: 1 }, q, () => { runs++; return { value: "v", trace: [{ ask: { q: 1 }, said: cache.said(said), by: build }] }; }); r.keep(true); return runs > n; };
+  assert.ok(go()); asked = 0; assert.ok(!go()); assert.equal(asked, 0); build = "b2"; assert.ok(!go()); assert.equal(asked, 1); build = undefined; assert.ok(!go()); assert.equal(asked, 2);
+  const other = Object.assign(() => "other", { by: () => "b3" }); const n = runs; cache.resultSync("by", { by: 1 }, other, () => { runs++; return { value: 0, trace: null }; }); assert.equal(runs, n + 1); }
 // two revisions' results side by side: a program whose answers differ has one for each
 miss({ two: 1 }, yes, { value: "old" }); miss({ two: 1 }, { 1: "b" }, { value: "new", trace: [{ ask: { q: 1 }, said: cache.said("b") }] }); assert.equal(hit({ two: 1 }, yes).value, "old"); assert.equal(hit({ two: 1 }, { 1: "b" }).value, "new");
 // a failure is not kept, nor a result whose trace is not known, nor what the operation itself made the answer to

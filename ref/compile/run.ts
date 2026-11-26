@@ -16,7 +16,8 @@ import { resetErrorHalt } from "@solidjs/signals";
 process.on("unhandledRejection", () => {});
 const settle = async () => { await new Promise(r => setTimeout(r, 0)); flush(); await new Promise(r => setTimeout(r, 0)); flush(); };
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
-const outDir = fileURLToPath(new URL("./.out/", import.meta.url)); mkdirSync(outDir, { recursive: true });
+// (the crate's modules in a folder of their own: both runs at once)
+const outDir = fileURLToPath(new URL(process.env.RX_CRATE ? "./.out/crate/" : "./.out/", import.meta.url)); mkdirSync(outDir, { recursive: true });
 let seq = 0, divergent = 0;
 
 async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scenario["tables"][number] | undefined, lines: string[]): Promise<boolean> {

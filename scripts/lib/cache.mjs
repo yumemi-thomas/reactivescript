@@ -5,7 +5,8 @@
 //     text, the versions of Node and of the browser, the flags and the environment;
 //   - the trace: what the crate was asked while it ran. The crate's binary is not in the key: its questions are asked
 //     again, of the binary that is there now, and each must be answered as it was. A change of the compiler that leaves a
-//     program's answers alone leaves its result alone; one that changes them is a miss.
+//     program's answers alone leaves its result alone; one that changes them is a miss. (`by`: a question whose answer is read off
+//     the key's own files alone, by a build whose hash this is: while the build is that one, byte for byte, its answer stands.)
 // A failure is never kept. Never used in CI (CI is set), under RX_NO_CACHE=1 or --no-cache, nor to write a record.
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
@@ -54,8 +55,8 @@ export function saveIndex() {
 }
 const SKIP = new Set([".git", ".cache", ".vite", ".rx-types", ".reactivescript", ".vite-temp"]);
 /** Every file of a folder by its path in it and its content; a link by where it points (and, `follow`, what is there).
- *  `skip`: what is left out, by its path and name. */
-export function treeHash(dir, { skip = () => false, follow = false } = {}) {
+ *  `skip`: what is left out, by its path and name; `keep`: the files kept, by the same. */
+export function treeHash(dir, { skip = () => false, follow = false, keep = () => true } = {}) {
   const h = createHash("sha256"); let n = 0; const seen = new Set();
   const walk = (d, rel) => {
     let es; try { es = readdirSync(d, { withFileTypes: true }); } catch { h.update(`absent ${rel}\0`); return; }
@@ -64,6 +65,7 @@ export function treeHash(dir, { skip = () => false, follow = false } = {}) {
       if (SKIP.has(e.name) || skip(r, e.name)) continue;
       if (e.isSymbolicLink()) { let t; try { t = readlinkSync(p); } catch { continue; } if (!follow) { h.update(`link ${r} ${home(t)}\0`); continue; } let st; try { st = statSync(p); } catch { h.update(`broken ${r}\0`); continue; } if (st.isDirectory()) { if (!seen.has(t)) { seen.add(t); walk(p, r); } continue; } }
       else if (e.isDirectory()) { walk(p, r); continue; }
+      if (!keep(r, e.name)) continue;
       h.update(`${r} ${fileHash(p)}\0`); n++;
     }
   };
@@ -81,8 +83,10 @@ const homeOf = x => x === undefined ? undefined : JSON.parse(home(JSON.stringify
 const awayOf = x => x === undefined ? undefined : JSON.parse(away(JSON.stringify(x)));
 
 /** The environment a tool may read. (`RX_CACHE_*`, `RX_NO_CACHE` and what says how many run at once change no answer.) */
-const QUIET = new Set(["RX_NO_CACHE", "RX_TOOLS", "RX_TOOLS_MB", "RX_RUN", "NODE_COMPILE_CACHE", "RX_BUILT", "RX_BROWSER", "RX_VERIFY_READING", "RX_CACHE_DIR", "RX_CACHE_MB", "RX_CACHE_LOG", "RX_CACHE_KEYS", "RX_TRACE", "RX_LOCK", "RX_LOCK_HELD", "RX_LOCK_N", "RX_LOCK_DIR", "RX_LOCK_WAIT", "RX_LOCK_IDLE", "RX_LOCK_HOLD", "RX_LOCK_LOAD", "RX_CORES", "RX_FREE_MB", "RX_CI_MEM", "RX_CI_LIMIT", "RX_JOBS", "BENCH_JOBS", "BENCH_PROFILE", "RX_SHARED_KEYS", "RX_SSR_KEYS", "RX_SHARD", "RXC"]);
-export const environment = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(RX|BENCH_|NODE_|TS|SOLID|CHROMIUM|DEBUG|VERBOSE|LANG|LC_|TZ|CSR$|SV_|WAIT$|NO_HYDRATE$|PLAYWRIGHT)/.test(k) && !QUIET.has(k)).map(([k, v]) => [k, home(v)]).sort());
+const QUIET = new Set(["RX_NO_CACHE", "RX_TOOLS", "RX_TOOLS_MB", "RX_RUN", "NODE_COMPILE_CACHE", "RX_BUILT", "RX_BROWSER", "RX_VERIFY_READING", "RX_CACHE_DIR", "RX_CACHE_MB", "RX_CACHE_LOG", "RX_CACHE_KEYS", "RX_TRACE", "RX_LOCK", "RX_LOCK_HELD", "RX_LOCK_N", "RX_LOCK_DIR", "RX_LOCK_WAIT", "RX_LOCK_IDLE", "RX_LOCK_HOLD", "RX_LOCK_LOAD", "RX_CORES", "RX_FREE_MB", "RX_CI_MEM", "RX_CI_LIMIT", "RX_JOBS", "BENCH_JOBS", "BENCH_PROFILE", "RX_SHARED_KEYS", "RX_SSR_KEYS", "RX_SHARD", "RXC", "RX_PROFILE", "RX_WASM", "RX_WORDS_WASM", "RX_READS", "RX_READS_ROOTS", "RX_READS_SKIP", "RX_READS_BINDING", "RX_READS_OVERLAY", "RX_READS_BASE", "RX_READS_AT", "RX_READS_WRITES", "RX_READS_RXC"]);
+/** The preload a suite adds to NODE_OPTIONS to see what its processes read (scripts/lib/reads.cjs): no part of an answer. */
+export const READS = path.join(here, "reads.cjs");
+export const environment = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(RX|BENCH_|NODE_|TS|SOLID|CHROMIUM|DEBUG|VERBOSE|LANG|LC_|TZ|CSR$|SV_|WAIT$|NO_HYDRATE$|PLAYWRIGHT)/.test(k) && !QUIET.has(k)).map(([k, v]) => [k, home(k === "NODE_OPTIONS" ? v.replaceAll(`--require ${READS}`, "").trim() : v)]).filter(([k, v]) => k !== "NODE_OPTIONS" || v).sort());
 
 /** What Node, the platform and the tools are. */
 let platform_; export const platform = () => platform_ ??= { node: process.version, v8: process.versions.v8, os: `${process.platform} ${process.arch} ${os.release()}` };
@@ -122,10 +126,13 @@ function lookup(kind, key, answer) {
   let kept = []; try { kept = JSON.parse(gunzipSync(readFileSync(file)).toString()).variants; } catch { /* none */ }
   const answers = new Map();
   const ask = a => { const k = canon(a); if (!answers.has(k)) { let x; try { const v = answer(awayOf(a)); x = v === undefined ? null : said(v); } catch { x = null; } answers.set(k, x); } return answers.get(k); };
+  const stands = t => !!t.by && t.by === answer.by?.(t.ask);
   for (const v of kept) {
     const before = new Map();
     for (const [p, t] of Object.entries(v.files ?? {})) { const at = away(p); let was = null; try { was = readFileSync(at, "utf8"); } catch { /* none */ } if (was !== away(t)) { before.set(at, was); mkdirSync(path.dirname(at), { recursive: true }); writeWhole(at, away(t)); answers.clear(); } }
-    const bad = (v.trace ?? []).find(t => ask(t.ask) !== t.said);
+    // (asked together where the asker can: `answer.many(asks)`, an answer or undefined for each)
+    if (answer.many) { const todo = [...new Map((v.trace ?? []).filter(t => !stands(t) && !answers.has(canon(t.ask))).map(t => [canon(t.ask), t.ask])).values()]; let got = []; try { got = todo.length > 1 ? answer.many(todo.map(awayOf)) : []; } catch { /* each alone */ } got.forEach((x, i) => { if (x !== undefined) answers.set(canon(todo[i]), x === null ? null : said(x)); }); }
+    const bad = (v.trace ?? []).find(t => !stands(t) && ask(t.ask) !== t.said);
     if (bad) { for (const [at, was] of before) { if (was === null) rmSync(at, { force: true }); else writeWhole(at, was); } if (before.size) answers.clear(); if (process.env.RX_CACHE_LOG) log(`differs ${kind} ${canon(bad.ask).slice(0, 300)}`); continue; }
     stats.hits++; log(`hit ${kind} ${id}`); try { const now = new Date(); utimesSync(file, now, now); } catch { /* gone */ }
     return { value: awayOf(v.value), hit: true, keep() {} };
@@ -134,9 +141,9 @@ function lookup(kind, key, answer) {
   return { hit: false, done: x => ({ value: x.value, hit: false, keep(ok = true) {
     if (!ok || x.trace === null) return;
     const trace = [], seen = new Set();
-    for (const t of x.trace ?? []) { const a = homeOf(t.ask), k = canon(a); if (seen.has(k)) continue; seen.add(k); trace.push({ ask: a, said: t.said }); }
+    for (const t of x.trace ?? []) { const a = homeOf(t.ask), k = canon(a); if (seen.has(k)) continue; seen.add(k); trace.push({ ask: a, said: t.said, ...(t.by ? { by: t.by } : {}) }); }
     // asked at the end as it will be asked: an answer that does not come back (what the operation itself changed) is no key
-    answers.clear(); if (trace.some(t => ask(t.ask) !== t.said)) { count("an answer of its own making", kind); log(`unkept ${kind} ${id}`); return; }
+    answers.clear(); const own = trace.find(t => !stands(t) && ask(t.ask) !== t.said); if (own) { count("an answer of its own making", kind); log(`unkept ${kind} ${id} ${canon(own.ask).slice(0, 300)}`); return; }
     try { mkdirSync(path.dirname(file), { recursive: true }); writeWhole(file, gzipSync(JSON.stringify({ variants: [{ value: homeOf(x.value), trace, files: homeOf(x.files) ?? {} }, ...kept].slice(0, VARIANTS) }))); stats.kept++; } catch { /* not kept */ }
   } }) };
 }

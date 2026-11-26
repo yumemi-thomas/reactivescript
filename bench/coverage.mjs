@@ -7,7 +7,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { here, ws, claimKinds, claimsSaid, compact, pool, alone } from "./harness.mjs";
+import { here, ws, claimKinds, claimsSaid, compact, pool, longestFirst, took, together } from "./harness.mjs";
 
 const root = path.join(here, "coverage");
 /** Every entry, `<group>/<name>`: a folder with a `use.mjs`. */
@@ -17,12 +17,9 @@ export function entries() {
   return out.sort();
 }
 const idOf = entry => `cover-${entry.replaceAll("/", "-")}`;
-const one = entry => alone(["--cover", entry], idOf(entry), crash => ({ id: idOf(entry), entry, crash })).then(([r]) => r);
-/** A module drafted whole in a process of its own (`run.mjs --draft`): one no entry's program imports. */
-const draft = spec => alone(["--draft", spec], `draft-${spec.replace(/[^\w.-]+/g, "_")}`, crash => ({ spec, crash }), 900000).then(([r]) => r);
 const cols = [["good", "accepted"], ["types", "types"], ["runtime", "runs"], ["bad", "bad caught"]];   // bad: an entry's own one-line mistakes (`bad` in its use.mjs), judged as a task's are
 
-export async function runCoverage({ filters = [], check = false, strict = false, write = false, shard = null } = {}) {
+export async function runCoverage({ filters = [], check = false, strict = false, write = false, shard = null, after = null } = {}) {
   const all = entries();
   // `--shard i/n` (CI: the suite over several machines): every n-th entry, and every n-th module no entry drafts. What
   // an entry drafts and imports is read off its `use.mjs`, so the list (below) is held whole by every shard
@@ -38,14 +35,22 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   const had = new Set(stated.flatMap(e => e.modules));
   const unowned = listed.filter(x => !had.has(x.spec));
   const todo = filters.length ? [] : unowned.filter((x, k) => mine(k));
-  // entries are independent programs in folders of their own: several at once, and the drafts among them — the largest
-  // libraries' first, so that no process is left alone with one at the end
-  const work = [...todo.map(x => ({ x })), ...ids.toReversed().map(id => ({ id }))];
-  const done = await pool(work, async w => {
-    if (w.x) return { ...(await draft(w.x.spec)), lib: w.x.lib };
-    const r = await one(w.id); if (process.env.VERBOSE) console.error(`  coverage ${w.id}: ${r.crash ? "CRASHED" : cols.map(([k]) => `${r[k].pass}/${r[k].total}`).join(" ")}`); return r;
+  // entries are independent programs in folders of their own: several at once, and the drafts among them — what took
+  // longest before first (harness.mjs, longestFirst), so that no process is left alone with one at the end
+  const work = longestFirst([...todo.map(x => ({ x })), ...ids.toReversed().map(id => ({ id }))], w => w.x ? `draft-${w.x.spec.replace(/[^\w.-]+/g, "_")}` : idOf(w.id));
+  // what took little time before is run several to a process (harness.mjs, together): a process's start was most of it
+  const idOfWork = w => w.x ? `draft-${w.x.spec.replace(/[^\w.-]+/g, "_")}` : idOf(w.id), small = w => (took(idOfWork(w)) ?? Infinity) < 1.5, batches = [];
+  for (const w of work) { const last = batches.at(-1); if (small(w) && last?.length && small(last[0]) && last.length < 8) last.push(w); else batches.push([w]); }
+  const got = (await pool(batches, ws_ => together(ws_.map(w => w.x
+    ? { args: ["--draft", w.x.spec], id: idOfWork(w), crash: crash => ({ spec: w.x.spec, crash }) }
+    : { args: ["--cover", w.id], id: idOf(w.id), crash: crash => ({ id: idOf(w.id), entry: w.id, crash }) }), 900000))).flat();
+  const done = batches.flat().map((w, i) => {
+    const [r] = got[i];
+    if (w.x) return { ...r, lib: w.x.lib };
+    if (process.env.VERBOSE) console.error(`  coverage ${w.id}: ${r.crash ? "CRASHED" : cols.map(([k]) => `${r[k].pass}/${r[k].total}`).join(" ")}`); return r;
   });
-  const extra = done.slice(0, todo.length), results = done.slice(todo.length).toReversed();
+  work.splice(0, work.length, ...batches.flat());
+  const extra = todo.map(x => done[work.findIndex(w => w.x === x)]), results = ids.map(id => done[work.findIndex(w => w.id === id)]);
   const groupOf = lib => results.find(r => !r.crash && r.pkgs?.some(p => Object.keys(libs[lib].packages).includes(p)))?.entry.split("/")[0] ?? lib;
   const version = pkg => { try { return JSON.parse(readFileSync(path.join(ws, "node_modules", pkg, "package.json"), "utf8")).version; } catch { return "?"; } };
   const ok = r => !r.crash && cols.every(([k]) => r[k].pass === r[k].total);
@@ -94,6 +99,7 @@ export async function runCoverage({ filters = [], check = false, strict = false,
   const contradicted = kept.flatMap(r => (r.decl.contradicted ?? []).map(c => `${r.entry}/${c}`)), unproven = kept.flatMap(r => (r.decl.unproven ?? []).map(c => `${r.entry}/${c}`));
   const total = `Coverage: ${results.length} programs (${kept.filter(r => r.bad.total).length} with one-line mistakes of their own, the rest a good program alone), ${results.filter(ok).length} green; ${rows.filter(x => !x.crash).length} modules drafted whole (${sum(rows, "rows")} rows): ${sum(rows, "vendor")} \`any\` the libraries' own, ${sum(rows, "introduced")} introduced, ${sum(rows, "places")} by place; ${sum(once, "inferred")} words read from the code that runs (${said(inferredBy)}), ${sum(once, "todos")} questions asked (${said(todosBy)}); in the kept rows ${kept.reduce((n, r) => n + (r.decl.inferred ?? 0), 0)} inferred words (${contradicted.length} contradicted, ${unproven.length} words the code does not show), ${claims("total")} claims (one a word of a row): ${claims("code")} proven by the generator, ${claims("run")} held by a probe that fails over a module changed to make the claim false, ${claims("unverified")} the author's own (bench/needed.txt), ${claims("mismatch")} mismatched (${claimsSaid(claimKinds(kept.map(r => r.decl.claims?.by)))}) and ${kept.reduce((n, r) => n + (r.decl.todos ?? 0), 0)} questions; ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.words), 0)} hand-written words, ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.inherited), 0)} \`any\` inherited and ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.introduced), 0)} introduced in the kept rows, ${results.reduce((n, r) => n + (r.crash ? 0 : r.decl.places), 0)} by place`;
   const card = `${total}\n${lines.join("\n")}${failing.length ? `\n\nNot green (${failing.length}):\n${failing.map(f => `  ✗ ${f}`).join("\n")}` : "\n\nAll green."}${notes.length ? `\n\nWhat the entries say of their packages (${notes.length}):\n${notes.join("\n")}` : ""}${off.length ? `\n\nNot on Solid 2, and not tested (the latest release's peer range): ${off.join(", ")}` : ""}`;
+  await after;   // (what it says comes after the tasks' card, when both run at once)
   console.log("\n" + card);
 
   const drafts = Object.fromEntries(extra.filter(m => !m.crash).map(m => [m.spec, { rows: m.rows, vendor: m.vendor, introduced: m.introduced, places: m.places, inferred: m.inferred ?? 0, todos: m.todos ?? 0 }]));

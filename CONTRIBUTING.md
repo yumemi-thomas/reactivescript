@@ -209,6 +209,46 @@ node scripts/heavy.mjs <name> -- <command…>       # any command under a lease 
   `~/Library/Caches/reactivescript-results`), shared by every checkout, at
   most `RX_CACHE_MB` (512); deleting the folder is safe. `RX_CACHE_LOG=<file>`
   writes each hit and miss, `RX_CACHE_KEYS=1` with the misses' keys.
+- **Quick's builds.** `scripts/quick` builds the crate with the profile
+  `checks` (`compiler/Cargo.toml`): incremental, the crate itself not
+  optimised, its dependencies and `rx-words` as they ship. The crate is
+  compiled once, for `rxc`, its tests and the Node-API binding
+  (`compiler/checks`: `src/node.rs` over the same library), which is put
+  beside `compiler/index.js` as the release one is; the WebAssembly builds
+  are at opt-level 1. Its suites find them by `RX_PROFILE=checks`,
+  `RX_WASM` and `RX_WORDS_WASM`; a suite run by hand uses the release `rxc`
+  unless `RX_PROFILE=checks` is set (`scripts/matrix.mjs` too). After a
+  quick run the binding beside `index.js` is quick's until `npm run build`
+  or `scripts/ci` builds the one that ships: time nothing with it.
+  `scripts/quick --release` builds as `scripts/ci` does.
+- **What `rx-declare` reads, read once.** The benchmark keeps the answers of
+  `rx-words` with the hash of its build: a result whose key (the install,
+  the task's folder, the folders above) is the same and whose `rx-words`
+  is the same file is not asked again. Any other question of the crate is.
+- **Keyed by what was read.** A tool of the benchmark, and a page whose
+  task starts processes of its own (a build, a dev server, `rx-verify`),
+  run under `scripts/lib/reads.cjs` (`NODE_OPTIONS=--require`, so every
+  Node process it starts says too): each file of this repository the
+  process loads or reads — the language server's modules, the compiler's
+  JavaScript, `ref/`, the runtime — is in its trace by its content, and each
+  call of the compiler's Node-API build (`app`, what the Vite plugin asks)
+  or of `rxc app` is asked again, with the files the test had changed
+  when it was made. So a result is not keyed by the language server, the
+  runtime or the builds whole: an edit of `verify-place.js` reruns what
+  loaded it, a change of the crate that leaves a build's output alone
+  leaves the build's page alone. What a process of its own reads and says
+  nothing of stays whole in the key: TypeScript (tsrs) reads the
+  declarations (`.d.ts`) of the runtime, the compiler and the language
+  server, and a bundler (Rolldown, in Vite) the runtime's code. A page
+  whose task starts nothing is keyed by its programs as the crate compiles
+  them and by the runtime's files its bundle holds. A task's `prepare` (the
+  `vite build` a router's tasks begin with) is kept the same way, with the
+  files it wrote.
+- **Quick, whole.** `scripts/quick` takes one lease of the machine's cores
+  for the run (it waits at most 30 s for it, then goes on with its share)
+  and cuts no step short: what is new is run, all of it. The benchmark
+  starts what took longest the time before (`bench/.out/ws/.took.json`),
+  the tasks and the coverage suite in one pool.
 - **Tools in a process that stays up.** Each process of the benchmark's pool has a
   worker (`scripts/lib/tools.mjs`) that runs `rx-declare`, its audit and `rx-tsc`: every
   module of the tool is loaded again for each request; what stays is TypeScript and the
