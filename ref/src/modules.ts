@@ -194,6 +194,42 @@ export function loadModules(entry: string, read: (path: string) => string | unde
 function loadProgram(entry: string, read: (path: string) => string | undefined, conformance: boolean): ModuleSet {
   const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>(); const printed = new Set<string>(); const wireIds = new Map<string, string>();   /* SV-5a: each declared error class's wire id (`id#Name`), and the declaration it is */ const declarationIds = new Map<string, string>();
   const state = new Map<string, "busy" | "done">();
+  /** MO-6e, a package (2026-11-26): a name a module known by its signature re-exports (`export { Root } from "./root.rx"`
+   *  in its `.d.rx`) is the declaring module's — its signature beside, read in place, through any chain —, so an import of
+   *  it is checked as an import from there (a context keeps its identity, as in a program's own modules); its code still
+   *  reaches it through the module it was imported from (`through`: a package's entry hands on what it re-exports). */
+  const sigReexported = (p: Program, path: string): void => {
+    const out: Decl[] = [];
+    for (const d of p.decls) {
+      const sig = d.k === "import" && d.resolved && !programs.has(d.resolved) ? signatures.get(d.resolved) : undefined;
+      if (d.k !== "import" || !sig?.reexports?.length) { out.push(d); continue; }
+      const kept: { name: string; alias: string }[] = []; const moved = new Map<string, Extract<Decl, { k: "import" }>>();
+      for (const n of d.names) {
+        let at = d.resolved!, name = n.name, s = sig; const seen = new Set([at]);
+        for (;;) {
+          const r = s.reexports?.find(x => x.names.some(y => y.alias === name)); if (!r) break;
+          const to = joinPath(at, r.from); name = r.names.find(y => y.alias === name)!.name;
+          if (seen.has(to)) { diags.push({ code: "MODULE_CYCLE", rule: "MO-5", line: d.line, file: path, msg: `${[...seen, to].join(" → ")}: the re-exports of ${n.name} come back to a module they passed (MO-6e)` }); break; }
+          seen.add(to);
+          if (!signatures.has(to)) {
+            const src = read(to.replace(/\.rx$/, ".d.rx"));
+            if (src === undefined) { diags.push({ code: "MODULE_NOT_FOUND", rule: "MO-6", line: d.line, file: path, msg: `no module ${r.from} (re-exported by ${at.replace(/\.rx$/, ".d.rx")}): its signature is not beside it` }); break; }
+            try { signatures.set(to, parseSignature(src, to)); } catch (e) { if (e instanceof SignatureError) throw new ParseError(e.message); throw e; }
+            if (printed.has(d.resolved!)) printed.add(to);
+          }
+          at = to; s = signatures.get(to)!;
+        }
+        if (at === d.resolved) { kept.push(n); continue; }
+        let m = moved.get(at);
+        if (!m) moved.set(at, m = { ...d, names: [], resolved: at, through: { resolved: d.through?.resolved ?? d.resolved!, names: {} } });
+        m.names.push({ name, alias: n.alias }); m.through!.names[n.alias] = d.through?.names[n.alias] ?? n.name;
+      }
+      if (!moved.size) { out.push(d); continue; }
+      if (kept.length) out.push({ ...d, names: kept });
+      out.push(...moved.values());
+    }
+    p.decls.splice(0, p.decls.length, ...out);
+  };
   const visit = (path: string, stack: string[]) => {
     if (state.get(path) === "done") return;
     const src = read(path);
@@ -238,6 +274,7 @@ function loadProgram(entry: string, read: (path: string) => string | undefined, 
       visit(to, [...stack, path]);
     }
     reexported(p, path, new Map([...programs].filter(([k]) => state.get(k) === "done")));
+    sigReexported(p, path);
     nameMethods(p, declarations); nameLocals(p, (from, name) => instantiatingExport(from, name, programs, signatures, declarations));
     state.set(path, "done"); order.push(path);
   };

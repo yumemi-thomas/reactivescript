@@ -84,15 +84,18 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
   const files = new Map<string, string>();
   for (const path of set.order) {
     const p = set.programs.get(path)!; g.beginModule(path, p);
-    const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
+    // MO-6e: an import a signature's re-export sent to the declaring module is reached through the module it named (`through`)
+    const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.through?.resolved ?? d.resolved] : []))];
     // MO-13c: a module a JS import's printed signature stands for is the compiled JavaScript that import names, whose `__rx` is the module's factory
-    const compiled = new Map(p.decls.flatMap(d => d.k === "import" && d.resolved && !isRx(d.from) ? [[d.resolved, d.from] as [string, string]] : []));
+    const compiled = new Map(p.decls.flatMap(d => d.k === "import" && d.resolved && !isRx(d.from) ? [[d.through?.resolved ?? d.resolved, d.from] as [string, string]] : []));
     const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => compiled.has(d) ? `import { __rx as ${g.depVar(d)} } from ${J(compiled.get(d)!)};` : `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
     if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
       const isComp = (n: string) => p.decls.some(d => d.k === "component" && d.name === n) || madeComponent(p, n, set.declarations);   // MO-11j
-      const body = g.block(p.decls, [], new Env(null), 1, `{ ${exported.map(n => `${J(n)}: ${isComp(n) ? cm(n) : mg(n)}`).join(", ")} }`);
+      // MO-6e: what the module re-exports, handed on as it binds it (a package's entry is imported by its own name)
+      const handed = p.decls.flatMap(d => d.k === "import" && d.reexport && d.resolved ? d.names.filter(n => !g.isType(d.resolved!, n.name)).map(n => `${J(n.alias)}: ${g.importJs(d.resolved!, n.name, n.alias)}`) : []);
+      const body = g.block(p.decls, [], new Env(null), 1, `{ ${[...exported.map(n => `${J(n)}: ${isComp(n) ? cm(n) : mg(n)}`), ...handed].join(", ")} }`);
       files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function module(__rt) {\n  const __B = __rt.B;\n${body}\n}\n`);
     }
   }
@@ -181,6 +184,10 @@ class Gen {
   /** An imported name's binding, from the exporting module's declaration (MO-3: a source is read-only here, so an accessor). */
   /** RG-4c: a component whose children are a view or plain content. */
   private plain(d: Extract<Decl, { k: "component" }>, path: string): { plain?: true } { return shown(d, typesOf(this.mods?.set, path)).get("children")?.mixed ? { plain: true } : {}; }
+  /** Whether `name` is a type of the module at `path` (it binds nothing). */
+  isType(path: string, name: string): boolean { return !!this.mods!.set.programs.get(path)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(path)?.exports.get(name)?.kind === "type"; }
+  /** MO-6e: the JavaScript name an imported name is bound to. */
+  importJs(path: string, name: string, alias: string): string { return this.importBind(path, name, alias).js; }
   private importBind(path: string, name: string, alias: string): Bind {
     const sig = this.mods!.set.programs.has(path) ? undefined : this.mods!.set.signatures?.get(path)?.exports.get(name);
     if (sig) switch (sig.kind) {                                                             // MO-9: the kind is the signature's
@@ -253,11 +260,12 @@ class Gen {
     const out: string[] = [`${pad}const __o = __rt.owner();`];
     // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
     for (const d of decls) if (d.k === "import" && d.resolved) {
-      const iv = `__i${this.modIndex(d.resolved)}`;
-      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${isRx(d.from) ? J(this.mods!.out(d.resolved)) : this.depVar(d.resolved) /* MO-13c: keyed by its factory, as a bundler's build keys a module */}, ${this.depVar(d.resolved)});`);
+      const via = d.through?.resolved ?? d.resolved;   // MO-6e: the module the code reaches the names through
+      const iv = `__i${this.modIndex(via)}`;
+      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${isRx(d.from) ? J(this.mods!.out(via)) : this.depVar(via) /* MO-13c: keyed by its factory, as a bundler's build keys a module */}, ${this.depVar(via)});`);
       for (const { name, alias } of d.names) {
-        if (this.mods!.set.programs.get(d.resolved)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(d.resolved)?.exports.get(name)?.kind === "type") continue;   // a type binds nothing
-        const ib = this.importBind(d.resolved, name, alias); if (ib.kind === "acc" && this.u.prevOf.has(alias)) ib.prev = `p$${alias}`; env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(name)}];${ib.prev ? `\n${pad}const ${ib.prev} = __rt.pre(${ib.js});` : ""}`);
+        if (this.isType(d.resolved, name)) continue;   // a type binds nothing
+        const ib = this.importBind(d.resolved, name, alias); if (ib.kind === "acc" && this.u.prevOf.has(alias)) ib.prev = `p$${alias}`; env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(d.through?.names[alias] ?? name)}];${ib.prev ? `\n${pad}const ${ib.prev} = __rt.pre(${ib.js});` : ""}`);
       }
     }
     // names first: hoisted functions and components; every other declaration is a const

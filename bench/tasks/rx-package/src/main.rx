@@ -2,10 +2,18 @@
 import { code, rate, pick, useLabel, Badge, Rate, Offline } from "@bench/rates"
 import { createPager } from "@bench/rates/pager"
 import { ThemeProvider, theme } from "@bench/rates/theme"
+import { Root, Tag, theme as kitTheme } from "@bench/rates/kit"
 
 component Own() {
   provide theme = { accent: "navy" }
   <Badge label="own" />
+  <Tag text="tag" />
+}
+
+// the kit's context, provided by the kit's name, read by the package's badge (imported from its first entry)
+component Kit() {
+  provide kitTheme = { accent: "olive" }
+  <Badge label="kit" />
 }
 
 export default component App() {
@@ -26,4 +34,5 @@ export default component App() {
     }}
   </ThemeProvider>
   <footer><Own /></footer>
+  <aside><Root accent="maroon"><Tag text="root" /></Root><Kit /></aside>
 }

@@ -128,6 +128,30 @@ export const units: [string, () => void][] = [
     const set = loadModules("/w/app/server/both.rx", files({ ...fs, "/w/app/web/package.json": `{"name":"web"}` }));
     deepStrictEqual([set.declarationIds!.get("/w/app/web/err.d.rx"), set.declarationIds!.get("/w/app/server/err.d.rx")], ["web/err.d.rx", "err.d.rx"]);
   }],
+  ["a_kit_known_by_its_signatures_sends_each_name_to_the_module_that_declares_it", () => {   // MO-6e, a package's entry (2026-11-26)
+    const H = (m: string) => `//@ signature ${m} (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).\n`;
+    const fs: Record<string, string> = {
+      "/k/theme.d.rx": H("theme.rx") + "export type Theme = { accent: string }\nexport context theme: Theme\nexport component ThemeProvider(props: { children: provides(./theme.rx#theme) }) shape(roots section; closes-p; children-at section)\nexport component Badge(props: { label }) uses(./theme.rx#theme) shape(roots b)\n",
+      "/k/kit/tag.d.rx": H("tag.rx") + "export component Tag(props: { text }) uses(../theme.rx#theme) shape(roots em)\n",
+      "/k/kit/index.d.rx": H("index.rx") + "export { ThemeProvider as Root, theme, Badge, Theme } from \"../theme.rx\"\nexport { Tag } from \"./tag.rx\"\n",
+      "/c/a.d.rx": H("a.rx") + "export { X } from \"./b.rx\"\n", "/c/b.d.rx": H("b.rx") + "export { X } from \"./a.rx\"\n",
+      "/m/a.d.rx": H("a.rx") + "export { X } from \"./gone.rx\"\n",
+      "/app.rx": "import { Root, Tag, theme as kitTheme } from \"./k/kit/index.rx\"\nimport { ThemeProvider, Badge } from \"./k/theme.rx\"\ncomponent Own() {\n  provide kitTheme = { accent: \"navy\" }\n  <Badge label=\"own\" />\n}\nexport default component App() {\n  <Root accent=\"teal\"><Tag text=\"b\" /></Root>\n  <ThemeProvider accent=\"red\"><Tag text=\"c\" /></ThemeProvider>\n  <Own />\n}\n",
+      "/cyc.rx": "import { X } from \"./c/a.rx\"\nexport default component App() { <p>{X}</p> }\n",
+      "/gone.rx": "import { X } from \"./m/a.rx\"\nexport default component App() { <p>{X}</p> }\n",
+    };
+    fs["/late.rx"] = fs["/app.rx"].replace("  <Own />", "  <Own /><Tag text=\"late\" />");
+    const set = loadModules("/app.rx", files(fs));
+    deepStrictEqual(checkModules(set).diags.map(d => d.code), []);
+    const imps = set.programs.get("/app.rx")!.decls.flatMap(d => d.k === "import" ? [{ names: d.names, resolved: d.resolved, through: d.through }] : []);
+    deepStrictEqual(imps[0], { names: [{ name: "ThemeProvider", alias: "Root" }, { name: "theme", alias: "kitTheme" }], resolved: "/k/theme.rx", through: { resolved: "/k/kit/index.rx", names: { Root: "Root", kitTheme: "theme" } } });
+    deepStrictEqual(imps[1], { names: [{ name: "Tag", alias: "Tag" }], resolved: "/k/kit/tag.rx", through: { resolved: "/k/kit/index.rx", names: { Tag: "Tag" } } });
+    deepStrictEqual(checkModules(loadModules("/late.rx", files(fs))).diags.map(d => d.code), ["CONTEXT_NOT_FOUND"]);
+    deepStrictEqual(loadModules("/cyc.rx", files(fs)).diags.map(d => d.code), ["MODULE_CYCLE"]);
+    deepStrictEqual(loadModules("/gone.rx", files(fs)).diags.map(d => d.code), ["MODULE_NOT_FOUND"]);
+    const sig = parseSignature(fs["/k/kit/index.d.rx"], "/k/kit/index.rx");
+    deepStrictEqual(printSignature(sig).split("\n").slice(1).join("\n"), fs["/k/kit/index.d.rx"].split("\n").slice(1).join("\n"));
+  }],
   ["type_arguments_with_a_brace_in_a_string", () => {   // R4 (RFC 11): the crate's type_arguments_are_parsed_completely cases
     for (const t of ["`x${\"}\"}`", "`x${'}'}`", "`x${`}`}`", "`x${\"{\"}`", "{ k: `x${\"}\"}` }", "\"}\""]) deepStrictEqual([t, looksLikeTypes(t)], [t, true]);
     for (const t of ["`x${\"}\" + 1}`", "`x${\"}\"`"]) deepStrictEqual([t, looksLikeTypes(t)], [t, false]);

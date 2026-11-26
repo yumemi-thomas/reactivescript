@@ -984,6 +984,34 @@ an importer reading `index.d.rx` would make a second context), the ES re-export 
 | census | nothing newly refused: scenarios, `bench/run.mjs --check --strict`, rx-packages (check.json byte for byte, every package builds), rx-std 13 of 13, UI SDK (build, check identical) |
 | grammar | 100 corpus tests; 1,023 of 1,023 files of the repository |
 
+### Step 7, stage 2: a package's entry that re-exports (09 MO-6f)
+
+*Taken.* Before it, a kit entry built by `rx-lib` shipped an empty `.d.rx` and JavaScript that exported nothing: an app
+could not use it. Now (both checkers print and read it, both loaders follow it, both emitters and both projections write
+it, `rx-lib` ships it):
+
+- the printed signature says where each re-exported name is declared, `export { ThemeProvider as Root, theme } from
+  "../theme.rx"`, by the path the module wrote. *Decided:* a pointer, not a copy of the declaring module's rows. A copied
+  row would need its origin carried for a context to stay one context (the roadmap's "rows with their origin"); the
+  pointer is that origin, and the importer reads the declaring module's own rows — which `rx-lib` ships beside it
+  anyway, since it ships every module an entry reaches at its own path. One less form to keep in two printers.
+- an importer of a module known by its signature (a package's entry, or a module with no body, MO-9) is sent, name by
+  name, to the module that declares it, through any chain, as stage 1 does for a program's own modules; a missing
+  declaring signature is `MODULE_NOT_FOUND`, a chain that comes back `MODULE_CYCLE`.
+- *Decided:* the code still reaches each name through the module the importer named (`through` on the import), not
+  through the declaring module's own path: a module an entry reaches need not be an entry, so only the entry is in the
+  package's `exports`, and only the bundler's resolution of that specifier picks the side's build (`browser`, `node`).
+  Each compiled module hands on what it re-exports, from the one instance of the declaring module the app has (MO-13c),
+  so a context and the state behind a name are one wherever they are reached from.
+- `x.js` exports the values (a context and a type stay `.rx`'s, MO-13f), `x.d.ts` and the projection re-export each.
+
+| | |
+| --- | --- |
+| bench `rx-package`, a kit entry added (`kit/index.rx`: a provider under another name, the context, a type, a part of the package's first entry, a part beside it in `kit/`) | its .d.rx printed by both checkers; the .rx app against the shipped `.d.rx` and against the source, the same verdicts (the good app and 13 mistakes, 2 new: the kit's part outside its root, the kit's context provided beside its reader); served and hydrated: one context provided by the kit's name and read by the package's badge, and the other way; the `.tsx` app type-checked by tsrs against the `.d.ts` (a probe more), in the browser and on the server. 8→10 types, 45→48 runtime, 11→13 bad, all green |
+| units, both checkers (`a_kit_known_by_its_signatures_…`) | the import sent to the declaring module with its `through`, identity across names, `MODULE_CYCLE`, `MODULE_NOT_FOUND`, the row read back as printed |
+| grammar | the row in a printed `.d.rx`; 101 corpus tests, 1,023 of 1,023 files |
+| census | nothing is refused that was accepted: the new diagnostics arise only from a `.d.rx` that has the new row, which no file had (it was "not an export" before) |
+
 ### Step 8: L2 + B4 — a view with a parameter given on is the view block it stands for; L7
 
 *Taken* (spec 03 RG-4c; both loaders, so every runner and both checkers read the result): at a component's

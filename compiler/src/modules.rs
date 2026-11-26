@@ -373,6 +373,85 @@ impl Loader<'_> {
         }
         declared.as_ref().and_then(|d| self.declarations.get(d)).is_some_and(|ds| ds.iter().any(|x| matches!(x, JsDecl::Fn { name: n, instantiates, shape, refs, .. } if n == name && (*instantiates || *shape == crate::parse::Shape::Comp || refs.contains(&true)))))
     }
+    /// MO-6e, a package (2026-11-26): a name a module known by its signature re-exports (`export { Root } from "./root.rx"`
+    /// in its `.d.rx`) is the declaring module's — its signature beside, read in place, through any chain —, so an import
+    /// of it is checked as an import from there (a context keeps its identity); its code still reaches it through the module
+    /// it was imported from (`through`). `ref/src/modules.ts` `sigReexported`.
+    fn sig_reexported(&mut self, p: &mut Program, path: &str) -> Result<(), ParseError> {
+        let mut out = vec![];
+        for d in std::mem::take(&mut p.decls) {
+            let (names, r, through, line) = match &d {
+                Decl::Import { names, resolved: Some(r), through, line, .. } if !self.programs.contains_key(r) && self.state.get(r) != Some(&State::Busy) && self.signatures.get(r).is_some_and(|s| !s.reexports.is_empty()) => (names.clone(), r.clone(), through.clone(), *line),
+                _ => {
+                    out.push(d);
+                    continue;
+                }
+            };
+            let mut kept: Vec<ImportName> = vec![];
+            let mut moved: IndexMap<String, (Vec<ImportName>, Vec<(String, String)>)> = IndexMap::new();
+            for n in &names {
+                let mut at = r.clone();
+                let mut name = n.name.clone();
+                let mut seen = vec![at.clone()];
+                loop {
+                    let Some((spec, there)) = self.signatures.get(&at).and_then(|s| s.reexports.iter().find_map(|x| x.names.iter().find(|(_, a)| *a == name).map(|(nm, _)| (x.from.clone(), nm.clone())))) else { break };
+                    let to = join_path(&at, &spec);
+                    name = there;
+                    if seen.contains(&to) {
+                        seen.push(to.clone());
+                        self.diags.push(Diagnostic { code: "MODULE_CYCLE".into(), rule: "MO-5".into(), line: line as i64, file: Some(path.to_string()), msg: format!("{}: the re-exports of {} come back to a module they passed (MO-6e)", seen.join(" → "), n.name) });
+                        break;
+                    }
+                    seen.push(to.clone());
+                    if !self.signatures.contains_key(&to) {
+                        let dts = to.strip_suffix(".rx").map(|s| format!("{s}.d.rx")).unwrap_or_else(|| to.clone());
+                        let Some(src) = (self.read)(&dts) else {
+                            let by = at.strip_suffix(".rx").map(|s| format!("{s}.d.rx")).unwrap_or_else(|| at.clone());
+                            self.diags.push(Diagnostic { code: "MODULE_NOT_FOUND".into(), rule: "MO-6".into(), line: line as i64, file: Some(path.to_string()), msg: format!("no module {spec} (re-exported by {by}): its signature is not beside it") });
+                            break;
+                        };
+                        let sig = parse_signature(&src, &to).map_err(|e| ParseError(e.0, None, Some(dts.clone()), "PARSE"))?;
+                        self.signatures.insert(to.clone(), sig);
+                        if self.printed.contains(&r) {
+                            self.printed.insert(to.clone());
+                        }
+                    }
+                    at = to;
+                }
+                if at == r {
+                    kept.push(n.clone());
+                    continue;
+                }
+                let via = through.as_ref().and_then(|t| t.names.iter().find(|(a, _)| *a == n.alias).map(|(_, x)| x.clone())).unwrap_or_else(|| n.name.clone());
+                let m = moved.entry(at).or_default();
+                m.0.push(ImportName { name, alias: n.alias.clone() });
+                m.1.push((n.alias.clone(), via));
+            }
+            if moved.is_empty() {
+                out.push(d);
+                continue;
+            }
+            if !kept.is_empty() {
+                let mut k = d.clone();
+                if let Decl::Import { names, .. } = &mut k {
+                    *names = kept;
+                }
+                out.push(k);
+            }
+            let by = through.as_ref().map_or_else(|| r.clone(), |t| t.resolved.clone());
+            for (to, (ns, vias)) in moved {
+                let mut m = d.clone();
+                if let Decl::Import { names, resolved, through, .. } = &mut m {
+                    *names = ns;
+                    *resolved = Some(to);
+                    *through = Some(crate::ast::Through { resolved: by.clone(), names: vias });
+                }
+                out.push(m);
+            }
+        }
+        p.decls = out;
+        Ok(())
+    }
     fn visit(&mut self, path: &str, stack: &[String]) -> Result<(), ParseError> {
         if self.state.get(path) == Some(&State::Done) {
             return Ok(());
@@ -491,6 +570,7 @@ impl Loader<'_> {
             self.visit(&to, &st)?;
         }
         reexported(&mut p, path, &self.programs);
+        self.sig_reexported(&mut p, path)?;
         name_methods(&mut p, &self.declarations);
         name_locals(&mut p, &|d, name| self.instantiating_export(d, name));
         self.programs.insert(path.to_string(), p);
@@ -2276,6 +2356,42 @@ mod tests {
             assert_eq!(package_relative(&format!("{root}/err.d.rx"), &read), "err.d.rx");
             assert_eq!(package_relative(&format!("{root}/lib/err.d.rx"), &read), "lib/err.d.rx");
         }
+    }
+    #[test]
+    fn a_kit_known_by_its_signatures_sends_each_name_to_the_module_that_declares_it() {
+        // MO-6e, a package's entry (2026-11-26); ref/units.ts, the same name
+        let h = |m: &str| format!("//@ signature {m} (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).\n");
+        let app = "import { Root, Tag, theme as kitTheme } from \"./k/kit/index.rx\"\nimport { ThemeProvider, Badge } from \"./k/theme.rx\"\ncomponent Own() {\n  provide kitTheme = { accent: \"navy\" }\n  <Badge label=\"own\" />\n}\nexport default component App() {\n  <Root accent=\"teal\"><Tag text=\"b\" /></Root>\n  <ThemeProvider accent=\"red\"><Tag text=\"c\" /></ThemeProvider>\n  <Own />\n}\n";
+        let fs: Vec<(String, String)> = vec![
+            ("/k/theme.d.rx".into(), h("theme.rx") + "export type Theme = { accent: string }\nexport context theme: Theme\nexport component ThemeProvider(props: { children: provides(./theme.rx#theme) }) shape(roots section; closes-p; children-at section)\nexport component Badge(props: { label }) uses(./theme.rx#theme) shape(roots b)\n"),
+            ("/k/kit/tag.d.rx".into(), h("tag.rx") + "export component Tag(props: { text }) uses(../theme.rx#theme) shape(roots em)\n"),
+            ("/k/kit/index.d.rx".into(), h("index.rx") + "export { ThemeProvider as Root, theme, Badge, Theme } from \"../theme.rx\"\nexport { Tag } from \"./tag.rx\"\n"),
+            ("/c/a.d.rx".into(), h("a.rx") + "export { X } from \"./b.rx\"\n"),
+            ("/c/b.d.rx".into(), h("b.rx") + "export { X } from \"./a.rx\"\n"),
+            ("/m/a.d.rx".into(), h("a.rx") + "export { X } from \"./gone.rx\"\n"),
+            ("/app.rx".into(), app.into()),
+            ("/late.rx".into(), app.replace("  <Own />", "  <Own /><Tag text=\"late\" />")),
+            ("/cyc.rx".into(), "import { X } from \"./c/a.rx\"\nexport default component App() { <p>{X}</p> }\n".into()),
+            ("/gone.rx".into(), "import { X } from \"./m/a.rx\"\nexport default component App() { <p>{X}</p> }\n".into()),
+        ];
+        let read = |p: &str| fs.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone());
+        let codes = |set: &ModuleSet| -> Vec<String> { crate::check::check_modules(set, false).diags.iter().map(|d| d.code.clone()).collect() };
+        let set = load_modules("/app.rx", &read).unwrap();
+        assert_eq!(codes(&set), Vec::<String>::new());
+        let imps: Vec<(Vec<(String, String)>, Option<String>, Option<(String, Vec<(String, String)>)>)> = set.programs["/app.rx"]
+            .decls
+            .iter()
+            .filter_map(|d| if let Decl::Import { names, resolved, through, .. } = d { Some((names.iter().map(|n| (n.name.clone(), n.alias.clone())).collect(), resolved.clone(), through.as_ref().map(|t| (t.resolved.clone(), t.names.clone())))) } else { None })
+            .collect();
+        let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+        assert_eq!(imps[0], (vec![pair("ThemeProvider", "Root"), pair("theme", "kitTheme")], Some("/k/theme.rx".into()), Some(("/k/kit/index.rx".into(), vec![pair("Root", "Root"), pair("kitTheme", "theme")]))));
+        assert_eq!(imps[1], (vec![pair("Tag", "Tag")], Some("/k/kit/tag.rx".into()), Some(("/k/kit/index.rx".into(), vec![pair("Tag", "Tag")]))));
+        assert_eq!(codes(&load_modules("/late.rx", &read).unwrap()), vec!["CONTEXT_NOT_FOUND"]);
+        assert_eq!(load_modules("/cyc.rx", &read).unwrap().diags.iter().map(|d| d.code.clone()).collect::<Vec<_>>(), vec!["MODULE_CYCLE"]);
+        assert_eq!(load_modules("/gone.rx", &read).unwrap().diags.iter().map(|d| d.code.clone()).collect::<Vec<_>>(), vec!["MODULE_NOT_FOUND"]);
+        let text = read("/k/kit/index.d.rx").unwrap();
+        let printed = crate::signature::print_signature(&crate::signature::parse_signature(&text, "/k/kit/index.rx").unwrap());
+        assert_eq!(printed.split('\n').skip(1).collect::<Vec<_>>(), text.split('\n').skip(1).collect::<Vec<_>>());
     }
     #[test]
     fn a_wire_id_does_not_depend_on_the_entry_and_two_classes_never_share_one() {

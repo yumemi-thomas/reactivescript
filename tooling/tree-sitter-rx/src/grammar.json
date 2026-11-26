@@ -11336,9 +11336,26 @@
               {
                 "type": "SYMBOL",
                 "name": "signature_equation"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "signature_reexport"
               }
             ]
           }
+        }
+      ]
+    },
+    "signature_reexport": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "export_clause"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_from_clause"
         }
       ]
     },

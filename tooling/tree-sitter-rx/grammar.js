@@ -78,7 +78,10 @@ module.exports = grammar(tsx, {
       $.signature_hosts,
       $.signature_renders,
       $.signature_equation,
+      $.signature_reexport,
     ))),
+    // MO-6e: `export { Root, theme as kitTheme } from "./root.rx"`, names another module declares
+    signature_reexport: $ => seq($.export_clause, $._from_clause),
 
     // `export type Product`: a name, its type is the projection's (13 TY-4c)
     signature_type: $ => seq('type', field('name', alias($.identifier, $.type_identifier)), optional(seq(optional(field('type_parameters', $.type_parameters)), '=', field('value', $.type)))),   // what it stands for, where a signature holds it (RG-4c)

@@ -6722,6 +6722,10 @@
             "named": true
           },
           {
+            "type": "signature_reexport",
+            "named": true
+          },
+          {
             "type": "signature_renders",
             "named": true
           },
@@ -6992,6 +6996,32 @@
       "types": [
         {
           "type": "context_key",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "signature_reexport",
+    "named": true,
+    "fields": {
+      "source": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "export_clause",
           "named": true
         }
       ]
