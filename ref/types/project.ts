@@ -65,7 +65,7 @@ export type Panic = Error;
 /** CP-4a: an entry's default export, a function of the app (\`createApp\`'s, either build) giving the view \`app.mount\` takes. */
 export type Main = (app: object) => () => View;
 export interface Ctx<T> { readonly __ctx: T }
-export declare function ctx<T>(d?: T): Ctx<T>;
+export declare function ctx<T>(d?: () => T): Ctx<T>;   // the default is read where a part asks for it (it may name what the module declares after the context)
 export declare function use<T>(c: Ctx<T>): T;
 export declare function provide<T>(c: Ctx<T>, v: NoInfer<T>): void;
 export declare function provideOr<T>(c: Ctx<T>, v: NoInfer<T> | undefined): void;
@@ -232,7 +232,7 @@ class Proj {
         const ps = d.params.map((n, i) => `${n}${d.k === "action" && d.required !== undefined && i >= d.required ? "?" : ""}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
         this.w.emit(`${ind}${ex(d)}class ${d.name}$ extends Error { ${fields} }\n${ind}${ex(d)}const ${d.name} = (${ps}): ${d.name}$ => ${d.msg ? `{ void (${this.expr(d.msg, false)}); return new ${d.name}$(); }` : `new ${d.name}$()`};\n${ind}${ex(d)}type ${d.name} = ${d.name}$;`, d.line);
       }
-      if (d.k === "context") this.w.emit(`${ind}${ex(d)}const ${d.name} = __.ctx<${typeText(d.type) ?? "any"}>(${d.dflt ? this.expr(d.dflt, false) : ""});`, d.line);
+      if (d.k === "context") this.w.emit(`${ind}${ex(d)}const ${d.name} = __.ctx<${typeText(d.type) ?? "any"}>(${d.dflt ? `() => ${this.expr(d.dflt, false)}` : ""});`, d.line);
     }
     for (const d of ds) {
       if (d.k === "fn") {

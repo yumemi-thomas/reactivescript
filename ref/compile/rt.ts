@@ -442,7 +442,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** `context x: T = d` (RG-7): the declaration is the identity; `d`, if any, is evaluated once, owned where it is declared. */
     /** `context x: T = d` (RG-7): the declaration is the identity (a sentinel default: absence is ours to decide); `d` is
      *  evaluated once, owned where it is declared — created now, so it takes its id there on both sides (SV-3). */
-    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, ctx: createContext<Entry | undefined>(NO_PROVISION, name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any) as Acc } : null }; },
+    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, ctx: createContext<Entry | undefined>(NO_PROVISION, name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any, { lazy: true } as any) as Acc } : null }; },   // lazy: a default is read where a part asks for it, so it may name what the module declares after the context (as the oracle and the interpreter have it)
     provide(c: Ctx, e: Entry) { setContext(c.ctx, e); },
     use(c: Ctx, owner: ReturnType<typeof getOwner>): Entry {
       let e = getContext(c.ctx, owner ?? undefined);

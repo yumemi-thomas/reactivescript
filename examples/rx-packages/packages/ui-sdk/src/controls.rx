@@ -86,10 +86,15 @@ export component TooltipTrigger(props: Kids & { [attr: string]: any }) {
   id = uniqueId()
   <ButtonPart of={{ it: t.it, slot: "trigger", named: { id: id }, options: t.options, user: rest }}>{view (s) { <props.children {...s} /> }}</ButtonPart>
 }
-export component TooltipContent(props: Kids & { side?: string; align?: string; sideOffset?: number; [attr: string]: any }) {
-  { side, align, sideOffset, children: none, ...rest } = props
+export component TooltipContent(props: Kids & { side?: string; align?: string; sideOffset?: number; container?: Element; [attr: string]: any }) {
+  { side, align, sideOffset, container, children: none, ...rest } = props
   t = use tip
-  <Portal><DivPart of={{ it: t.it, slot: "content", named: { side: side, align: align, sideOffset: sideOffset }, options: t.options, user: rest }}>{view (s) { <props.children {...s} /> }}</DivPart></Portal>
+  // in place, as the original's renderPopup: a portal only into a container that is given
+  {if container {
+    <Portal mount={container}><DivPart of={{ it: t.it, slot: "content", named: { side: side, align: align, sideOffset: sideOffset }, options: t.options, user: rest }}>{view (s) { <props.children {...s} /> }}</DivPart></Portal>
+  } else {
+    <DivPart of={{ it: t.it, slot: "content", named: { side: side, align: align, sideOffset: sideOffset }, options: t.options, user: rest }}>{view (s) { <props.children {...s} /> }}</DivPart>
+  }}
 }
 export type ListboxProps = Kids & { value?: string[]; defaultValue?: string[]; onValueChange?: (v: string[]) => void; multiple?: boolean; disabled?: boolean; orientation?: "vertical" | "horizontal"; loop?: boolean; [attr: string]: any }
 context list: Scope

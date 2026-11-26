@@ -569,7 +569,7 @@ impl Proj<'_> {
                         Some(x) => self.ty(&x, sp, &mut at),
                         None => Code::of("any"),
                     };
-                    let dv = dflt.as_ref().map(|e| self.expr(e, false, None)).unwrap_or_default();
+                    let dv = dflt.as_ref().map(|e| Code::of("() => ").c(self.expr(e, false, None))).unwrap_or_default();   // read where a part asks for it
                     let c = Code::of(ind).t(ex(d)).t("const ").c(nm).t(" = __.ctx<").c(t).t(">(").c(dv).t(");");
                     self.w.emit(c, *line);
                 }

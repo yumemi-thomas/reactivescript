@@ -22,17 +22,19 @@ export component ButtonPart(props: { of: Of; children?: View | ((s: any) => View
 }
 export component DivPart(props: { of: Of; children?: View | ((s: any) => View) }) {
   { part, attrs, now, tick } = usePart(props.of.it, peek(props.of.slot), props.of.named, props.of.user, props.of.options)
-  bind = binder(part)
-  hs = on_(part, props.of.user, bind)
   shown = props.of.keep ? true : presentOf(part, props.of.named, props.of.options, tick)
-  {if shown { <div {...props.of.user} {...attrs} {...hs} class={classOf(props.of.user.class, now)} style={styleOf(props.of.user.style, now, attrs.style)}><props.children {...now} /></div> }}
+  {if shown {
+    bind = binder(part)   // the binding is the element's: it ends with it (core then drops what points at it, `aria-controls`)
+    hs = on_(part, props.of.user, bind)
+    <div {...props.of.user} {...attrs} {...hs} class={classOf(props.of.user.class, now)} style={styleOf(props.of.user.style, now, attrs.style)}><props.children {...now} /></div> }}
 }
 export component SpanPart(props: { of: Of; children?: View | ((s: any) => View) }) {
   { part, attrs, now, tick } = usePart(props.of.it, peek(props.of.slot), props.of.named, props.of.user, props.of.options)
-  bind = binder(part)
-  hs = on_(part, props.of.user, bind)
   shown = presentOf(part, props.of.named, props.of.options, tick)
-  {if shown { <span {...props.of.user} {...attrs} {...hs} class={classOf(props.of.user.class, now)} style={styleOf(props.of.user.style, now, attrs.style)}><props.children {...now} /></span> }}
+  {if shown {
+    bind = binder(part)   // the binding is the element's: it ends with it (core then drops what points at it, `aria-controls`)
+    hs = on_(part, props.of.user, bind)
+    <span {...props.of.user} {...attrs} {...hs} class={classOf(props.of.user.class, now)} style={styleOf(props.of.user.style, now, attrs.style)}><props.children {...now} /></span> }}
 }
 export component H3Part(props: { of: Of; children?: View | ((s: any) => View) }) {
   { part, attrs, now, tick } = usePart(props.of.it, peek(props.of.slot), props.of.named, props.of.user, props.of.options)
