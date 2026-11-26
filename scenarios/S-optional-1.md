@@ -61,6 +61,37 @@ export default component App() { source n := 1
   <p>{f(n)} {g()} {g(n)} {g(n, n)} {h(1)}</p> }
 ```
 
+## Variant: a `ref` parameter left out reads `undefined`
+
+```rx
+fn label(ref x?: string): string => x ?? "none"
+fn createCount(ref start?: number, by?: number) {
+  source n := peek(start) ?? 0
+  shown = n + (start ?? 100) + (by ?? 0)
+  shown
+}
+export default component App() {
+  source a: string | undefined := "A"
+  source s := 5
+  c = createCount()
+  d = createCount(s)
+  e = createCount(s, 1)
+  l0 = label()
+  l1 = label(a)
+  <p>{l0} {l1} {c} {d} {e}</p>
+}
+```
+
+| instant | action | frame |
+| ------- | ------ | ----- |
+| 0 | mount | `none A 100 10 11` |
+| 1 | handler `a := "B"` | `none B 100 10 11` |
+| 2 | handler `s := 7` | `none B 100 12 13` |
+| 3 | handler `a := undefined` | `none none 100 12 13` |
+
+An optional `ref` (2026-11-26): given, it is read as any `ref` is and follows its argument; left out, it reads
+`undefined`, as one whose argument is `undefined` does (the body cannot tell them apart, and need not).
+
 ## Rejected variants
 
 A reactive argument in an optional parameter's place is snapshotted like any:
@@ -82,30 +113,18 @@ export default component App() { <p>{f(1, 2)}</p> }
 
 ```rx
 -- reject: PARSE
-fn f(ref a?: number): number => a ?? 0
-export default component App() { x = f(1)
-  <p>{x}</p> }
-```
-
-```rx
--- reject: PARSE
 fn f(a?: number, ref b: number): number => b
 export default component App() { x = f(1, 2)
   <p>{x}</p> }
 ```
 
-A default is not a form of the language; nor is an action's, a closure's or a server fn's optional parameter:
+A default is not a form of the language; nor is a closure's or a server fn's optional parameter (an action's is
+AC-1f's, S-surface-14):
 
 ```rx
 -- reject: E-9
 fn f(a: number = 3): number => a
 export default component App() { <p>{f()}</p> }
-```
-
-```rx
--- reject: PARSE
-export default component App() { source n := 1  action set(a?: number) { n := a ?? 0 }
-  <p onClick={set}>{n}</p> }
 ```
 
 ```rx

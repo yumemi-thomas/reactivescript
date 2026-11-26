@@ -422,12 +422,14 @@ impl Proj<'_> {
         }
     }
     /// `n` or `n: T` for a parameter list of names and their written types (no row words to drop).
-    fn params(&self, params: &[String], ptypes: &[Option<String>], within: Span, from: &mut usize) -> Code {
+    fn params(&self, params: &[String], ptypes: &[Option<String>], required: Option<usize>, within: Span, from: &mut usize) -> Code {
         let ps = params
             .iter()
             .enumerate()
             .map(|(i, n)| {
                 let c = self.name(n, within, from);
+                // AC-1f: a parameter an action's call may leave out
+                let c = if required.is_some_and(|r| i >= r) { c.t("?") } else { c };
                 match ptypes.get(i).and_then(|t| t.as_ref()) {
                     Some(t) => c.t(": ").c(self.ty(t, within, from)),
                     None => c,
@@ -547,7 +549,7 @@ impl Proj<'_> {
                 Decl::Error { name, params, ptypes, msg, line, .. } => {
                     let fields = params.iter().enumerate().map(|(i, n)| format!("declare {n}: {};", ptypes.get(i).and_then(|t| t.as_deref()).unwrap_or("any"))).collect::<Vec<_>>().join(" ");
                     let nm = self.name(name, sp, &mut at);
-                    let ps = self.params(params, ptypes, sp, &mut at);
+                    let ps = self.params(params, ptypes, None, sp, &mut at);
                     let body = match msg {
                         Some(m) => Code::of("{ void (").c(self.expr(m, false, None)).t(&format!("); return new {name}$(); }}")),
                         None => Code::of(&format!("new {name}$()")),
@@ -653,7 +655,11 @@ impl Proj<'_> {
                 }
                 Decl::Action { name, params, ptypes, body, line, .. } | Decl::Server { name, params, ptypes, body, line, .. } => {
                     let nm = self.name(name, sp, &mut at);
-                    let ps = self.params(params, ptypes, sp, &mut at);
+                    let required = match d {
+                        Decl::Action { required, .. } => *required,
+                        _ => None,
+                    };
+                    let ps = self.params(params, ptypes, required, sp, &mut at);
                     let r = match d {
                         Decl::Server { ret: Some(r), .. } => Code::of(": Promise<").c(self.ty(r, sp, &mut at)).t(">"),
                         _ => Code::new(),
@@ -1060,7 +1066,7 @@ impl Proj<'_> {
             }
             ExprKind::Fn { params, body, stmts, ptypes } => {
                 let mut from = sp.start as usize;
-                let ps = self.params(params, ptypes, sp, &mut from);   // 07 §3: a parameter's type
+                let ps = self.params(params, ptypes, None, sp, &mut from);   // 07 §3: a parameter's type
                 let Some(ss) = stmts else {
                     return Code::of("((").c(ps).t(") => ").c(self.expr(body, imp, me)).t(")");
                 };
@@ -1069,7 +1075,7 @@ impl Proj<'_> {
             }
             ExprKind::ServerFn { params, ptypes, ret, body } => {
                 let mut from = sp.start as usize;
-                let ps = self.params(params, ptypes, sp, &mut from);
+                let ps = self.params(params, ptypes, None, sp, &mut from);
                 let r = match ret {
                     Some(r) => Code::of(": Promise<").c(self.ty(r, sp, &mut from)).t(">"),
                     None => Code::new(),

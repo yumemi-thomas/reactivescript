@@ -460,7 +460,9 @@ class Gen {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env);
     for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name), ...(p.ref && this.u.prevOf.has(p.name) ? { prev: `p$${p.name}` } : {}) });
-    if (!instantiates(d)) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
+    // E-9a: a `ref` parameter left out reads `undefined` — its accessor is one of that
+    const absent = d.params.filter(p => p.ref && p.opt).map(p => `${mg(p.name)} ??= () => undefined;`);
+    if (!instantiates(d)) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { ${absent.map(a => `${a} `).join("")}return ${this.expr(d.tail, inner, { imp: false })}; }`;
     // an instantiating fn (RG-6): called once, returns the accessor of its tail
     // an `await` in the result: the result is an equation (RG-6a), and its flights are that equation's (07 §3)
     if (nonTailAwaits(d.tail, false).length) { const result = { k: "eq", name: "result$", e: d.tail, line: d.line } as Decl; return this.fn({ ...d, decls: [...d.decls, result], tail: { k: "id", name: "result$" } }, env, ind); }
@@ -469,7 +471,7 @@ class Gen {
     const tb = d.tail.k === "id" ? inner.lookup(d.tail.name) : undefined;
     const tail = tb && (tb.kind === "acc" || tb.kind === "src") ? tb.js : `__rt.memo(null, () => ${this.expr(d.tail, inner, { imp: false })})`;
     const own = d.decls.some(x => x.k === "provide");   // RG-6a: what it provides is for what its call instantiates, not for the caller's region: an owner of the call's own
-    return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {${own ? " return __rt.inst(() => {" : ""}\n${prevs}${body}\n${pad}  return ${tail};\n${pad}${own ? "}); }" : "}"}`;
+    return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {${absent.map(a => `\n${pad}  ${a}`).join("")}${own ? " return __rt.inst(() => {" : ""}\n${prevs}${body}\n${pad}  return ${tail};\n${pad}${own ? "}); }" : "}"}`;
   }
   /** MO-10: `x = f(…)` over a declared primitive — called once (RG-6), a ref argument as an accessor, a value one untracked;
    *  and `y = x[i]` / `x.k` over its result. A `ref` part is bound to the accessor itself, any other part to its value. */

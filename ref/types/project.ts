@@ -229,7 +229,7 @@ class Proj {
       if (d.k === "typedecl") this.w.emit(`${ind}${ex(d)}${d.text ?? `type ${d.name} = any;`}`, d.line);
       if (d.k === "error") {
         const fields = d.params.map((n, i) => `declare ${n}: ${d.ptypes?.[i] ?? "any"};`).join(" ");
-        const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
+        const ps = d.params.map((n, i) => `${n}${d.k === "action" && d.required !== undefined && i >= d.required ? "?" : ""}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
         this.w.emit(`${ind}${ex(d)}class ${d.name}$ extends Error { ${fields} }\n${ind}${ex(d)}const ${d.name} = (${ps}): ${d.name}$ => ${d.msg ? `{ void (${this.expr(d.msg, false)}); return new ${d.name}$(); }` : `new ${d.name}$()`};\n${ind}${ex(d)}type ${d.name} = ${d.name}$;`, d.line);
       }
       if (d.k === "context") this.w.emit(`${ind}${ex(d)}const ${d.name} = __.ctx<${typeText(d.type) ?? "any"}>(${d.dflt ? this.expr(d.dflt, false) : ""});`, d.line);
@@ -252,7 +252,7 @@ class Proj {
         this.loose = was; this.propsOf = wasProps;
       }
       if (d.k === "action" || d.k === "server") {
-        const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
+        const ps = d.params.map((n, i) => `${n}${d.k === "action" && d.required !== undefined && i >= d.required ? "?" : ""}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
         this.w.emit(`${ind}${ex(d)}async function ${d.name}(${ps})${d.k === "server" && d.ret ? `: Promise<${d.ret}>` : ""} {`, d.line); this.stmts(d.body, ind + "  "); this.w.emit(`${ind}}`, d.line);
         if (d.k === "server") this.w.emit(`${ind}__.wire(${d.name}, true);`, d.line);   // SF-6a, statically where the types are known
       }

@@ -582,7 +582,7 @@ export const units: [string, () => void][] = [
   ["an_optional_parameter_is_the_last_and_is_printed", () => {   // E-9a, MO-9b
     const says = (ps: string) => { try { const p = parseProgram(`export fn f(${ps}) => 1\n`); const d = p.decls[0]; return d.k === "fn" ? d.params.map(q => [q.ref ? "ref" : "", q.name, q.opt ? "?" : "", q.type ?? ""].join(" ")).join(",") : ""; } catch (e) { return (e as Error).message.includes("E-9a") ? "E-9a" : "PARSE"; } };
     deepStrictEqual(["a: number, b?: number", "a?, b?", "ref a, b?: { x?: number }", "a ? : number", "a? : T", "a?: number, b", "a?: number, ref b", "ref a?: number", "...a"].map(says),
-      [" a  number, b ? number", " a ? , b ? ", "ref a  , b ? { x?: number }", "PARSE", " a ? T", "E-9a", "E-9a", "E-9a", "PARSE"]);
+      [" a  number, b ? number", " a ? , b ? ", "ref a  , b ? { x?: number }", "PARSE", " a ? T", "E-9a", "E-9a", "ref a ? number", "PARSE"]);
     const text = printSignature(checkModules(loadModules("/a.rx", files({ "/a.rx": "export fn f(a: number, b?: { x?: number }, c?) => 1\nexport fn g(ref a: number, b?: () => void) { x = a + 1\n  x }\n" }))).sigs.get("/a.rx")!);
     deepStrictEqual(text.trim().split("\n").slice(1), ["export pure fn f(a: number, b?: { x?: number }, c?)", "export pure fn g(ref a: number, b?: () => void) instantiates"]);
     const back = parseSignature(text, "/a.rx"); deepStrictEqual(printSignature(back), text);

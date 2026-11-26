@@ -187,7 +187,7 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
       // a dependency's factory is its own compiled module; a JS module beside it is shipped as it is
       const code = m[target].code.replace(/from "(\.{1,2}\/[^"]+)"/g, (all, spec) => {
         if (spec.endsWith(".rx")) return `from "${spec.slice(0, -3)}.${target}.js"`;
-        const f = resolveJs(path.resolve(path.dirname(p), spec)); if (f) js.add(f); else problems.push(`${path.relative(dir, p)}: imports ${spec}, which is no JavaScript file: a package ships JavaScript (build it first)`);
+        const f = resolveJs(path.resolve(path.dirname(p), spec)) ?? resolveTypes(path.resolve(path.dirname(p), spec)); if (f) js.add(f); /* (a module that is only its declarations, `./types.js` with a `types.d.ts`: its types are shipped, and the compiled module imports nothing of it) */ else problems.push(`${path.relative(dir, p)}: imports ${spec}, which is no JavaScript file: a package ships JavaScript (build it first)`);
         return all;
       });
       let map = m[target].map;

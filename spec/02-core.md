@@ -241,7 +241,9 @@ Function application `f(e…)` covers both language functions and FFI imports;
   be written `b?: T`, after every required parameter; it is `T | undefined`
   in the body. A call may leave it out: `f(a)` is `f(a, undefined)`, in a
   lifted call and in an instantiation, from `.rx` and from JavaScript. A
-  `ref` parameter is not optional, and there is no default and no rest.
+  `ref` parameter may be optional too (2026-11-26; it was refused): given,
+  it follows its argument; left out, it reads `undefined`, as one whose
+  argument is `undefined` does. There is no default and no rest.
   S-optional-1.
 - **E-11 (Lazy conditional).** In `c ? a : b` as an expression, only
   the selected arm is demanded; the equation's inputs are `c`'s plus the

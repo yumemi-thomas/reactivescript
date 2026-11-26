@@ -69,8 +69,8 @@ re!(REJECTS, r"(^|[^A-Za-z0-9_])rejects\(");
 
 static KEYWORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
-        "source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "guess", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined",
-        "null", "provide", "context", "use", "import", "export", "from", "pure", "return", "type", "interface", "try", "catch", "finally", "throw", "portal",
+        "source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "deferred", "action", "guess", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined",
+        "null", "provide", "context", "use", "import", "export", "pure", "return", "type", "interface", "try", "catch", "finally", "throw", "portal",
     ]
     .into_iter()
     .collect()
@@ -2719,9 +2719,21 @@ fn parse_pattern(c: &mut Cursor) -> R<Pat> {
                 return Ok(Pat::Obj(props, Some(Box::new(rest))));
             }
             let (kline, kstart) = (c.line(), c.i);
-            let key = c.ident_or("a field name")?;
+            // RG-4b (2026-11-26): a key that is no name is written as a string, and bound to a name: `{ "aria-label": label }`
+            let quoted = matches!(c.peek(), '"' | '\'');
+            let key = if quoted {
+                match parse_primary(c)?.k {
+                    ExprKind::Lit(Lit::Str(v)) => v,
+                    _ => return c.fail("a field name"),
+                }
+            } else {
+                c.ident_or("a field name")?
+            };
             let kspan = Span::new(kstart, c.i);
             c.ws(true);
+            if quoted && !c.starts_with(":") {
+                return c.fail(&format!("a name for the field: `{{ {}: name }}`", serde_json::to_string(&key).unwrap_or_default()));
+            }
             let pat = if c.eat(":") {
                 parse_pattern(c)?
             } else {
@@ -2794,7 +2806,12 @@ fn expand_pattern(pat: &Pat, base: Expr, out: &mut Vec<(String, Expr, usize, Spa
         Pat::Name { name, line, span } => out.push((name.clone(), base, *line, *span)),
         Pat::Obj(props, rest) => {
             for (key, p, d) in props {
-                let v = syn(ExprKind::Member { o: Box::new(base.clone()), p: key.clone(), opt: false });
+                let named = key.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+                let v = if named {
+                    syn(ExprKind::Member { o: Box::new(base.clone()), p: key.clone(), opt: false })
+                } else {
+                    syn(ExprKind::Index { o: Box::new(base.clone()), i: Box::new(syn(ExprKind::Lit(Lit::Str(key.clone())))), opt: false })
+                };
                 expand_pattern(p, dfl(v, d), out, snap);
             }
             if let Some(r) = rest {
@@ -3119,11 +3136,26 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         c.ws(true);
         c.expect("(")?;
         c.ws(true);
-        let (params, ptypes) = params_typed(c)?;
+        // AC-1f (2026-11-26): a parameter may be left out, `by?: number`, the last ones (as a fn's, E-9a): it is `undefined` then
+        let (mut params, mut ptypes, mut required) = (vec![], vec![], None);
+        while !c.starts_with(")") {
+            params.push(c.bound("param")?);
+            if c.peek() == '?' && c.eat("?") {
+                required.get_or_insert(params.len() - 1);
+            } else if required.is_some() {
+                return c.fail("an optional parameter is the last (E-9a): a required one follows");
+            }
+            ptypes.push(opt_type(c, false)?);
+            c.ws(true);
+            if !c.eat(",") {
+                break;
+            }
+            c.ws(true);
+        }
         c.expect(")")?;
         c.ws(true);
         let body = parse_block(c)?;
-        return Ok(Decl::Action { name, params, ptypes, body, line, span: Span::NONE, exported: false });
+        return Ok(Decl::Action { name, params, ptypes, required, body, line, span: Span::NONE, exported: false });
     }
     if SERVER_DECL.is_match(c.rest()) {
         c.keyword("server");
@@ -3191,9 +3223,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             c.ws(true);
             let pname = c.bound("param")?;
             let opt = c.peek() == '?' && c.eat("?");
-            if opt && r {
-                return c.fail("a `ref` parameter is not optional (E-9a): a value parameter may be left out");
-            }
+            // (E-9a, 2026-11-26: a `ref` parameter may be left out too: it reads `undefined`)
             if !opt && params.iter().any(|p: &Param| p.opt) {
                 return c.fail("an optional parameter is the last (E-9a): a required one follows");
             }
@@ -3208,6 +3238,11 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         c.expect(")")?;
         let ret = opt_type(c, true)?;
         c.ws(true);
+        // (`ref` before a result's type is a declaration's word, of a JavaScript fn's row and of a printed signature: a fn
+        // written here answers a value, and what it reads through a `ref` parameter its caller reads)
+        if ret.as_deref().is_some_and(|t| REF_PART.is_match(t)) {
+            return c.fail("a fn's result is written as its type, `: number`: `ref` before it is a declaration's word (a `.d.rx` row, a printed signature)");
+        }
         if c.eat("=>") {
             c.ws(true);
             let tail = parse_expr(c)?;

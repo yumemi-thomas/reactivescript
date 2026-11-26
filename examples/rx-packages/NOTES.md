@@ -102,3 +102,43 @@ results are outside the repository (`../work/gen-*.mjs`, `../work/*.json`); the 
   questions left. The count before was not kept by the bench, so 126 is the note's, not a run of mine.
 - Not done: the count over the ~4,000 packages (170 rows) was not run again; a whole result written in parentheses
   (`(() => number)`) is not marked.
+
+## 5. Small, recurring
+
+Done (both parsers/checkers/emitters where they are touched; S-surface-14, S-optional-1; 237 + 81 generated programs,
+checkers agree 318/318, lowering alike 318/318, every runner alike on the accepted ones bar a mount effect's row):
+
+- **`on` and `from` as names** (bug 3, main too): no longer reserved; words only after `loading` and in an `import`.
+  30 programs (15 places × 2 words).
+- **A quoted key in a pattern** (B7): `{ "aria-label": label = "none", ...rest } = props`; it is `props["aria-label"]`,
+  the rest is without it; bound to a name, or `PARSE` with the form to write. 105 programs (7 keys × props, a record,
+  a `let` × 6 patterns).
+- **An action's optional parameters** (B6): `action add(item, at?: number)`, the last ones; `ARGUMENT_COUNT` says
+  "1 to 2 arguments"; projected `at?: number`. 102 programs (required 0–2 × optional 1–2 × 0–4 arguments passed), each
+  count accepted or refused as wanted. S-optional-1 had it as a refused form ("not in" proposal 19, no reason against).
+- **An optional `ref` parameter** (B5; proposal 19's open question, 31 of 192 primitives wanted one): left out it reads
+  `undefined`, as one whose argument is `undefined`. The interpreter and the oracle already read it so; each emitter
+  writes `x ??= () => undefined` at the fn's head. 81 programs (9 fns × 6 kinds of argument, one module and two).
+- **`fn f(ref x): ref number` in source** (bug 6): `PARSE` in both parsers — `ref` before a result is a declaration's
+  word; a fn written in `.rx` answers a value. (The checkers took it and TypeScript failed on the text.)
+- **`rx-lib` and a module that is only its types** (bug 4): `./types.js` with a `types.d.ts` and no JavaScript is
+  shipped (it was "is no JavaScript file"); the packages' empty `types.js` files go.
+
+Left out, each with what is written instead:
+
+- **A statement closure in a record that goes where handlers go** (B3, `attrs = { onKeyDown: (e) => { … } }`): a
+  closure made in reactive scope is a pure function (SC-3) unless it stands where a handler is taken. To take it in a
+  record the checker must know every place the record goes (a spread on an element, a view's argument, and nowhere it
+  is called now): the same use-analysis as a draft callback's (MO-10i), not built. Written today: `action down(e) { … }`
+  and `{ onKeyDown: down }` — an action is a value, and SC-4b now holds for where it goes.
+- **A view with a parameter through a spread** (B4, `<List {...props} />` where `props.row` is a view): item 2 carries
+  what a provider gives to the *children* through such a spread; a view with a parameter also needs its places (what
+  each shows it with, what stands between) carried from `List` to `Wrap`'s caller, which is RG-4c's whole summary a
+  second time. Written today, one line: `<List {...rest}>{view row (s) { <props.row {...s} /> }}</List>`.
+- **An action that answers a value at once** (B10, a toast's id): an action is Solid's `action()`: what it answers is
+  a promise, when its writes have settled. A value "at once" would be a second kind of action (a part that runs
+  before the first `await` and may not write). Not added: the caller makes the id (`show({ id, … })`), or a pure fn
+  does (`id = nextId()` in a handler) and the action takes it.
+- **State given to TSX children as accessors** (B12): a view's parameter is props, as a component's are — read
+  `s.checked`, reactive where read. That is Solid's own convention for what a component is given; an API of
+  accessors (`s.checked()`) is the original's choice, and stays the facade's six lines.

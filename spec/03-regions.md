@@ -129,7 +129,9 @@ A component is a function from a props value to a region whose tail is a view.
   it).
 - **RG-4b (Props are one structured equation).** `props` is a single value
   whose fields are equations: `props.x` and `{ x } = props` are projections and
-  keep updating. A prop is never a snapshot unless the body takes one (E-4,
+  keep updating. A field whose key is no name is written as its string and
+  bound to a name, `{ "aria-label": label, ...rest } = props` (2026-11-26; it
+  is `props["aria-label"]`, and the rest is without it). A prop is never a snapshot unless the body takes one (E-4,
   `peek`). Spread, rest, `merge`, and `omit` are operations on this value
   (06-stores treats its path semantics). A projection that holds a view (the
   children, or a prop typed `View`) is no computation of its own: the view is

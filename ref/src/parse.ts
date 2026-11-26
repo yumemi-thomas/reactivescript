@@ -146,7 +146,7 @@ function parseClasses(c: Cursor): string[] | undefined {
   return out.some(n => n === "Error" || n === "unknown" || n === "any") ? undefined : out;
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "guess", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "context", "use", "import", "export", "from", "pure", "return", "type", "interface", "try", "catch", "finally", "throw", "portal"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "deferred", "action", "guess", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "context", "use", "import", "export", "pure", "return", "type", "interface", "try", "catch", "finally", "throw", "portal"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -649,7 +649,11 @@ function parsePattern(c: Cursor): Pat {
     for (;;) {
       c.ws(); if (c.startsWith("}")) break;
       if (c.startsWith("...")) { const rest = parseRest(c, "}"); c.expect("}"); return { k: "obj", props, rest }; }
-      const kline = c.line; const key = c.ident() ?? c.fail("a field name"); c.ws();
+      // RG-4b (2026-11-26): a key that is no name is written as a string, and bound to a name: `{ "aria-label": label }`
+      const kline = c.line; const quoted = c.peek() === "\"" || c.peek() === "'" ? parsePrimary(c) : undefined;
+      if (quoted && (quoted.k !== "lit" || typeof quoted.v !== "string")) c.fail("a field name");
+      const key = quoted ? (quoted as { v: string }).v : c.ident() ?? c.fail("a field name"); c.ws();
+      if (quoted && !c.startsWith(":")) c.fail(`a name for the field: \`{ ${JSON.stringify(key)}: name }\``);
       const pat: Pat = c.eat(":") ? parsePattern(c) : { k: "name", name: c.binds(key), line: kline }; c.ws();
       const dflt = c.peek() === "=" && c.peek(1) !== "=" && c.peek(1) !== ">" ? (c.i++, c.ws(), parseExpr(c)) : undefined;
       props.push({ key, pat, dflt }); c.ws();
@@ -679,7 +683,7 @@ function expandPattern(pat: Pat, base: Expr, out: { name: string; e: Expr; line:
   const dfl = (v: Expr, d?: Expr): Expr => d ? { k: "if", c: { k: "bin", op: "==", l: v, r: { k: "lit", v: undefined } }, t: d, f: v } : v;
   if (pat.k === "name") out.push({ name: pat.name, e: base, line: pat.line });
   else if (pat.k === "obj") {
-    for (const p of pat.props) expandPattern(p.pat, dfl({ k: "member", o: base, p: p.key }, p.dflt), out, snap);
+    for (const p of pat.props) expandPattern(p.pat, dfl(/^[A-Za-z_$][\w$]*$/.test(p.key) ? { k: "member", o: base, p: p.key } : { k: "index", o: base, i: { k: "lit", v: p.key } }, p.dflt), out, snap);
     if (pat.rest) { const o: Expr = { k: "omit", e: base, keys: pat.props.map(p => p.key) }; expandPattern(pat.rest, snap ? { k: "rec", fields: [{ spread: o }] } : o, out, snap); }
   } else {
     pat.items.forEach((it, i) => { if (it) expandPattern(it.pat, dfl({ k: "index", o: base, i: { k: "lit", v: i } }, it.dflt), out, snap); });
@@ -778,10 +782,11 @@ function parseDecl(c: Cursor): Decl {
   }
   if (c.keyword("action")) {
     c.ws(); const name = c.bound("action name"); c.ws(); c.expect("("); c.ws();
-    const params: string[] = []; const ptypes: (string | undefined)[] = [];
-    while (!c.startsWith(")")) { params.push(c.bound("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    // AC-1f (2026-11-26): a parameter may be left out, `by?: number`, the last ones (as a fn's, E-9a): it is `undefined` then
+    const params: string[] = []; const ptypes: (string | undefined)[] = []; let required: number | undefined;
+    while (!c.startsWith(")")) { params.push(c.bound("param")); const opt = c.peek() === "?" && c.eat("?"); if (opt) required ??= params.length - 1; else if (required !== undefined) c.fail("an optional parameter is the last (E-9a): a required one follows"); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); c.ws();
-    return { k: "action", name, params, ptypes, body: parseBlock(c), line };
+    return { k: "action", name, params, ptypes, ...(required !== undefined ? { required } : {}), body: parseBlock(c), line };
   }
   if (/^server\s+(fn|action)\b/.test(c.src.slice(c.i))) {             // 12 SF-1: `server fn f(a) { … }`
     c.keyword("server"); c.ws(); if (c.keyword("action")) c.fail("`server fn` (SF-1: one form — it is io when its body is; there is no `server action`)"); c.keyword("fn");
@@ -804,9 +809,11 @@ function parseDecl(c: Cursor): Decl {
   if (c.keyword("fn")) {
     c.ws(); const name = c.bound("fn name"); c.ws(); const tparams = typeParams(c); c.ws(); c.expect("("); c.ws();
     const params: Param[] = [];
-    while (!c.startsWith(")")) { const ref = c.keyword("ref"); c.ws(); const pname = c.bound("param"); const opt = c.peek() === "?" && c.eat("?"); if (opt && ref) c.fail("a `ref` parameter is not optional (E-9a): a value parameter may be left out");
+    while (!c.startsWith(")")) { const ref = c.keyword("ref"); c.ws(); const pname = c.bound("param"); const opt = c.peek() === "?" && c.eat("?");   /* E-9a (2026-11-26): a `ref` parameter may be left out too: it reads `undefined` */
       if (!opt && params.some(p => p.opt)) c.fail("an optional parameter is the last (E-9a): a required one follows"); const type = optType(c); params.push({ name: pname, ref, type, ...(opt ? { opt } : {}) }); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); const ret = optType(c, true); c.ws();
+    // (`ref` before a result's type is a declaration's word, of a JavaScript fn's row and of a printed signature: a fn written here answers a value, and what it reads through a `ref` parameter its caller reads)
+    if (ret !== undefined && /^ref\s/.test(ret)) c.fail("a fn's result is written as its type, `: number`: `ref` before it is a declaration's word (a `.d.rx` row, a printed signature)");
     if (c.eat("=>")) { c.ws(); return { k: "fn", name, params, decls: [], tail: parseExpr(c), line, ret, ...(tparams ? { tparams } : {}) }; }
     c.expect("{");
     const decls: Decl[] = [];

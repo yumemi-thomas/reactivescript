@@ -1613,9 +1613,13 @@ impl<'p> Gen<'p> {
             self.set(inner, &p.name, b);
         }
         let ps: Vec<P> = params.iter().map(|p| P::Id(mg(&p.name))).collect();
+        // E-9a: a `ref` parameter left out reads `undefined` — its accessor is one of that
+        let absent = || -> Vec<S> { params.iter().filter(|p| p.r#ref && p.opt).map(|p| S::Expr(E::Assign("??=", Box::new(id(mg(&p.name))), Box::new(thunk(undef()))))).collect() };
         if !instantiates(params, decls, tail) {
             let x = self.expr(tail, inner, &reactive())?;
-            return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body: vec![S::Return(Some(x))], is_async: false, generator: false }));
+            let mut body = absent();
+            body.push(S::Return(Some(x)));
+            return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body, is_async: false, generator: false }));
         }
         // an `await` in the result: the result is an equation (RG-6a), and its flights are that equation's (07 §3)
         if !non_tail_awaits(tail, false).is_empty() {
@@ -1650,6 +1654,9 @@ impl<'p> Gen<'p> {
         if decls.iter().any(|x| matches!(x, Decl::Provide { .. })) {
             body = vec![S::Return(Some(rtc("inst", vec![arrow_block(vec![], body, false)])))];
         }
+        let mut whole = absent();
+        whole.append(&mut body);
+        let body = whole;
         Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body, is_async: false, generator: false }))
     }
     /// MO-13i: the parts of a fn's result, as a Solid primitive hands them.

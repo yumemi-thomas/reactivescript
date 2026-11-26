@@ -153,6 +153,7 @@ type Sym = {
   instantiating?: boolean;             // fn with ref params or declarations (E-9)
   params?: { name: string; ref: boolean }[];
   arity?: number;                      // an action declared here: how many arguments a call passes (AC-1f)
+  arityMin?: number;                   // …at least, where its last parameters may be left out (`by?`)
   outlasts?: boolean;                     // an action declared here: whether its change can outlast the call (an `await`, `refresh`, `affects`; AC-1h)
   captures?: Sym[];                    // a value holding a closure: the reactive names it captured (O-3)
   retCaptures?: Sym[];                 // what calling that value can return holding (O-3)
@@ -1030,7 +1031,7 @@ class Checker {
       if (d.k === "server") sym.params = d.params.map(name => ({ name, ref: false }));
       if (d.k === "source") sym.question = !!d.question;
       if ((d.k === "source" || d.k === "eq") && d.key !== undefined) sym.rowKey = d.key;   // ST-4d: what its rows are keyed by
-      if (d.k === "action") { sym.io = true; sym.arity = d.params.length; sym.outlasts = actionWaits(d.body); }                 // R-io-2: an action is io; AC-1f: its parameters
+      if (d.k === "action") { sym.io = true; sym.arity = d.params.length; if (d.required !== undefined) sym.arityMin = d.required; sym.outlasts = actionWaits(d.body); }                 // R-io-2: an action is io; AC-1f: its parameters
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = instantiates(d); sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); sym.compRegion.key = `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${sym.compRegion.id}` : ""}`; }   // E-5a
       if (d.k === "eq") sym.eqDecl = d;
@@ -2583,7 +2584,7 @@ class Checker {
           if (s?.generated && ctx.scope === "imperative" ? s.makes && !this.refCalls.has(e) : s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) declares state or reads a context: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
           if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.f.name} called as a function: apply it in a view`);
           this.markCallbacks(e.args, s?.cbs);
-          if (s?.kind === "action" && s.arity !== undefined && e.args.length !== s.arity) this.err("ARGUMENT_COUNT", "AC-1f", `${e.f.name} takes ${s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
+          if (s?.kind === "action" && s.arity !== undefined && (e.args.length > s.arity || e.args.length < (s.arityMin ?? s.arity))) this.err("ARGUMENT_COUNT", "AC-1f", `${e.f.name} takes ${s.arityMin !== undefined ? `${s.arityMin} to ${s.arity} arguments` : s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
           this.model.call(s);
           if (s && (s.kind === "import" || (s.kind === "fn" && s.foreign !== undefined)) && s.foreign !== "comp") this.unplaced(e.args, env, s);   // MO-11s, MO-11u
         }

@@ -235,7 +235,7 @@ pub enum Decl {
     Fn { name: String, params: Vec<Param>, decls: Vec<Decl>, tail: Expr, line: usize, span: Span, ret: Option<String>, exported: bool, tparams: Option<String> },
     /// `tparams`: `<T>`, as text (07 §2)
     Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, no_props: bool, exported: bool, is_default: bool, tparams: Option<String> },
-    Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
+    Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, /** AC-1f: how many of them a call must pass, where the last ones may be left out (`by?`) */ required: Option<usize>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Server { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Provide { name: String, e: Expr, line: usize, span: Span },
     Context { name: String, ty: Option<String>, source: bool, dflt: Option<Expr>, line: usize, span: Span, exported: bool },
@@ -926,11 +926,12 @@ impl Decl {
                 ("isDefault", flag(*is_default)),
                 ("tparams", os(tparams)),
             ]),
-            Decl::Action { name, params, ptypes, body, line, exported, .. } => obj(vec![
+            Decl::Action { name, params, ptypes, required, body, line, exported, .. } => obj(vec![
                 ("k", s("action")),
                 ("name", s(name)),
                 ("params", Some(strs(params))),
                 ("ptypes", Some(ostrs(ptypes))),
+                ("required", required.map(|n| json!(n))),
                 ("body", Some(stmts_json(body))),
                 ("line", num(*line)),
                 ("exported", flag(*exported)),

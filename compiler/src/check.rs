@@ -394,6 +394,7 @@ struct Sym<'a> {
     export_key: Option<String>,
     /// an action declared here: how many arguments a call passes (AC-1f)
     arity: Option<usize>,
+    arity_min: Option<usize>,
     /// an action declared here: whether its change can outlast the call (an `await`, `refresh`, `affects`; AC-1h)
     outlasts: Option<bool>,
     /// RG-4b: the props of `component C()`, which declares none — C's name: reading them is UNBOUND
@@ -474,6 +475,7 @@ impl<'a> Sym<'a> {
             reader: false,
             export_key: None,
             arity: None,
+            arity_min: None,
             outlasts: None,
             no_props: None,
         }
@@ -3218,9 +3220,10 @@ impl<'a> Checker<'a> {
                     sym.question = *question;
                     sym.row_key = key.clone(); // ST-4d: what its rows are keyed by
                 }
-                Decl::Action { params, body, .. } => {
+                Decl::Action { params, required, body, .. } => {
                     sym.io = true; // R-io-2: an action is io
                     sym.arity = Some(params.len()); // AC-1f: its parameters
+                    sym.arity_min = *required; // …at least, where its last ones may be left out (`by?`)
                     sym.outlasts = Some(action_waits(body)); // AC-1h
                 }
                 Decl::Fn { params, decls: fdecls, tail, .. } => {
@@ -6914,6 +6917,7 @@ impl<'a> Checker<'a> {
                         return;
                     }
                     let s = self.lookup(env, fname);
+                    let arity_min = s.and_then(|s| self.syms[s].arity_min);
                     let (io, kind, side, io_via, instantiating, arity) = match s {
                         Some(s) => (self.syms[s].io, Some(self.syms[s].kind), self.syms[s].side, self.syms[s].io_via.clone(), self.syms[s].instantiating, self.syms[s].arity),
                         None => (false, None, None, None, false, None),
@@ -6949,11 +6953,12 @@ impl<'a> Checker<'a> {
                         self.mark_callbacks(args, s);
                     }
                     if let (Some(SymKind::Action), Some(n)) = (kind, arity) {
-                        if args.len() != n {
-                            let takes = match n {
-                                0 => "no arguments".to_string(),
-                                1 => "1 argument".to_string(),
-                                n => format!("{} arguments", n),
+                        if args.len() > n || args.len() < arity_min.unwrap_or(n) {
+                            let takes = match (arity_min, n) {
+                                (Some(m), n) => format!("{m} to {n} arguments"),
+                                (_, 0) => "no arguments".to_string(),
+                                (_, 1) => "1 argument".to_string(),
+                                (_, n) => format!("{} arguments", n),
                             };
                             self.err("ARGUMENT_COUNT", "AC-1f", format!("{} takes {} and is called with {}: an action's parameters are its whole input — pass each one, and nothing it does not declare", fname, takes, args.len()));
                         }
@@ -10920,7 +10925,7 @@ mod tests {
         };
         assert_eq!(
             ["a: number, b?: number", "a?, b?", "ref a, b?: { x?: number }", "a ? : number", "a? : T", "a?: number, b", "a?: number, ref b", "ref a?: number", "...a"].map(says),
-            [" a  number, b ? number", " a ? , b ? ", "ref a  , b ? { x?: number }", "PARSE", " a ? T", "E-9a", "E-9a", "E-9a", "PARSE"]
+            [" a  number, b ? number", " a ? , b ? ", "ref a  , b ? { x?: number }", "PARSE", " a ? T", "E-9a", "E-9a", "ref a ? number", "PARSE"]
         );
         let src = "export fn f(a: number, b?: { x?: number }, c?) => 1\nexport fn g(ref a: number, b?: () => void) { x = a + 1\n  x }\n";
         let set = load_modules("/a.rx", &|p: &str| (p == "/a.rx").then(|| src.to_string())).unwrap();

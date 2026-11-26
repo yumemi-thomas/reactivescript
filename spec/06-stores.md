@@ -271,6 +271,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   an `.rx` module or passed as a prop is not checked (its signature carries
   no parameters yet, MO-3). Found by the eval board (r15prep,
   `check-accepts-arity-and-missing-props.rx`; S-check-1).
+  *A parameter may be left out (2026-11-26):* `action add(item: Item, at?:
+  number)` — the last ones, marked `?` as a fn's (02 E-9a); a call passes
+  the required ones and any of the rest, and one left out is `undefined` in
+  the body (`at ?? 0`). S-surface-14.
 - **AC-1g (An answer takes only what is the server's).** [taken by default
   2026-11-17] In a declared action, a write after an `await` into a source
   with a question (the server's answer, ST-5a) takes only the `await`'s

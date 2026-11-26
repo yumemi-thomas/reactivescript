@@ -278,6 +278,10 @@ attributes are equations, children are readers, components are applied as
   a served page over reads the value before it): a `ref` that counts writes
   by a function of the value (`n := v => v + 1`, W-6).
 
+*Words that are names too (2026-11-26).* `on` (after `loading`) and `from` (in an `import`) are words only where the
+grammar reads them: anywhere else they are names — `on = !off`, `{ from, to } = props`. They were reserved, and a
+declaration so named was "expected a declaration or markup".
+
 ## 5. Imperative scope (02 SC-2, 06 AC)
 
 Imperative scope is: an `effect`'s apply block, an `action` body, and any
