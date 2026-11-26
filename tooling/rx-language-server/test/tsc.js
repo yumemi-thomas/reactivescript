@@ -75,6 +75,16 @@ check("a view the component may not have been given is provided to a context as 
 const other = run({ file: "carried.rx", text: () => carried('<use.item v="a" />') + "export component Root(p: { item?: (o: { v: number }) => View; children?: View }) {\n  provide item = p.item\n  <ul>{p.children}<Part /></ul>\n}\n" });
 check("...and one of another type is refused, on its line", other.status !== 0 && /carried\.rx\(6,\d+\): error TS2345/.test(other.out), other);
 
+// W-6 (2026-11-26): a source of a type parameter written with a value of it is refused — a `T` may be a function, and a
+// write applies a function — with what to write; `() => v` stores it for every `T`. So for a function at a path.
+const keep = w => `component Keep<T>(props: { v: T; go: boolean }) {\n  source value: T | undefined := undefined\n  effect (props.go) { if ($0) { ${w} } }\n  <b>{value == undefined ? "none" : "set"}</b>\n}\nexport component Kept() { <Keep v={(x: number) => 7} go={true} /> }\n`;
+const bareT = run({ file: "keep.rx", text: () => keep("value := props.v") });
+check("a bare T written to a source is TS2345, with what to write", bareT.status !== 0 && /keep\.rx\(3,\d+\): error TS2345: .*W-6: .*`x := \(\) => v`/.test(bareT.out), bareT);
+const fnT = run({ file: "keep.rx", text: () => keep("value := () => props.v") });
+check("...and `() => v` passes", fnT.status === 0 && fnT.out.trim() === "", fnT);
+const atPath = run({ file: "keep.rx", text: () => "export component P() {\n  source s := { f: (x: number) => x }\n  <p onClick={() => { s.f := (x: number) => x * 2 }}>{s.f(3)}</p>\n}\n" });
+check("a function written to a path is TS2345, with what to write", atPath.status !== 0 && /keep\.rx\(3,\d+\): error TS2345: .*W-6: /.test(atPath.out), atPath);
+
 const parse = run({ file: "catalog.rx", text: t => t + "\nexport fn broken( {\n" });
 check("a parse error fails (no projection, so TypeScript alone would pass it)", parse.status !== 0 && /catalog\.rx:\d+:\d+ - error PARSE/.test(parse.out), parse);
 

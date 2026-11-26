@@ -719,6 +719,7 @@ on to a second fn, an action reached through a record or a list.
 ### What is weaker than before
 
 1. A source of a bare type parameter is written with a value of that type unchecked for being a function (1).
+   *Undone 2026-11-26* ("Roadmap, track 1", step 2): refused again, with `x := () => v` in the message.
 2. Nothing else is accepted that was refused.
 
 What is refused that was accepted, each for a page that was wrong when served or a run that stopped: a value shown
@@ -783,3 +784,38 @@ is not a loss — an importer reads an unlisted prop as one the component does n
 *Census.* No `.rx` program of the tree has `source … := await` or a generic context, so nothing is newly refused there
 (`rx-std`'s REPORT.md noted the `:=` form as one that `rx-lib` refused; it now fails at the checkers, with the
 rewrite in the message).
+
+### Step 2: W1 undone — a write of a bare `T` is refused again, and a function written to a path with it
+
+*Decided (the roadmap's change of `rx-best` item 1).* The type pass's `set` takes `Exclude<T, Function>` or an updater
+again, for every `T`: a type parameter may be a function, a write applies a function (W-6), and `x := () => v` stores `v`
+for every `T` — Solid's own idiom (`setValue(() => v)`), which the type pass already accepted. Rejected with the
+roadmap: keeping the relaxation (one shorter line, and the one documented hole of the generic work), storing instead of
+applying where the declared type names a type parameter (the emitters read no types; one text, two meanings), a hidden
+"not a function" constraint on the caller's `T` (refuses a correct select of callbacks).
+
+*Found beside it, and fixed the same way.* A path write of a function (`s.f := (x: number) => x * 2`, a field that holds a
+function) passed both checkers and the type pass, whose `setAt` took any `T`; the interpreter and both emitters applied it
+(W-6 at a path, since f4e7d3cf) and threw, the oracle stored it. W-6 already said "`x := f` is refused by its type": `setAt`
+now refuses a function as `set` does (a draft's path the same: its write takes an updater too).
+
+*The message.* TypeScript prints the parameter's type expanded, so the message is added where every reader of the type
+pass's diagnostics gets them, `tooling/rx-language-server/src/checker.js` (`plain`): a TS2345 whose parameter is the
+prelude's `Exclude<…, Function>`, or a function given where the updater `(p: X) => X` stands, says "W-6: a write applies a
+function … write `x := () => v`, which stores `v` for every type". The code stays TS2345. rx-tsc, the editor and
+`ref/types` say it alike.
+
+| | |
+| --- | --- |
+| programs (`mk2.py`: 3 declared types × 3 writers (effect, action, handler) × 4 caller types × bare/functional; a function caller stored and called; the generic action of a combobox; 4 path shapes × bare/functional; a generic path; known types) | 87: 41 the type pass alone refuses, every one TS2345 with the W-6 message; 46 accepted |
+| accepted, frames from the interpreter, then interpreter, oracle, both emitters, served and hydrated in both | 43 of 43 alike (3 more are a write that changes nothing, so no instant — the set's own) |
+| both checkers, lowered, projected | 87 of 87 alike |
+| the 170 of rx-best's `mkg.py` | 1 writes a bare `T` (the combobox), refused as the others |
+| scenarios, the type pass | 662 of 662 after S-generic-2's combobox was rewritten (`value := () => v`) and a rejected variant added |
+| `test/tsc.js` | 59 of 59 (three new: the bare `T`, its twin, a path) |
+| `examples/rx-packages/check.mjs` | its record rewritten byte for byte: no verdict moved |
+| `examples/rx-std` | 13 of 13 build |
+| `examples/rx-ui-sdk` | builds; `check/run.mjs` as before (good and correct programs accepted). `app/test.mjs` cannot run: its harness imports esbuild, which nothing installs (not in CI; left) |
+
+What this refuses that was accepted: a bare `T` written to a source, and a function written to a path. Nothing of the
+tree but S-generic-2's combobox was either.

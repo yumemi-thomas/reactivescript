@@ -18,12 +18,12 @@ export declare function raise(e: unknown): never;
 /** W-1/W-6: a write checks its value (or its function of the slot) against the target — whose type alone decides it. A
  *  function is applied, so one is no value here, whatever the target holds: Solid's Setter says the same. */
 /** What a source of T is written with (W-6: a function is applied to what it held, so a function is no value to write).
- *  Read by a tuple's length, as `eq` is: a type parameter, which is not known, is written with itself (07 §2). */
-type HasFn<T> = 0 extends (1 & T) ? [] : [Extract<T, Function>] extends [never] ? [] : [1];
-type Written<T> = [...HasFn<T>]["length"] extends 1 ? Exclude<T, Function> : T;
+ *  A type parameter may be a function, so no value of it is one to write: `x := () => v` stores `v` for every T. The
+ *  name is the one the tooling's message reads (tooling/rx-language-server/src/checker.js, `written`). */
+type Written<T> = Exclude<T, Function>;
 export declare function set<T>(target: T): (v: Written<T> | ((p: T) => T)) => void;
-/** …at a path, which may be a draft's: there a function can be the value (ST-3a). */
-export declare function setAt<T>(target: T): (v: T | ((p: T) => T)) => void;
+/** …at a path, a draft's too: a function is applied to the path's value there as well (W-6). */
+export declare function setAt<T>(target: T): (v: Written<T> | ((p: T) => T)) => void;
 /** A source's type when none is written: its initializer's, widened — a source is written later (`""` is a string,
  *  `null` and `[]` say nothing yet). With a written type, `src<T>` is that type, not what the initializer narrows it to. */
 export type Widen<T> = 0 extends (1 & T) ? any : [T] extends [null | undefined] ? any : [T] extends [never[]] ? any[] : [T] extends [string] ? string : [T] extends [number] ? number : [T] extends [boolean] ? boolean : T;

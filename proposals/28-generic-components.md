@@ -74,9 +74,11 @@ export default component App() { <Val<number> v={1} /> }
 
 **For TSX.** `rx-lib` writes what the projection has: `export declare function List<T extends { id: number }>(props: { items: T[]; children: Render<T>; empty?: View }): JSX.Element`. A TSX caller writes `<List items={rows}>{(r) => <b>{r.item.name}</b>}</List>`, and `r.item.nmae` is `TS2339` there too (run by hand on a built package; no test holds it yet).
 
-## One change to the type pass
+## A source of a type parameter (changed 2026-11-26)
 
-A source of a type parameter's type could not be written with a `T` (`source value: T | undefined`, `value := v`: `TS2345`). The write's type refuses a function, because a function is applied to what the source held (W-6), and TypeScript cannot decide that for an unknown `T`. It is read by a tuple's length now, as `eq` is since 20: every verdict on a known type is the same, and a `T` is written with itself. If the caller's `T` is a function, the write applies it, in every runner, as Solid's setter does. That is the one thing here that is weaker than before.
+A source of a type parameter's type is not written with a `T` (`source value: T | undefined`, `value := v`: `TS2345`). The write's type refuses a function, because a function is applied to what the source held (W-6), and a `T` may be one. Write `value := () => v`: it stores `v` for every `T`, a function included, and is Solid's own idiom for the same case (`setValue(() => v)`). The type pass's message says so.
+
+*History.* For one release the write's type was read by a tuple's length, as `eq` is, so a `T` was written with itself; a caller whose `T` was a function then had it applied, in every runner — the one thing of this work weaker than before (the roadmap's W1). It was undone: the relaxation bought one shorter line. The same fault was found at a path (`s.f := (x) => x * 2`, a function written to a function's field), which the type pass took while the runners applied it: a path's write is held the same (W-6).
 
 ## Evidence
 
