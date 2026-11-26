@@ -127,6 +127,26 @@ Function application `f(e…)` covers both language functions and FFI imports;
   A JavaScript component is what its declaration says (09 MO-10g):
   `handler` on the prop's type; with no declaration, `ref` is no handler.
   S-view-10.
+- **SC-4c What a `ref` reads (2026-11-26).** Solid calls the `ref`s of one
+  pass in an order the language does not fix: the elements of one template
+  in their order, the rows of a list after them when the page is rendered
+  and among them when a served page is taken over (07 §4, measured). A `ref`
+  that reads a source another `ref` writes — on an element, or given to a
+  component written in `.rx` (SC-4b) — or a source it writes itself in each
+  row of a `for` below the source, reads what is not the same rendered and
+  hydrated, nor in every runner: `REF_READS_REF_WRITE`. What a `ref` runs is
+  its closure's body, an action it names or calls by name (transitively),
+  and a closure it gives a method that calls it at once (`forEach`, `map`, …);
+  a closure it makes for later (a listener) is not run, and is not counted.
+  A read through an equation is a read of the sources under it; `peek` reads
+  too. A write by a function of the value (`n := v => v + 1`, W-6) reads
+  nothing here: such writes compose in any order. What depends on two
+  `ref`s' writes is read once the view is made — an equation, an effect, a
+  handler. Not followed: a `ref` of another module, and a handler prop a
+  `ref` calls (the caller's closure). Refused too where today's Solid happens
+  to give one answer everywhere (a reader before the writer in one template,
+  a reader in an `if` after it): that order is Solid's compiler's, not the
+  language's. S-server-8.
 
 ---
 

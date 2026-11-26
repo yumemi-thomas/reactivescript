@@ -2090,6 +2090,12 @@ struct ReaderRec<'a> {
     line: i64,
 }
 /// R-8: an event handler on an element, with the element's attributes (its `disabled` covers the handler).
+/// SC-4c: the sources a `ref` reads (each with the name it read it by) and writes, and the actions already walked
+struct RefTouch {
+    reads: IndexMap<SId, String>,
+    writes: IndexSet<SId>,
+    acts: HashSet<usize>,
+}
 struct HandlerRec<'a> {
     attrs: &'a [Attr],
     /// the element's children: a `<form>`'s submit buttons cover its `onSubmit` (AC-3a)
@@ -2401,6 +2407,10 @@ pub struct Checker<'a> {
     callee_ids: HashSet<*const Expr>,
     /// MO-8l: what a `ref` attribute is, or lists: a call there runs as the element is made, under the region's owner
     ref_calls: HashSet<*const Expr>,
+    /// SC-4c: each `ref` given to an element or an .rx component, where it is (the expression, its scope, the line, the tag)
+    ref_sites: Vec<(&'a Expr, EId, i64, String)>,
+    /// SC-4c: the rows of a `for`, each made once per item in one pass
+    for_rows: HashSet<RId>,
     /// MO-10k: a closure literal's other arguments in the call it is given to (its parameters may be any of them)
     fn_srcs: HashMap<*const Expr, Vec<(&'a Expr, EId)>>,
     /// MO-11k: declared JS components' render props (fields typed as a function giving a View), by region
@@ -2885,6 +2895,8 @@ impl<'a> Checker<'a> {
             whole_ok: HashSet::new(),
             callee_ids: HashSet::new(),
             ref_calls: HashSet::new(),
+            ref_sites: vec![],
+            for_rows: HashSet::new(),
             fn_srcs: HashMap::new(),
             fn_seq: 0,
             render_props: HashMap::new(),
@@ -3087,6 +3099,7 @@ impl<'a> Checker<'a> {
         self.loading_on_outside();
         self.snapshot_guards();
         self.guess_while_loading();
+        self.ref_reads();
         self.kept_peek_check();
         self.named_lit_check();
     }
@@ -8299,6 +8312,7 @@ impl<'a> Checker<'a> {
                     for a in attrs.iter().filter(|a| a.name == "ref") {
                         let made = if let ExprKind::Arr(xs) = &a.e.k { &xs[..] } else { std::slice::from_ref(&a.e) };
                         self.ref_calls.extend(made.iter().map(|e| e as *const Expr));
+                        self.ref_sites.extend(made.iter().map(|e| (e, env, self.line, tag.clone())));
                     }
                     if is_upper_tag(tag) {
                         let s = self.lookup(env, tag);
@@ -8572,6 +8586,7 @@ impl<'a> Checker<'a> {
                         self.err("UNSTABLE_LIST_IDENTITY", "ST-4b", format!("for {} in …: the rows are rebuilt as fresh records on every change — declare a key (`x key id = …`)", name));
                     }
                     let r = self.region(Some(region), "for", false, None);
+                    self.for_rows.insert(r);
                     let inner = self.env(Some(env), r);
                     let mut row = Sym::new(SymKind::Value, name, r, self.line);
                     row.row_of = Some((xs, env));
@@ -9828,6 +9843,217 @@ impl<'a> Checker<'a> {
     /// the click reads (a selection, a row), from an element that is not covered (R-8: inside a `loading` region whose
     /// content reads the target, or `disabled` reading it). While that question is out the guess composes on the
     /// previous answer, and the new answer replaces it: the user's change disappears while its action is out.
+    /// SC-4c: a `ref` reads what another `ref` of the same pass writes. Solid calls the `ref`s of one pass in an order the
+    /// language does not fix (07 §4: the elements of one template in their order; the rows of a list after them when the page
+    /// is rendered, among them when it is hydrated). A `ref` that reads a source another `ref` writes — or that it writes
+    /// itself in another row of a `for`, or another call of a `view (…)` block, below the source — reads what is not the same
+    /// rendered and hydrated, nor in every runner. What a `ref` runs: its closure's body, an action it names (or calls by
+    /// name, transitively), a closure it gives a method that calls it at once (CALLS_NOW); a closure it makes for later is not
+    /// run. A read through an equation is a read of the sources under it. A write by a function of the value
+    /// (`n := v => v + 1`, W-6) reads nothing here. Mirrors ref/src/check.ts `refReads`.
+    fn ref_reads(&mut self) {
+        let mut seen: HashSet<*const Expr> = HashSet::new();
+        let sites: Vec<(&'a Expr, EId, i64, String)> = self.ref_sites.clone();
+        let mut touched: Vec<(EId, i64, String, IndexMap<SId, String>, IndexSet<SId>)> = vec![];
+        for (e, env, line, tag) in sites {
+            // SC-4b: a JS component's `ref` is its declaration's
+            let handled = !is_upper_tag(&tag) || self.lookup(env, &tag).is_some_and(|c| self.syms[c].kind == SymKind::Comp && self.syms[c].comp_region.is_some_and(|r| !self.regions[r].js));
+            if !handled || !seen.insert(e as *const Expr) {
+                continue;
+            }
+            let mut t = RefTouch { reads: IndexMap::new(), writes: IndexSet::new(), acts: HashSet::new() };
+            match &e.k {
+                ExprKind::Fn { .. } => self.ref_fn_body(e, env, &HashSet::new(), &mut t),
+                ExprKind::Id(n) => self.ref_action(n, env, &mut t),
+                _ => {}
+            }
+            touched.push((env, line, tag, t.reads, t.writes));
+        }
+        let mut errs: Vec<(i64, String)> = vec![];
+        for (i, (env, line, tag, reads, writes)) in touched.iter().enumerate() {
+            for (&k, by) in reads {
+                let other = touched.iter().enumerate().find(|(j, o)| *j != i && o.4.contains(&k)).map(|(_, o)| o);
+                // itself, in a row of a `for` below the source: made once per item in one pass
+                let mut own = false;
+                if other.is_none() && writes.contains(&k) {
+                    let mut r = Some(self.envs[*env].region);
+                    while let Some(c) = r.filter(|&c| c != self.syms[k].region) {
+                        if self.for_rows.contains(&c) {
+                            own = true;
+                            break;
+                        }
+                        r = self.regions[c].parent;
+                    }
+                }
+                if other.is_none() && !own {
+                    continue;
+                }
+                let nk = self.syms[k].name.clone();
+                let via = if *by == nk { nk.clone() } else { format!("{by} (which reads {nk})") };
+                let writer = match other {
+                    Some(o) => format!("the `ref` of <{}> (line {}) writes", o.2, o.1),
+                    None => "this `ref` writes in each row of its `for`".to_string(),
+                };
+                errs.push((*line, format!("the `ref` of <{tag}> reads {via}, which {writer} as the view is made: Solid calls the `ref`s of one pass in an order that is not the same when the page is rendered and when it is hydrated (07 §4), so what it reads differs — write by a function of the value (`{nk} := v => …`, W-6), or read {nk} once the view is made: in an equation, an effect, or a handler")));
+                break;
+            }
+        }
+        for (line, msg) in errs {
+            self.line = line;
+            self.err("REF_READS_REF_WRITE", "SC-4c", msg);
+        }
+    }
+    /// SC-4c: the sources an equation (or a question source) reads, itself first when it is a source.
+    fn ref_under(&self, t: SId, out: &mut Vec<SId>, busy: &mut HashSet<SId>) {
+        if !busy.insert(t) {
+            return;
+        }
+        if self.syms[t].kind == SymKind::Source {
+            out.push(t);
+        }
+        let Some((e, env)) = self.syms[t].expr else { return };
+        self.ref_under_node(Node::E(e), env, out, busy);
+    }
+    fn ref_under_node(&self, x: Node<'_>, env: EId, out: &mut Vec<SId>, busy: &mut HashSet<SId>) {
+        if let Node::E(e) = x {
+            match &e.k {
+                ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return,
+                ExprKind::Id(n) => {
+                    if let Some(u) = self.lookup(env, n) {
+                        if matches!(self.syms[u].kind, SymKind::Source | SymKind::Eq) {
+                            self.ref_under(u, out, busy);
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+        for c in children(x, false) {
+            self.ref_under_node(c, env, out, busy);
+        }
+    }
+    fn ref_action(&self, name: &str, env: EId, t: &mut RefTouch) {
+        let Some(a) = self.lookup(env, name) else { return };
+        if self.syms[a].kind != SymKind::Action {
+            return;
+        }
+        let l = self.syms[a].line;
+        let acts: Vec<(usize, &'a [Stmt], EId)> = self.actions.iter().enumerate().filter(|(_, x)| x.name == name && x.line == l).map(|(i, x)| (i, x.body, x.env)).collect();
+        for (i, body, aenv) in acts {
+            if t.acts.insert(i) {
+                let mut b = HashSet::new();
+                for st in body {
+                    self.ref_walk(Node::S(st), aenv, &mut b, t);
+                }
+            }
+        }
+    }
+    fn ref_fn_body(&self, f: &Expr, env: EId, bound: &HashSet<String>, t: &mut RefTouch) {
+        let ExprKind::Fn { params, body, stmts, .. } = &f.k else { return };
+        let mut b = bound.clone();
+        b.extend(params.iter().cloned());
+        match stmts {
+            Some(ss) => {
+                for st in ss {
+                    self.ref_walk(Node::S(st), env, &mut b, t);
+                }
+            }
+            None => self.ref_walk(Node::E(body), env, &mut b, t),
+        }
+    }
+    fn ref_walk(&self, n: Node<'_>, env: EId, bound: &mut HashSet<String>, t: &mut RefTouch) {
+        match n {
+            Node::E(e) => match &e.k {
+                ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return,
+                ExprKind::Id(name) => {
+                    if bound.contains(name) {
+                        return;
+                    }
+                    if let Some(s) = self.lookup(env, name) {
+                        if matches!(self.syms[s].kind, SymKind::Source | SymKind::Eq) {
+                            let mut ss = vec![];
+                            self.ref_under(s, &mut ss, &mut HashSet::new());
+                            for x in ss {
+                                t.reads.entry(x).or_insert_with(|| name.clone());
+                            }
+                        }
+                    }
+                    return;
+                }
+                ExprKind::Call { f, args, .. } => {
+                    if let ExprKind::Member { o, p, .. } = &f.k {
+                        if CALLS_NOW.contains(&p.as_str()) {
+                            self.ref_walk(Node::E(o), env, bound, t);
+                            for a in args {
+                                if matches!(a.k, ExprKind::Fn { .. }) {
+                                    self.ref_fn_body(a, env, bound, t);
+                                } else {
+                                    self.ref_walk(Node::E(a), env, bound, t);
+                                }
+                            }
+                            return;
+                        }
+                    }
+                    if let ExprKind::Id(fname) = &f.k {
+                        if !bound.contains(fname) {
+                            self.ref_action(fname, env, t);
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Node::S(s) => match &s.k {
+                StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                    // `use c := …` writes no source (RG-7c withdrawn)
+                    if target.ctx != Some(true) && !bound.contains(&target.name) {
+                        if let Some(x) = self.lookup(env, &target.name) {
+                            t.writes.insert(x);
+                        }
+                    }
+                    for p in &target.path {
+                        if let PathSeg::Expr(x) = p {
+                            self.ref_walk(Node::E(x), env, bound, t);
+                        }
+                    }
+                    self.ref_walk(Node::E(e), env, bound, t);
+                    return;
+                }
+                StmtKind::Let { name, e, .. } => {
+                    self.ref_walk(Node::E(e), env, bound, t);
+                    bound.insert(name.clone());
+                    return;
+                }
+                StmtKind::For { name, e, body } => {
+                    self.ref_walk(Node::E(e), env, bound, t);
+                    let mut b = bound.clone();
+                    b.insert(name.clone());
+                    for st in body {
+                        self.ref_walk(Node::S(st), env, &mut b, t);
+                    }
+                    return;
+                }
+                StmtKind::Try { body, catch_name, handler, fin, .. } => {
+                    for st in body {
+                        self.ref_walk(Node::S(st), env, bound, t);
+                    }
+                    let mut b = bound.clone();
+                    b.extend(catch_name.iter().cloned());
+                    for st in handler.iter().flatten() {
+                        self.ref_walk(Node::S(st), env, &mut b, t);
+                    }
+                    for st in fin.iter().flatten() {
+                        self.ref_walk(Node::S(st), env, bound, t);
+                    }
+                    return;
+                }
+                _ => {}
+            },
+        }
+        for c in children(n, false) {
+            self.ref_walk(c, env, bound, t);
+        }
+    }
     fn guess_while_loading(&mut self) {
         let hs: Vec<(&'a [Attr], &'a [Markup], &'a Expr, EId, RId, i64, String)> = self.handlers.iter().map(|h| (h.attrs, h.kids, h.h, h.env, h.region, h.line, h.what.clone())).collect();
         let acts: Vec<(String, i64, &'a [Stmt], EId)> = self.actions.iter().map(|a| (a.name.clone(), a.line, a.body, a.env)).collect();

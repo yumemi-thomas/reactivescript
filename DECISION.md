@@ -1111,3 +1111,79 @@ The p3 set's 36 "unread await" programs (`p3-el-attr-*`) are frames alike in eve
 question nothing shows (an `await` whose answer is only in content that a presence test reads), the interpreter
 does not (E-3, demand). The spec's side is the interpreter's; Solid's memo is eager, and making the runtime's memos
 lazy is a change of what every component runs first, so it is recorded, not made, here.
+
+## Roadmap, track 3 (2026-11-26: X6 built, then every review set again)
+
+The probes and sets are outside the tree (`/Users/thomas/dev/rx-t3.noindex/probes`, `sets`, `logs`).
+
+### X6: what a `ref` reads of another `ref`'s write — refused (02 SC-4c, `REF_READS_REF_WRITE`)
+
+*Checked again first.* 43 programs (`probes/mkx6.mjs`, `mkx6b.mjs`) through every runner, served and hydrated, on
+19171dc2 and after. What a `ref` reads of a source another `ref` writes in the same pass:
+
+| shape | interpreter | rendered | hydrated |
+| --- | --- | --- | --- |
+| two siblings, the writer first; a parent writes, a child reads; an action writes; through an equation | the write | before | before |
+| a reader in a `for` row (before or after the writer, or inside it); one `ref` counting in each row (`n := n + 1`) | the write | the write | before |
+| a reader in an `if` before the writer | the write | before | before |
+| a reader first in one template; a reader in an `if` after the writer; both in one `if`; a reader in a `view (…)` block after the writer | alike in all three (the first reads the value before, the others the write) | | |
+
+So track 2's ruling stands: the answer is the order Solid's compiler and its hydration make the pass, and a flush
+cannot fix it (track 2, c). *Decided:* the reading is refused in every order, also in the four shapes that agree
+today. Why not narrower: a rule that accepts "a reader in an `if` after the writer" or "a reader first in its template"
+would be a description of Solid's template splitting and of when an `insert`'s region is made (top-level siblings read
+the value before; the same two inside an `if` read the write), which the language does not own and which a change of
+Solid's compiler moves; and in those shapes the program reads either the initial value (write it as a constant) or a
+write that an equation reads as well. Refusing them is the cost, and the census below found no program that pays it.
+*What I would change my mind on:* a correct program of a library that needs to read, in a `ref`, what a parent's `ref`
+gave (an anchor element read by a child inside an `if`); then that shape could be ruled with a scenario, once Solid
+says the order is its contract.
+
+*The rule* (both checkers, `refReads` / `ref_reads`, alike; S-server-8). For each `ref` given to an element or to a
+component written in `.rx` (a JavaScript component's `ref` is its declaration's, SC-4b): what it reads and writes in its
+closure's body, in an action it names (`ref={put}`) or calls by name (transitively), and in a closure it gives a method
+that calls it at once (CALLS_NOW: `forEach`, `map`, …). A closure it makes for later (a listener, a timer) is not walked;
+a name a parameter, a `let` or a `catch` binds is not the source's. A read of an equation is a read of the sources under
+it; `peek` reads too; a write by a function of the value reads nothing. Refused: a read of a source another `ref` of the
+module writes, or of one the same `ref` writes while it is in a `for` row below the source (one instance a row). The
+message names the writer and says what to write (`n := v => …`, or an equation, an effect, a handler).
+
+*Narrowed while building:* a `view (…)` block was first counted as made once per call, like a row; a block shown once
+was then refused (correct), and one shown twice with `n := n + 1` agrees in every runner, served and hydrated: taken
+out. *Not followed* (said in SC-4c): a `ref` of another module, and a handler prop a `ref` calls (`ref={e =>
+props.onEl(e)}`, the caller's closure) — the second is a hole of the same kind as W4's (a function given to what the
+checker does not read); written down below as X13.
+
+| census: newly refused | |
+| --- | --- |
+| the probes (`x6`, `x6b`: 43) | 20 refused that differed (13 between the interpreter and compiled code, 7 between rendered and hydrated), 5 refused that agreed (the four shapes above, and a reader in a view block after the writer); of the 14 that must stay accepted none is refused by SC-4c (two are `UNBOUND` before and after: the probe's own `setTimeout` and `console`); the one already refused stays `STALE_OWN_READ` |
+| scenarios: the four runners, served and hydrated in both emitters, crate parity, the type pass (`scripts/quick`) | none |
+| `bench/run.mjs --check --strict` | none ("as bench/scorecard.json, or better") |
+| `examples/rx-packages`: `build.mjs` 65 of 65, `check.mjs` | `check.json` unchanged byte for byte; `live.mjs` below |
+| `examples/rx-std` | 13 of 13 build |
+| `examples/rx-ui-sdk` | builds; `check/run.mjs`: the rewrite's column accepts all 8 correct lines and the good program |
+| `proposals/check.mjs` | 190 verdicts over 77 documents, all as stated |
+
+Strictness raised; nothing weaker.
+
+*Found on the way: DV-27, Solid's.* `els := [...els, 1]` in a `ref` showed `1` hydrated and `2` rendered. Reduced by kind
+(`probes/mkx6c.mjs`): a `ref`'s write of an atomic source is shown when a served page is taken over; a write of a store
+(an array or record source, any form: plain, functional, a path) is made — the next change shows it — but its reader is
+not run again for it. The same in plain Solid compiled by its own compiler (`ref/oracle/repros/dv27-hydrate`: `1/2/5`
+hydrated for a store, a signal holding an array, a number; `2/2/5` rendered). Recorded as a `hydrated` divergence (spec
+10 DV-27, S-server-9; `ssr/run.ts` now reads a `hydrated` divergence at the hydration instant too, where it read it only
+for later instants). Not refused: the program is ordinary. Not run on 2.0.4.
+
+*SV-3b's re-ask after hydration (track 2, c): left.* The fix is a protocol between the two runtimes, not a local change:
+the server would send each answered question with its key in the stream, the client would seed its table of questions
+with them, held by the node that traced each while it hydrates, and both emitters would hand the key to the hydrating
+node. What reaches a user is one request more, for a server fn in reactive scope only; frames agree once it lands.
+Written down as X14.
+
+New roadmap items:
+
+| | what | class |
+| --- | --- | --- |
+| X12 | DV-27: a store a `ref` writes while hydrating is shown at its next change only (Solid's; a bug page with the TSX twin, and 2.0.4 run) | served ≠ client, Solid's |
+| X13 | a handler prop called in a `ref` (`ref={e => props.onEl(e)}`) whose closure reads what another `ref` writes, and a `ref` of another module: SC-4c does not follow them; needs the callee's printed row to say a handler is called in a `ref` | accepted and wrong, not seen in any corpus |
+| X14 | SV-3b: the client asks again a server fn the server answered, for a row made after hydration (track 2, c) | served ≠ client, ours |
