@@ -737,7 +737,7 @@ impl Proj<'_> {
     }
 
     fn import_decl(&mut self, d: &Decl, ind: &str) {
-        let Decl::Import { names, from, line, resolved, declared, .. } = d else { return };
+        let Decl::Import { names, from, line, resolved, declared, reexport, .. } = d else { return };
         let sp = d.span();
         // the prelude's own (`import { log } from "./prelude"`)
         for n in names.iter().filter(|n| in_prelude(d, &n.name, self.set.conformance)) {
@@ -789,15 +789,24 @@ impl Proj<'_> {
         }
         // MO-13d: an import whose declaration is a printed signature is typed as the .rx module the signature stands for
         // (TY-4c: `x.rx.d.ts`, beside it), so its specifier is that module's, and maps nowhere
+        // MO-6e: a package's entry, as TypeScript reads it
+        let again = reexport.then(|| format!("{ind}export {{ {} }} from ", rest.iter().map(|n| if n.name == n.alias { n.name.clone() } else { format!("{} as {}", n.name, n.alias) }).collect::<Vec<_>>().join(", ")));
         if let (Some(r), false) = (resolved, crate::modules::is_rx(from)) {
-            c = c.t(" from ").t(&js_str(&crate::modules::relative_module(&self.path, r))).t(";");
+            let spec = js_str(&crate::modules::relative_module(&self.path, r));
+            c = c.t(" from ").t(&spec).t(";");
             self.w.emit(c, *line);
+            if let Some(a) = again {
+                self.w.emit(Code::of(&a).t(&spec).t(";"), *line);
+            }
             return;
         }
         let q = js_str(from);
         let fa = self.find(&q[1..q.len() - 1], sp, at).map(|a| a - 1).filter(|a| self.src[*a..].starts_with(&q));
         c = c.t(" from ").at(&q, fa).t(";");
         self.w.emit(c, *line);
+        if let Some(a) = again {
+            self.w.emit(Code::of(&a).t(&q).t(";"), *line);
+        }
     }
     /// A JS import's module, from the program's root (where the stubs are written).
     fn mod_path(&self, from: &str) -> String {

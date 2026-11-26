@@ -16,7 +16,7 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { both, repo, rxc, ws } from "../../harness.mjs";
 
-const SPECS = [["\"@bench/rates/theme\"", "\"./package/src/theme.rx\""], ["\"@bench/rates/pager\"", "\"./package/src/pager.rx\""], ["\"@bench/rates\"", "\"./package/src/index.rx\""]];
+const SPECS = [["\"@bench/rates/theme\"", "\"./package/src/theme.rx\""], ["\"@bench/rates/pager\"", "\"./package/src/pager.rx\""], ["\"@bench/rates/kit\"", "\"./package/src/kit/index.rx\""], ["\"@bench/rates\"", "\"./package/src/index.rx\""]];
 /** The app with the package imported by its source, module for module: what its verdicts are compared with. */
 const bySource = text => SPECS.reduce((t, [a, b]) => t.replaceAll(a, b), text);
 
@@ -34,6 +34,9 @@ const bad = [
   { name: "a plain source of the package asked again as if it were a question", edit: ["onClick={() => { refresh rate }}", "onClick={() => { refresh code }}"], expect: "INVALID_REFRESH_TARGET" },
   { name: "the package's action called while the view computes", edit: ["<i class=\"raw\">{code}={rate}</i>", "<i class=\"raw\">{pick(\"USD\")}={rate}</i>"], expect: "ACTION_CALLED_IN_OWNED_SCOPE" },
   { name: "the package's primitive called in a handler, where nothing owns what it makes", edit: ["onClick={() => { amount := a => a + 1 }}", "onClick={() => { useLabel(amount); amount := a => a + 1 }}"], expect: "INSTANTIATION_NOT_BOUND" },
+  // MO-6e: a kit's entry that re-exports — its names are the declaring modules' (shipped: through the entry's .d.rx)
+  { name: "the kit's part outside the kit's root", edit: ["<aside><Root accent=\"maroon\"><Tag text=\"root\" /></Root>", "<aside><Tag text=\"root\" />"], expect: "CONTEXT_NOT_FOUND" },
+  { name: "the kit's context provided beside the badge that reads it, not above", edit: ["  provide kitTheme = { accent: \"olive\" }\n  <Badge label=\"kit\" />", "  <Badge label=\"kit\" />"], expect: "CONTEXT_NOT_FOUND" },
   { name: "the package's rows restated at the import", edit: ["import { code, rate, pick, useLabel, Badge, Rate, Offline } from \"@bench/rates\"", "import { code, rate, pick, useLabel, Badge, Rate, Offline } from \"@bench/rates\" fails Offline"], expect: "IMPORT_ROW_MISMATCH" },
 ];
 
@@ -59,6 +62,8 @@ export default {
     { name: "the declared error keeps its fields", edit: ["offline: {e.code}", "offline: {e.cod}"], expect: /TS2339|TS2551/ },
     { name: "a provision is checked against the package's context type", edit: ["accent: \"navy\"", "accent: 3"], expect: /TS2322|TS2345/ },
     { name: "the package's source keeps its type", edit: ["{code}={rate}", "{code.nope}={rate}"], expect: /TS2339/ },
+    { name: "a prop of the kit's part, re-exported by the kit's entry, keeps its type", edit: ["<Tag text=\"root\" />", "<Tag text={3} />"], expect: /TS2322/ },
+    { name: "a provision of the kit's context, by the kit's name, is checked against the context's type", edit: ["accent: \"olive\"", "accent: 3"], expect: /TS2322|TS2345/ },
   ],
   bad,
   async run(h) {
@@ -66,14 +71,17 @@ export default {
     // ---- what was shipped ----
     const built = JSON.parse(readFileSync(path.join(dir, "build.json"), "utf8"));
     h.check("rx-lib built the package, and its package.json's exports name what was built", built.ok, built.problems);
-    const must = ["index.js", "index.server.js", "index.dom.js", "index.ssr.js", "index.d.rx", "index.d.ts", "index.rx.d.ts", "theme.js", "theme.server.js", "theme.d.rx", "theme.d.ts", "theme.rx.d.ts", "rx-prelude.d.ts", "rates.js"];
+    const must = ["index.js", "index.server.js", "index.dom.js", "index.ssr.js", "index.d.rx", "index.d.ts", "index.rx.d.ts", "theme.js", "theme.server.js", "theme.d.rx", "theme.d.ts", "theme.rx.d.ts", "rx-prelude.d.ts", "rates.js", "kit/index.js", "kit/index.server.js", "kit/index.d.rx", "kit/index.d.ts", "kit/index.rx.d.ts", "kit/tag.js", "kit/tag.d.rx"];
     h.check("the package holds a browser and a server build, its signature and its types for each module", must.every(f => existsSync(path.join(pkg, "dist", f))), must.filter(f => !existsSync(path.join(pkg, "dist", f))));
     // no word of the package's .d.rx is a person's: each is the signature both checkers print from the module's source
     const printed = file => { const r = spawnSync(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(repo, "ref/check.ts"), "--signature", file], { encoding: "utf8" }); return r.stdout; };
     const refText = printed(path.join(dir, "package/src/index.rx"));
     const pagerText = printed(path.join(dir, "package/src/pager.rx"));
-    const shipped = ["theme", "index", "pager"].map(n => readFileSync(path.join(pkg, "dist", `${n}.d.rx`), "utf8"));
-    h.check("the shipped .d.rx is the printed signature, marked, with no word written by hand (ref/ prints the same text)", shipped.every(s => /^\/\/@ signature /.test(s) && (refText + pagerText).includes(s.trim())), { shipped, refText, pagerText });
+    const kitText = printed(path.join(dir, "package/src/kit/index.rx"));
+    const shipped = ["theme", "index", "pager", "kit/index", "kit/tag"].map(n => readFileSync(path.join(pkg, "dist", `${n}.d.rx`), "utf8"));
+    h.check("the shipped .d.rx is the printed signature, marked, with no word written by hand (ref/ prints the same text)", shipped.every(s => /^\/\/@ signature /.test(s) && (refText + pagerText + kitText).includes(s.trim())), { shipped, refText, pagerText, kitText });
+    // MO-6e: the kit's entry says where each name is declared; its JavaScript hands each on, and its types re-export them
+    h.check("a kit's entry: its .d.rx names the modules that declare what it re-exports, its JavaScript and its .d.ts hand each on", /^export \{ ThemeProvider as Root, theme, Theme \} from "\.\.\/theme\.rx"$/m.test(shipped[3]) && /^export \{ Tag \} from "\.\/tag\.rx"$/m.test(shipped[3]) && /export const Root = __lib\.Root;/.test(readFileSync(path.join(pkg, "dist/kit/index.js"), "utf8")) && !/export const theme\b/.test(readFileSync(path.join(pkg, "dist/kit/index.js"), "utf8")) && /export declare const Tag: typeof __m\.Tag;/.test(readFileSync(path.join(pkg, "dist/kit/index.d.ts"), "utf8")) && /export type \{ Theme \}/.test(readFileSync(path.join(pkg, "dist/kit/index.d.ts"), "utf8")), [shipped[3], readFileSync(path.join(pkg, "dist/kit/index.js"), "utf8"), readFileSync(path.join(pkg, "dist/kit/index.d.ts"), "utf8")]);
     h.check("the printed signature says each part of what a fn answers: what is read with its rows, the action, the value made once", /^export pure fn createPager\(ref pages: number, first: number\): pending fails\(Error\) \{ page: ref; quote: ref pending fails\(Error\); set: io; first: value; edges: \{ start: ref; end: ref \}; label: value \} instantiates$/m.test(shipped[2]) && /^export pure fn createPages\(ref pages: number\): pending fails\(Error\) \[ref, io\] instantiates$/m.test(shipped[2]), shipped[2]);
 
     // ---- the .rx app: against the shipped .d.rx as against the package's source (MO-9b across the boundary) ----
@@ -105,6 +113,9 @@ export default {
       h.check("the package's declared error reaches the app's typed boundary, with its field", await h.until(async () => (await h.text(page, ".offline")) === "offline: ???"), await h.text(page));
       await page.click(".none");
       h.check("the request's own failure reaches the outer boundary", await h.until(async () => /failed: no table for XXX/.test(await h.text(page))), await h.text(page));
+      // MO-6e: a kit's entry re-exports the context and the parts; one context, whichever name provides it and whichever reads it
+      const color = sel => page.$eval(sel, el => el.style.color);
+      h.check("the .rx app: the kit's root provides what its part reads; the kit's context provided by its own name is read by the package's badge, and the package's provided by its own is read by the kit's part", (await h.text(page, "aside")) === "rootkit" && await color("aside .tag") === "maroon" && await color("aside .badge") === "olive" && await color("footer .tag") === "navy" && /class="tag"[^>]*>root</.test(html), [await h.text(page, "aside"), await h.text(page, "footer")]);
       h.check("the app's own provision of the package's context reaches the package's component", /own/.test(await h.text(page, "footer")) && await page.$eval("footer .badge", el => el.style.color) === "navy", await h.text(page, "footer"));
     }
 
@@ -114,7 +125,7 @@ export default {
     const clean = tsc();
     h.check("the .tsx app type-checks with tsrs against the package's .d.ts (no skipLibCheck)", clean === "", clean);
     const app = readFileSync(path.join(web, "app.tsx"), "utf8");
-    const probes = [["a prop", "<Badge label={label()} />", "<Badge label={3} />", /TS2322/], ["an action's parameter", "pick(\"USD\")", "pick(1)", /TS2345/], ["a source is an accessor", "{code()}=", "{code.toUpperCase()}=", /TS2339/], ["a `ref` parameter is an accessor or the value", "useLabel(amount)", "useLabel(\"two\")", /TS2345/], ["a part that is read is an accessor", "{page()}</b>", "{page.toFixed()}</b>", /TS2339/], ["an action's parameter, among the parts", "set(3)", "set(\"3\")", /TS2345/], ["an action answers a promise", "set(9)", "set(9).toFixed()", /TS2339/], ["a nested part", "edges.end()", "edges.last()", /TS2339/], ["a value made once is no accessor", "{first}", "{first()}", /TS2349/], ["a tuple's part", "at()}", "at().at()}", /TS2339/], ["the error's field", "(err() as Offline).code", "(err() as Offline).cod", /TS2339|TS2551/]];
+    const probes = [["a prop", "<Badge label={label()} />", "<Badge label={3} />", /TS2322/], ["a prop of a part a kit's entry re-exports", "<Tag text=\"root\" />", "<Tag text={3} />", /TS2322/], ["an action's parameter", "pick(\"USD\")", "pick(1)", /TS2345/], ["a source is an accessor", "{code()}=", "{code.toUpperCase()}=", /TS2339/], ["a `ref` parameter is an accessor or the value", "useLabel(amount)", "useLabel(\"two\")", /TS2345/], ["a part that is read is an accessor", "{page()}</b>", "{page.toFixed()}</b>", /TS2339/], ["an action's parameter, among the parts", "set(3)", "set(\"3\")", /TS2345/], ["an action answers a promise", "set(9)", "set(9).toFixed()", /TS2339/], ["a nested part", "edges.end()", "edges.last()", /TS2339/], ["a value made once is no accessor", "{first}", "{first()}", /TS2349/], ["a tuple's part", "at()}", "at().at()}", /TS2339/], ["the error's field", "(err() as Offline).code", "(err() as Offline).cod", /TS2339|TS2551/]];
     const lost = [];
     for (const [name, from, to, expect] of probes) { writeFileSync(path.join(web, "app.tsx"), app.replace(from, to)); const out = tsc(); if (!expect.test(out)) lost.push(`${name}: ${out || "accepted"}`); }
     writeFileSync(path.join(web, "app.tsx"), app);
@@ -144,6 +155,7 @@ export default {
       const page = await h.open(await serve(false));
       h.check(".tsx, in the browser: the package's provider, badge and rate render", await h.until(async () => (await h.text(page, "header")) === "2 EUR" && (await h.text(page, ".rate")) === "EUR at 1" && (await h.text(page, ".raw")) === "EUR=1"), await h.text(page));
       await page.click(".more"); await page.click(".usd");
+      h.check(".tsx: a kit's entry hands on the parts it re-exports, and its root provides what its part reads", (await h.text(page, "aside")) === "root" && await page.$eval("aside .tag", el => el.style.color) === "maroon", await h.text(page, "aside"));
       h.check(".tsx: the action, the accessor and the primitive over an accessor follow", await h.until(async () => (await h.text(page, "header")) === "3 USD" && (await h.text(page, ".raw")) === "USD=1.25"), await h.text(page));
       await page.click(".hide"); await page.click(".hide"); await page.click(".more");
       h.check(".tsx: the package's state outlives the component that first read it", await h.until(async () => (await h.text(page, ".rate")) === "USD at 1.25" && (await h.text(page, "header")) === "4 USD"), await h.text(page));
@@ -166,7 +178,7 @@ export default {
     for (const [how, entry] of [["a plain renderToStream", "render"], ["inside a request event", "renderInRequest"]]) {
       const base = await serve(entry);
       const html = plain(await (await fetch(base)).text());
-      h.check(`.tsx, on the server, ${how}: the package's server build renders and streams the rate, with hydration keys`, /_hk=/.test(html) && /class="badge"[^>]*>2 EUR</.test(html) && /EUR at 1</.test(html), html.slice(0, 900));
+      h.check(`.tsx, on the server, ${how}: the package's server build renders and streams the rate, with hydration keys`, /_hk=/.test(html) && /class="badge"[^>]*>2 EUR</.test(html) && /EUR at 1</.test(html) && /class="tag"[^>]*>root</.test(html), html.slice(0, 900));
       const again = plain(await (await fetch(base)).text());
       h.check(`.tsx, on the server, ${how}: a fn's parts render, the one that waits streamed`, /class="page"[^>]*>1</.test(html) && /class="edge"[^>]*>start</.test(html) && /class="quote"[^>]*>10</.test(html), html.slice(0, 1500));
       h.check(`.tsx, on the server, ${how}: a second request renders the same page (the package's state is each one's)`, again === html, again.slice(0, 900));

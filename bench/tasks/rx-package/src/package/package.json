@@ -6,7 +6,7 @@
   "sideEffects": false,
   "files": ["dist"],
   "scripts": { "build": "rx-lib" },
-  "reactivescript": { "entries": ["src/index.rx", "src/theme.rx", "src/pager.rx"] },
+  "reactivescript": { "entries": ["src/index.rx", "src/theme.rx", "src/pager.rx", "src/kit/index.rx"] },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -31,6 +31,14 @@
       "deno": "./dist/pager.server.js",
       "node": "./dist/pager.server.js",
       "default": "./dist/pager.js"
+    },
+    "./kit": {
+      "types": "./dist/kit/index.d.ts",
+      "worker": "./dist/kit/index.server.js",
+      "browser": "./dist/kit/index.js",
+      "deno": "./dist/kit/index.server.js",
+      "node": "./dist/kit/index.server.js",
+      "default": "./dist/kit/index.js"
     },
     "./rates": { "types": "./dist/rates.d.ts", "default": "./dist/rates.js" }
   },

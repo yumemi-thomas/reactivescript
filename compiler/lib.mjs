@@ -65,6 +65,10 @@ export function exportsOf(signature) {
   }
   return out;
 }
+/** MO-6e: a printed signature's re-exports, `export { A, B as C } from "./m.rx"`: `{ from, names: [[name there, name here]] }`. */
+export function reexportsOf(signature) {
+  return [...signature.matchAll(/^export \{([^}]*)\} from "([^"]+)"$/gm)].map(m => ({ from: m[2], names: m[1].split(",").map(x => x.trim()).filter(Boolean).map(x => { const a = /^([\w$]+)(?:\s+as\s+([\w$]+))?$/.exec(x); return [a[1], a[2] ?? a[1]]; }) }));
+}
 /** The index of the bracket that closes the one at `i`. */
 function closing(s, i) {
   for (let depth = 0; i < s.length; i++) if ("({[".includes(s[i])) depth++; else if (")}]".includes(s[i]) && --depth === 0) return i;
@@ -181,6 +185,14 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
   rmSync(dist, { recursive: true, force: true });
   const js = new Set();   // the JavaScript modules the .rx modules import by a relative path
   const names = new Map([...modules.keys()].map(p => [p, nameOf(p)]));
+  // MO-6e: a module's exports with what it re-exports (`export { Root } from "./root.rx"` in its signature), as the module
+  // that declares each has it: the compiled module hands each on, under the name it re-exports it by
+  const exportsAt = (p, seen = new Set()) => {
+    const m = modules.get(p); if (!m || seen.has(p)) return []; seen.add(p);
+    const out = exportsOf(m.signature);
+    for (const r of reexportsOf(m.signature)) { const there = exportsAt(posix(path.resolve(path.dirname(p), r.from)), new Set(seen)); for (const [n, a] of r.names) { const x = there.find(e => e[0] === n); if (x) out.push([a, ...x.slice(1)]); } }
+    return out;
+  };
   for (const [p, m] of modules) {
     const name = names.get(p); const base = path.basename(name);
     for (const target of ["dom", "ssr"]) {
@@ -195,7 +207,7 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
       put(`${name}.${target}.js`, `${code.trimEnd()}\n${map ? `//# sourceMappingURL=${base}.${target}.js.map\n` : ""}`);
       if (map) put(`${name}.${target}.js.map`, map);
     }
-    const exports = exportsOf(m.signature);
+    const exports = exportsAt(p);
     for (const [n, k] of exports) if (k === "server") problems.push(`${path.relative(dir, p)}: exports the server fn ${n}: a server fn is extracted by the app's bundler from the app's own modules, and a compiled package cannot carry one (MO-13f) — export a fn the app wraps in a server fn of its own`);
     const id = pkg.name ? `${pkg.name}/${name}` : name;   // the module's name: its root's id, the same on both sides (MO-13h)
     put(`${name}.js`, wrapper(base, `./${base}.dom.js`, exports, id, m.dom.css ? `./${base}.css` : undefined, m.stateless));
@@ -232,7 +244,7 @@ export function build(dir, { entries, root, out = "dist", write = false, types =
         if (!existsSync(from) || (!readFileSync(from, "utf8").trim() && exportsOf(modules.get(p).signature).length)) { problems.push(`rx-tsc wrote no declaration for ${path.relative(dir, p)} (it needs the package's dependencies installed: a node_modules above it)`); continue; }
         // the prelude the projection is written with is shipped beside the modules, as one file
         const text = readFileSync(from, "utf8").replace(/(from\s*|import\()(["'])([^"']*[\\/]\.reactivescript[\\/]prelude)(?:\.d\.ts|\.js)?\2/g, (_, a, q, at) => { prelude ??= at; return `${a}${q}${rel(path.join(dist, `${name}.rx.d.ts`), path.join(dist, "rx-prelude.js"))}${q}`; });
-        put(`${name}.rx.d.ts`, text + generics(exportsOf(modules.get(p).signature), modules.get(p).results));
+        put(`${name}.rx.d.ts`, text + generics(exportsAt(p), modules.get(p).results));
         shipImports(text, p, true);   // a module imported for its types alone is in no compiled module
       }
       if (prelude) put("rx-prelude.d.ts", readFileSync(prelude + ".d.ts", "utf8"));

@@ -176,9 +176,27 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   declared by its declaration file and imported); a name re-exported twice
   under one alias is `DUPLICATE_DECLARATION`, as two imports of one name are
   (2026-11-26: the second was taken in silence); a cycle of re-exports is
-  `MODULE_CYCLE`. A package's entry (its printed signature, its JavaScript,
-  its `.d.ts`) is not yet written for one: a re-export serves the modules of
-  a program, as sources. S-module-50.
+  `MODULE_CYCLE`. S-module-50.
+- **MO-6f (A package's entry that re-exports; 2026-11-26).** A module's
+  printed signature (MO-3) says where each name it re-exports is declared,
+  `export { ThemeProvider as Root, theme } from "../theme.rx"`, by the path
+  the module wrote (`rx-lib` ships every module an entry reaches, at that
+  path, so the declaring module's `.d.rx` is beside it). An importer of a
+  module known by its signature — a package's entry (MO-13a), or a module
+  with no body (MO-9) — is sent, name by name, to the module that declares
+  it, through any chain, and checked as an import from there: a context
+  keeps its identity across a package's entries as across a program's
+  modules. Its code still reaches the name through the module it imported
+  (the bundler resolves that one by the package's `exports` and the side's
+  condition): each compiled module hands on what it re-exports, under the
+  name it re-exports it by, from the instance of the declaring module the
+  app already has (MO-13c, once per app); `x.js` exports each such value and
+  `x.d.ts` and the projection re-export each (TypeScript's `export … from`),
+  a context and a type as `.rx`'s (MO-13f). A re-export whose declaring
+  signature is not beside it is `MODULE_NOT_FOUND`; a chain that comes back
+  is `MODULE_CYCLE`. bench `rx-package` (a kit entry: an `.rx` app against
+  the shipped `.d.rx` and the source alike, served and hydrated; a `.tsx`
+  app in the browser and on the server; its types).
 
 ## MO-7 — Contexts across modules
 

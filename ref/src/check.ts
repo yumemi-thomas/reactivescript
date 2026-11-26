@@ -692,7 +692,8 @@ export type ExportSig =
   | { kind: "comp"; sig: CompSig }
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type"; /** what it stands for (RG-4c), where a signature can hold it */ text?: string; /** 07 §2: `<T>`, as text */ tparams?: string };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
-export type ModSig = { file: string; exports: Map<string, ExportSig>; hosted?: Hosted[]; hosts?: Record<string, HostSite[]> };   // MO-11u: hosted, the calls of `renders(H)` fns that were given components; hosts, the applications of such an H the module itself roots (its mounted view, a root of a library's own)
+export type ModSig = { file: string; exports: Map<string, ExportSig>; hosted?: Hosted[]; hosts?: Record<string, HostSite[]>; /** MO-6e: the names the module re-exports, by the module that declares them */ reexports?: Reexport[] };
+export type Reexport = { from: string; names: { name: string; alias: string }[] };   // MO-11u: hosted, the calls of `renders(H)` fns that were given components; hosts, the applications of such an H the module itself roots (its mounted view, a root of a library's own)
 type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; spa?: boolean; whole?: boolean; hosted?: boolean; dependency?: boolean; through?: Set<string>; placed?: Set<string>; under?: Set<string>; conformance?: boolean; /** what the module's types stand for, its own and what it imports from `.rx` */ types?: Types };   // placed, under: MO-14h — the components a host's view places (`module#Name`), and the JS components its declaration says the host renders through: a component given to a fn that `renders(H)`, H among them, is checked where the view places it   // through: MO-14f, in a host's view — the JS components the host renders through (`declaration#Name`)   // dependency: MO-1c, the module is not the program's entry: its default component is a component like any other, mounted by no one   // hosted: MO-14d, a JS host renders the module's components: its default component is no mounted view   // whole: E-5a, the modules checked are the whole program   // spa: 08 CN-3d, a client-only build
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return [...c.diags, ...judgeHosted([c.signature(p)], [], !!opts.spa)]; }
@@ -1383,7 +1384,8 @@ class Checker {
         case "context": { const c = s.ctx!; exports.set(d.name, { kind: "context", key: c.key, source: c.source, dflt: c.dflt, rows: arr(c.contract?.rows), fails: arr(c.contract?.fails), type: d.k === "context" ? d.type?.replace(ROW_WORDS, "") : undefined }); break; }
       }
     }
-    return { file: this.opts.file ?? "", exports, ...(this.hosted.length ? { hosted: this.hosted } : {}), ...(Object.keys(this.hosts).length ? { hosts: this.hosts } : {}) };
+    const reexports = p.decls.flatMap(d => d.k === "import" && d.reexport ? [{ from: d.from, names: d.names.map(n => ({ name: n.name, alias: n.alias })) }] : []);   // MO-6e
+    return { file: this.opts.file ?? "", exports, ...(this.hosted.length ? { hosted: this.hosted } : {}), ...(Object.keys(this.hosts).length ? { hosts: this.hosts } : {}), ...(reexports.length ? { reexports } : {}) };
   }
 
   private cycles(decls: Decl[], env: Env) {

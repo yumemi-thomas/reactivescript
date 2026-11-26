@@ -202,6 +202,13 @@ pub struct ImportName {
     pub alias: String,
 }
 
+/// MO-6e: the module an import's code reaches its names through (`resolved`), and each alias's name there.
+#[derive(Debug, Clone)]
+pub struct Through {
+    pub resolved: String,
+    pub names: Vec<(String, String)>,
+}
+
 #[derive(Debug, Clone)]
 pub enum Decl {
     Source { name: String, init: Expr, line: usize, span: Span, question: bool, ty: Option<String>, exported: bool, key: Option<String> },
@@ -230,6 +237,9 @@ pub enum Decl {
         declared_side: Option<Vec<(String, Side)>>,
         /// MO-6e: `export { … } from "m.rx"`, a re-export: its names are imports of the module too
         reexport: bool,
+        /// MO-6e, a package (2026-11-26): an import a signature's re-export sent to the module that declares its names — the
+        /// module its code reaches them through, and each alias's name there (set by the loader)
+        through: Option<Through>,
     },
     Error { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, msg: Option<Expr>, line: usize, span: Span, exported: bool },
     TypeDecl { name: String, line: usize, span: Span, text: String, exported: bool },
@@ -918,8 +928,18 @@ impl Decl {
                 ("type", os(ty)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Import { ns, names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_error_fields, declared_pure, declared_side, prelude, reexport, .. } => obj(vec![
+            Decl::Import { ns, names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_error_fields, declared_pure, declared_side, prelude, reexport, through, .. } => obj(vec![
                 ("reexport", flag(*reexport)),
+                (
+                    "through",
+                    through.as_ref().map(|t| {
+                        let mut m = Map::new();
+                        for (k, v) in &t.names {
+                            m.insert(k.clone(), Value::String(v.clone()));
+                        }
+                        json!({ "resolved": t.resolved, "names": Value::Object(m) })
+                    }),
+                ),
                 ("k", s("import")),
                 ("ns", os(ns)),
                 ("names", Some(Value::Array(names.iter().map(|n| obj(vec![("name", s(&n.name)), ("alias", s(&n.alias))])).collect()))),

@@ -289,6 +289,7 @@ class Proj {
     const parts = rest.filter(n => n.name !== "default").map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);
     const def = rest.find(n => n.name === "default")?.alias;
     this.w.emit(`${ind}import ${def ? def + (parts.length ? ", " : "") : ""}${parts.length ? `{ ${parts.join(", ")} }` : ""} from "${from}";`, d.line);
+    if (d.reexport) this.w.emit(`${ind}export { ${rest.map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`).join(", ")} } from "${from}";`, d.line);   // MO-6e: a package's entry, as TypeScript reads it
   }
   /** A JS import's module, from the program's root (where the stubs are written). */
   private modPath(from: string) { const base = this.path.split("/").slice(0, -1); const parts = [...base]; for (const seg of from.split("/")) { if (seg === "." || !seg) continue; if (seg === "..") parts.pop(); else parts.push(seg); } return parts.join("/"); }

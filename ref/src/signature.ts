@@ -14,6 +14,8 @@
 //   export error NotFound(id)
 //   export type Product
 //   export context theme: source pending Theme = …          rows, then the written type; `= …` a default
+//   export { Root, theme as kitTheme } from "./root.rx"     MO-6e: names another module declares (its signature beside this
+//                                                           one): an importer is sent there, so a context keeps its identity
 //   export component Panel(props: { title; children: catches(Error) provides(./theme.rx#theme) }) fails(Error) uses(./theme.rx#theme, loading) shape(roots section; children-at section)
 //
 // A prop field: bare (rendered, discharges nothing), `catches(A | B)` / `catches(*)`, `provides(…)` (children), `unrendered`;
@@ -32,7 +34,7 @@
 //   export renders ./kit.d.rx#Toaster from toast:12 fails(Error) uses(./theme.rx#theme, loading) hosts(./kit.d.rx#Toaster)
 //                                                            a call of `toast` (line 12) that was given components: what they let out of H's children,
 //                                                            and each place they themselves apply a host (from their own root)
-import type { ModSig, ExportSig, CompSig, HostSite, Hosted, Result } from "./check.ts";
+import type { ModSig, ExportSig, CompSig, HostSite, Hosted, Result, Reexport } from "./check.ts";
 import { EMPTY_SHAPE, type Shape } from "./content.ts";
 import { closes } from "./parse.ts";
 import { aliasHead } from "./modules.ts";
@@ -163,6 +165,7 @@ export function printSignature(sig: ModSig): string {
   for (const [n, x] of sig.exports) out.push(line(sig.file, n, x));
   if (sig.hosts && Object.keys(sig.hosts).length) out.push(`export ${hostsText(sig.file, sig.hosts)}`);   // MO-11u
   for (const h of sig.hosted ?? []) out.push(hostedText(sig.file, h));
+  for (const r of sig.reexports ?? []) out.push(`export { ${r.names.map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`).join(", ")} } from "${r.from}"`);   // MO-6e: where the names are declared
   return out.join("\n") + "\n";
 }
 
@@ -198,13 +201,19 @@ export function contentShapeOf(s: string | undefined, printed = false): Shape {
 /** A `.d.rx` printed for (or written as) an `.rx` module's signature, read in place of the module. `file` is the `.rx`
  *  module's path: context keys are its, and relative keys resolve against it. */
 export function parseSignature(src: string, file: string): ModSig {
-  const exports = new Map<string, ExportSig>(); let hosts: Record<string, HostSite[]> | undefined; const hosted: Hosted[] = [];
+  const exports = new Map<string, ExportSig>(); let hosts: Record<string, HostSite[]> | undefined; const hosted: Hosted[] = []; const reexports: Reexport[] = [];
   src.split("\n").forEach((raw, i) => {
     const t = raw.replace(/\s\/\/.*$/, "").replace(/^\/\/.*$/, "").trim(); if (!t) return;
     const fail = (msg: string): never => { throw new SignatureError(`${file.replace(/\.rx$/, ".d.rx")}:${i + 1}: ${msg}: ${t}`); };
     let m: RegExpExecArray | null;
     if (!t.startsWith("export ")) fail("a signature declares exports");
     const s = t.slice(7).trim();
+    // MO-6e: `export { A, B as C } from "./m.rx"` — names another module declares; an importer is sent there (the loaders)
+    if ((m = /^\{([^}]*)\}\s*from\s*"([^"]+)"$/.exec(s))) {
+      const names = m[1].split(",").map(x => x.trim()).filter(Boolean).map(x => { const a = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/.exec(x); return a ? { name: a[1], alias: a[2] ?? a[1] } : fail("a re-exported name"); });
+      if (!/\.rx$/.test(m[2])) fail("only an .rx module's names are re-exported");
+      reexports.push({ from: m[2], names }); return;
+    }
     // MO-11u
     if (s.startsWith("hosts(")) { const inner = balanced(s, 5); if (inner === undefined) fail("hosts(…)"); hosts = hostsOf(file, inner!); return; }
     if (/^renders\s/.test(s)) {
@@ -270,5 +279,5 @@ export function parseSignature(src: string, file: string): ModSig {
     if ((m = /^([A-Za-z_$][\w$]*)\s*(?::\s*(.*))?$/.exec(s))) { const r = rowWords(m[2] ?? ""); const acts = actionsOf(r.rest); if (r.rest && !acts) fail("an equation's rows"); exports.set(m[1], { kind: "eq", rows: r.rows.filter(x => x !== "io"), fails: r.fails, io: r.rows.includes("io"), ...(acts ? { actions: acts } : {}) }); return; }
     fail("not an export");
   });
-  return { file, exports, ...(hosted.length ? { hosted } : {}), ...(hosts ? { hosts } : {}) };
+  return { file, exports, ...(hosted.length ? { hosted } : {}), ...(hosts ? { hosts } : {}), ...(reexports.length ? { reexports } : {}) };
 }

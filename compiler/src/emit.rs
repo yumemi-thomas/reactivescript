@@ -312,7 +312,9 @@ pub fn compile_linked_as<'a>(set: &'a ModuleSet, extra: &[Vec<Stmt>], by_source:
         // whose `__rx` is the module's factory
         let mut compiled: HashMap<&str, &str> = HashMap::new();
         for d in &p.decls {
-            if let Decl::Import { resolved: Some(r), from, .. } = d {
+            if let Decl::Import { resolved: Some(r), from, through, .. } = d {
+                // MO-6e: an import a signature's re-export sent to the declaring module is reached through the module it named
+                let r = through.as_ref().map_or(r, |t| &t.resolved);
                 if !deps.contains(&r.as_str()) {
                     deps.push(r);
                 }
@@ -343,7 +345,18 @@ pub fn compile_linked_as<'a>(set: &'a ModuleSet, extra: &[Vec<Stmt>], by_source:
         } else {
             let exported: Vec<&str> = p.decls.iter().filter(|d| d.exported() && !matches!(d, Decl::TypeDecl { .. })).filter_map(|d| d.name()).collect();
             let is_comp = |n: &str| p.decls.iter().any(|d| matches!(d, Decl::Component { name, .. } if name == n)) || made_component(p, n, &set.declarations); // MO-11j
-            let tail = E::Obj(exported.iter().map(|n| Prop::Kv(Key::Str(n.to_string()), id(if is_comp(n) { cm(n) } else { mg(n) }))).collect());
+            let mut props: Vec<Prop> = exported.iter().map(|n| Prop::Kv(Key::Str(n.to_string()), id(if is_comp(n) { cm(n) } else { mg(n) }))).collect();
+            // MO-6e: what the module re-exports, handed on as it binds it (a package's entry is imported by its own name)
+            for d in &p.decls {
+                if let Decl::Import { reexport: true, resolved: Some(r), names, .. } = d {
+                    for n in names {
+                        if !g.is_type(r, &n.name) {
+                            props.push(Prop::Kv(Key::Str(n.alias.clone()), id(g.import_bind(r, &n.name, &n.alias).js)));
+                        }
+                    }
+                }
+            }
+            let tail = E::Obj(props);
             let root = g.new_env(None);
             let mut inner = g.block(&p.decls, &[], root, Some(tail), false)?;
             body.append(&mut g.top);
@@ -800,20 +813,19 @@ impl<'p> Gen<'p> {
         // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
         let mut instantiated: HashSet<String> = HashSet::new();
         for d in decls {
-            let Decl::Import { resolved: Some(r), names, from, .. } = d else { continue };
+            let Decl::Import { resolved: Some(r), names, from, through, .. } = d else { continue };
             let n0 = out.len();
-            let iv = format!("__i{}", self.mod_index(r));
+            let via = through.as_ref().map_or(r, |t| &t.resolved); // MO-6e: the module the code reaches the names through
+            let iv = format!("__i{}", self.mod_index(via));
             if instantiated.insert(iv.clone()) {
                 // MO-1b: once per app. A bundler's module is one factory function wherever it is imported from, so by source the
                 // factory is its own key: a module shared by two programs gets the same key in both (11 CP-7). MO-13c: so is
                 // the compiled module a printed signature stands for, in every build.
-                let key = if self.by_source || !crate::modules::is_rx(from) { id(self.dep_var(r)) } else { str(self.out(r)) };
-                out.push(konst(iv.clone(), rtc("module", vec![key, id(self.dep_var(r))])));
+                let key = if self.by_source || !crate::modules::is_rx(from) { id(self.dep_var(via)) } else { str(self.out(via)) };
+                out.push(konst(iv.clone(), rtc("module", vec![key, id(self.dep_var(via))])));
             }
             for n in names {
-                let is_type = self.set.programs.get(r).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name, .. } if *name == n.name)))
-                    || self.set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).is_some_and(|x| matches!(x, ExportSig::Type(..)));
-                if is_type {
+                if self.is_type(r, &n.name) {
                     continue; // a type binds nothing
                 }
                 let mut ib = self.import_bind(r, &n.name, &n.alias);
@@ -822,7 +834,8 @@ impl<'p> Gen<'p> {
                 }
                 let (js, prev) = (ib.js.clone(), ib.prev.clone());
                 self.set(env, &n.alias, ib);
-                out.push(konst(js.clone(), E::Index(Box::new(id(iv.clone())), Box::new(str(n.name.clone())), false)));
+                let there = through.as_ref().and_then(|t| t.names.iter().find(|(a, _)| *a == n.alias).map(|(_, x)| x.clone())).unwrap_or_else(|| n.name.clone());
+                out.push(konst(js.clone(), E::Index(Box::new(id(iv.clone())), Box::new(str(there)), false)));
                 if let Some(p) = prev {
                     out.push(konst(p, rtc("pre", vec![id(js)])));
                 }
@@ -1164,6 +1177,11 @@ impl<'p> Gen<'p> {
     }
 
     /// An imported name's binding, from the exporting module's declaration (MO-3: a source is read-only here, so an accessor).
+    /// Whether `name` is a type of the module at `path` (it binds nothing).
+    fn is_type(&self, path: &str, name: &str) -> bool {
+        self.set.programs.get(path).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name: n, .. } if n == name)))
+            || self.set.signatures.get(path).and_then(|s| s.exports.get(name)).is_some_and(|x| matches!(x, ExportSig::Type(..)))
+    }
     fn import_bind(&self, path: &str, name: &str, alias: &str) -> Bind {
         let js = mg(alias);
         if !self.set.programs.contains_key(path) {

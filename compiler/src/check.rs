@@ -4235,7 +4235,9 @@ impl<'a> Checker<'a> {
             };
             exports.insert(name.to_string(), x);
         }
-        ModSig { file: self.opts.file.clone().unwrap_or_default(), exports, hosted: self.hosted.clone(), hosts: self.hosts.clone() }
+        // MO-6e
+        let reexports = p.decls.iter().filter_map(|d| if let Decl::Import { reexport: true, from, names, .. } = d { Some(crate::signature::Reexport { from: from.clone(), names: names.iter().map(|n| (n.name.clone(), n.alias.clone())).collect() }) } else { None }).collect();
+        ModSig { file: self.opts.file.clone().unwrap_or_default(), exports, hosted: self.hosted.clone(), hosts: self.hosts.clone(), reexports }
     }
 
     fn cycles(&mut self, decls: &'a [Decl], env: EId) {

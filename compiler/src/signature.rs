@@ -191,6 +191,14 @@ pub struct ModSig {
     pub hosted: Vec<Hosted>,
     /// MO-11u: the applications of such an H the module itself roots (its mounted view, a root of a library's own)
     pub hosts: IndexMap<String, Vec<HostSite>>,
+    /// MO-6e: the names the module re-exports, by the module that declares them
+    pub reexports: Vec<Reexport>,
+}
+/// MO-6e: `export { A, B as C } from "./m.rx"` — the spec, and each (name there, alias here).
+#[derive(Debug, Clone)]
+pub struct Reexport {
+    pub from: String,
+    pub names: Vec<(String, String)>,
 }
 
 fn sorted(xs: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -562,6 +570,11 @@ pub fn print_signature(sig: &ModSig) -> String {
     for h in &sig.hosted {
         out.push(hosted_text(&sig.file, h));
     }
+    // MO-6e: where the names are declared
+    for r in &sig.reexports {
+        let names: Vec<String> = r.names.iter().map(|(n, a)| if n == a { n.clone() } else { format!("{n} as {a}") }).collect();
+        out.push(format!("export {{ {} }} from \"{}\"", names.join(", "), r.from));
+    }
     out.join("\n") + "\n"
 }
 
@@ -581,6 +594,8 @@ re!(T_RENDERS, r"^renders\s+(\S+)\s+from\s+([A-Za-z_$][A-Za-z0-9_$.]*):(\d+)\s*(
 re!(C_HOSTS, r"(^|\s)hosts\(");
 re!(R_HOSTS, r"\shosts\(");
 re!(T_TYPE, r"^type\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*=\s*(.+))?");
+re!(T_REEXPORT, r#"^\{([^}]*)\}\s*from\s*"([^"]+)"$"#);
+re!(T_REEXPORT_NAME, r"^([A-Za-z_$][A-Za-z0-9_$]*)(?:\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*))?$");
 re!(T_ACTION, r"^action\s+([A-Za-z_$][A-Za-z0-9_$]*)$");
 re!(T_ERROR, r"^error\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\(([^)]*)\))?$");
 re!(T_SOURCE, r"^source\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::([^=].*?)?)??\s*(:?=)\s*…$");
@@ -689,6 +704,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
     let mut exports = IndexMap::new();
     let mut hosts: IndexMap<String, Vec<HostSite>> = IndexMap::new();
     let mut hosted: Vec<Hosted> = vec![];
+    let mut reexports: Vec<Reexport> = vec![];
     for (i, raw) in src.split('\n').enumerate() {
         let t = TRAIL_COMMENT.replace(raw, "");
         let t = LEAD_COMMENT.replace(&t, "");
@@ -701,6 +717,19 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             return Err(fail("a signature declares exports"));
         }
         let s = crate::parse::js_trim(&t[7..]).to_string();
+        // MO-6e: `export { A, B as C } from "./m.rx"` — names another module declares; an importer is sent there (the loaders)
+        if let Some(m) = T_REEXPORT.captures(&s) {
+            let mut names = vec![];
+            for x in m[1].split(',').map(|x| crate::parse::js_trim(x)).filter(|x| !x.is_empty()) {
+                let Some(a) = T_REEXPORT_NAME.captures(x) else { return Err(fail("a re-exported name")) };
+                names.push((a[1].to_string(), a.get(2).map_or_else(|| a[1].to_string(), |y| y.as_str().to_string())));
+            }
+            if !m[2].ends_with(".rx") {
+                return Err(fail("only an .rx module's names are re-exported"));
+            }
+            reexports.push(Reexport { from: m[2].to_string(), names });
+            continue;
+        }
         // MO-11u
         if s.starts_with("hosts(") {
             let Some(inner) = balanced(&s, 5) else { return Err(fail("hosts(…)")) };
@@ -909,5 +938,5 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
         }
         return Err(fail("not an export"));
     }
-    Ok(ModSig { file: file.into(), exports, hosted, hosts })
+    Ok(ModSig { file: file.into(), exports, hosted, hosts, reexports })
 }

@@ -32,6 +32,7 @@ export function signaturesInPlace(set: ModuleSet): string | null {
     if (!set.order.includes(path)) continue;
     const text = printSignature(sig); const read = parseSignature(text, path); back.set(path, read);
     for (const [n, x] of sig.exports) { const y = read.exports.get(n); if (!y || norm(x) !== norm(y)) return `${path.split("/").pop()}: ${n} reads back as ${y ? norm(y) : "nothing"}, printed from ${norm(x)}`; }
+    if (JSON.stringify(sig.reexports ?? []) !== JSON.stringify(read.reexports ?? [])) return `${path.split("/").pop()}: its re-exports read back as ${JSON.stringify(read.reexports ?? [])}, printed from ${JSON.stringify(sig.reexports ?? [])}`;   // MO-6e
   }
   const key = (d: { code: string; rule: string; line: number; file?: string }) => `${d.file ?? set.entry}:${d.line} ${d.code} (${d.rule})`;
   for (const path of set.order) {                                       // each module alone, its dependencies by signature

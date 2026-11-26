@@ -1,0 +1,7 @@
+// A part of the kit: it reads the package's context, whichever name provided it.
+import { theme } from "../theme.rx"
+
+export component Tag(props: { text: string }) {
+  t = use theme
+  <em class="tag" style={`color: ${t.accent}`}>{props.text}</em>
+}

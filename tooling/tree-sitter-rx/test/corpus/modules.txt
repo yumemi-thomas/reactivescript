@@ -2123,3 +2123,29 @@ export { Root, Item as SelectItem } from "./root.rx"
         (identifier)))
     (string
       (string_fragment))))
+
+================================================================================
+A printed signature's re-export (MO-6e)
+================================================================================
+
+//@ signature index.rx
+export component Own(props: {})
+export { ThemeProvider as Root, theme } from "../theme.rx"
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    declaration: (signature_component
+      name: (identifier)))
+  (signature_export
+    declaration: (signature_reexport
+      (export_clause
+        (export_specifier
+          name: (identifier)
+          alias: (identifier))
+        (export_specifier
+          name: (identifier)))
+      source: (string
+        (string_fragment)))))

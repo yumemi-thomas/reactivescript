@@ -4,6 +4,7 @@ import { createEffect, createSignal, Errored, Loading, Show } from "solid-js";
 import { Badge, Rate, Offline, code, rate, pick, useLabel } from "@bench/rates";
 import { createPager, createPages } from "@bench/rates/pager";
 import { ThemeProvider } from "@bench/rates/theme";
+import { Root, Tag } from "@bench/rates/kit";
 
 // the pager's parts, taken apart once, as a Solid primitive's: each read follows, and none waits for another
 function Pager(props: { pages: number }) {
@@ -39,6 +40,7 @@ export function App() {
         </Loading>
       </Errored>
       <Show when={shown()}><Pager pages={amount() + 8} /></Show>
+      <aside><Root accent="maroon"><Tag text="root" /></Root></aside>
     </ThemeProvider>
   );
 }
