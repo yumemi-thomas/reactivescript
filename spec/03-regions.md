@@ -233,7 +233,7 @@ A component is a function from a props value to a region whose tail is a view.
 
 ### RG-6 Instantiation
 
-A call to a function with a `ref` parameter or a node-declaring body (E-9).
+A call to a function with a `ref` parameter or a node-declaring body (E-9; a body that only names values declares none, E-9b).
 
 - **RG-6a (Once, in the caller's region).** The call creates a region nested
   in the region of the call site; the body's sources, effects, and nested

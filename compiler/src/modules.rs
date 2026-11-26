@@ -362,6 +362,17 @@ pub fn declaration_names(from: &str) -> Vec<String> {
 }
 
 impl Loader<'_> {
+    /// Whether an import's name is one whose call instantiates: an `.rx` fn (its source, or its signature), a declared primitive.
+    fn instantiating_export(&self, d: &Decl, name: &str) -> bool {
+        let Decl::Import { resolved, declared, .. } = d else { return false };
+        if let Some(to) = resolved {
+            if let Some(p) = self.programs.get(to) {
+                return p.decls.iter().any(|x| matches!(x, Decl::Fn { name: n, params, decls, tail, named, .. } if n == name && crate::ast::instantiates(params, decls, tail, *named)));
+            }
+            return matches!(self.signatures.get(to).and_then(|s| s.exports.get(name)), Some(crate::signature::ExportSig::Fn { instantiating: true, .. }));
+        }
+        declared.as_ref().and_then(|d| self.declarations.get(d)).is_some_and(|ds| ds.iter().any(|x| matches!(x, JsDecl::Fn { name: n, instantiates, shape, refs, .. } if n == name && (*instantiates || *shape == crate::parse::Shape::Comp || refs.contains(&true)))))
+    }
     fn visit(&mut self, path: &str, stack: &[String]) -> Result<(), ParseError> {
         if self.state.get(path) == Some(&State::Done) {
             return Ok(());
@@ -480,11 +491,52 @@ impl Loader<'_> {
             self.visit(&to, &st)?;
         }
         name_methods(&mut p, &self.declarations);
+        name_locals(&mut p, &|d, name| self.instantiating_export(d, name));
         self.programs.insert(path.to_string(), p);
         self.sources.insert(path.to_string(), src);
         self.state.insert(path.to_string(), State::Done);
         self.order.push(path.to_string());
         Ok(())
+    }
+}
+
+/// E-9b: the fns of a module that only name values are marked, where none of those values is a call that instantiates (each
+/// is marked, and a mark is taken off until none has to be: one such fn may name a call of another). By name, whatever block
+/// a fn is in: a name that is some fn's that instantiates is read as that fn. `imported`: an import's name is one.
+pub fn name_locals(p: &mut Program, imported: &dyn Fn(&Decl, &str) -> bool) {
+    let mut can = false;
+    crate::ast::fns_mut(p, &mut |d| {
+        let n = crate::ast::names_only(d);
+        can |= n;
+        if let Decl::Fn { named, .. } = d {
+            *named = n;
+        }
+    });
+    if !can {
+        return;
+    }
+    let made: Vec<String> = p.decls.iter().flat_map(|d| if let Decl::Import { names, .. } = d { names.iter().filter(|n| imported(d, &n.name)).map(|n| n.alias.clone()).collect() } else { vec![] }).collect();
+    loop {
+        let mut inst: HashSet<String> = made.iter().cloned().collect();
+        crate::ast::fns_mut(p, &mut |d| {
+            if let Decl::Fn { name, params, decls, tail, named, .. } = d {
+                if crate::ast::instantiates(params, decls, tail, *named) {
+                    inst.insert(name.clone());
+                }
+            }
+        });
+        let mut again = false;
+        crate::ast::fns_mut(p, &mut |d| {
+            if let Decl::Fn { decls, named, .. } = d {
+                if *named && decls.iter().any(|d| matches!(d, Decl::Eq { e: Expr { k: ExprKind::Call { f, .. }, .. }, .. } if matches!(&f.k, ExprKind::Id(n) if inst.contains(n)))) {
+                    *named = false;
+                    again = true;
+                }
+            }
+        });
+        if !again {
+            return;
+        }
     }
 }
 

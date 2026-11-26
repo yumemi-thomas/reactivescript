@@ -935,6 +935,30 @@ not read; the 28 calls (a prop or context typed `any` holding io and called by a
 | the runners on the packages' own tests, both ways; rx-std's tests; the UI SDK's suite | as before (rx-std's measured with and without this step: identical); UI SDK 44 of 44 |
 | rule 28's 170 (`mkg.py`) | as at step 2 |
 
+### Step 6: L8 — locals in fns (E-9's first reading)
+
+*Taken*: proposals/21's prototype (`proto-locals` a1c93632, E-9b), brought onto this tree (it was made before the
+generic, optional, W2 and B3 work: 26 conflicting hunks, each merged by hand — the walker that names namespaces and the
+one that finds fns, `named` beside `tparams`, the optional `ref` parameters' `??=` before a lifted body, `apart` in
+`latest`/`pending?` beside the asked question in `if`). A fn with no `ref` parameter whose body only names values is
+lifted: its names in any order, each evaluated when read, once for a call and the observer that reads it; no node.
+
+*Decided, 21's questions.* (1) E-9 is meant. (2) `x = area(peek a, 2)` is `SNAPSHOT_KEPT`, and the message says *a lifted
+call*, in both checkers. (3) A type declared beside the names (or alone) is no node either — E-9 names a source, an
+effect, a region — so it is lifted too (bug 22's second program: accepted). (4) What a fn answers to JavaScript is its
+row's, never the body's form: over every package of the tree, one exported row changed (`keyboard`'s `createKeyHold`,
+which named one local, lost `instantiates`, so TSX callers would have been handed a value where the original hands an
+accessor). It now declares `ref key`, which is the original's contract (an accessor back; a string or an accessor in),
+and `ref/units.ts` fails if that row's kind changes. A one-line fn and the same fn with a local now answer alike, which
+is what "never the body's form" asks.
+
+| | |
+| --- | --- |
+| S-locals-1 (34 bodies), both units | all runners, served and hydrated (quick) |
+| 21's rewriting test (`rewrite6.py`: the body of every one-line fn of every scenario named — read once, so it stands in place; and read three times, so the runtime's `names` shares it — 141 fns in 28 scenarios) | every frame held in the interpreter, the oracle and both emitters, both ways; three failures are the rewriter's own (a `.d.rx` row, two lines that are no fn); one is the oracle's alone and older: a promise compared with `==` (`fetch(x) == fetch(x)`, the one-line form too), for the runner track |
+| census | nothing newly refused: scenarios, `bench/run.mjs --check --strict`, rx-packages (check.json byte for byte, tests both ways as before), rx-std (13 build; tests identical), UI SDK (check identical, 44 of 44) |
+| rows printed for JavaScript, every package | one changed, `createKeyHold`, fixed by its row |
+
 ## Roadmap, track 2: every runner agrees (2026-11-26)
 
 The second track of `ROADMAP-fable.md` (X1, W5, W3 + X6, X2, X7), beside track 1 on the same PR. The sets and logs are

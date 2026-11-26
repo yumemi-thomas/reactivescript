@@ -208,6 +208,8 @@ class Flight {
   }
 }
 
+/** E-9b: a name of a fn's body, in a call of it. */
+class Local { read: () => unknown; constructor(read: () => unknown) { this.read = read; } }
 export class Oracle {
   flights = new Map<string, Flight>();
   contexts = new Map<string, ReturnType<typeof createContext<Binding | undefined>>>();
@@ -569,12 +571,25 @@ export class Oracle {
 
   // ---- expressions (reactive scope: tracked by whatever computation is running) ----
   private keptExprs = new Set<Expr>();                                   // C-2: a whole store read there is copied
+  private probing = 0;                                                   // inside `latest` or `pending?`: what is read there is not what is read outside
+  /** E-9b: as the interpreter's `withLocals`: evaluated when read, once for the call and the observer. */
+  private withLocals(f: Extract<Decl, { k: "fn" }>, home: Scope, en: Map<string, unknown>): unknown {
+    let live = true;
+    for (const d of f.decls) if (d.k === "eq") {
+      let at: unknown[] | undefined, v: unknown;
+      en.set(d.name, new Local(() => {
+        const w = [getObserver(), this.imperative, this.probing]; if (live && at && at.every((x, i) => x === w[i])) return v;
+        const x = this.ev(d.e, home, en); if (live) { at = w; v = x; } return x;
+      }));
+    }
+    try { return this.ev(f.tail, home, en); } finally { live = false; }
+  }
   ev(e: Expr, scope: Scope, env?: Map<string, unknown>): unknown { const v = this.ev0(e, scope, env); return this.keptExprs.has(e) ? kept(v) : v; }
   private ev0(e: Expr, scope: Scope, env?: Map<string, unknown>): unknown {
     switch (e.k) {
       case "lit": return e.v;
       case "id": {
-        if (env?.has(e.name)) return env.get(e.name);
+        if (env?.has(e.name)) { const v = env.get(e.name); return v instanceof Local ? v.read() : v; }
         const b = scope.lookup(e.name);
         if (!b) { const f = this.langFn(e.name); if (f) return f; throw new Error(`unbound ${e.name}`); }
         switch (b.k) {
@@ -583,7 +598,7 @@ export class Oracle {
             if (!this.imperative) return b.get();
             try { return b.get(); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; }   // H-10: an apply block or handler reads σ; R-f-7: a snapshot of an error throws it
           }
-          case "fn": { const f = b.decl, home = b.home; return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.ev(f.tail, home, en); }; }
+          case "fn": { const f = b.decl, home = b.home; return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return f.named ? this.withLocals(f, home, en) : this.ev(f.tail, home, en); }; }
           case "action": return b.run;
           case "comp": throw new Error("component applied outside a view");
         }
@@ -603,8 +618,8 @@ export class Oracle {
         for (let s: Scope | null = scope; s; s = s.parent) { const h = hoistedOf.get(s)?.get(e); if (h) return h(); }   // a hoisted `await`: its own node, read here
         const v = this.ev(e.e, scope, env); return !e.stream && v instanceof Flight ? v.first : v;   // in tail position the memo returns the flight (R-1): a stream for `await*`, else its one answer
       }   // in tail position the memo returns the flight (R-1); elsewhere the operand checks below refuse it
-      case "latest": { const was = this.imperative; this.imperative = 0; try { return latest(() => { const v = this.ev(e.e, scope, env); return v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v; }); } finally { this.imperative = was; } }   // R-12: `latest` of a value that never had one throws, in a handler as anywhere (Solid S-28)
-      case "pending": return isPending(() => { const v = this.ev(e.e, scope, env); if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; });   // Solid D-23: the probe judges reads, so a structured value is read whole
+      case "latest": { const was = this.imperative; this.imperative = 0; this.probing++; try { return latest(() => { const v = this.ev(e.e, scope, env); return v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v; }); } finally { this.imperative = was; this.probing--; } }   // R-12: `latest` of a value that never had one throws, in a handler as anywhere (Solid S-28)
+      case "pending": this.probing++; try { return isPending(() => { const v = this.ev(e.e, scope, env); if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; }); } finally { this.probing--; }   // Solid D-23: the probe judges reads, so a structured value is read whole
       case "if": return (this.asks(e.c, scope, true) ?? this.ev(e.c, scope, env)) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
       case "throw": throw this.ev(e.e, scope, env);                    // R-f-3
       case "serverfn": { let f = this.serverFns.get(e); if (!f) this.serverFns.set(e, (f = this.serverFn({ name: this.serverNames.get(e) ?? "server fn", params: e.params, body: e.body }, scope))); return f; }   // SF-1d

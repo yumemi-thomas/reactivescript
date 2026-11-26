@@ -139,6 +139,8 @@ function armedAbove(eb: BoundaryItem): BoundaryItem | null { for (let x = eb.par
 function erroredShowing(b: BoundaryItem | null): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === "errored" && x.showingFallback) return x; return null; }
 
 // ---------------------------------------------------------------- runtime
+/** E-9b: a name of a fn's body, in a call of it. */
+class Local { read: () => unknown; constructor(read: () => unknown) { this.read = read; } }
 export class Runtime {
   root: Region;
   effects: EffectRec[] = [];
@@ -827,6 +829,21 @@ export class Runtime {
       }
       return v;
   }
+  /** E-9b: a call of a fn that names values. A name is evaluated when it is read (E-3), in whatever order (E-7), and once
+   *  for the call where it is read in one way: a read that is no input (a `peek`), or a closure called when the call is
+   *  over, evaluates it again, as the one-line form would. */
+  private withLocals(f: FnDecl, home: Region, en: Map<string, unknown>): unknown {
+    let live = true;
+    const way = () => [this.tracking, this.demandMode, this.probing, this.latestOfGuess, this.authoritative, this.committedView, this.currentRun, this.probeReads];
+    for (const d of f.decls) if (d.k === "eq") {
+      let at: unknown[] | undefined, v: unknown;
+      en.set(d.name, new Local(() => {
+        const w = way(); if (live && at && at.every((x, i) => x === w[i])) return v;
+        const x = this.evalExpr(d.e, home, en); if (live) { at = w; v = x; } return x;
+      }));
+    }
+    try { return this.evalExpr(f.tail, home, en); } finally { live = false; }
+  }
   private nodeOf(e: Expr, region: Region, env?: Map<string, unknown>): Node | null {
     if (e.k === "id") { if (env?.has(e.name)) return null; const b = region.lookup(e.name); return b instanceof Node ? b : null; }
     if (e.k === "member" || e.k === "index") return this.nodeOf(e.o, region, env);
@@ -860,7 +877,7 @@ export class Runtime {
     switch (e.k) {
       case "lit": return e.v;
       case "id": {
-        if (env?.has(e.name)) return env.get(e.name);
+        if (env?.has(e.name)) { const v = env.get(e.name); return v instanceof Local ? v.read() : v; }
         const b = region.lookup(e.name);
         if (!b) { const f = this.langFn(e.name); if (f) return f; throw new RuleError("SCOPE", `unbound ${e.name}`); }
         if ("constant" in b) return b.constant;
@@ -868,7 +885,7 @@ export class Runtime {
           if (this.isInstantiating(b.fn)) throw new RuleError("E-9", `instantiating fn ${b.fn.name} must be bound: x = ${b.fn.name}(…)`);
           const f = b.fn;
           const home = b.home;
-          return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
+          return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return f.named ? this.withLocals(f, home, en) : this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
         if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)

@@ -1,8 +1,10 @@
 # 21 — A question: does an equation in a fn's body make the fn instantiate?
 
+**Taken (2026-11-26, the roadmap's L8, DECISION "Roadmap, track 1", step 6).** E-9's first reading, as prototyped here, with three answers to its questions: a type declared beside the names is no node either (3); `SNAPSHOT_KEPT` says *a lifted call* (2); what a fn answers to JavaScript is its row's — the one package whose row would have changed (`keyboard`'s `createKeyHold`) declares `ref key`, and a unit holds it (4). The marks below are this branch's since.
+
 Upstream's text says two things. [Bug 22](bugs/22-equations-make-a-fn-instantiate.md) is the message. Prototyped, to learn what the first reading asks. The prototype is not in this tree, and it is **not published**: a local branch, `proto-locals` at a1c93632, on 9b765d9 (with the other two: `proto-all` at b29fa898). What is said of it was run there; the rule, the scenario and the `prototype=` verdicts are that branch's.
 
-<!-- check prototype=ok branch=INSTANTIATION_NOT_BOUND upstream=INSTANTIATION_NOT_BOUND -->
+<!-- check prototype=ok branch=ok upstream=INSTANTIATION_NOT_BOUND -->
 ```rx
 fn area(w: number, h: number): number { half = w / 2
   half * h }
@@ -37,7 +39,7 @@ export default component App() { n = read(4)
 | --- | --- | --- |
 | 0 | mount | `9` |
 
-<!-- frames prototype=pass branch=refused upstream=refused -->
+<!-- frames prototype=pass branch=pass upstream=refused -->
 ```rx
 source n := 1
 fn fact(a: number): number { rest = fact(a - 1)
@@ -60,7 +62,7 @@ export default component App() { <p onClick={() => { n := 2 }}>{fact(5)} {late(1
 
 1. A bound call is an equation, not a snapshot: `x = area(a, 2)` was `SNAPSHOT_ARGUMENT` and is accepted. And a correct program is refused:
 
-<!-- check prototype=SNAPSHOT_KEPT branch=ok upstream=ok -->
+<!-- check prototype=SNAPSHOT_KEPT branch=SNAPSHOT_KEPT upstream=ok -->
 ```rx
 fn area(w: number, h: number): number { half = w / 2
   half * h }

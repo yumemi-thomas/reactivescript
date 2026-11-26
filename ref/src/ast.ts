@@ -53,7 +53,7 @@ export type Decl =
   | { k: "error"; name: string; params: string[]; ptypes?: (string | undefined)[]; msg?: Expr; line: number; exported?: boolean }             // R-f-1: `error NotFound(id) => message`
   | { k: "typedecl"; name: string; line: number; text?: string; exported?: boolean }                                                           // `type T = …`: text only
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
-  | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number; ret?: string; exported?: boolean; tparams?: string }       // body: decls then a value; tparams: `<T>`, as text (07 §2)
+  | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number; ret?: string; exported?: boolean; tparams?: string; named?: boolean }       // body: decls then a value; tparams: `<T>`, as text (07 §2); named: it declares only names for values (E-9b, set by the loader)
   | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number; propsType?: string; noProps?: boolean; exported?: boolean; isDefault?: boolean; tparams?: string }  // body: decls then a view; noProps: `component C()` (RG-4b); isDefault: `export default component App` — the app's entry (MO-1c)
   | { k: "action"; name: string; params: string[]; ptypes?: (string | undefined)[]; /** AC-1f: how many of them a call must pass, where the last ones may be left out (`by?`) */ required?: number; body: Stmt[]; line: number; exported?: boolean }                   // AC-1
   | { k: "server"; name: string; params: string[]; ptypes?: (string | undefined)[]; ret?: string; body: Stmt[]; line: number; exported?: boolean }   // 12 SF-1: `server fn f(a) { … }` — the body runs on the server; it is io when its body is
@@ -81,7 +81,7 @@ const readsContext = (x: unknown): boolean => x !== null && typeof x === "object
  *  context (RG-7b: the provision above the region of the call, as MO-12b's `uses(c)` on a JS fn). */
 export const instantiates = (f: Extract<Decl, { k: "fn" }>): boolean => f.params.some(p => p.ref) || hasRegion(f);
 /** RG-6a: its call is a region of its own. */
-export const hasRegion = (f: Extract<Decl, { k: "fn" }>): boolean => f.decls.length > 0 || readsContext(f.tail);
+export const hasRegion = (f: Extract<Decl, { k: "fn" }>): boolean => !f.named && f.decls.length > 0 || readsContext(f.tail);
 /** E-9: what makes it instantiate, for a message (bug 22): its first `ref` parameter, its first declaration, or a context. */
 export function instantiatesWhy(f: Extract<Decl, { k: "fn" }>): string {
   const p = f.params.find(p => p.ref); if (p) return `takes a \`ref\` parameter, \`${p.name}\``;
@@ -98,6 +98,26 @@ export function instantiatesWhy(f: Extract<Decl, { k: "fn" }>): string {
     }
   }
   return "reads a context";
+}
+/** E-9b: a body that only names values — plain equations, and nothing in it that waits, remembers, reads a context or
+ *  makes anything. Whether one of them is a call that instantiates is the loader's to see (`nameLocals`). */
+export const namesOnly = (f: Extract<Decl, { k: "fn" }>): boolean => f.decls.length > 0 && !f.params.some(p => p.ref) && f.decls.every(d => (d.k === "eq" && !d.deferred && d.key === undefined) || d.k === "typedecl")   // a type declares no node (E-9: a source, an effect, a region)
+  && !/"k":"(?:await|pre|use|draft|serverfn|stylemap)"|"ctx":true/.test(JSON.stringify([f.decls, f.tail]));
+/** E-9b: how the names of a fn's body are read from its result: `order`, the ones reached, a name after those it reads;
+ *  `once`, those read in one place and not in a closure, whose expression can stand there (E-3: it is then evaluated when
+ *  that place is, as in the one-line form). The others are shared: evaluated at most once for a call. */
+export function localsOf(f: Extract<Decl, { k: "fn" }>): { order: string[]; once: Set<string> } {
+  const eqs = new Map(f.decls.flatMap(d => d.k === "eq" ? [[d.name, d.e] as const] : []));
+  const seen = new Map<string, number>(), held = new Set<string>(), order: string[] = [];
+  const reach = (n: string) => { const c = seen.get(n) ?? 0; seen.set(n, c + 1); if (!c) { go(eqs.get(n), false); order.push(n); } };
+  const go = (x: unknown, inner: boolean): void => {
+    if (x === null || typeof x !== "object") return;
+    const o = x as { k?: string; name?: string };
+    if (o.k === "id" && eqs.has(o.name!)) { if (inner) held.add(o.name!); reach(o.name!); return; }
+    const c = inner || o.k === "fn"; for (const v of Object.values(o)) go(v, c);
+  };
+  go(f.tail, false);
+  return { order, once: new Set(order.filter(n => seen.get(n) === 1 && !held.has(n))) };
 }
 
 /** RG-7b: the `use c` written in what `provide c = e` is given — they read what is above that provision, wherever they

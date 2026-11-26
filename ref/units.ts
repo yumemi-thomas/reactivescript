@@ -634,6 +634,32 @@ export const units: [string, () => void][] = [
     deepStrictEqual(text.trim().split("\n").slice(1), ["export type Item<T, U = string> = { v: T; label: U }", "export type Render<T> = (r: { item: T }) => View", "export component List<T extends { id: number }>(props: { items; children: view { item: T } value(item) }) shape(roots ul; closes-p; children-at ul li)"]);
     deepStrictEqual(printSignature(parseSignature(text, "/a.rx")), text);
   }],
+  ["what_a_package_fn_answers_javascript_is_its_rows", () => {   // MO-13i, E-9b: never the body's form
+    // examples/rx-std's keyboard: `createKeyHold` names a value in its body, and hands JavaScript an accessor, as the
+    // original does, because its row instantiates (`ref key`). Lifting the local (E-9b) changed it in silence once.
+    const f = new URL("../examples/rx-std/packages/keyboard/src/core.rx", import.meta.url).pathname;
+    const row = printSignature(checkModules(loadModules(f, readDisk)).sigs.get(f)!).split("\n").find(l => l.startsWith("export pure fn createKeyHold("));
+    deepStrictEqual(row?.replace(/ calls\(.*\)$/, ""), "export pure fn createKeyHold(ref key: string) instantiates");
+  }],
+  ["a_fn_that_only_names_values_is_lifted", () => {   // E-9b
+    const LIB = "import pure { createClock, jsPure, ask } from \"./js.js\"\nimport { lib, libMade } from \"./lib.rx\"\nsource s := 1\ncontext ctx: number = 1\nfn plain(a) => a\nfn named(a) { z = a\n  z }\nfn made(a) { source q := a\n  q }\nfn named2(a) { z = made(a)\n  z }\n";
+    const js = "export pure fn createClock(): { now: ref number } instantiates\nexport pure fn jsPure(a: number): number\nexport pure fn ask(a: number): Promise<number>\n", lib = "export fn lib(a) { z = a\n  z }\nexport fn libMade(a) { source q := a\n  q }\n";
+    const kind = (body: string, signed: boolean) => {
+      const fs: Record<string, string> = { "/app.rx": `${LIB}export fn f(n, r) { ${body.split("; ").join("\n  ")} }\n`, "/js.d.rx": js, "/lib.rx": lib };
+      if (signed) { const sig = checkModules(loadModules("/lib.rx", files({ "/lib.rx": lib }))).sigs.get("/lib.rx")!; delete fs["/lib.rx"]; fs["/lib.d.rx"] = printSignature(sig); }
+      const x = checkModules(loadModules("/app.rx", files(fs))).sigs.get("/app.rx")!.exports.get("f"); return x?.kind === "fn" ? x.instantiating ? "bound" : "lifted" : "";
+    };
+    const cases = [["n + 1", "lifted"], ["x = n + 1; x", "lifted"], ["x = y; y = n; x", "lifted"], ["{ a, b } = r; a + b", "lifted"], ["x: number = n; x", "lifted"], ["x = plain(n); x", "lifted"], ["x = named(n); x", "lifted"], ["x = f(n); x", "lifted"], ["x = lib(n); x", "lifted"], ["x = peek s; x", "lifted"], ["x = latest s; x", "lifted"], ["x = () => n; x", "lifted"], ["x = jsPure(n); x", "lifted"], ["x = len(r); x", "lifted"],
+      ["source x := 1; x", "bound"], ["x = made(n); x", "bound"], ["x = libMade(n); x", "bound"], ["x = named2(n); x", "bound"], ["x = createClock(); x.now", "bound"], ["x = await ask(n); x", "bound"], ["x = n; await ask(x)", "bound"], ["x = pre s -> 0; x", "bound"], ["x = n; pre s -> x", "bound"], ["x = use ctx; x", "bound"], ["x = n; use ctx", "bound"], ["deferred x = n; x", "bound"], ["x key id = r; x", "bound"], ["effect (n) { log(n) }; n", "bound"], ["x = n; effect (x) { log(x) }; x", "bound"], ["type T = number; n", "lifted"], ["x = n; type T = number; x", "lifted"], ["provide ctx = n; n", "bound"], ["action a() { s := 1 }; a", "bound"], ["fn g() => n; g()", "bound"]];
+    for (const signed of [false, true]) deepStrictEqual(cases.map(([b]) => [b, kind(b, signed)]), cases);
+    // in a component's block, and where a fn's name is another's, bound elsewhere, that instantiates: as that one (the side that is refused, not the one that is frozen)
+    const codes = (main: string) => checkModules(loadModules("/m.rx", files({ "/m.rx": main }))).diags.map(d => d.code);
+    deepStrictEqual(codes("export default component App() {\n  fn half(n: number) { h = n / 2\n    h }\n  <p>{half(1)}</p>\n}\n"), []);
+    deepStrictEqual(codes("fn mk(n) => n\nfn f(n) { x = mk(n)\n  x }\ncomponent Other() {\n  fn mk(n) { source q := n\n    q }\n  v = mk(1)\n  <b>{v}</b>\n}\nexport default component App() { <p>{f(1)} <Other /></p> }\n"), ["INSTANTIATION_NOT_BOUND"]);
+    // a bound call of one is an equation: a `peek` kept in it is one that is kept (E-5a), where it was a snapshot (E-10)
+    const bound = (a: string) => codes(`fn f(n) { x = n + 1\n  x }\nexport default component App() {\n  source s := 1\n  v = f(${a})\n  <p onClick={() => { s := 2 }}>{v}</p>\n}\n`);
+    deepStrictEqual([bound("s"), bound("1"), bound("peek s")], [[], [], ["SNAPSHOT_KEPT"]]);
+  }],
   ["the_parts_of_what_a_fn_answers_are_in_its_signature", () => {   // MO-13i, MO-9b
     const set = loadModules("/app/many.rx", files({ "/app/many.rx": "import pure { ask } from \"./ask.js\"\nexport fn many(ref n: number, first: number, cb: () => void) {\n  source s := first\n  x = n * 2\n  alias = x\n  action set(v: number) { s := v }\n  act = set\n  { x: x, alias: alias, act: act, \"data-x\": s, first: first, sum: first + 1, obj: first.y, cb: cb, f: (k) => k + x, list: [x, 1], cond: x > 1 ? set : null, u: peek x }\n}\nexport fn nested(ref n: number) {\n  m = many(n, 1, () => {})\n  q = await ask(n)\n  y = { m: m.act, r: m.x, deep: m.list[1], far: m.obj.z }\n  { ...y, q: q }\n}\nexport fn handed(ref n: number) {\n  m = many(n, 1, () => {})\n  y = { m: m.act, r: m.x, deep: m.list[1], far: m.obj.z }\n  { y: y, q: [m.cond] }\n}\nexport fn waits(ref n: number) {\n  q = await ask(n)\n  l = many(q, 1, () => {})\n  { q: q, x: l.x, n: n }\n}\nexport fn asks(ref n: number) {\n  { a: await ask(n) }\n}\nexport fn own(ref n: number) {\n  h = { at: n, was: pre h -> null }\n  h\n}\nexport fn nothing(ref n: number) {\n  effect (n) {}\n  null\n}\nexport fn self(ref n: number) {\n  s = self(n)\n  { s: s, n: n }\n}\nexport fn only() {\n  action go() {}\n  go\n}\nexport fn picked(ref n: number) {\n  action go() {}\n  n > 1 ? go : go\n}\nexport fn plain(n: number) => ({ n: n })\n" }));
     const sig = checkModules(set).sigs.get("/app/many.rx")!; const text = printSignature(sig);

@@ -3,6 +3,7 @@
 import { PRELUDE_FILES } from "./names.ts";
 import { parseProgram, parseDeclarations, ParseError, fieldName, isViewType, splitTop, closes, type JsDecl } from "./parse.ts";
 import type { Decl, Expr, Markup, Stmt, Program } from "./ast.ts";
+import { instantiates, namesOnly } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
@@ -236,13 +237,36 @@ function loadProgram(entry: string, read: (path: string) => string | undefined, 
       if (state.get(to) !== "done" && read(to) === undefined) { diags.push({ code: "MODULE_NOT_FOUND", rule: "MO-6", line: d.line, file: path, msg: `no module ${d.from} (from ${path})` }); continue; }
       visit(to, [...stack, path]);
     }
-    nameMethods(p, declarations);
+    nameMethods(p, declarations); nameLocals(p, (from, name) => instantiatingExport(from, name, programs, signatures, declarations));
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
   return { entry, conformance, programs, order, diags, declarations, signatures, declarationIds, printed };
 }
 
+/** Whether an import's name is one whose call instantiates: an `.rx` fn (its source, or its signature), a declared primitive. */
+function instantiatingExport(d: Extract<Decl, { k: "import" }>, name: string, programs: Map<string, Program>, signatures: Map<string, ModSig>, declarations: Map<string, JsDecl[]>): boolean {
+  if (d.resolved) {
+    const p = programs.get(d.resolved); if (p) return p.decls.some(x => x.k === "fn" && x.name === name && instantiates(x));
+    const s = signatures.get(d.resolved)?.exports.get(name); return s?.kind === "fn" && s.instantiating;
+  }
+  return !!d.declared && !!declarations.get(d.declared)?.some(x => x.kind === "fn" && x.name === name && (x.instantiates || x.shape === "comp" || !!x.refs?.some(Boolean)));
+}
+/** E-9b: the fns of a module that only name values are marked, where none of those values is a call that instantiates (each
+ *  is marked, and a mark is taken off until none has to be: one such fn may name a call of another). By name, whatever block a fn is in: a name that is
+ *  some fn's that instantiates is read as that fn. */
+export function nameLocals(p: Program, imported: (d: Extract<Decl, { k: "import" }>, name: string) => boolean): void {
+  type Fn = Extract<Decl, { k: "fn" }>;
+  const fns: Fn[] = []; scoped(p, (o: unknown) => { const d = o as Fn; if (d.k === "fn" && d.decls !== undefined) fns.push(d); });
+  const can = fns.filter(namesOnly); if (!can.length) return;
+  for (const f of can) f.named = true;
+  const made = new Set(p.decls.flatMap(d => d.k === "import" ? d.names.filter(n => imported(d, n.name)).map(n => n.alias) : []));
+  for (let again = true; again;) {
+    again = false;
+    const inst = new Set([...made, ...fns.filter(instantiates).map(f => f.name)]);
+    for (const f of can) if (f.named && f.decls.some(d => d.k === "eq" && d.e.k === "call" && d.e.f.k === "id" && inst.has(d.e.f.name))) { delete f.named; again = true; }
+  }
+}
 /** MO-8t (2026-11-25): a method a declaration gives a row of its own — `export fn toaster.show(…)` beside `export const
  *  toaster` — is named by that row where the module writes it: `toaster.show` (no `?.`) becomes the name
  *  `toaster.show`, which the checkers, the emitters and the projection then read as they read any declared fn's (io or
