@@ -271,13 +271,14 @@ export class Runtime {
     let w = writes;
     let fold = false;
     for (;;) {
-      // 07 §4: a `ref` is called as its element is made, in the creating pass, and what it writes is in that frame (Solid's
-      // ref()): here each is a run of its own after the instant that made the element, and the instant its write opens is
-      // shown as that one. The next `ref` reads what the one before wrote.
+      // 07 §4, 02 SC-4c: a `ref` is called as its element is made, in the creating pass, and what it writes is in that
+      // frame (Solid's ref()): here the `ref`s of the elements one instant made are called together after it, each reading
+      // the screen as that instant left it (as a handler does, H-10) — none sees another's write — and the instant their
+      // writes open is shown as that one. A region those writes make (an `if` that becomes true) is a later pass.
       do {
         this.instant++; const f = this.runInstant(w); if (fold && out.length) { f.effects.unshift(...out[out.length - 1].effects); out[out.length - 1] = f; } else out.push(f);
         w = this.pendingWrites; this.pendingWrites = []; fold = false;
-        while (!w.some(x => this.effective(x)) && this.refCalls.length) { this.refCalls.shift()!(); w = this.pendingWrites; this.pendingWrites = []; fold = w.some(x => this.effective(x)); }
+        while (!w.some(x => this.effective(x)) && this.refCalls.length) { const calls = this.refCalls; this.refCalls = []; for (const c of calls) c(); w = this.pendingWrites; this.pendingWrites = []; fold = w.some(x => this.effective(x)); }
       } while (w.length && w.some(x => this.effective(x)));   // W-3: an apply's writes that are all equal open no instant
       const logBefore = this.log.length;
       const stray = this.pendingSettled.filter(s => s.change === null); this.pendingSettled = this.pendingSettled.filter(s => s.change !== null);

@@ -846,7 +846,6 @@ class Checker {
     this.resolveTree();
     this.loadingOnOutside();
     this.guessWhileLoading();
-    this.refReads();
     this.keptPeekCheck();
     this.litCheck();
   }
@@ -952,73 +951,6 @@ class Checker {
           }
           st.push(...kidsOf(n));
         }
-      }
-    }
-  }
-
-  // ---- SC-4c: a `ref` reads what another `ref` of the same pass writes ----
-  /** Solid calls the `ref`s of one pass in an order the language does not fix (07 §4: the elements of one template in their
-   *  order; the rows of a list after them when the page is rendered, among them when it is hydrated). A `ref` that reads a
-   *  source another `ref` writes — or that it writes itself in another row of a `for`, or another call of a `view (…)` block,
-   *  below the source — reads what is not the same rendered and hydrated, nor in every runner. What a `ref` runs: its
-   *  closure's body, an action it names (or calls by name, transitively), a closure it gives a method that calls it at once
-   *  (CALLS_NOW); a closure it makes for later is not run. A read through an equation is a read of the sources under it. A
-   *  write by a function of the value (`n := v => v + 1`, W-6) reads nothing here. Mirrors compiler/src/check.rs `ref_reads`. */
-  private refReads() {
-    type Touch = { reads: Map<Sym, string>; writes: Set<Sym> };   // reads: a source, and the name the body read it by
-    const under = (t: Sym, out: Sym[], busy: Set<Sym>) => {   // the sources an equation (or a question source) reads
-      if (busy.has(t)) return; busy.add(t);
-      if (t.kind === "source") out.push(t);
-      if (!t.expr || !t.env) return;
-      const env = t.env;
-      const go = (x: Expr): void => { if (x.k === "fn" || x.k === "serverfn") return; if (x.k === "id") { const u = env.lookup(x.name); if (u && (u.kind === "source" || u.kind === "eq")) under(u, out, busy); return; } subExprs(x).forEach(go); };
-      go(t.expr);
-    };
-    const touch = (root: Expr, env: Env): Touch => {
-      const t: Touch = { reads: new Map(), writes: new Set() }, acts = new Set<number>();
-      const action = (name: string, env: Env) => {
-        const a = env.lookup(name); if (a?.kind !== "action") return;
-        for (const [i, act] of this.actions.entries()) if (act.name === name && act.line === a.line && !acts.has(i)) { acts.add(i); const b = new Set<string>(); for (const st of act.body) walk(st, act.env, b); }
-      };
-      const body = (f: Extract<Expr, { k: "fn" }>, env: Env, bound: Set<string>) => { const b = new Set([...bound, ...f.params]); if (f.stmts) for (const st of f.stmts) walk(st, env, b); else walk(f.body, env, b); };
-      const walk = (n: Expr | Stmt, env: Env, bound: Set<string>): void => {
-        switch (n.k) {
-          case "fn": case "serverfn": return;   // made now, run later
-          case "id": { if (bound.has(n.name)) return; const s = env.lookup(n.name); if (s && (s.kind === "source" || s.kind === "eq")) { const ss: Sym[] = []; under(s, ss, new Set()); for (const x of ss) if (!t.reads.has(x)) t.reads.set(x, n.name); } return; }
-          case "call":
-            if (n.f.k === "member" && CALLS_NOW.has(n.f.p)) { walk(n.f.o, env, bound); for (const a of n.args) if (a.k === "fn") body(a, env, bound); else walk(a, env, bound); return; }
-            if (n.f.k === "id" && !bound.has(n.f.name)) action(n.f.name, env);
-            break;
-          case "write": case "optimistic": {
-            if (!n.target.ctx && !bound.has(n.target.name)) { const s = env.lookup(n.target.name); if (s) t.writes.add(s); }   // `use c := …` writes no source (RG-7c withdrawn)
-            for (const p of n.target.path) if (typeof p !== "string") walk(p, env, bound);
-            walk(n.e, env, bound); return;
-          }
-          case "let": walk(n.e, env, bound); bound.add(n.name); return;
-          case "for": { walk(n.e, env, bound); const b = new Set([...bound, n.name]); for (const st of n.body) walk(st, env, b); return; }
-          case "try": { for (const st of n.body) walk(st, env, bound); const b = new Set([...bound, ...(n.catchName ? [n.catchName] : [])]); for (const st of n.handler ?? []) walk(st, env, b); for (const st of n.fin ?? []) walk(st, env, bound); return; }
-        }
-        for (const x of subExprs(n as Expr) as (Expr | Stmt)[]) walk(x, env, bound);
-      };
-      if (root.k === "fn") body(root, env, new Set());
-      else if (root.k === "id") action(root.name, env);
-      return t;
-    };
-    const handled = (s: { tag: string; env: Env }) => !/^[A-Z]/.test(s.tag) || (() => { const c = s.env.lookup(s.tag); return c?.kind === "comp" && !!c.compRegion && !c.compRegion.js; })();   // SC-4b: a JS component's `ref` is its declaration's
-    const seen = new Set<Expr>();
-    const sites = this.refSites.filter(s => handled(s) && !seen.has(s.e) && (seen.add(s.e), true)).map(s => ({ ...s, t: touch(s.e, s.env) }));
-    /** a region below the source that is made more than once in a pass: what to call one */
-    const inRow = (r: Region | null, stop: Region) => { for (let c = r; c && c !== stop; c = c.parent) if (this.forRows.has(c)) return true; return false; };
-    for (const [i, s] of sites.entries()) {
-      for (const [k, by] of s.t.reads) {
-        const other = sites.find((o, j) => j !== i && o.t.writes.has(k));
-        const own = !other && s.t.writes.has(k) && inRow(s.env.region, k.region);
-        if (!other && !own) continue;
-        const via = by === k.name ? k.name : `${by} (which reads ${k.name})`;
-        const writer = other ? `the \`ref\` of <${other.tag}> (line ${other.line}) writes` : "this `ref` writes in each row of its `for`";
-        this.line = s.line;
-        this.err("REF_READS_REF_WRITE", "SC-4c", `the \`ref\` of <${s.tag}> reads ${via}, which ${writer} as the view is made: Solid calls the \`ref\`s of one pass in an order that is not the same when the page is rendered and when it is hydrated (07 §4), so what it reads differs — write by a function of the value (\`${k.name} := v => …\`, W-6), or read ${k.name} once the view is made: in an equation, an effect, or a handler`);
-        break;
       }
     }
   }
@@ -2236,8 +2168,6 @@ class Checker {
   private draftCbs: number[] = [];                                       // MO-10i: the draft callbacks being walked, innermost last (their fnStack ids)
   private wholeOk = new Set<Expr>();                                     // MO-10f, MO-10i: expressions written where a result with held fields, or one with draft parts, may stand whole
   private refCalls = new Set<Expr>();                                    // MO-8l: what a `ref` attribute is, or lists: a call there runs as the element is made, under the region's owner
-  private refSites: { e: Expr; env: Env; line: number; tag: string }[] = [];   // SC-4c: each `ref` given to an element or an .rx component, where it is
-  private forRows = new Set<Region>();                                     // SC-4c: the rows of a `for`, each made once per item in one pass
   private calleeIds = new Set<Expr>();                                   // MO-10i: expressions written as what a call calls
   private fnSrcs = new Map<Expr, { e: Expr; env: Env }[]>();             // MO-10k: a closure literal's other arguments in the call it is given to
   private chFns = new Set<Expr>();                                       // E-5a: the closures chOf is reading through a call of them
@@ -3113,7 +3043,7 @@ class Checker {
         case "read": this.readEnv.set(m, env); if (this.throughReads.has(m)) { this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break; }   // MO-14f: no expression of the program's
           this.comp("reader", env, { at: "{…}" }, () => { const was = this.shownUse; this.shownUse = m.e.k === "use" ? m.e : null; try { this.expr(m.e, env, { scope: "reactive" }); } finally { this.shownUse = was; } }); this.keep(m.e, env); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
-          for (const a of m.attrs) if (a.name === "ref") for (const x of a.e.k === "arr" ? a.e.items : [a.e]) { this.refCalls.add(x); this.refSites.push({ e: x, env, line: this.line, tag: m.tag }); }
+          for (const a of m.attrs) if (a.name === "ref") for (const x of a.e.k === "arr" ? a.e.items : [a.e]) this.refCalls.add(x);
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", s?.kind === "import" ? unknownJsComponent(m.tag, s.undeclared) : `<${m.tag}> is not a component declared here`); }
@@ -3198,7 +3128,7 @@ class Checker {
           this.comp("reader", env, { at: "for" }, () => this.expr(m.xs, env, { scope: "reactive" })); this.keep(m.xs, env); this.readers.push({ region: env.region, e: m.xs, env, line: this.line });
           const src = m.xs.k === "id" ? env.lookup(m.xs.name) : undefined;
           if ((src?.mapsRecords && src.eqExpr && ownMap(src.eqExpr.e, src.eqExpr.env)) || (mapsIntoRecords(m.xs) && ownMap(m.xs, env))) this.err("UNSTABLE_LIST_IDENTITY", "ST-4b", `for ${m.name} in …: the rows are rebuilt as fresh records on every change — declare a key (\`x key id = …\`)`);
-          const r = this.region(env.region, "for"); const inner = new Env(env, r); this.forRows.add(r);
+          const r = this.region(env.region, "for"); const inner = new Env(env, r);
           inner.vars.set(m.name, { kind: "value", name: m.name, region: r, line: this.line, rowOf: { e: m.xs, env } });   // RG-2b: the row binding is a constant
           { const ps = this.itemParts(m.xs, env); if (ps.size) inner.vars.get(m.name)!.actionParts = [...ps]; }   // W2: a row holds what an item of the list holds
           this.block(m.decls, m.body, inner, { scope: "reactive" });

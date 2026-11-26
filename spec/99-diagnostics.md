@@ -102,7 +102,6 @@ named.
 | `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | IO-2 / R-io-3; SC-4b: a handler the component is given, carried in a value or given to what calls it | S-check-1, S-view-10 |
 | `IO_IN_FN`                        | S   | R-io-2 | S-check-1 |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`   | U/S | W-2 (a statement position) / SC-3 (a statement-bodied closure in reactive scope) | S-core-1, S-check-1 |
-| `REF_READS_REF_WRITE` (new, 2026-11-26) | S | 02 SC-4c: a `ref` reads (in its body, an action it calls, a closure it gives a method that calls it at once, or through an equation) a source another `ref` of the module writes, or one it writes itself in each row of a `for` below the source — Solid calls the `ref`s of one pass in an order that differs rendered and hydrated | S-server-8 |
 | `WRITE_TO_NON_SOURCE`             | S   | W-1   | S-core-1, S-check-1 |
 | `DRAFT_WRITE_OUTSIDE_DRAFT`       | S   | ST-3a | S-store-2 |
 | `DRAFT_ESCAPES` (new)             | S   | 09 MO-10i: a library's draft is a place — named only in its own callback (not in a closure made there, nor after an `await`), handed only to a closure written at its setter's call, by a setter that is called by its own name | S-module-25 |

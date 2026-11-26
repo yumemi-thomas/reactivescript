@@ -12,6 +12,11 @@
 // new raw already the row's, and the row keeps its proxy. Records and lists inside a row are walked the same way, so the
 // key holds at any depth, as Solid's does. Nothing is written that the list's reconcile would not write: the rows'
 // readers are told of the fields that changed, once, as they were.
+//
+// Memo (2026-11-26): this is a workaround of a Solid bug, not a design of the language. Solid's documentation promises a
+// kept proxy for a kept key; the plain-Solid issue is drafted, not posted (solid-main.noindex/drafts/1-reconcile-kept-row:
+// reproduced on main ad1f561, 2.0.4, 2.0.0, rc.23, rc.21; the cause in `descend()`). Once Solid keeps the proxy itself,
+// `keyedWrite` can become `reconcile(v, key)` again, with compiler/test/rows.mjs and S-store-kept-row as the check.
 type Reconcile = (v: any, key: string) => (state: any) => void;
 const isObj = (v: unknown): v is Record<PropertyKey, any> => v !== null && typeof v === "object";
 

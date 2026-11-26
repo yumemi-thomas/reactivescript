@@ -112,9 +112,9 @@ answer replaces the error. Instant 4: the answer is an `Error`, which
 - oracle "Frames" instant 3: `#2 nobody Z`
 - hydrated "Frames" instant 3: `#2 nobody Z`
 
-Solid 2.0.1 regressed here, still in 2.0.3 (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
+Solid changed this on purpose in 2.0.0-rc.23 (#4908, its rule F-3; not a regression, see spec 05 DV-25 and the draft `solid-main.noindex/drafts/3-errored-reask-write`), still so in 2.0.3 (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
 does not hold the change, so the screen shows the new input beside the old fallback while the question is in flight.
-rc.21 held it, as the spec rules; the spec frames stand.
+rc.21 and rc.22 held it, as the spec rules; the spec frames stand.
 
 ## Rejected variants
 

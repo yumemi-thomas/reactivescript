@@ -314,6 +314,11 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   over and draws the error fallback. Recorded as a `server` divergence; the
   program is ordinary, and nothing is refused. Found by the third review
   (`p3-err-aw-ifinner-app`); reduced to plain Solid by track 2, step c.
+  *Memo (2026-11-26):* the plain-Solid issue is drafted, not posted
+  (`solid-main.noindex/drafts/2-errored-stream-nested`): reproduced on main
+  (ad1f561), 2.0.4, 2.0.0, rc.23 and rc.21; the remainder of #4287, named as a
+  limit in #4303; the cause in the server `createErrorBoundary`'s
+  `renderOutcome`. Nothing here changes when it is fixed but this record.
 
 - **DV-27 (a store a `ref` writes while hydrating) — Solid's, 2026-11-26**
   (`ref/oracle/repros/dv27-hydrate`, plain Solid compiled by its own
@@ -323,7 +328,34 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   array or a record, ST-1) is made but its reader does not run again for
   it: the page keeps the server's text until the next change of the store.
   Recorded as a `hydrated` divergence; the program is ordinary, and nothing
-  is refused. Found by track 3 beside SC-4c's programs.
+  is refused. Found by track 3 beside SC-4c's programs. *Memo:* no Solid
+  issue is drafted for it yet; `ref/oracle/repros/dv27-hydrate` is the
+  plain-Solid program one would start from.
+
+- **DV-28 (a `ref` reads an earlier `ref`'s write in the same pass) —
+  Solid's, a regression in 2.0.0-rc.22, 2026-11-26** (S-server-8; the
+  plain-Solid issue is drafted, not posted:
+  `solid-main.noindex/drafts/5-hydration-rebuilds-show`, which supersedes
+  draft 4). A `ref` reads the screen as the pass found it (02 SC-4c), as
+  Solid did until rc.21, rendered and hydrated alike (run here with that
+  draft's harness at rc.21: every `ref` reads the value before, nothing is
+  replaced). Since rc.22 — the release of #4768, which runs a `ref`'s
+  callback "untracked in the creating pass's context" (related: #5098,
+  another rc.22 regression bisected to #4768, and #5110) — a client render
+  shows an earlier `ref`'s write to a `ref` in a `<For>` row and in a
+  `<Show>`; hydrating, a row's `ref` reads the screen, and the `<Show>`'s
+  served content is thrown away and made again, its `ref` called twice, the
+  second time reading the write. The minimal case is an ordinary
+  UI-library one: `<button ref={setAnchor}>` and a popover in `<Show>` whose
+  `ref` reads `anchor()`. Recorded as `oracle` and `hydrated` divergences;
+  nothing is refused, and the interpreter is not made to follow it.
+  *What a user writes that is the same on every Solid:* each `ref` stores
+  its own element (`ref={(e: Element) => { pop := e }}`), and what needs two
+  of them reads them once the view is made, `effect (anchor, pop) { … }` (or
+  an equation); a `ref` that counts writes by a function of the value
+  (`n := v => v + 1`). (A first version of SC-4c refused the reading,
+  `REF_READS_REF_WRITE`, a006d85a; withdrawn: a Solid bug is no reason to
+  refuse a program.)
 
 Ruled 2026-10-26 (Ryan): DV-9, DV-14 and DV-15 are Solid bugs, not intended
 behaviour — the server draws a failed boundary's fallback and the client

@@ -62,10 +62,10 @@ readers of `value` hold nothing (H-4) and recover with the answer (D-41);
 
 - hydrated "Frames" instant 6: `zzznone`
 
-Solid 2.0.1 regressed here (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
+Solid changed this on purpose in 2.0.0-rc.23 (#4908, its rule F-3; not a regression, see spec 05 DV-25 and the draft `solid-main.noindex/drafts/3-errored-reask-write`) (DV-25, `ref/oracle/repros/dv25-errored-reask.mjs`): a reader coming out of an error state
 does not hold the change, so the screen shows the new input beside the old fallback while the question is in flight.
-rc.21 held it, as the spec rules; the spec frames stand. On 2.0.3 (99db9bce4) the client runners show the ruled frame
-here; the hydrated page still does not, and S-module-1 and the plain-Solid repro still show the regression.
+rc.21 and rc.22 held it, as the spec rules; the spec frames stand. On 2.0.3 (99db9bce4) the client runners show the ruled frame
+here; the hydrated page still does not, and S-module-1 and the plain-Solid repro still show the change.
 
 ## Rejected variants
 
