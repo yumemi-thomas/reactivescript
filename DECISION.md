@@ -842,3 +842,35 @@ plain, a derived keyed and a selected list × four writes then a fresh list × a
 context, and one that reads nothing): 24 differed in the oracle alone before, 48 agree after. The s1 set reads 149 of
 149 and the 505 of proposals/27 has no row in the oracle alone (its 334 accepted agree in four runners). Nothing of
 the oracle's lowering of an applied view changed.
+
+### c. W3 and X6: served then hydrated (diagnosed; one fixed by record, two left with a ruling)
+
+Each of the third review's three programs was reduced, and the reduced shape run on Solid alone, at the pin and on
+2.0.4 (`npm pack`, outside the tree).
+
+- **`p3-err-aw-ifinner-app`: Solid's (DV-26).** A read that fails after the shell, inside a `loading` of a part, caught
+  by an `errored` above the part. Sixteen reductions (`if` or not, through `TC` or not, an outer `loading` or not, a
+  failure or an answer): every one with the `loading` inside an element of a part streams an empty fragment marked
+  failed; the client then draws `bad`. In plain Solid, `ref/oracle/repros/w3-error-through-a-part.mjs`: `direct`
+  (DV-9's shape) streams the fallback, `part` and `prop` stream nothing; the same on 2.0.4. Recorded as a `server`
+  divergence in `scenarios/S-server-7.md` and spec 10 DV-26; nothing refused (the program is ordinary).
+- **`v1-aw-loop-app`, `-part`: ours, small, not fixed.** After the takeover a row made by a handler asks `fetch("k")`,
+  which the server already answered for the first row. In one runtime that is one question while it stands (SF-2b), so
+  the interpreter and a browser alone show `t1v2v` at once; the hydrated client has the first row's answer from the
+  stream but not in its own table of questions, so it asks again and shows the row waiting (`t1v`, and `t1vw` where the
+  row has its own boundary) until that answer lands, which the scenario's table never does. Ruled: SV-3b stands ("every
+  question the server answered is answered on the client with the server's answer; it is not asked again"), so this is
+  the runtime's to fix: the server would send its answers by question with the stream, and the client would seed its
+  table with them, held by the hydrating node that traced each. Not done in this step: what reaches a user is one
+  request more after hydration (only for a server fn in reactive scope, the one real question that is shared; a JS
+  import is called as it is written) and a frame that waits for it; frames agree once it lands.
+- **X6 (two `ref`s): decided, refused; not yet built.** Measured (`compiled`, `ssr` CSR and hydrated, dev and prod):
+  sibling elements read the value before, rendered and hydrated; a `ref` in a `for` row reads the write rendered and the
+  value before hydrated; one in an `if` reads the write in both; the interpreter reads the write in all. The roadmap's
+  ruling ("hydration matches the browser") has no browser to match: Solid shows no write before its flush, and a
+  `flush()` after a `ref`'s write (tried) fixes the siblings but rebuilds an `if`'s region while hydrating and leaves
+  the row as it was. No ruling the runners can all follow exists without changing when Solid calls a `ref`, so the
+  reading is to be refused: a plain read, in a `ref`, of a source that another `ref` writes (a functional write,
+  `n := v => v + 1`, composes in any order and stays accepted). Spec 07 now says what was measured (its sentence said
+  the rendering browser reads the write, which is wrong for siblings). The refusal needs both checkers; it is the next
+  thing after d and e.

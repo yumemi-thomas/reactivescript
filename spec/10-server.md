@@ -304,6 +304,17 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   as a `hydrated` divergence at the hydration instant until 2026-10-27; at
   `2c9fdd9` the served element is adopted.
 
+- **DV-26 (a failure after the shell, caught above the part) — Solid's,
+  2026-11-26** (`ref/oracle/repros/w3-error-through-a-part.mjs`, at the pin
+  and in 2.0.4; S-server-7). DV-9's fix draws the error fallback in the
+  streamed fragment where the `errored` boundary is right around the
+  `loading` that failed. With anything between them — the `loading` is in a
+  part, inside a `<b>` — the fragment is empty and marked failed: the page
+  shows nothing where the loading fallback was until the client takes it
+  over and draws the error fallback. Recorded as a `server` divergence; the
+  program is ordinary, and nothing is refused. Found by the third review
+  (`p3-err-aw-ifinner-app`); reduced to plain Solid by track 2, step c.
+
 Ruled 2026-10-26 (Ryan): DV-9, DV-14 and DV-15 are Solid bugs, not intended
 behaviour — the server draws a failed boundary's fallback and the client
 adopts it; each replayed event is its own instant; a hydrated fallback is
