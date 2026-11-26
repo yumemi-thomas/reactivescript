@@ -898,6 +898,67 @@ its three handlers in its `attrs` record instead of three actions.
 | `examples/rx-ui-sdk`: build, `check/run.mjs`, `app/test.mjs` | builds; check identical; 44 tests, original 44, rewrite 44, the `.rx` app served and hydrated ok (the suite's harness imports esbuild, which the tree does not install: run with the copy an earlier setup had) |
 | `examples/rx-std` | 13 of 13 build |
 
+### Step 5: W4 — the census, and children nobody declares
+
+*The census first*, as the roadmap asked (the reference checker instrumented for the run, not committed; 1,241
+programs: every scenario program, variant and accepted variant, every `.rx` of the benchmark, the 65 packages, rx-std,
+the UI SDK and the examples):
+
+| what | in accepted programs | of which |
+| --- | --- | --- |
+| markup given to a prop the receiver does not declare as a view | 432 to a prop declared `View`; 17 to a typed one (the type pass's); **26** to one that says nothing | all 26 content between the tags: 3 to `children: any` (S-context-2), 23 to a component whose props type is not read or not written; no `view` block, no view value |
+| a function read from a prop or a context of a type that says nothing, called in reactive scope | **28** (24 more typed) | all methods of a value: `props.items.toSorted`, `c.picked.includes`, `props.value` of a controlled prop, `props.table.getPageCount` |
+
+*Decided.* (1) The giver's check, as the roadmap wrote it, would refuse the 26 — nearly every one correct
+(`<Panel>…</Panel>` to a component that shows `props.children` and declares no type): not taken. (2) The call rule
+would refuse 28 correct calls: not near zero, so left and listed, as the roadmap said. (3) What is taken is the
+receiver's side, for children only: where the module's own text says nothing of them — no props type, props `any` or
+`unknown`, `children: any` or `unknown` — children are what a caller writes between the tags, `children?: View`, in the
+one classification every runner and both checkers share (`viewsOf`/`views_of`). That refuses only a use as a value
+(`str(props.children)`, `c = props.children` then a value, a fn given them, a comparison), and it **fixed a fault of
+the runners found by this step's set**: `{if props.children { … {props.children} … }}` of markup, in a component that
+declares no type, failed to hydrate on c8ed3aa6 (the children were read twice as values); as a view it is served and
+hydrated alike. A spread of the whole props (`<input {...props} />`, six of the packages' parts) does not give
+undeclared children on. A type the checkers do not read (an alias imported from JavaScript) is left as it was: the UI
+SDK hands such children, possibly a function of its state, to its own JavaScript (`viewOf(props.children, now)`) —
+reading them as a view there refused correct code, found by the census and so not taken.
+
+*Open, and said* (spec 03 RG-4c): a prop other than `children` typed `any` that is given a view; children of a type
+not read; the 28 calls (a prop or context typed `any` holding io and called by a reader, proposals/31's last two).
+
+| | |
+| --- | --- |
+| programs (`mk5.py`: 6 ways to say nothing — none, `any`, `unknown`, optional `any`, props `any`, an alias — × 9 uses — shown, twice, asked and shown, given on; `str`, a name then a value, a fn, a comparison, a template — × 3 callers and in a module of its own; declared twins) | 202: 111 refused by both checkers, 91 accepted (12 of them the type pass refuses: `unknown` shown is no `Element`), each as named |
+| both checkers, lowered, projected | 202 of 202 alike |
+| the 79 with frames: interpreter, oracle, both emitters, served and hydrated in both | 79 of 79 alike (5 failed to hydrate before the runners read such children as a view) |
+| census of newly refused: scenarios, `bench/run.mjs --check --strict`, rx-packages (`check.mjs`, build), rx-std (build), the UI SDK (build, check) | none; the packages' `check.json` byte for byte (the alias reading, dropped, had caught 3 more of its planted mistakes) |
+| the runners on the packages' own tests, both ways; rx-std's tests; the UI SDK's suite | as before (rx-std's measured with and without this step: identical); UI SDK 44 of 44 |
+| rule 28's 170 (`mkg.py`) | as at step 2 |
+
+### Step 6: L8 — locals in fns (E-9's first reading)
+
+*Taken*: proposals/21's prototype (`proto-locals` a1c93632, E-9b), brought onto this tree (it was made before the
+generic, optional, W2 and B3 work: 26 conflicting hunks, each merged by hand — the walker that names namespaces and the
+one that finds fns, `named` beside `tparams`, the optional `ref` parameters' `??=` before a lifted body, `apart` in
+`latest`/`pending?` beside the asked question in `if`). A fn with no `ref` parameter whose body only names values is
+lifted: its names in any order, each evaluated when read, once for a call and the observer that reads it; no node.
+
+*Decided, 21's questions.* (1) E-9 is meant. (2) `x = area(peek a, 2)` is `SNAPSHOT_KEPT`, and the message says *a lifted
+call*, in both checkers. (3) A type declared beside the names (or alone) is no node either — E-9 names a source, an
+effect, a region — so it is lifted too (bug 22's second program: accepted). (4) What a fn answers to JavaScript is its
+row's, never the body's form: over every package of the tree, one exported row changed (`keyboard`'s `createKeyHold`,
+which named one local, lost `instantiates`, so TSX callers would have been handed a value where the original hands an
+accessor). It now declares `ref key`, which is the original's contract (an accessor back; a string or an accessor in),
+and `ref/units.ts` fails if that row's kind changes. A one-line fn and the same fn with a local now answer alike, which
+is what "never the body's form" asks.
+
+| | |
+| --- | --- |
+| S-locals-1 (34 bodies), both units | all runners, served and hydrated (quick) |
+| 21's rewriting test (`rewrite6.py`: the body of every one-line fn of every scenario named — read once, so it stands in place; and read three times, so the runtime's `names` shares it — 141 fns in 28 scenarios) | every frame held in the interpreter, the oracle and both emitters, both ways; three failures are the rewriter's own (a `.d.rx` row, two lines that are no fn); one is the oracle's alone and older: a promise compared with `==` (`fetch(x) == fetch(x)`, the one-line form too), for the runner track |
+| census | nothing newly refused: scenarios, `bench/run.mjs --check --strict`, rx-packages (check.json byte for byte, tests both ways as before), rx-std (13 build; tests identical), UI SDK (check identical, 44 of 44) |
+| rows printed for JavaScript, every package | one changed, `createKeyHold`, fixed by its row |
+
 ## Roadmap, track 2: every runner agrees (2026-11-26)
 
 The second track of `ROADMAP-fable.md` (X1, W5, W3 + X6, X2, X7), beside track 1 on the same PR. The sets and logs are

@@ -1486,6 +1486,7 @@ class Checker {
         { const ps = this.updaterPositions(d.name, d.line, d.e, env);                               // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
           if (ps) { if (made) made.updater = ps; if (d.exported) this.err("DRAFT_ESCAPES", "MO-10i", `${d.name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter`); } }
         if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.ioGiven(call, env, false); this.jsGiven(call, f, env);   /* W2: an instantiation runs where it is written, in reactive scope */ this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && f.foreign !== "comp") this.unplaced(call.args, env, f);   /* MO-11s, MO-11u */ this.snapshotArgs(call, f, env); this.hookCalls.push({ region: env.region, fn: f, line: this.line, display: `${d.e.f.name}()` });   /* RG-7b, MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
+        if (ctx.lifted) { this.expr(d.e, env, { ...reactive, lifted: true }); this.rowCheck(d.name, d.type, env); return; }   // E-9b: a part of the fn's result, no equation of its own
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
       }
       case "provide": {
@@ -1547,7 +1548,7 @@ class Checker {
         const inner = new Env(env, r);
         const me = env.lookup(d.name);
         for (const p of d.params) this.bind(inner, p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line, param: true });
-        this.comp("fn", env, { name: d.name }, () => { this.block(d.decls, [], inner, { scope: "reactive", inFn: true }); this.expr(d.tail, inner, { scope: "reactive", inFn: true, lifted: !instantiates(d) }); });
+        this.comp("fn", env, { name: d.name }, () => { this.block(d.decls, [], inner, { scope: "reactive", inFn: true, lifted: !!d.named }); this.expr(d.tail, inner, { scope: "reactive", inFn: true, lifted: !instantiates(d) }); });
         { const sym = env.lookup(d.name)!; sym.fnTail = d.tail; sym.fnEnv = inner; if (instantiates(d)) sym.fnDecls = new Set(d.decls.flatMap(x => x.k === "eq" && !x.deferred && x.key === undefined && !asksOrKeeps(x.e) ? [x.name] : [])); sym.failsT = this.failsThunk(d.tail, inner); sym.rows = this.rowsThunk(d.tail, inner); }
         return;
       }
@@ -1973,8 +1974,10 @@ class Checker {
         const pc = this.chOf(p.e, k.env, "all");
         if (!pc.yes && !pc.deps.size) continue;
         this.line = k.line;
-        if (!this.opts.whole) this.err("SNAPSHOT_KEPT", "E-5a", keptMsg(p, whyOf(p, pc)));
-        else if (pc.yes && !o.deps.size) this.err("SNAPSHOT_KEPT", "E-5a", keptMsg(p, whyOf(p, pc)));
+        // E-9b: a call of a fn that only names values is a part of the equation, so what it is given is kept with it
+        const lifted = k.e.k === "call" && k.e.f.k === "id" && k.env.lookup(k.e.f.name)?.fnDecl?.named ? ` (an argument of ${k.e.f.name}(…), a lifted call: a fn that only names values is a part of the equation that calls it, E-9b)` : "";
+        if (!this.opts.whole) this.err("SNAPSHOT_KEPT", "E-5a", keptMsg(p, whyOf(p, pc)) + lifted);
+        else if (pc.yes && !o.deps.size) this.err("SNAPSHOT_KEPT", "E-5a", keptMsg(p, whyOf(p, pc)) + lifted);
         else this.deferred.push({ line: k.line, peek: p, p: pc, o });
       }
     }

@@ -3250,7 +3250,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         if c.eat("=>") {
             c.ws(true);
             let tail = parse_expr(c)?;
-            return Ok(Decl::Fn { name, params, decls: vec![], tail, line, span: Span::NONE, ret, exported: false, tparams });
+            return Ok(Decl::Fn { name, params, decls: vec![], tail, line, span: Span::NONE, ret, exported: false, tparams, named: false });
         }
         c.expect("{")?;
         let mut decls = vec![];
@@ -3267,7 +3267,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         let tail = parse_expr(c)?;
         c.ws(true);
         c.expect("}")?;
-        return Ok(Decl::Fn { name, params, decls, tail, line, span: Span::NONE, ret, exported: false, tparams });
+        return Ok(Decl::Fn { name, params, decls, tail, line, span: Span::NONE, ret, exported: false, tparams, named: false });
     }
     if c.keyword("component") {
         c.ws(true);

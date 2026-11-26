@@ -97,13 +97,17 @@ struct Bind {
     /// declaration marks `draft`, which are given the draft itself
     js_fn: bool,
     draft_args: Vec<usize>,
+    /// E-9b: the expression a name stands for where it is read; its place among the names of a call that are evaluated
+    /// once, and whether it is read apart
+    sub: Option<*const Expr>,
+    shared: Option<(usize, bool)>,
 }
 /// RG-4c: a component whose children are a view or plain content.
 fn takes_plain(d: &Decl, types: &Types) -> bool {
     matches!(d, Decl::Component { props, props_type, decls, view, tparams, .. } if shown(props, props_type.as_deref(), decls, view, types, tparams.as_deref()).get("children").is_some_and(|v| v.mixed))
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), given: None, view_ctx: false, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![] }
+    Bind { kind, js: js.into(), given: None, view_ctx: false, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![], sub: None, shared: None }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -630,7 +634,7 @@ impl<'p> Gen<'p> {
                     self.set(env, name, val(js));
                 }
                 // a value fn (SF-3: it reads nothing reactive)
-                Decl::Fn { name, params, decls: ds, tail, .. } if !instantiates(params, ds, tail) => {
+                Decl::Fn { name, params, decls: ds, tail, named, .. } if !instantiates(params, ds, tail, *named) => {
                     let mut b = bind(Kind::Fn, mg(name));
                     b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(x as *const Decl) });
                     self.set(env, name, b);
@@ -862,8 +866,8 @@ impl<'p> Gen<'p> {
                         self.set(env, &n.alias, b);
                     }
                 }
-                Decl::Fn { name, params, decls: ds, tail, .. } => {
-                    let mut b = bind(if instantiates(params, ds, tail) { Kind::Ifn } else { Kind::Fn }, mg(name));
+                Decl::Fn { name, params, decls: ds, tail, named, .. } => {
+                    let mut b = bind(if instantiates(params, ds, tail, *named) { Kind::Ifn } else { Kind::Fn }, mg(name));
                     b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                     self.set(env, name, b);
                 }
@@ -1188,8 +1192,8 @@ impl<'p> Gen<'p> {
         }
         let Some(d) = self.set.programs.get(path).and_then(|p| p.decls.iter().find(|x| x.name() == Some(name))) else { return val(js) };
         match d {
-            Decl::Fn { params, decls, tail, .. } => {
-                let mut b = bind(if instantiates(params, decls, tail) { Kind::Ifn } else { Kind::Fn }, js);
+            Decl::Fn { params, decls, tail, named, .. } => {
+                let mut b = bind(if instantiates(params, decls, tail, *named) { Kind::Ifn } else { Kind::Fn }, js);
                 b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                 b
             }
@@ -1605,7 +1609,7 @@ impl<'p> Gen<'p> {
         Ok(out)
     }
     fn fn_decl(&mut self, d: &Decl, env: Env) -> R<S> {
-        let Decl::Fn { name, params, decls, tail, .. } = d else { unreachable!() };
+        let Decl::Fn { name, params, decls, tail, named, .. } = d else { unreachable!() };
         let inner = self.new_env(Some(env));
         for p in params {
             let mut b = bind(if p.r#ref { Kind::Acc } else { Kind::Val }, mg(&p.name));
@@ -1615,8 +1619,8 @@ impl<'p> Gen<'p> {
         let ps: Vec<P> = params.iter().map(|p| P::Id(mg(&p.name))).collect();
         // E-9a: a `ref` parameter left out reads `undefined` — its accessor is one of that
         let absent = || -> Vec<S> { params.iter().filter(|p| p.r#ref && p.opt).map(|p| S::Expr(E::Assign("??=", Box::new(id(mg(&p.name))), Box::new(thunk(undef()))))).collect() };
-        if !instantiates(params, decls, tail) {
-            let x = self.expr(tail, inner, &reactive())?;
+        if !instantiates(params, decls, tail, *named) {
+            let x = if *named { self.named(decls, tail, inner)? } else { self.expr(tail, inner, &reactive())? };
             let mut body = absent();
             body.push(S::Return(Some(x)));
             return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body, is_async: false, generator: false }));
@@ -1658,6 +1662,50 @@ impl<'p> Gen<'p> {
         whole.append(&mut body);
         let body = whole;
         Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body, is_async: false, generator: false }))
+    }
+    /// E-9b: the result of a fn that names values. A name read in one place stands there as its expression; the others are
+    /// read through `n$`, which evaluates each at most once for the call, or through `r$` where what is read is not what is
+    /// read elsewhere (`peek`, `latest`, `pending?`), which evaluates it there.
+    fn named(&mut self, decls: &[Decl], tail: &Expr, inner: Env) -> R<E> {
+        let names = crate::ast::locals_of(decls, tail);
+        let mut shared = vec![];
+        for (n, e, once) in &names {
+            let mut b = val("");
+            if *once {
+                b.sub = Some(*e as *const Expr);
+            } else {
+                b.shared = Some((shared.len(), false));
+                shared.push(*e);
+            }
+            self.set(inner, n, b);
+        }
+        let t = self.expr(tail, inner, &reactive())?;
+        if shared.is_empty() {
+            return Ok(t);
+        }
+        let of = shared.iter().map(|e| Ok(arrow(&["n$", "r$"], self.expr(e, inner, &reactive())?))).collect::<R<Vec<_>>>()?;
+        Ok(rtc("names", vec![E::Arr(of), arrow(&["n$", "r$"], t)]))
+    }
+    /// E-9b: the names of a fn's body, as a `peek`, a `latest` or a `pending?` reads them.
+    fn apart(&mut self, env: Env) -> Env {
+        let mut out: Vec<(String, Bind)> = vec![];
+        let mut e = Some(env);
+        while let Some(i) = e {
+            for (n, b) in &self.frames[i].vars {
+                if b.shared.is_some() && self.lookup(env, n).is_some_and(|x| x.shared == b.shared) {
+                    out.push((n.clone(), Bind { shared: b.shared.map(|(k, _)| (k, true)), ..b.clone() }));
+                }
+            }
+            e = self.frames[i].parent;
+        }
+        if out.is_empty() {
+            return env;
+        }
+        let inner = self.new_env(Some(env));
+        for (n, b) in out {
+            self.set(inner, &n, b);
+        }
+        inner
     }
     /// MO-13i: the parts of a fn's result, as a Solid primitive hands them.
     fn parts(&mut self, p: &crate::check::Plan, env: Env) -> R<E> {
@@ -1899,7 +1947,10 @@ impl<'p> Gen<'p> {
                 let Some(p) = self.lookup(env, name).and_then(|b| b.prev) else { return fail(format!("pre {name}: no companion memo")) };
                 rtc("preOr", vec![call(id(p), vec![]), thunk(i)])
             }
-            ExprKind::Peek(x) => rtc("untrack", vec![thunk(self.expr(x, env, &sub)?)]),
+            ExprKind::Peek(x) => {
+                let env = self.apart(env);
+                rtc("untrack", vec![thunk(self.expr(x, env, &sub)?)])
+            }
             // RG-4b: Solid's live view
             ExprKind::Omit { e: x, keys } => rtc("omit", std::iter::once(self.expr(x, env, &sub)).chain(keys.iter().map(|k| Ok(str(k.clone())))).collect::<Result<Vec<_>, _>>()?),
             ExprKind::Await { e: x, stream, .. } => {
@@ -1928,8 +1979,14 @@ impl<'p> Gen<'p> {
                 }
             }
             // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
-            ExprKind::Latest(x) => rtc("latest", vec![thunk(self.expr(x, env, &Ctx { imp: false, ..ctx.clone() })?)]),
-            ExprKind::Pending(x) => rtc("isPending", vec![thunk(self.expr(x, env, &sub)?)]),
+            ExprKind::Latest(x) => {
+                let env = self.apart(env);
+                rtc("latest", vec![thunk(self.expr(x, env, &Ctx { imp: false, ..ctx.clone() })?)])
+            }
+            ExprKind::Pending(x) => {
+                let env = self.apart(env);
+                rtc("isPending", vec![thunk(self.expr(x, env, &sub)?)])
+            }
             ExprKind::If { c, t, f } => {
                 self.raw.insert(&**c as *const Expr);
                 let c = match self.asks(c, env, true)? {
@@ -2186,6 +2243,13 @@ impl<'p> Gen<'p> {
             }
             return fail(format!("unbound {name}"));
         };
+        if let Some(x) = b.sub {
+            // the fn outlives its lowering
+            return self.expr(unsafe { &*x }, env, &reactive());
+        }
+        if let Some((i, apart)) = b.shared {
+            return Ok(call(id(if apart { "r$" } else { "n$" }), vec![E::Num(i as f64)]));
+        }
         match b.kind {
             Kind::Acc | Kind::Src => Ok(if ctx.imp { rtc("snapshot", vec![id(b.js)]) } else { call(id(b.js), vec![]) }),
             // a component value is the compiled component (MO-11c)

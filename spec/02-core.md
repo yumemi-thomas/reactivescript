@@ -278,6 +278,18 @@ Function application `f(e…)` covers both language functions and FFI imports;
   it follows its argument; left out, it reads `undefined`, as one whose
   argument is `undefined` does. There is no default and no rest.
   S-optional-1.
+- **E-9b (A fn that names values).** (Proposed 2026-11-25; E-9 read as it is
+  written, where RG-6 says *a node-declaring body*.) A fn with no `ref`
+  parameter whose body declares only equations, none of them keyed or
+  `deferred` and none a call that instantiates, and in which nothing awaits,
+  reads `pre` or a context, drafts, or makes a style or a server fn,
+  declares no source, effect or region: its call is lifted. The names stand
+  for their expressions: their order is irrelevant (E-7), one that is not
+  reached is not evaluated (E-3), and what is read through one is read by
+  the caller's equation, as in the one-line form. A name read more than
+  once in a call is evaluated once for it; read under `peek`, `latest` or
+  `pending?`, or by a closure called when the call is over, it is evaluated
+  there. No node is made. S-locals-1.
 - **E-11 (Lazy conditional).** In `c ? a : b` as an expression, only
   the selected arm is demanded; the equation's inputs are `c`'s plus the
   selected arm's, and change as `c` changes. The unselected arm is neither

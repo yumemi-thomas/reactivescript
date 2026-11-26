@@ -389,6 +389,17 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
      *  (E-9): what the library reads of a `ref` argument while it is being made is a read it means to make once, which
      *  Solid's development build otherwise reports against the component (STRICT_READ_UNTRACKED) — in `.rx` an
      *  element ref is a source, so `createFullscreen(el)` passes a signal where a `.tsx` author passes `() => el`. */
+    /** E-9b: a call of a fn that names values read in several places, or in a closure: each is evaluated when it is read, and
+     *  once for the call and the observer that reads it. `apart`, and every read when the call is over, evaluates it again. */
+    names(of: ((get: (i: number) => unknown, apart: (i: number) => unknown) => unknown)[], result: (get: (i: number) => unknown, apart: (i: number) => unknown) => unknown): unknown {
+      let live = true; const at: unknown[] = [], vals: unknown[] = [];
+      const apart = (i: number): unknown => of[i](apart, apart);
+      const get = (i: number): unknown => {
+        const o = getObserver(); if (live && i in vals && at[i] === o) return vals[i];
+        const v = of[i](get, apart); if (live) { at[i] = o; vals[i] = v; } return v;
+      };
+      try { return result(get, apart); } finally { live = false; }
+    },
     inst<T>(f: () => T): T { return (getOwner() ? runWithOwner(createOwner(), () => untrack(f)) : untrack(f)) as T; },   // with no owner above there is none to make one under: what needs one (`provide`) says so, as where two copies of Solid are loaded (CP-4a)
 
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },

@@ -34,7 +34,9 @@ export held: string | null = before.length == 0 && keys.length == 1 ? keys[0] : 
 /** Every state of the keys since the first was pressed (a copy of each: REPORT.md, bug 2). */
 export sequence: Keys[] = keys.length == 0 ? [] : [...(pre sequence -> []), [...keys]]
 
-export fn createKeyHold(key: string): boolean {
+/** Whether that key is held alone. Its row instantiates (`ref key`): JavaScript is handed an accessor, as the original's
+ *  `createKeyHold` hands one (MO-13i) — what a fn answers to JavaScript is its row's, never its body's form (E-9b). */
+export fn createKeyHold(ref key: string): boolean {
   holding = upper(key) == held
   holding
 }

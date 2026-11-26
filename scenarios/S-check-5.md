@@ -14,7 +14,8 @@ Each was accepted and wrong, or said the wrong thing (the roadmap's X3, X4, X5, 
 - `context sel: <T>(p: { item: T }) => View` parsed and was silently a context of a plain value, no context that holds
   a view: a context has no type parameter, `GENERIC_CONTEXT` (RG-7a).
 - `INSTANTIATION_NOT_BOUND` said "declares state" of a fn whose body declares only an equation (bugs/22): it names what
-  the body declares (`declares an equation, \`half\``), the `ref` parameter, or the context it reads.
+  the body declares (`declares a source, \`k\``), the `ref` parameter, or the context it reads. (A fn whose body declares
+  only equations is lifted since, E-9b: S-locals-1.)
 
 ## Modules
 
@@ -98,8 +99,8 @@ export default component App() { <p>x</p> }
 
 ```rx
 -- reject: INSTANTIATION_NOT_BOUND
-fn area(w: number, h: number): number { half = w / 2
-  half * h }
+fn area(w: number, h: number): number { source k := 2
+  w * h * k }
 export default component App() { source a := 1
   <p>{area(a, 2)}</p> }
 ```

@@ -3,6 +3,7 @@
 import { PRELUDE_FILES } from "./names.ts";
 import { parseProgram, parseDeclarations, ParseError, fieldName, isViewType, splitTop, closes, type JsDecl } from "./parse.ts";
 import type { Decl, Expr, Markup, Stmt, Program } from "./ast.ts";
+import { instantiates, namesOnly } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
@@ -236,13 +237,36 @@ function loadProgram(entry: string, read: (path: string) => string | undefined, 
       if (state.get(to) !== "done" && read(to) === undefined) { diags.push({ code: "MODULE_NOT_FOUND", rule: "MO-6", line: d.line, file: path, msg: `no module ${d.from} (from ${path})` }); continue; }
       visit(to, [...stack, path]);
     }
-    nameMethods(p, declarations);
+    nameMethods(p, declarations); nameLocals(p, (from, name) => instantiatingExport(from, name, programs, signatures, declarations));
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
   return { entry, conformance, programs, order, diags, declarations, signatures, declarationIds, printed };
 }
 
+/** Whether an import's name is one whose call instantiates: an `.rx` fn (its source, or its signature), a declared primitive. */
+function instantiatingExport(d: Extract<Decl, { k: "import" }>, name: string, programs: Map<string, Program>, signatures: Map<string, ModSig>, declarations: Map<string, JsDecl[]>): boolean {
+  if (d.resolved) {
+    const p = programs.get(d.resolved); if (p) return p.decls.some(x => x.k === "fn" && x.name === name && instantiates(x));
+    const s = signatures.get(d.resolved)?.exports.get(name); return s?.kind === "fn" && s.instantiating;
+  }
+  return !!d.declared && !!declarations.get(d.declared)?.some(x => x.kind === "fn" && x.name === name && (x.instantiates || x.shape === "comp" || !!x.refs?.some(Boolean)));
+}
+/** E-9b: the fns of a module that only name values are marked, where none of those values is a call that instantiates (each
+ *  is marked, and a mark is taken off until none has to be: one such fn may name a call of another). By name, whatever block a fn is in: a name that is
+ *  some fn's that instantiates is read as that fn. */
+export function nameLocals(p: Program, imported: (d: Extract<Decl, { k: "import" }>, name: string) => boolean): void {
+  type Fn = Extract<Decl, { k: "fn" }>;
+  const fns: Fn[] = []; scoped(p, (o: unknown) => { const d = o as Fn; if (d.k === "fn" && d.decls !== undefined) fns.push(d); });
+  const can = fns.filter(namesOnly); if (!can.length) return;
+  for (const f of can) f.named = true;
+  const made = new Set(p.decls.flatMap(d => d.k === "import" ? d.names.filter(n => imported(d, n.name)).map(n => n.alias) : []));
+  for (let again = true; again;) {
+    again = false;
+    const inst = new Set([...made, ...fns.filter(instantiates).map(f => f.name)]);
+    for (const f of can) if (f.named && f.decls.some(d => d.k === "eq" && d.e.k === "call" && d.e.f.k === "id" && inst.has(d.e.f.name))) { delete f.named; again = true; }
+  }
+}
 /** MO-8t (2026-11-25): a method a declaration gives a row of its own — `export fn toaster.show(…)` beside `export const
  *  toaster` — is named by that row where the module writes it: `toaster.show` (no `?.`) becomes the name
  *  `toaster.show`, which the checkers, the emitters and the projection then read as they read any declared fn's (io or
@@ -380,10 +404,12 @@ export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set
 /** The fields declared `View` of a component's props, where its type is read: written out, a type of the module, one
  *  imported from `.rx`. One classification for the checkers, the interpreter, the oracle and the compiled module. */
 export function viewsOf(propsType: string | undefined, types: Types, decls: Decl[] = [], tparams?: string): Set<string> {
-  if (propsType === undefined) return new Set();
+  const say = childrenSayNothing(propsType, types, tparams) ? ["children"] : [];   // W4 (2026-11-26): content between the tags is a view
+  if (propsType === undefined) return new Set(say);
   const ps = tparams ? typeParamNames(tparams) : [];
   const out = viewFields(propsType, ps.length ? decls.filter(d => !(d.k === "typedecl" && ps.includes(d.name))) : decls);
   for (const f of viewFields(expandType(propsType, without(types, tparams)), [])) out.add(f);
+  for (const f of say) out.add(f);
   return out;
 }
 /** The same of every component of a program, for the runners. */
@@ -593,6 +619,18 @@ export function shownFields(d: { props: string; decls: Decl[]; view: Markup[] })
   if (/^[a-z_$]/.test(d.props)) walk([...d.decls, ...d.view]);
   return out;
 }
+/** W4 (2026-11-26): whether a component's `children` are declared by a type that says nothing of them — no props type,
+ *  props `any` or `unknown`, `children: any` or `unknown` — written so in the module. Content a caller
+ *  writes between its tags is a view, so the component's use of them is checked as `children?: View` is: a view is only
+ *  shown (RG-4c). A record written out without `children` declares none: the type pass holds a use of them. */
+export function childrenSayNothing(propsType: string | undefined, types: Types, tparams?: string): boolean {
+  if (propsType === undefined) return true;
+  const t = expandType(propsType, without(types, tparams)).trim();
+  if (t === "any" || t === "unknown") return true;
+  const f = fieldType(t, "children");
+  if (f) return f.type.trim() === "any" || f.type.trim() === "unknown";
+  return false;   // a type it does not read (an imported alias): what its children are is that type's, unknown here
+}
 /** A field of a record type written out: its type, and whether it is optional. In two records of an intersection, it is neither's. */
 function fieldType(t: string, field: string): { type: string; optional: boolean } | undefined {
   const found: { type: string; optional: boolean }[] = [];
@@ -679,7 +717,9 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
   const look = (sc: Sc) => (n: string): Given | undefined => { for (let s: Sc | null = sc; s; s = s.up) if (s.names.has(n)) return s.names.get(n) ?? undefined; return undefined; };
   const view = (e: Expr, sc: Sc): Given | undefined => { const g = given(e, look(sc)); return g?.held && g.view ? g : undefined; };
   const form = (e: Expr, sc: Sc): boolean => (e.k === "id" || e.k === "member") && !!view(e, sc);
-  const left = (e: Expr, sc: Sc): string[] => { const p = given(e, look(sc))?.props; return p ? [...p.views].filter(v => !p.less.includes(v)).sort() : []; };
+  // W4: children nobody declares are a view where they are read, and no view a spread of the whole props hands on
+  const loose = !skip.has("children") && childrenSayNothing(d.propsType, types, d.tparams);
+  const left = (e: Expr, sc: Sc): string[] => { const p = given(e, look(sc))?.props; return p ? [...p.views].filter(v => !p.less.includes(v) && !(loose && v === "children" && p.views === views)).sort() : []; };
   const nothing = (e: Expr): boolean => e.k === "lit" && e.v == null;
   const near = (how: string, k: string): string => how === "handler" || how === "effect" ? how : k;   // what reads it: the nearest, but a handler's or an effect's body whatever is in it
   const hit = (field: string, line: number, how: string, of?: string): void => { bad.push({ field, line, how, ...(of ? { of } : {}) }); };

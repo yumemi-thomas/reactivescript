@@ -39,6 +39,11 @@ fn cut(s: string, n?: number): string => s.slice(0, n ?? 80)   // `cut(s)`: n is
 fn first<T>(xs: T[]): T | undefined => xs[0]         // generic; a call infers T
 type Render<T> = (r: { item: T }) => View            // a generic type
 component List<T>(props: { items: T[]; children: Render<T> }) { … }   // a generic component; the tag infers T, no <List<Row>>
+fn slope(a: Point, b: Point) {                       // and one that names what it uses: in any order, each evaluated when read
+  rise = b.y - a.y
+  run = b.x - a.x
+  run == 0 ? 0 : rise / run
+}
 action save(n: string) { … }               // writes and awaits (async.md)
 component Row(props: { item: Item }) { … }
 error NotFound(id: number) => `no issue ${id}`       // an error class; `NotFound(3)` makes one

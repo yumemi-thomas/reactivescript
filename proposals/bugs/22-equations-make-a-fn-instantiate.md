@@ -1,8 +1,8 @@
 # A question: a fn that declares only an equation is refused where a lifted fn is accepted
 
-Not fixed in this branch: a question first. See [proposal 21](../21-locals-in-fns.md).
+**Fixed in this branch (2026-11-26, the roadmap's L8): E-9 is read as it is written (E-9b, proposal 21)** — a fn whose body only names values (equations, and types) is lifted. The message names what makes a fn instantiate (S-check-5).
 
-<!-- check prototype=ok branch=INSTANTIATION_NOT_BOUND upstream=INSTANTIATION_NOT_BOUND says-branch="declares an equation, `half`" says-upstream="declares state" -->
+<!-- check prototype=ok branch=ok upstream=INSTANTIATION_NOT_BOUND says-upstream="declares state" -->
 ```rx
 fn area(w: number, h: number): number { half = w / 2
   half * h }
@@ -12,7 +12,7 @@ export default component App() { source a := 1
 
 A body that declares only a type is refused with the same message:
 
-<!-- check branch=INSTANTIATION_NOT_BOUND upstream=INSTANTIATION_NOT_BOUND -->
+<!-- check branch=ok upstream=INSTANTIATION_NOT_BOUND -->
 ```rx
 fn id(n: number) { type Unused = number
   n }

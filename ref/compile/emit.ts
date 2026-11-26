@@ -5,7 +5,7 @@
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import { inPrelude, language, scalar } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
-import { instantiates, keptParts, ownUses, usesNow } from "../src/ast.ts";
+import { instantiates, keptParts, localsOf, ownUses, usesNow } from "../src/ast.ts";
 import { singleModule, isRx, madeComponent, ViewProps, typeOnly, given, defaulted, bindGiven, viewsOf, viewCtx, shownIn, usedIn, shown, typesOf, type Given, type ModuleSet } from "../src/modules.ts";
 export { madeComponent };
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
@@ -21,7 +21,7 @@ import { instance } from "../src/parse.ts";
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "jfn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; given?: Given; viewCtx?: boolean; shows?: Map<string, boolean>; plain?: boolean; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[] };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Bind = { kind: Kind; js: string; given?: Given; viewCtx?: boolean; shows?: Map<string, boolean>; plain?: boolean; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[]; /** E-9b: a name of a fn's body that stands where it is read, or is read through the call's names */ sub?: Expr; shared?: number };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
 /** RG-4c: a view given to an .rx component, a function of one parameter. */
 const viewParam = (v: { params: string[] }) => v.params.map(mg).join(", ") || "__s";
@@ -462,6 +462,7 @@ class Gen {
     for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name), ...(p.ref && this.u.prevOf.has(p.name) ? { prev: `p$${p.name}` } : {}) });
     // E-9a: a `ref` parameter left out reads `undefined` — its accessor is one of that
     const absent = d.params.filter(p => p.ref && p.opt).map(p => `${mg(p.name)} ??= () => undefined;`);
+    if (d.named) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.named(d, inner)}; }`;
     if (!instantiates(d)) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { ${absent.map(a => `${a} `).join("")}return ${this.expr(d.tail, inner, { imp: false })}; }`;
     // an instantiating fn (RG-6): called once, returns the accessor of its tail
     // an `await` in the result: the result is an equation (RG-6a), and its flights are that equation's (07 §3)
@@ -472,6 +473,21 @@ class Gen {
     const tail = tb && (tb.kind === "acc" || tb.kind === "src") ? tb.js : `__rt.memo(null, () => ${this.expr(d.tail, inner, { imp: false })})`;
     const own = d.decls.some(x => x.k === "provide");   // RG-6a: what it provides is for what its call instantiates, not for the caller's region: an owner of the call's own
     return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {${absent.map(a => `\n${pad}  ${a}`).join("")}${own ? " return __rt.inst(() => {" : ""}\n${prevs}${body}\n${pad}  return ${tail};\n${pad}${own ? "}); }" : "}"}`;
+  }
+  /** E-9b: the result of a fn that names values. A name read in one place stands there as its expression; the others are
+   *  read through `n$`, which evaluates each at most once for the call, or through `r$` where what is read is not what is
+   *  read elsewhere (`peek`, `latest`, `pending?`), which evaluates it there. */
+  private named(d: FnDecl, inner: Env): string {
+    const { order, once } = localsOf(d); const e = new Map(d.decls.flatMap(x => x.k === "eq" ? [[x.name, x.e] as const] : []));
+    const shared = order.filter(n => !once.has(n));
+    for (const n of order) inner.vars.set(n, once.has(n) ? { kind: "val", js: "", sub: e.get(n)! } : { kind: "val", js: `n$(${shared.indexOf(n)})`, shared: shared.indexOf(n) });
+    const tail = this.expr(d.tail, inner, { imp: false });
+    return shared.length ? `__rt.names([${shared.map(n => `(n$, r$) => ${this.expr(e.get(n)!, inner, { imp: false })}`).join(", ")}], (n$, r$) => ${tail})` : tail;
+  }
+  /** E-9b: the names of a fn's body, as a `peek`, a `latest` or a `pending?` reads them. */
+  private apart(env: Env): Env {
+    const out = new Env(env); for (let x: Env | null = env; x; x = x.parent) for (const [n, b] of x.vars) if (b.shared !== undefined && !out.vars.has(n) && env.lookup(n) === b) out.vars.set(n, { ...b, js: `r$(${b.shared})` });
+    return out;
   }
   /** MO-10: `x = f(…)` over a declared primitive — called once (RG-6), a ref argument as an accessor, a value one untracked;
    *  and `y = x[i]` / `x.k` over its result. A `ref` part is bound to the accessor itself, any other part to its value. */
@@ -603,15 +619,15 @@ class Gen {
         const b = env.lookup(e.name); if (!b?.prev) throw new CompileError(`pre ${e.name}: no companion memo`);
         return `__rt.preOr(${b.prev}(), () => ${init})`;
       }
-      case "peek": return `__rt.untrack(() => ${go(e.e)})`;
+      case "peek": return `__rt.untrack(() => ${this.expr(e.e, this.apart(env), sub)})`;
       case "await": {
         if (this.hoisted.has(e)) return `${this.hoisted.get(e)}()`;
         if (ctx.imp) return ctx.gen ? `(yield __rt.awaited(${go(e.e)}))` : ctx.async ? `(await __rt.awaited(${go(e.e)}))` : go(e.e);
         if (!ctx.tail) throw new CompileError("`await` outside an equation's result position is not lowered yet");
         return e.stream ? go(e.e) : `__rt.awaited(${go(e.e)})`;                                      // the memo returns the flight (R-1): a stream for `await*`, else its one answer
       }
-      case "latest": return `__rt.latest(() => ${this.expr(e.e, env, { ...ctx, imp: false })})`;   // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
-      case "pending": return `__rt.isPending(() => ${go(e.e)})`;
+      case "latest": return `__rt.latest(() => ${this.expr(e.e, this.apart(env), { ...ctx, imp: false })})`;   // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
+      case "pending": return `__rt.isPending(() => ${this.expr(e.e, this.apart(env), sub)})`;
       case "if": return `(${this.asks(e.c, env, true) ?? rawGo(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
       case "throw": return `__rt.throw(${go(e.e)})`;                                          // R-f-3
       case "catch": {                                                                           // R-f-4: over a sync value, or the tail await's promise/stream
@@ -677,6 +693,7 @@ class Gen {
       if (own) return own;
       throw new CompileError(`unbound ${name}`);
     }
+    if (b.sub) return `(${this.expr(b.sub, env, { imp: false })})`;
     if (b.kind === "acc" || b.kind === "src") return ctx.imp ? `__rt.snapshot(${b.js})` : `${b.js}()`;
     return b.js;                                                                                // a component value is the compiled component (MO-11c)
   }

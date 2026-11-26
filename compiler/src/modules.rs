@@ -362,6 +362,17 @@ pub fn declaration_names(from: &str) -> Vec<String> {
 }
 
 impl Loader<'_> {
+    /// Whether an import's name is one whose call instantiates: an `.rx` fn (its source, or its signature), a declared primitive.
+    fn instantiating_export(&self, d: &Decl, name: &str) -> bool {
+        let Decl::Import { resolved, declared, .. } = d else { return false };
+        if let Some(to) = resolved {
+            if let Some(p) = self.programs.get(to) {
+                return p.decls.iter().any(|x| matches!(x, Decl::Fn { name: n, params, decls, tail, named, .. } if n == name && crate::ast::instantiates(params, decls, tail, *named)));
+            }
+            return matches!(self.signatures.get(to).and_then(|s| s.exports.get(name)), Some(crate::signature::ExportSig::Fn { instantiating: true, .. }));
+        }
+        declared.as_ref().and_then(|d| self.declarations.get(d)).is_some_and(|ds| ds.iter().any(|x| matches!(x, JsDecl::Fn { name: n, instantiates, shape, refs, .. } if n == name && (*instantiates || *shape == crate::parse::Shape::Comp || refs.contains(&true)))))
+    }
     fn visit(&mut self, path: &str, stack: &[String]) -> Result<(), ParseError> {
         if self.state.get(path) == Some(&State::Done) {
             return Ok(());
@@ -480,11 +491,52 @@ impl Loader<'_> {
             self.visit(&to, &st)?;
         }
         name_methods(&mut p, &self.declarations);
+        name_locals(&mut p, &|d, name| self.instantiating_export(d, name));
         self.programs.insert(path.to_string(), p);
         self.sources.insert(path.to_string(), src);
         self.state.insert(path.to_string(), State::Done);
         self.order.push(path.to_string());
         Ok(())
+    }
+}
+
+/// E-9b: the fns of a module that only name values are marked, where none of those values is a call that instantiates (each
+/// is marked, and a mark is taken off until none has to be: one such fn may name a call of another). By name, whatever block
+/// a fn is in: a name that is some fn's that instantiates is read as that fn. `imported`: an import's name is one.
+pub fn name_locals(p: &mut Program, imported: &dyn Fn(&Decl, &str) -> bool) {
+    let mut can = false;
+    crate::ast::fns_mut(p, &mut |d| {
+        let n = crate::ast::names_only(d);
+        can |= n;
+        if let Decl::Fn { named, .. } = d {
+            *named = n;
+        }
+    });
+    if !can {
+        return;
+    }
+    let made: Vec<String> = p.decls.iter().flat_map(|d| if let Decl::Import { names, .. } = d { names.iter().filter(|n| imported(d, &n.name)).map(|n| n.alias.clone()).collect() } else { vec![] }).collect();
+    loop {
+        let mut inst: HashSet<String> = made.iter().cloned().collect();
+        crate::ast::fns_mut(p, &mut |d| {
+            if let Decl::Fn { name, params, decls, tail, named, .. } = d {
+                if crate::ast::instantiates(params, decls, tail, *named) {
+                    inst.insert(name.clone());
+                }
+            }
+        });
+        let mut again = false;
+        crate::ast::fns_mut(p, &mut |d| {
+            if let Decl::Fn { decls, named, .. } = d {
+                if *named && decls.iter().any(|d| matches!(d, Decl::Eq { e: Expr { k: ExprKind::Call { f, .. }, .. }, .. } if matches!(&f.k, ExprKind::Id(n) if inst.contains(n)))) {
+                    *named = false;
+                    again = true;
+                }
+            }
+        });
+        if !again {
+            return;
+        }
     }
 }
 
@@ -751,6 +803,10 @@ pub fn views_of(props_type: Option<&str>, types: &Types, decls: &[Decl], tparams
         view_fields(t, decls, 0, &mut out, &ps);
         view_fields(&expand_type(t, &without(types, tparams), 0), &[], 0, &mut out, &[]);
     }
+    // W4 (2026-11-26): content between the tags is a view
+    if children_say_nothing(props_type, types, tparams) {
+        out.insert("children".to_string());
+    }
     out
 }
 /// 07 §2: the type parameter a generic component's children are declared (`children: T`, `children?: T | undefined`), if they are.
@@ -919,6 +975,22 @@ pub fn value_type(t: &str) -> bool {
     })
 }
 /// What a component's prop is declared: a view (`Some(true)`), a value's type that is read (`Some(false)`), or not known.
+/// W4 (2026-11-26): whether a component's `children` are declared by a type that says nothing of them — no props type,
+/// props `any` or `unknown`, `children: any` or `unknown` — written so in the module. Content a caller
+/// writes between its tags is a view, so the component's use of them is checked as `children?: View` is: a view is only
+/// shown (RG-4c). A record written out without `children` declares none. `ref/src/modules.ts` `childrenSayNothing`.
+pub fn children_say_nothing(props_type: Option<&str>, types: &Types, tparams: Option<&str>) -> bool {
+    let Some(pt) = props_type else { return true };
+    let t = expand_type(pt, &without(types, tparams), 0);
+    let t = t.js_trim();
+    if t == "any" || t == "unknown" {
+        return true;
+    }
+    if let Some((ty, _)) = field_type(t, "children") {
+        return ty.js_trim() == "any" || ty.js_trim() == "unknown";
+    }
+    false // a type it does not read (an imported alias): what its children are is that type's, unknown here
+}
 pub fn takes_view(props_type: Option<&str>, types: &Types, field: &str, tparams: Option<&str>) -> Option<bool> {
     let (t, _) = field_type(&expand_type(props_type?, &without(types, tparams), 0), field)?;
     let ps = tparams.map(type_param_names).unwrap_or_default(); // 07 §2: a type parameter stands for a value's type, never for a view
@@ -1382,6 +1454,8 @@ pub fn view_uses(props: &str, props_type: Option<&str>, tparams: Option<&str>, d
         dest: &'a dyn Fn(&str, &str) -> Option<bool>,
         /// whether a context of that name holds a view (`context item: View`)
         ctx: &'a dyn Fn(&str) -> bool,
+        /// W4: the root's views, where its children are nobody's declaration: a view where read, none a whole spread hands on
+        loose: Option<std::rc::Rc<HashSet<String>>>,
     }
     fn near<'h>(how: &'h str, k: &'h str) -> &'h str {
         // what reads it: the nearest, but a handler's or an effect's body whatever is in it
@@ -1438,7 +1512,8 @@ pub fn view_uses(props: &str, props_type: Option<&str>, tparams: Option<&str>, d
         fn left(&self, e: &Expr, sc: usize) -> Vec<String> {
             match self.given(e, sc) {
                 Some(Given::Props { less, views }) => {
-                    let mut l: Vec<String> = views.iter().filter(|v| !less.contains(v)).cloned().collect();
+                    let loose = self.loose.as_ref().is_some_and(|r| std::rc::Rc::ptr_eq(r, &views));
+                    let mut l: Vec<String> = views.iter().filter(|v| !less.contains(v) && !(loose && v.as_str() == "children")).cloned().collect();
                     l.sort();
                     l
                 }
@@ -1926,9 +2001,11 @@ pub fn view_uses(props: &str, props_type: Option<&str>, tparams: Option<&str>, d
     }
     let mut views = views_of(props_type, types, &[], tparams);
     views.retain(|f| !skip.contains(f));
+    let loose = !skip.iter().any(|f| f == "children") && children_say_nothing(props_type, types, tparams);
+    let views: std::rc::Rc<HashSet<String>> = views.into();
     let mut root = Sc::default();
-    root.names.insert(props.to_string(), Some(Given::Props { less: vec![], views: views.into() }));
-    let mut w = W { scs: vec![root], out: ViewUses::default(), dest, ctx };
+    root.names.insert(props.to_string(), Some(Given::Props { less: vec![], views: views.clone() }));
+    let mut w = W { scs: vec![root], out: ViewUses::default(), dest, ctx, loose: loose.then_some(views) };
     w.inner(decls, view, 0, 0);
     w.out
 }

@@ -3431,9 +3431,9 @@ impl<'a> Checker<'a> {
                     sym.arity_min = *required; // …at least, where its last ones may be left out (`by?`)
                     sym.outlasts = Some(action_waits(body)); // AC-1h
                 }
-                Decl::Fn { params, decls: fdecls, tail, .. } => {
+                Decl::Fn { params, decls: fdecls, tail, named, .. } => {
                     sym.params = Some(params.iter().map(|p| SigParam { name: p.name.clone(), r#ref: p.r#ref, ty: p.ty.clone(), opt: p.opt }).collect());
-                    sym.instantiating = instantiates(params, fdecls, tail);
+                    sym.instantiating = instantiates(params, fdecls, tail, *named);
                     sym.fn_decl = Some(d);
                     sym.decl_env = Some(env);
                 }
@@ -4552,6 +4552,12 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
+                // E-9b: a part of the fn's result, no equation of its own
+                if ctx.lifted {
+                    self.expr(e, env, Ctx { lifted: true, ..reactive }, None);
+                    self.row_check(name, ty.as_deref(), env);
+                    return;
+                }
                 self.comp(kind, env, Some(name.clone()), None, |c| c.expr(e, env, reactive, None));
                 self.keep(e, env);
                 self.row_check(name, ty.as_deref(), env);
@@ -4657,9 +4663,9 @@ impl<'a> Checker<'a> {
                 let s = self.lookup(env, name).unwrap();
                 self.syms[s].server_rejects = Some(ServerRejects::Body { body, env: inner, cache: None });
             }
-            Decl::Fn { name, params, decls, tail, line, .. } => {
+            Decl::Fn { name, params, decls, tail, line, named, .. } => {
                 let region = self.reg(env);
-                let r = if has_region(decls, tail) { self.region(Some(region), "fn", false, Some(name.clone())) } else { region };
+                let r = if has_region(decls, tail, *named) { self.region(Some(region), "fn", false, Some(name.clone())) } else { region };
                 if r != region {
                     self.regions[r].fn_sym = self.lookup(env, name);
                 }
@@ -4677,13 +4683,13 @@ impl<'a> Checker<'a> {
                     }
                 }
                 self.comp("fn", env, Some(name.clone()), None, |c| {
-                    c.block(decls, &[], inner, Ctx { in_fn: true, ..Ctx::reactive() });
-                    c.expr(tail, inner, Ctx { in_fn: true, lifted: !instantiates(params, decls, tail), ..Ctx::reactive() }, None);
+                    c.block(decls, &[], inner, Ctx { in_fn: true, lifted: *named, ..Ctx::reactive() });
+                    c.expr(tail, inner, Ctx { in_fn: true, lifted: !instantiates(params, decls, tail, *named), ..Ctx::reactive() }, None);
                 });
                 let s = self.lookup(env, name).unwrap();
                 let sym = &mut self.syms[s];
                 sym.fn_tail = Some((tail, inner));
-                sym.fn_decls = instantiates(params, decls, tail).then(|| decls.iter().filter_map(|x| match x { Decl::Eq { name, e, deferred: false, key: None, .. } if !asks_or_keeps(Node::E(e)) => Some(name.as_str()), _ => None }).collect());
+                sym.fn_decls = instantiates(params, decls, tail, *named).then(|| decls.iter().filter_map(|x| match x { Decl::Eq { name, e, deferred: false, key: None, .. } if !asks_or_keeps(Node::E(e)) => Some(name.as_str()), _ => None }).collect());
                 sym.fails_t = Some(FailsT::Expr { e: tail, env: inner, cache: None, busy: false });
                 sym.rows = Some(RowsT::Expr { e: tail, env: inner, cache: None, busy: false });
             }
@@ -5642,8 +5648,16 @@ impl<'a> Checker<'a> {
                 }
                 self.line = line;
                 let (peek, what) = (show(p), show(inner));
+                // E-9b: a call of a fn that only names values is a part of the equation, so what it is given is kept with it
+                let lifted = match &e.k {
+                    ExprKind::Call { f, .. } => match &f.k {
+                        ExprKind::Id(n) if self.lookup(env, n).and_then(|s| self.syms[s].fn_decl).is_some_and(|d| matches!(d, Decl::Fn { named: true, .. })) => format!(" (an argument of {n}(…), a lifted call: a fn that only names values is a part of the equation that calls it, E-9b)"),
+                        _ => String::new(),
+                    },
+                    _ => String::new(),
+                };
                 if !self.opts.whole || (pc.yes && o.deps.is_empty()) {
-                    self.err("SNAPSHOT_KEPT", "E-5a", kept_msg(&peek, &why_of(&what, &pc)));
+                    self.err("SNAPSHOT_KEPT", "E-5a", kept_msg(&peek, &why_of(&what, &pc)) + &lifted);
                 } else {
                     self.deferred.push(Deferred { line, peek, what, p: pc, o: o.clone() });
                 }
@@ -6773,9 +6787,6 @@ impl<'a> Checker<'a> {
             self.called_memo.insert((f, i), r.clone());
         }
         r
-    }
-    fn named_parts(&mut self, s: SId, v: Option<(&'a Expr, EId)>) -> IndexSet<String> {
-        self.named_parts_cl(s, v, false)
     }
     fn named_parts_cl(&mut self, s: SId, v: Option<(&'a Expr, EId)>, cl: bool) -> IndexSet<String> {
         let memo = if cl { &mut self.closure_memo } else { &mut self.parts_memo };
@@ -11475,6 +11486,42 @@ mod tests {
             ["export pure fn f<T>(xs: T[], by: (x: T) => number)", "export pure fn g< T extends (x: Array<Array<number>>) => string, U = T >(ref a: T) instantiates", "export pure fn h(a)"]
         );
         assert_eq!(crate::signature::print_signature(&crate::signature::parse_signature(&text, "/a.rx").unwrap()), text);
+    }
+
+    #[test]
+    fn a_fn_that_only_names_values_is_lifted() {
+        // E-9b; `ref/units.ts` holds the same cases
+        const LIB: &str = "import pure { createClock, jsPure, ask } from \"./js.js\"\nimport { lib, libMade } from \"./lib.rx\"\nsource s := 1\ncontext ctx: number = 1\nfn plain(a) => a\nfn named(a) { z = a\n  z }\nfn made(a) { source q := a\n  q }\nfn named2(a) { z = made(a)\n  z }\n";
+        const JS: &str = "export pure fn createClock(): { now: ref number } instantiates\nexport pure fn jsPure(a: number): number\nexport pure fn ask(a: number): Promise<number>\n";
+        const RX: &str = "export fn lib(a) { z = a\n  z }\nexport fn libMade(a) { source q := a\n  q }\n";
+        let set = load_modules("/lib.rx", &|p: &str| (p == "/lib.rx").then(|| RX.to_string())).unwrap();
+        let sig = crate::signature::print_signature(&check_modules(&set, false).sigs["/lib.rx"]);
+        let cases = [("n + 1", "lifted"), ("x = n + 1; x", "lifted"), ("x = y; y = n; x", "lifted"), ("{ a, b } = r; a + b", "lifted"), ("x: number = n; x", "lifted"), ("x = plain(n); x", "lifted"), ("x = named(n); x", "lifted"), ("x = f(n); x", "lifted"), ("x = lib(n); x", "lifted"), ("x = peek s; x", "lifted"), ("x = latest s; x", "lifted"), ("x = () => n; x", "lifted"), ("x = jsPure(n); x", "lifted"), ("x = len(r); x", "lifted"),
+      ("source x := 1; x", "bound"), ("x = made(n); x", "bound"), ("x = libMade(n); x", "bound"), ("x = named2(n); x", "bound"), ("x = createClock(); x.now", "bound"), ("x = await ask(n); x", "bound"), ("x = n; await ask(x)", "bound"), ("x = pre s -> 0; x", "bound"), ("x = n; pre s -> x", "bound"), ("x = use ctx; x", "bound"), ("x = n; use ctx", "bound"), ("deferred x = n; x", "bound"), ("x key id = r; x", "bound"), ("effect (n) { log(n) }; n", "bound"), ("x = n; effect (x) { log(x) }; x", "bound"), ("type T = number; n", "lifted"), ("x = n; type T = number; x", "lifted"), ("provide ctx = n; n", "bound"), ("action a() { s := 1 }; a", "bound"), ("fn g() => n; g()", "bound")];
+        for signed in [false, true] {
+            for (body, want) in cases {
+                let src = format!("{LIB}export fn f(n, r) {{ {} }}\n", body.split("; ").collect::<Vec<_>>().join("\n  "));
+                let read = |p: &str| match p {
+                    "/app.rx" => Some(src.clone()),
+                    "/js.d.rx" => Some(JS.to_string()),
+                    "/lib.rx" if !signed => Some(RX.to_string()),
+                    "/lib.d.rx" if signed => Some(sig.clone()),
+                    _ => None,
+                };
+                let set = load_modules("/app.rx", &read).unwrap_or_else(|e| panic!("{}\n{src}", e.0));
+                let got = match &check_modules(&set, false).sigs["/app.rx"].exports["f"] {
+                    ExportSig::Fn { instantiating: true, .. } => "bound",
+                    ExportSig::Fn { .. } => "lifted",
+                    _ => "",
+                };
+                assert_eq!((body, got), (body, want));
+            }
+        }
+        let codes = |main: &str| -> Vec<String> { check_modules(&load_modules("/m.rx", &|p: &str| (p == "/m.rx").then(|| main.to_string())).unwrap(), false).diags.iter().map(|d| d.code.clone()).collect() };
+        assert_eq!(codes("export default component App() {\n  fn half(n: number) { h = n / 2\n    h }\n  <p>{half(1)}</p>\n}\n"), Vec::<String>::new());
+        assert_eq!(codes("fn mk(n) => n\nfn f(n) { x = mk(n)\n  x }\ncomponent Other() {\n  fn mk(n) { source q := n\n    q }\n  v = mk(1)\n  <b>{v}</b>\n}\nexport default component App() { <p>{f(1)} <Other /></p> }\n"), ["INSTANTIATION_NOT_BOUND"]);
+        let bound = |a: &str| codes(&format!("fn f(n) {{ x = n + 1\n  x }}\nexport default component App() {{\n  source s := 1\n  v = f({a})\n  <p onClick={{() => {{ s := 2 }}}}>{{v}}</p>\n}}\n"));
+        assert_eq!([bound("s"), bound("1"), bound("peek s")], [vec![], vec![], vec!["SNAPSHOT_KEPT".to_string()]]);
     }
 
     #[test]
