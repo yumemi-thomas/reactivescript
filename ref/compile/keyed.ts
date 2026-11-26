@@ -2,7 +2,8 @@
 // its identity (so `<For>`, which keys by identity, keeps its region) — whether or not anything read a field of the row.
 //
 // Solid's `reconcile(v, key)` keeps a surviving row's proxy only where something below the row was read under tracking
-// (packages/signals/src/store/reconcile.ts `descend`: "only where something is proxied below", §6d): a row whose body
+// (until #4906, packages/signals/src/store/reconcile.ts `descend`: "only where something is proxied below", §6d; since,
+// store/thin.ts `merge`: "a keyed diff of a plain store skips a row nothing below ever read through a node"): a row whose body
 // never reads a field of it (`for r in rows { <Made /> }`, or the list handed through a prop to a part that shows a view in
 // each row) is given the new raw object, which wraps to a new proxy, and `<For>` remakes the row. Found by the third
 // review (X1 of ROADMAP-fable: interpreter one row made, both emitters two); the same at the pin (30e7805) and at 2.0.4.
@@ -14,15 +15,18 @@
 // readers are told of the fields that changed, once, as they were.
 //
 // Memo (2026-11-26): this is a workaround of a Solid bug, not a design of the language. Solid's documentation promises a
-// kept proxy for a kept key; the plain-Solid issue is drafted, not posted (solid-main.noindex/drafts/1-reconcile-kept-row:
-// reproduced on main ad1f561, 2.0.4, 2.0.0, rc.23, rc.21; the cause in `descend()`). Once Solid keeps the proxy itself,
-// `keyedWrite` can become `reconcile(v, key)` again, with compiler/test/rows.mjs and S-store-kept-row as the check.
+// kept proxy for a kept key; the plain-Solid issue is solidjs/solid#5220 (open), fix PR #5222 (open): reproduced on main
+// ad1f561, 2.0.4, 2.0.0, rc.23, rc.21, and again on main 50a4bfdde after #4906 deleted `store/reconcile.ts` — the thin
+// engine's reconcile prunes the same way (solid-main.noindex/drafts/1-reconcile-kept-row/repro.mjs: `none` remakes both
+// rows). Once Solid keeps the proxy itself, `keyedWrite` can become `reconcile(v, key)` again, with compiler/test/rows.mjs
+// and S-store-kept-row as the check. (Until the pin moved to 50a4bfdde, `isStore` was `x[$TARGET] !== undefined`; the
+// thin engine answers `$TARGET` with nothing, and every row was taken for a plain object: S-store-kept-row made a row twice.)
 type Reconcile = (v: any, key: string) => (state: any) => void;
 const isObj = (v: unknown): v is Record<PropertyKey, any> => v !== null && typeof v === "object";
 
-/** `setStore(keyedWrite(reconcile, $TARGET, v, key))`: Solid's `reconcile(v, key)`, with the rows whose key is kept kept. */
-export function keyedWrite(reconcile: Reconcile, TARGET: symbol, v: unknown, key: string) {
-  const proxy = (x: unknown) => isObj(x) && (x as any)[TARGET] !== undefined;
+/** `setStore(keyedWrite(reconcile, isStore, v, key))`: Solid's `reconcile(v, key)`, with the rows whose key is kept kept. */
+export function keyedWrite(reconcile: Reconcile, isStore: (x: unknown) => boolean, v: unknown, key: string) {
+  const proxy = (x: unknown) => isObj(x) && isStore(x);
   // `px` is a proxy of this store, `nv` the value written in its place; both are objects of one kind
   const keep = (px: Record<PropertyKey, any>, nv: Record<PropertyKey, any>): void => {
     if (Array.isArray(nv)) {

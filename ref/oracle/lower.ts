@@ -12,9 +12,13 @@ import { Show, For, Loading, Errored } from "solid-js";
 import { getObserver, runRefCallback } from "@solidjs/signals";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
-  createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, isDisposed, createOwner, runWithOwner, $TARGET, createErrorBoundary, omit, merge, reconcile
+  createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, isDisposed, createOwner, runWithOwner, $PROXY, $RECORD, snapshot, createErrorBoundary, omit, merge, reconcile
 } from "@solidjs/signals";
 
+/** A store's proxy (a store, an optimistic store, a projection, or a record or list inside one), not a merge or omit view:
+ *  the proxy answers `$PROXY` with itself and has no view record. (Until Solid #4906 this was `v[$TARGET] !== undefined`;
+ *  the thin engine answers `$TARGET` with nothing, for every proxy — the same answers on both engines, checked.) */
+const isStore = (v: any): boolean => v !== null && typeof v === "object" && v[$PROXY] === v && v[$RECORD] === undefined;
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failure.ts";
 import { singleModule, given, defaulted, bindGiven, viewsAll, viewCtxAll, shownAll, shownIn, usedIn, type Given, type ModuleSet } from "../src/modules.ts";
@@ -61,7 +65,7 @@ const isPlain = (v: object) => { const p = Object.getPrototypeOf(v); return p ==
  *  list of rows): its contents are what is compared. A getter (a JS result's parts, `lazy`) is not read. */
 const inputWhole = (v: unknown, seen = new Set<unknown>()): unknown => {
   if (v === null || typeof v !== "object") return v;
-  if ((v as any)[$TARGET] !== undefined) return readCopy(v);
+  if (isStore(v)) return readCopy(v);
   if (!isPlain(v) || seen.has(v)) return v;
   seen.add(v); let out: any = v;
   for (const k of Object.keys(v)) { const d = Object.getOwnPropertyDescriptor(v, k)!; if (d.get || d.value === null || typeof d.value !== "object") continue; const w = inputWhole(d.value, seen); if (w !== d.value) { if (out === v) out = Array.isArray(v) ? [...v] : { ...v }; out[k] = w; } }
@@ -76,7 +80,7 @@ const unkeyed = (v: unknown): unknown => v !== null && typeof v === "object" && 
 const rooted = <T extends object>(s: T): T => { roots.add(s); return s; };
 const copiedFrom = new WeakMap<object, object>();                        // a copy, and the store's own value it was made of
 const whole = (v: any, seen = new Map<object, unknown>()): unknown => {
-  if (v === null || typeof v !== "object" || v[$TARGET] === undefined) return v;
+  if (v === null || typeof v !== "object" || !isStore(v)) return v;
   if (seen.has(v)) return seen.get(v);
   const out: any = Array.isArray(v) ? [] : {}; seen.set(v, out); copiedFrom.set(out, v);
   for (const k of Object.keys(v)) out[k] = whole(v[k], seen);
@@ -417,8 +421,8 @@ export class Oracle {
             const init = untrack(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
               const [store, setStore] = createStore(init as any); rooted(store as object); if (d.key === undefined) byPosition.add(store as object); const [get, set] = createSignal<unknown>(store);
-              const key = d.key, w = { set: rootSet(store, set as never, v => setStore(key !== undefined ? keyedWrite(reconcile as never, $TARGET, v, key) as any : () => v as any),   // ST-2a: a root write is reconciled per path; ST-4a: a keyed one by its key (compile/keyed.ts); W-6: a function is the updater
-                f => setStore((key !== undefined ? (dr: unknown) => { const r = f(dr); if (r === undefined || r === dr || typeof r !== "object" || r === null) return r; keyedWrite(reconcile as never, $TARGET, r, key)(dr); } : f) as any)), setPath: setStore };
+              const key = d.key, w = { set: rootSet(store, set as never, v => setStore(key !== undefined ? keyedWrite(reconcile as never, isStore, v, key) as any : () => v as any),   // ST-2a: a root write is reconciled per path; ST-4a: a keyed one by its key (compile/keyed.ts); W-6: a function is the updater
+                f => setStore((key !== undefined ? (dr: unknown) => { const r = f(dr); if (r === undefined || r === dr || typeof r !== "object" || r === null) return r; keyedWrite(reconcile as never, isStore, r, key)(dr); } : f) as any)), setPath: setStore };
               if (this.optimisticTargets.has(d.name)) {                     // AC-3 over a := store: createOptimisticStore(() => truth) over createStore(v); writes go to the truth, guesses to the layer
                 const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); rooted(view); if (d.key === undefined) byPosition.add(view);
                 scope.vars.set(d.name, { k: "store", get: () => view, ...w, question: false, setGuess: setView });
@@ -627,7 +631,7 @@ export class Oracle {
         for (let s: Scope | null = scope; s; s = s.parent) { const h = hoistedOf.get(s)?.get(e); if (h) return h(); }   // a hoisted `await`: its own node, read here
         const v = this.ev(e.e, scope, env); return !e.stream && v instanceof Flight ? v.first : v;   // in tail position the memo returns the flight (R-1): a stream for `await*`, else its one answer
       }   // in tail position the memo returns the flight (R-1); elsewhere the operand checks below refuse it
-      case "latest": { const was = this.imperative; this.imperative = 0; this.probing++; try { return latest(() => { const v = this.ev(e.e, scope, env); return v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v; }); } finally { this.imperative = was; this.probing--; } }   // R-12: `latest` of a value that never had one throws, in a handler as anywhere (Solid S-28)
+      case "latest": { const was = this.imperative; this.imperative = 0; this.probing++; try { return latest(() => { const v = this.ev(e.e, scope, env); return v !== null && typeof v === "object" && isStore(v) ? readCopy(v) : v; }); } finally { this.imperative = was; this.probing--; } }   // R-12: `latest` of a value that never had one throws, in a handler as anywhere (Solid S-28)
       case "pending": this.probing++; try { return isPending(() => { const v = this.ev(e.e, scope, env); if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; }); } finally { this.probing--; }   // Solid D-23: the probe judges reads, so a structured value is read whole
       case "if": return (this.asks(e.c, scope, true) ?? this.ev(e.c, scope, env)) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
       case "throw": throw this.ev(e.e, scope, env);                    // R-f-3
@@ -877,10 +881,12 @@ export class Oracle {
   }
 }
 
-const raw = (x: any) => (x && typeof x === "object" && x[$TARGET]) ? x[$TARGET].v : x;
+/** `==` through a store (ST-2): a store's proxy is its record's one identity, so two proxies compare as they are; a proxy
+ *  and a plain object compare by the store's own value, which is that object while nothing below it was written. */
+const storeEq = (a: unknown, b: unknown): boolean => a === b || (isStore(a) !== isStore(b) && (isStore(a) ? snapshot(a) === b : a === snapshot(b)));
 const BIN: Record<string, (a: any, b: any) => unknown> = {
   "+": (a, b) => a + b, "-": (a, b) => a - b, "*": (a, b) => a * b, "/": (a, b) => a / b, "%": (a, b) => a % b,
-  "==": (a, b) => raw(a) === raw(b), "!=": (a, b) => raw(a) !== raw(b),   // identity through a store is the raw object's (ST-2 keeps identity; Solid wraps)
+  "==": (a, b) => storeEq(a, b), "!=": (a, b) => !storeEq(a, b),   // identity through a store is the raw object's (ST-2 keeps identity; Solid wraps)
   "<": (a, b) => a < b, ">": (a, b) => a > b, "<=": (a, b) => a <= b, ">=": (a, b) => a >= b,
 };
 const BUILTINS: Record<string, unknown> = {

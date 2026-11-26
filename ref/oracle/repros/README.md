@@ -20,6 +20,8 @@ node --conditions=browser --conditions=development repros/dv17-boundary-merges-m
 node --conditions=browser --conditions=development repros/dv18-projection-relanding.mjs [row-memo|direct]
 node --conditions=browser --conditions=development repros/dv19-latest-reask.mjs
 node --conditions=browser --conditions=development repros/4690-guess-reask-refresh.mjs
+node --conditions=browser --conditions=development repros/pin-4906-target.mjs
+node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
 ```
 
 The hydration repros are each one `app.jsx`, compiled by Solid's own
@@ -418,3 +420,29 @@ the old truth once the write lands, until the re-ask lands. An effect beside a r
 outside re-ask every reader keeps it. An `effect` over a source nothing renders is a legal `.rx` program, so
 S-guess-reask-refresh's effect-only variant records it (instants 5 and 6).
 
+
+## DV-27 — a store a `ref` writes while hydrating (fixed on Solid main 50a4bfdde, probably #4906)
+
+`node repros/dv27-hydrate/run.mjs`: hydrated `1/2/5` at 30e7805eb (the store's write made, its reader not run again),
+`2/2/5` at 50a4bfdde, as rendered. spec/10-server.md DV-27; S-server-9's divergence row is removed.
+
+## The pin move to 50a4bfdde (Solid #4906) — ours, not Solid's
+
+```
+node --conditions=browser --conditions=development repros/pin-4906-target.mjs
+node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
+```
+
+#4906 runs stores on the thin engine and deletes the deep one, whose record a proxy answered as `store[$TARGET]`.
+On the thin engine every value answers `$TARGET` with `undefined`. `pin-4906-target.mjs` prints, for a store, a row, a
+list, an optimistic store, a projection and its row, a derived store, a merge and an omit view and plain values, what
+`$TARGET`, `$PROXY` and `$RECORD` answer: at 30e7805eb `[$TARGET] !== undefined` is true exactly for the store proxies;
+at 50a4bfdde it is false for all, and `v[$PROXY] === v && v[$RECORD] === undefined` is true exactly for the store
+proxies on both. Our runtimes (`ref/compile/rt.ts`, `rt-web.ts`, `rt-server.ts`, `ref/oracle/lower.ts`,
+`ref/compile/keyed.ts`) asked `$TARGET`, so on 50a4bfdde a store was taken for a plain object: an effect's input was the
+store itself, never copied (S-effect-store-1, -3: no effect after the first); `pre` and a kept value were not copied
+(S-pre-1, -2, S-region-7, S-keyed-alias, S-store-7); `keyedWrite` found no kept row (S-store-kept-row). In plain Solid
+the same effects fire on both pins (`pin-effect-store.mjs`: `["A,C"]`, `["x,C"]`, `["B,C"]`).
+
+`==` through a store (ST-2) compared `x[$TARGET].v`, the deep engine's raw; it is now the proxy itself (one per record
+in a store), and a proxy against a plain object compares by `snapshot()`, the record while nothing below it was written.

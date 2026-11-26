@@ -320,7 +320,9 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   limit in #4303; the cause in the server `createErrorBoundary`'s
   `renderOutcome`. Nothing here changes when it is fixed but this record.
 
-- **DV-27 (a store a `ref` writes while hydrating) — Solid's, 2026-11-26**
+- **DV-27 (a store a `ref` writes while hydrating) — Solid's, 2026-11-26;
+  fixed on Solid main 50a4bfdde (probably #4906, 2026-11-27: the repro shows
+  `2/2/5` hydrated, as rendered; S-server-9's divergence row removed)**
   (`ref/oracle/repros/dv27-hydrate`, plain Solid compiled by its own
   compiler; at the pin, 2.0.4 not run; S-server-9). A `ref` writes in the
   pass that makes its element (07 §4); taking a served page over, a write
@@ -328,9 +330,9 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   array or a record, ST-1) is made but its reader does not run again for
   it: the page keeps the server's text until the next change of the store.
   Recorded as a `hydrated` divergence; the program is ordinary, and nothing
-  is refused. Found by track 3 beside SC-4c's programs. *Memo:* no Solid
-  issue is drafted for it yet; `ref/oracle/repros/dv27-hydrate` is the
-  plain-Solid program one would start from.
+  is refused. Found by track 3 beside SC-4c's programs. *Memo:* nothing to
+  file: `solid-main.noindex/drafts/6-ref-store-write-hydration` found it
+  fixed on main by #4906 (released 2.0.4 and earlier still have it).
 
 - **DV-28 (a `ref` reads an earlier `ref`'s write in the same pass) —
   Solid's, a regression in 2.0.0-rc.22, 2026-11-26** (S-server-8; the

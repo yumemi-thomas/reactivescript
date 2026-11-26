@@ -46,9 +46,10 @@ setRows(reconcile([{ id: "b", v: "B" }, { id: "c", v: "c" }], "id"));   // Made 
 ```
 
 Its own header says "surviving rows keep their proxy identity"; with a field read in the row they do. Nothing is
-filed (track 2 needs no upstream fix). *Memo (2026-11-26):* the plain-Solid issue is now drafted, not posted
-(`solid-main.noindex/drafts/1-reconcile-kept-row`: main ad1f561, 2.0.4, 2.0.0, rc.23, rc.21). The fix below works around
-it; once Solid keeps the proxy, `keyedWrite` goes back to `reconcile(v, key)`.
+filed (track 2 needs no upstream fix). *Memo (2026-11-26):* the plain-Solid issue is solidjs/solid#5220, with fix PR #5222, both open
+(`solid-main.noindex/drafts/1-reconcile-kept-row`: main ad1f561, 2.0.4, 2.0.0, rc.23, rc.21; again on main 50a4bfdde,
+after #4906 replaced the store engine, 2026-11-27). The fix below works around it; once Solid keeps the proxy,
+`keyedWrite` goes back to `reconcile(v, key)`.
 
 **Fix in this branch.** `ref/compile/keyed.ts`: before the list is reconciled, each row of the new value whose key is a
 row's of the old one is reconciled into that row's own proxy, so the list's reconcile finds the new raw already the row's

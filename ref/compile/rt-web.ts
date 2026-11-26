@@ -10,7 +10,11 @@ import {
   Show, For, Loading, Errored, createComponent,
   flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, NotReadyError, getOwner, isDisposed, runWithOwner, createOwner, sharedConfig, omit, reconcile, createRoot,
 } from "solid-js";
-import { getContext, setContext, $TARGET } from "@solidjs/signals";
+import { getContext, setContext, $PROXY, $RECORD, snapshot } from "@solidjs/signals";
+/** A store's proxy (a store, an optimistic store, a projection, or a record or list inside one), not a merge or omit view:
+ *  the proxy answers `$PROXY` with itself and has no view record. (Until Solid #4906 this was `v[$TARGET] !== undefined`;
+ *  the thin engine answers `$TARGET` with nothing, for every proxy — the same answers on both engines, checked.) */
+const isStore = (v: any): boolean => v !== null && typeof v === "object" && v[$PROXY] === v && v[$RECORD] === undefined;
 import { hydrate, render } from "@solidjs/web";
 import { topOwner } from "./solid-internals.ts";
 import { keyedWrite } from "./keyed.ts";
@@ -28,7 +32,7 @@ const isPlain = (v: object) => { const p = Object.getPrototypeOf(v); return p ==
  *  list of rows): its contents are what is compared. A getter (a JS result's parts, `lazy`) is not read. */
 const inputWhole = (v: unknown, seen = new Set<unknown>()): unknown => {
   if (v === null || typeof v !== "object") return v;
-  if ((v as any)[$TARGET] !== undefined) return readCopy(v);
+  if (isStore(v)) return readCopy(v);
   if (!isPlain(v) || seen.has(v)) return v;
   seen.add(v); let out: any = v;
   for (const k of Object.keys(v)) { const d = Object.getOwnPropertyDescriptor(v, k)!; if (d.get || d.value === null || typeof d.value !== "object") continue; const w = inputWhole(d.value, seen); if (w !== d.value) { if (out === v) out = Array.isArray(v) ? [...v] : { ...v }; out[k] = w; } }
@@ -43,7 +47,7 @@ const unkeyed = (v: unknown): unknown => v !== null && typeof v === "object" && 
 const rooted = <T extends object>(s: T): T => { roots.add(s); return s; };
 const copiedFrom = new WeakMap<object, object>();                        // a copy, and the store's own value it was made of
 const whole = (v: any, seen = new Map<object, unknown>()): unknown => {
-  if (v === null || typeof v !== "object" || v[$TARGET] === undefined) return v;
+  if (v === null || typeof v !== "object" || !isStore(v)) return v;
   if (seen.has(v)) return seen.get(v);
   const out: any = Array.isArray(v) ? [] : {}; seen.set(v, out); copiedFrom.set(out, v);
   for (const k of Object.keys(v)) out[k] = whole(v[k], seen);
@@ -61,7 +65,7 @@ const asItWas = (c: any, at = new Map<object, unknown>()): unknown => {
   const out: any = Array.isArray(c) ? Object.assign([], now) : now; at.set(c, out);
   return out;
 };
-const latestWhole = (v: unknown) => v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v;
+const latestWhole = (v: unknown) => v !== null && typeof v === "object" && isStore(v) ? readCopy(v) : v;
 /** EF-2: effect inputs compare as values: arrays and plain objects (a store's snapshot) by their contents. */
 const sameInput = (a: unknown, b: unknown): boolean => {
   if (Object.is(a, b)) return true;
@@ -102,7 +106,9 @@ const rootSet = (store: unknown, set: (v: (at: unknown) => unknown) => void, rep
 // ---------------------------------------------------------------- values
 export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
 export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
-const raw = (x: any) => (x && typeof x === "object" && x[$TARGET]) ? x[$TARGET].v : x;
+/** `==` through a store (ST-2): a store's proxy is its record's one identity, so two proxies compare as they are; a proxy
+ *  and a plain object compare by the store's own value, which is that object while nothing below it was written. */
+const storeEq = (a: unknown, b: unknown): boolean => a === b || (isStore(a) !== isStore(b) && (isStore(a) ? snapshot(a) === b : a === snapshot(b)));
 /** A view: a DOM node, a function (a hole, a control-flow accessor), or an array of views — which compiled JSX mixes with
  *  its static strings. An array of strings alone is a value. */
 const isNode = (v: unknown): boolean => typeof v === "function" || (typeof v === "object" && v !== null && "nodeType" in (v as object));
@@ -331,8 +337,8 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
         const w: Writer = {
           // (ST-4d in development: the rows an updater answers, or leaves in its draft, and the rows a write gives)
           set: rootSet(store, set as never,
-            v => { oneKeyEach(name, key, v); setStore(key !== undefined ? keyedWrite(reconcile as never, $TARGET, v, key) as any : () => v as any); },
-            f => setStore((key !== undefined ? (d: unknown) => { const r = f(d); if (DEV) oneKeyEach(name, key, r === undefined ? d : r); if (r === undefined || r === d || typeof r !== "object" || r === null) return r; keyedWrite(reconcile as never, $TARGET, r, key)(d); } : f) as any)),   // ST-4a: what an updater answers is reconciled by the key, as a written value is
+            v => { oneKeyEach(name, key, v); setStore(key !== undefined ? keyedWrite(reconcile as never, isStore, v, key) as any : () => v as any); },
+            f => setStore((key !== undefined ? (d: unknown) => { const r = f(d); if (DEV) oneKeyEach(name, key, r === undefined ? d : r); if (r === undefined || r === d || typeof r !== "object" || r === null) return r; keyedWrite(reconcile as never, isStore, r, key)(d); } : f) as any)),   // ST-4a: what an updater answers is reconciled by the key, as a written value is
           path: pathWrite(setStore),
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
@@ -543,7 +549,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity: the same on both sides (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },
-    eq: (a: unknown, b: unknown) => raw(a) === raw(b),
+    eq: storeEq,
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 

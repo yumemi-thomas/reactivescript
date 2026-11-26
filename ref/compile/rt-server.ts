@@ -13,7 +13,11 @@ import { Show, For, Loading, Errored, createComponent, createSignal, createMemo,
 import { renderToStream, markSafeError, generateHydrationScript, getRequestEvent } from "@solidjs/web";
 let warnedCopies = false;   // once per process
 const warnedFields = new Set<string>();   // SV-5a: a declared field an instance came without, once per class and field
-import { $TARGET } from "@solidjs/signals";
+import { $PROXY, $RECORD } from "@solidjs/signals";
+/** A store's proxy (a store, an optimistic store, a projection, or a record or list inside one), not a merge or omit view:
+ *  the proxy answers `$PROXY` with itself and has no view record. (Until Solid #4906 this was `v[$TARGET] !== undefined`;
+ *  the thin engine answers `$TARGET` with nothing, for every proxy — the same answers on both engines, checked.) */
+const isStore = (v: any): boolean => v !== null && typeof v === "object" && v[$PROXY] === v && v[$RECORD] === undefined;
 import { scopeEvent, currentRender, type Own, type Ev, type Render } from "./solid-internals.ts";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
@@ -21,7 +25,7 @@ import { scopeEvent, currentRender, type Own, type Ev, type Render } from "./sol
 const readWhole = (v: unknown) => { if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; };
 /** `latest x` (R-12) of a store is its whole value, read inside `latest` and handed out as a snapshot: a later read of a
  *  field outside `latest` would be a tracked read of the store (found by desk9-rx-7: `len(latest rows)` held a `loading on`). */
-const latestWhole = (v: unknown) => v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? deep(v) : v;
+const latestWhole = (v: unknown) => v !== null && typeof v === "object" && isStore(v) ? deep(v) : v;
 export type Acc = () => unknown;
 export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown, keys?: (string | number)[]) => void };
 export type Entry = { get?: Acc; w?: Writer; value?: unknown };

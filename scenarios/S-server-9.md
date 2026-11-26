@@ -4,8 +4,9 @@ Rules exercised: SV-3, SC-4, 07 §4, ST-1; DV-27.
 
 A `ref` writes in the pass that makes its element, so its write is in the frame that shows the element (07 §4). An
 atomic source written so is shown when a served page is taken over, as when the page is rendered. A source whose value
-is an array or a record (a store behind its slot, ST-1) is written — the next change shows it — but the hydrated page
-keeps the server's text until then (DV-27): here `1` where the browser alone shows `2`, then `3` after a click in both.
+is an array or a record (a store behind its slot, ST-1) is shown the same way: here `2`, then `3` after a click, hydrated or not. (DV-27, a Solid bug: until
+Solid main 50a4bfdde the hydrated page kept the server's `1` until the next change of the store; fixed there,
+probably by #4906, which runs stores on the thin engine.)
 
 ## Program
 
@@ -32,10 +33,9 @@ export default component App() {
 | ------- | ------ | ----- |
 | 0 | mount | `ab1/0` |
 
-## Divergences (DV-27)
+## DV-27 (fixed on Solid main 50a4bfdde, probably #4906)
 
-- hydrated "Frames" instant 0: `ab1/5`
-
-The hydrated page shows the `ref`'s write of `n` and not that of `els`, which is in the store (the click shows `3`).
-The same with the source replaced by Solid's own `createStore` in the compiled module
-(`ref/oracle/repros/dv27-store-written-while-hydrating.mjs`); a signal holding the array is shown.
+Recorded until the pin moved to 50a4bfdde: the hydrated page showed `ab1/5` at instant 0 — the `ref`'s write of `n`
+and not that of `els`, which was in the store (the click showed `3`). The same with the source replaced by Solid's own
+`createStore` (`ref/oracle/repros/dv27-hydrate`, which shows `2/2/5` hydrated at 50a4bfdde and `1/2/5` at 30e7805eb).
+Nothing in the language changed for it; the divergence row is removed, so the hydrated frame is checked as written.
