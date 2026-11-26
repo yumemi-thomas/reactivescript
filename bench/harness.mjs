@@ -1,7 +1,8 @@
 // What bench/run.mjs runs a task with: the workspace (the libraries from npm, once), both checkers, rx-tsc, the compiled
 // program on the server and in Chromium. See bench/README.md.
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -53,13 +54,19 @@ const timed = (kind, f) => { if (!process.env.BENCH_PROFILE) return f(); const t
 /** The folders over the workspace that hold packages (none does: a name that is not in the install is in no other). */
 function above() { const out = []; for (let d = path.dirname(ws); ; d = path.dirname(d)) { const f = path.join(d, "node_modules"); if (existsSync(f)) out.push(`${cache.home(f)} ${readdirSync(f).sort().join()}`); if (path.dirname(d) === d) return out; } }
 let shared_;
+const DTS = /\.d\.[mc]?ts$/;
 function shared() {
   if (shared_) return shared_;
   if (process.env.RX_SHARED_KEYS) return (shared_ = JSON.parse(process.env.RX_SHARED_KEYS));
   const at = (...p) => path.join(repo, ...p), nm = path.join(ws, "node_modules");
   shared_ = {
-    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), ...["cache.mjs", "tools.mjs", "tool-worker.cjs", "bundle.mjs"].map(f => at("scripts/lib", f))),
+    harness: cache.inputs(...["harness.mjs", "run.mjs", "cover.mjs", "ref-check.ts", "probes"].map(f => at("bench", f)), ...["cache.mjs", "tools.mjs", "tool-worker.cjs", "bundle.mjs", "reads.cjs"].map(f => at("scripts/lib", f))),
     tools: cache.inputs(...["bin", "src", "package.json", "package-lock.json", "node_modules"].map(f => at("tooling/rx-language-server", f))),
+    // …what a tool or a page whose process says what it reads (scripts/lib/reads.cjs) is keyed by instead: the language
+    // server's own packages, and the declarations TypeScript (tsrs, a process of its own, which says nothing) may read in
+    // this repository's packages — the source a tool loads is in its trace, file by file
+    toolsDeps: cache.inputs(...["package.json", "package-lock.json", "node_modules"].map(f => at("tooling/rx-language-server", f))),
+    types: [...["bin", "src"].map(d => cache.treeHash(at("tooling/rx-language-server", d), { keep: (r, n) => DTS.test(n) })), cache.inputs(...readdirSync(at("compiler")).filter(f => DTS.test(f)).map(f => at("compiler", f)), path.join(nm, "@reactivescript/compiler/package.json")), cache.treeHash(path.join(nm, "@reactivescript/runtime"), { keep: (r, n) => DTS.test(n) || n === "package.json" })],
     installed: [cache.treeHash(nm, { skip: (r, n) => r === "@reactivescript" || r === "@rx-types" || n === ".package-lock.json" }), cache.treeHash(path.join(nm, "@rx-types")), above()],
     // (the copies a program runs with, not what they were copied from: `workspace()` makes them again, a task run alone does not)
     runtime: cache.treeHash(path.join(nm, "@reactivescript/runtime")),
@@ -75,14 +82,32 @@ export const shareKeys = () => { if (cache.enabled) process.env.RX_SHARED_KEYS =
 /** A folder a task is staged in, its edits included. (What the crate's answers were written to is not its own: `compile`.) */
 const folder = dir => cache.treeHash(dir, { skip: (r, n) => n === "node_modules" || /\.rx\.\d+\.(dom|ssr)\.mjs(\.entry\.mjs)?$/.test(n) });
 /** A task's own install, where it has one. */
-const deps = dir => { const l = path.join(dir, "node_modules"); return existsSync(l) ? cache.treeHash(l, { follow: true, skip: (r, n) => r === "@reactivescript/compiler" || r === "@reactivescript/language-server" || n === ".package-lock.json" }) : null; };
+// (its copy of the runtime by its declarations: its code is in the trace of what runs it, as the workspace's is)
+const deps = dir => { const l = path.join(dir, "node_modules"); return existsSync(l) ? cache.treeHash(l, { follow: true, skip: (r, n) => r === "@reactivescript/compiler" || r === "@reactivescript/language-server" || n === ".package-lock.json", keep: (r, n) => !r.startsWith("@reactivescript/runtime/") || DTS.test(n) || n === "package.json" }) : null; };
 /** The crate's answers now, for questions an operation asked: the program compiled, or a tool's request of it, by the
  *  same build the tool asks (the WebAssembly one, unless RXC names a binary). */
 let asked_;
 function answer(a) {
+  if (a.overlay && (a.k === "serve" || a.k === "trial")) { const { overlay, in: at, ...rest } = a; return withOverlay(at, overlay, () => answer(rest)); }
   if (a.k === "trial") { const f = `${a.at}.${process.pid}.trial.d.rx`; mkdirSync(path.dirname(f), { recursive: true }); writeFileSync(f, a.text); try { return anyTrial(answer({ ...a, k: "serve", method: "declaration", params: { file: f } })); } finally { rmSync(f, { force: true }); } }
   if (a.k === "app") return appOf(a.entry, a.target, a.spa);
-  if (a.k === "serve") { if (a.rxc || process.env.RXC) { const r = spawnSync(rxc, ["serve"], { input: JSON.stringify({ id: 1, method: a.method, params: a.params }) + "\n", cwd: a.cwd, encoding: "utf8", maxBuffer: 1 << 28 }); return JSON.parse(r.stdout).result; } asked_ ??= require_("../tooling/rx-language-server/src/rxc.js").ask; const was = process.cwd(); try { process.chdir(a.cwd); return asked_(a.method, a.params); } finally { process.chdir(was); } }
+  if (a.k === "file") return fileState(a.p);
+  if (a.k === "tree") return cache.treeHash(a.p);
+  if (a.k === "binding" || a.k === "rxc") return callAgain(a);
+  if (a.k === "serve" && a.method === "words") { const k = wordsMemo(a); if (k && said_.has(k)) return said_.get(k); const r = serve(a); if (k) said_.set(k, r); return r; }
+  if (a.k === "serve") return serve(a);
+}
+/** What rx-words answers reads the packages (the install's: the key's) and the task's own files: in one process, a
+ *  question asked again of the same build, from a task's folder as it was, is answered as it was. */
+const said_ = new Map();
+function wordsMemo(a) {
+  const tasks = path.join(ws, "tasks") + path.sep; if (!a.cwd?.startsWith(tasks)) return null;
+  const id = a.cwd.slice(tasks.length).split(path.sep)[0], h = cache.fileHash(wordsWasm); if (!id || !h) return null;
+  return `${h}\0${folder(path.join(tasks, id))}\0${JSON.stringify(a)}`;
+}
+// (`words` is the WebAssembly build's whatever RXC says, as src/rxc.js asks it: `rxc serve` has no such request)
+function serve(a) {
+  { if ((a.rxc || process.env.RXC) && a.method !== "words") { const r = spawnSync(rxc, ["serve"], { input: JSON.stringify({ id: 1, method: a.method, params: a.params }) + "\n", cwd: a.cwd, encoding: "utf8", maxBuffer: 1 << 28 }); return JSON.parse(r.stdout).result; } asked_ ??= require_("../tooling/rx-language-server/src/rxc.js").ask; const was = process.cwd(); try { process.chdir(a.cwd); return asked_(a.method, a.params); } finally { process.chdir(was); } }
 }
 /** The build that reads JavaScript (`words`): what it answers is in the packages' files and the task's — the key's, and the
  *  folders above, which have no packages (`above`, in the key) — so that, while it is the same file, its answers are. */
@@ -91,7 +116,7 @@ answer.by = a => a.k === "serve" && a.method === "words" ? cache.fileHash(wordsW
 /** The questions for `rxc serve`, from one folder, in one process (it answers a line a line, each alone). */
 answer.many = asks => {
   const out = new Array(asks.length).fill(undefined), by = new Map();
-  asks.forEach((a, i) => { if (a.k === "serve" && (a.rxc || process.env.RXC)) by.set(a.cwd, [...(by.get(a.cwd) ?? []), i]); });
+  asks.forEach((a, i) => { if (a.k === "serve" && a.method !== "words" && !a.overlay && (a.rxc || process.env.RXC)) by.set(a.cwd, [...(by.get(a.cwd) ?? []), i]); });
   for (const [cwd, is] of by) {
     if (is.length < 2) continue;
     const r = spawnSync(rxc, ["serve"], { input: is.map(i => JSON.stringify({ id: i, method: asks[i].method, params: asks[i].params })).join("\n") + "\n", cwd, encoding: "utf8", maxBuffer: 1 << 30 });
@@ -101,10 +126,69 @@ answer.many = asks => {
 };
 const told = (ask, said) => { const by = answer.by(ask); return { ask, said, ...(by ? { by } : {}) }; };
 const anyTrial = r => JSON.parse(JSON.stringify(r ?? null).replace(/\.\d+\.trial\.d\.rx/g, ".trial.d.rx"));
-/** What a traced process asked of the crate (src/rxc.js, RX_TRACE); null: a log that is not read, and a result that is not kept. */
-function asks(log, viaRxc) {
+// ---- what a process read (scripts/lib/reads.cjs) ----
+/** The environment that has a process (and those it starts) say what of this repository it read, and what it asked the
+ *  compiler's Node-API build or `rxc` itself, in `log`. `overlay`: with each call, the files of its folder changed since
+ *  it began (a test that edits a file while a dev server runs). The builds themselves are not among the files: their
+ *  answers are asked again, as the crate's are. */
+const LSDIR = path.join(repo, "tooling/rx-language-server");
+function readsRoots() {
+  let binding; try { binding = realpathSync(path.join(repo, "compiler/index.js")); } catch { /* none */ }
+  let own = []; try { own = readdirSync(path.join(ws, "deps")).map(d => path.join(ws, "deps", d, "node_modules/@reactivescript/runtime")); } catch { /* none */ }
+  return {
+    RX_READS_ROOTS: [LSDIR, path.join(repo, "compiler"), path.join(repo, "ref"), path.join(repo, "runtime"), path.join(ws, "node_modules/@reactivescript/runtime"), ...own].join(":"),
+    RX_READS_SKIP: [path.join(LSDIR, "node_modules"), path.join(LSDIR, "src/rxc.wasm"), path.join(LSDIR, "src/words.wasm"), ...["target", "node_modules"].map(d => path.join(repo, "compiler", d)), path.join(repo, "ref/node_modules"), path.join(repo, "runtime/node_modules")].join(":"),
+    ...(binding ? { RX_READS_BINDING: binding } : {}), RX_READS_RXC: rxc,
+  };
+}
+export function readsEnv(log) {
+  return {
+    RX_READS: log, RX_READS_WRITES: ws, ...readsRoots(),
+    NODE_OPTIONS: `${(process.env.NODE_OPTIONS ?? "").replaceAll(`--require ${cache.READS}`, "").trim()} --require ${cache.READS}`.trim(),
+  };
+}
+/** The environment that has each call of the compiler say what the test had changed of `dir` when it was made (the
+ *  folder as it is now, in `file`; this process's own calls too). */
+function changesOf(dir, file) { globalThis.__rxReadsFrom?.(dir, file); return existsSync(file) ? { RX_READS_BASE: file, RX_READS_AT: dir } : {}; }
+const fileState = p => cache.fileHash(p) ?? (existsSync(p) ? "not a file" : "absent");
+/** A log of reads.cjs as a trace: a file by its content now, a call of the compiler by the hash of its answer; a file it
+ *  wrote in the workspace outside `dir` (the test's own folder: its key's) by its content now too — what comes after
+ *  holds it to be there (a declaration a build drafted beside the install). null: a log that is not read (the result
+ *  is not kept). */
+function readsOf(log, dir) {
   let text; try { text = readFileSync(log, "utf8"); } catch { return []; }
-  try { return text.split("\n").filter(Boolean).map(l => { const t = JSON.parse(l), at = { rxc: viaRxc, cwd: t.cwd }; return t.trial !== undefined ? { ask: { k: "trial", at: t.params.file.replace(/\.\d+\.trial\.d\.rx$/, ""), text: t.trial, ...at }, said: cache.said(anyTrial(t.result)) } : told({ k: "serve", method: t.method, params: t.params, ...at }, cache.said(t.result)); }); } catch { return null; }
+  const out = [], put = new Set(); out.overlays = new Map();
+  for (const l of text.split("\n")) {
+    if (!l) continue; let t; try { t = JSON.parse(l); } catch { return null; }
+    if (t.traced) { out.overlays.set(t.traced, { at: t.at, overlay: t.overlay }); continue; }
+    if (t.wrote) { if ((dir && (t.wrote === dir || t.wrote.startsWith(dir + path.sep))) || put.has(t.wrote)) continue; put.add(t.wrote); out.push(t.tree ? { ask: { k: "tree", p: t.wrote }, said: cache.said(cache.treeHash(t.wrote)) } : { ask: { k: "file", p: t.wrote }, said: cache.said(fileState(t.wrote)) }); continue; }
+    if (t.read) out.push({ ask: { k: "file", p: t.read }, said: cache.said(fileState(t.read)) });
+    else for (const k of ["binding", "rxc"]) if (t[k]) out.push({ ask: { k, args: t[k], cwd: t.cwd, at: t.at, overlay: t.overlay ?? {} }, said: cache.said(t.said) });
+  }
+  return out;
+}
+const sha = x => createHash("sha256").update(x).digest("hex").slice(0, 40);
+/** `f()` with the files of `overlay` (by their path in `cwd`; null: none there) as they were when the call was made. */
+function withOverlay(cwd, overlay, f) {
+  const was = []; try {
+    for (const [rel, text] of Object.entries(overlay ?? {})) { const at = path.join(cwd, rel); let had = null; try { had = readFileSync(at, "utf8"); } catch { /* none */ } was.push([at, had]); if (text === null) rmSync(at, { force: true }); else { mkdirSync(path.dirname(at), { recursive: true }); writeFileSync(at, text); } }
+    return f();
+  } finally { for (const [at, had] of was.reverse()) { if (had === null) rmSync(at, { force: true }); else writeFileSync(at, had); } }
+}
+let binding_;
+/** A call of the compiler a process made, made again here: the hash of its answer, as reads.cjs took it. */
+function callAgain(a) {
+  return withOverlay(a.at ?? a.cwd, a.overlay, () => {
+    if (a.k === "binding") { binding_ ??= require_("../compiler/index.js"); const was = process.cwd(); let r; try { process.chdir(a.cwd); r = String(binding_.app(...a.args)); } catch (e) { r = `threw ${String(e?.message ?? e)}`; } finally { process.chdir(was); } return sha(r); }
+    const r = spawnSync(rxc, a.args, { cwd: a.cwd, encoding: "utf8", maxBuffer: 1 << 28 }); return sha(`${r.status} ${String(r.stdout)}`);
+  });
+}
+
+/** What a traced process asked of the crate (src/rxc.js, RX_TRACE); null: a log that is not read, and a result that is not kept. */
+function asks(log, viaRxc, overlays = new Map()) {
+  let text; try { text = readFileSync(log, "utf8"); } catch { return []; }
+  // (a question asked while a test had files of its folder changed — a copy it made, an edit — is asked again with them: reads.cjs)
+  try { return text.split("\n").filter(Boolean).map(l => { const t = JSON.parse(l), o = overlays.get(sha(l + "\n")), at = { rxc: viaRxc, cwd: t.cwd, ...(o ? { in: o.at, overlay: o.overlay } : {}) }; return t.trial !== undefined ? { ask: { k: "trial", at: t.params.file.replace(/\.\d+\.trial\.d\.rx$/, ""), text: t.trial, ...at }, said: cache.said(anyTrial(t.result)) } : told({ k: "serve", method: t.method, params: t.params, ...at }, cache.said(t.result)); }); } catch { return null; }
 }
 /** 09 MO-8l: the declaration generated for a package as a module imports it (src/generate.js), written where the compiler
  *  finds it; what a suite asks for with `node_modules/.rx-types` empty. */
@@ -112,7 +196,7 @@ export function generate(spec, from) {
   const { rootOf, ensureDeclarations } = require_("../tooling/rx-language-server/src/generate.js");
   const root = rootOf(spec.split("/").slice(0, spec[0] === "@" ? 2 : 1).join("/"), path.dirname(from)); if (!root) return;
   const file = `${path.join(root, "node_modules/.rx-types", spec)}.d.rx`, folders = path.dirname(file);
-  const key = cache.enabled ? { spec, from: path.dirname(from), environment: cache.environment(), near: cache.inputs(path.join(root, "package.json"), path.join(path.dirname(from), "package.json")), ...pick("harness", "tools", "installed", "runtime") } : null;
+  const key = cache.enabled ? { spec, from: path.dirname(from), environment: cache.environment(), near: cache.inputs(path.join(root, "package.json"), path.join(path.dirname(from), "package.json")), ...pick("harness", "tools", "installed", "types") } : null;
   const r = cache.resultSync("generate", key, answer, () => timed("generate", () => {
     const log = cache.enabled ? path.join(ws, `.trace-${process.pid}`) : null; if (log) { rmSync(log, { force: true }); process.env.RX_TRACE = log; }
     let out; try { out = ensureDeclarations(from, { text: `import { a } from ${JSON.stringify(spec)}\n` }); } finally { delete process.env.RX_TRACE; }
@@ -127,18 +211,20 @@ export function generate(spec, from) {
  *  answer is kept, if whoever judges it says it is right. `file`: one it writes beside its answer (its name is this
  *  process's, so it is no part of the key). `sealed`: it reaches more of the crate than the requests it makes (a host's
  *  routes, a build's output): keyed by the builds themselves. */
+let asked = 0;
 function tool(kind, flags, bin, args, { cwd, dir = cwd, env = {}, timeout, file, sealed = opaque.has(dir) }) {
   const at = bin => path.join(repo, "tooling/rx-language-server/bin", bin);
-  const key = cache.enabled ? { flags, bin, args, cwd, dir, env, environment: cache.environment(), rxc: !!(env.RXC ?? process.env.RXC), folder: folder(dir), deps: deps(dir), timeout, ...pick("harness", "tools", "installed", "runtime", ...(sealed ? ["builds"] : [])) } : null;
+  // (what of this repository it ran — the language server's modules, the runtime's, the compiler's calls — is in its trace: reads.cjs)
+  const key = cache.enabled ? { flags, bin, args, cwd, dir, env, environment: cache.environment(), rxc: !!(env.RXC ?? process.env.RXC), folder: folder(dir), deps: deps(dir), timeout, sealed, ...pick("harness", "toolsDeps", "types", "installed") } : null;
   const r = cache.resultSync(`tool ${kind}`, key, answer, () => once(kind, args, flags, dir, env, traced => timed(kind, () => {
-    const log = cache.enabled || traced ? path.join(ws, `.trace-${process.pid}`) : null; if (log) rmSync(log, { force: true });
+    const log = cache.enabled || traced ? path.join(ws, `.trace-${process.pid}`) : null, reads = log && `${log}.${++asked}.reads`;   // (a new one each time: a worker that runs it remembers what it said in each) if (log) { rmSync(log, { force: true }); rmSync(reads, { force: true }); }
     if (file) rmSync(file, { force: true });
-    const given = [...args, ...(file ? ["--causes", file] : [])], around = { cwd, timeout, env: { ...process.env, ...env, ...(log ? { RX_TRACE: log } : {}) } };
+    const given = [...args, ...(file ? ["--causes", file] : [])], around = { cwd, timeout, env: { ...process.env, ...env, ...(log ? { RX_TRACE: log, ...readsEnv(reads) } : {}) } };
     // (what runs the package — rx-verify, a draft made with --run — is a process of its own: the module's state is)
     const r = (bin !== "verify.js" && !given.includes("--run") && !given.includes("--dom") && tools.ask(bin, given, around)) || spawnSync(process.execPath, [...flags, at(bin), ...given], { ...around, encoding: "utf8", maxBuffer: 1 << 26 });
     let extra; if (file) { try { extra = readFileSync(file, "utf8"); } catch { /* none */ } rmSync(file, { force: true }); }
-    const trace = log ? asks(log, !!(env.RXC ?? process.env.RXC)) : [], files = {};
-    if (log) { try { for (const m of readFileSync(log, "utf8").matchAll(/"([^"]*node_modules\/\.rx-types\/[^"]+\.d\.rx)"/g)) if (existsSync(m[1])) files[m[1]] = readFileSync(m[1], "utf8"); } catch { /* it asked nothing */ } rmSync(log, { force: true }); }
+    const said = log ? asks(log, !!(env.RXC ?? process.env.RXC)) : [], read = log ? readsOf(reads, dir) : [], trace = said && read && [...said, ...read], files = {};
+    if (log) { try { for (const m of readFileSync(log, "utf8").matchAll(/"([^"]*node_modules\/\.rx-types\/[^"]+\.d\.rx)"/g)) if (existsSync(m[1])) files[m[1]] = readFileSync(m[1], "utf8"); } catch { /* it asked nothing */ } rmSync(log, { force: true }); rmSync(reads, { force: true }); }
     return { value: { status: r.status, signal: r.signal, stdout: r.stdout, stderr: r.stderr, extra }, trace, files };
   })));
   return { ...r.value, keep: ok => r.keep(ok && !r.value.signal) };
@@ -172,14 +258,62 @@ export const reaches = dir => opaque.add(dir);
  *  process, may do anything: it is keyed by the builds; one that looks at a moment of an animation is run every time. */
 export async function driven(what, { dir, entry, spa, module }, drive) {
   const text = readFileSync(module, "utf8"), free = /\bimport\b(?!\.meta)|\brequire\b|\bprocess\b/.test(text.replace(/^import \{ use \} from "\.\.\/\.\.\/\.\.\/cover\.mjs";$/m, ""));
-  const key = cache.enabled && !/\b(?:Date\.now|performance\.now|getComputedStyle|opacity)\b/.test(text) ? { what, entry, spa, module: cache.treeHash(path.dirname(module)), dir, environment: cache.environment(), folder: folder(dir), deps: deps(dir), ...pick("harness", "installed", "runtime", "browser", ...(free || opaque.has(dir) ? ["builds", "tools"] : [])) } : null;
+  // a task that starts processes of its own (a build, a dev server, a tool) is keyed by the runtime whole (a bundler reads
+  // it in code of its own, which says nothing) and by what this process and its processes read and asked (reads.cjs); one
+  // that does not, by what its page loads: its programs as the crate compiles them, and the runtime's files in its bundle
+  const wide = free || opaque.has(dir);
+  const key = cache.enabled && !/\b(?:Date\.now|performance\.now|getComputedStyle|opacity)\b/.test(text) ? { what, entry, spa, module: cache.treeHash(path.dirname(module)), dir, environment: cache.environment(), folder: folder(dir), deps: deps(dir), wide, ...pick("harness", "installed", "browser", ...(wide ? ["runtime", "toolsDeps", "types"] : [])) } : null;
   const r = await cache.result("drive", key, answer, () => timed("drive", async () => {
     const h = new Runner(dir, entry, spa); let threw = "", stack = "";
+    const log = path.join(ws, `.drive-${process.pid}`), reads = `${log}.reads`; rmSync(log, { force: true }); rmSync(reads, { force: true });
+    const env = wide && cache.enabled ? { RX_TRACE: log, ...readsEnv(reads), ...changesOf(dir, `${log}.base`) } : {}, was = Object.fromEntries(Object.keys(env).map(k => [k, process.env[k]]));
+    Object.assign(process.env, env);
     try { await drive(h); } catch (e) { threw = String(e.message ?? e); stack = e.stack ?? String(e); }
+    finally { for (const [k, v] of Object.entries(was)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } globalThis.__rxReadsFrom?.(null); }
     await h.close();
-    return { value: { checks: h.checks, problems: h.problems, threw, stack }, trace: h.asked, files: {} };
+    let trace = h.asked;
+    if (wide && cache.enabled) { const read = readsOf(reads, dir), said = asks(log, !!process.env.RXC, read?.overlays), own = [...(globalThis.__rxReadsAll ?? [])].map(p => ({ ask: { k: "file", p }, said: cache.said(fileState(p)) })); trace = said && read && globalThis.__rxReadsAll ? [...trace, ...said, ...read, ...own] : null; }
+    rmSync(log, { force: true }); rmSync(reads, { force: true }); rmSync(`${log}.base`, { force: true });
+    return { value: { checks: h.checks, problems: h.problems, threw, stack }, trace, files: {} };
   }));
   return { ...r.value, keep: r.keep };
+}
+
+/** A task's `prepare(dir)` (a build before anything reads the program: the route tree a router's plugin writes, the app
+ *  a page is served from): what it wrote is kept, under what it read and asked as a page that starts processes is
+ *  (`driven`), and written again where nothing it depends on has changed. */
+export async function prepared(id, module, dir, prepare) {
+  const key = cache.enabled ? { id, module: cache.treeHash(path.dirname(module)), dir, environment: cache.environment(), folder: folder(dir), deps: deps(dir), ...pick("harness", "installed", "runtime", "toolsDeps", "types") } : null;
+  const r = await cache.result("prepare", key, answer, async () => {
+    const log = path.join(ws, `.prepare-${process.pid}`), reads = `${log}.reads`; rmSync(log, { force: true }); rmSync(reads, { force: true });
+    const before = texts(dir), envBefore = { ...process.env }, env = cache.enabled ? { RX_TRACE: log, ...readsEnv(reads), ...changesOf(dir, `${log}.base`) } : {}, was = Object.fromEntries(Object.keys(env).map(k => [k, process.env[k]]));
+    Object.assign(process.env, env);
+    try { await prepare(dir); } finally { for (const [k, v] of Object.entries(was)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } globalThis.__rxReadsFrom?.(null); }
+    // (what it set in this process's environment — rx-package's RXC — is set again where it is not run)
+    const after = texts(dir), files = {}, removed = [], setEnv = Object.fromEntries(Object.entries(process.env).filter(([k, v]) => envBefore[k] !== v)), unset = Object.keys(envBefore).filter(k => !(k in process.env));
+    for (const [f, t] of after) if (JSON.stringify(before.get(f)) !== JSON.stringify(t)) files[f] = t;
+    for (const f of before.keys()) if (!after.has(f)) removed.push(f);
+    let trace = null;
+    if (cache.enabled && before.complete && after.complete) { const read = readsOf(reads, dir), said = asks(log, !!process.env.RXC, read?.overlays), own = [...(globalThis.__rxReadsAll ?? [])].map(p => ({ ask: { k: "file", p }, said: cache.said(fileState(p)) })); trace = said && read && globalThis.__rxReadsAll ? [...said, ...read, ...own] : null; }
+    rmSync(log, { force: true }); rmSync(reads, { force: true }); rmSync(`${log}.base`, { force: true });
+    return { value: { files, removed, env: setEnv, unset }, trace, files: {} };
+  });
+  // (written here, not by the cache before it asks again: what the build asked, it asked of the folder as it was before it)
+  if (r.hit) { for (const [f, t] of Object.entries(r.value.files)) { mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); writeFileSync(path.join(dir, f), typeof t === "string" ? t : Buffer.from(t.base64, "base64")); } for (const f of r.value.removed) rmSync(path.join(dir, f), { force: true }); Object.assign(process.env, r.value.env ?? {}); for (const k of r.value.unset ?? []) delete process.env[k]; }
+  else r.keep(true);
+}
+/** The files of a task's folder, as text (one that is not, `{ base64 }`) — those of a folder it links to (its own
+ *  install) are not its; `complete`: there are not too many. */
+function texts(dir) {
+  const out = new Map(); out.complete = true;
+  const walk = rel => { for (const e of readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isSymbolicLink() || /\.rx\.\d+\.(dom|ssr)\.mjs/.test(e.name)) continue;
+    if (e.isDirectory()) { walk(r); continue; } if (!e.isFile()) continue;
+    const b = readFileSync(path.join(dir, r)), t = b.toString("utf8");
+    if (out.size > 5000) out.complete = false; out.set(r, Buffer.from(t, "utf8").equals(b) ? t : { base64: b.toString("base64") });
+  } };
+  walk(""); return out;
 }
 
 /** The compiler as npm installs it: a folder with the manifest it is published with (compiler/scripts/published.mjs:
@@ -219,21 +353,23 @@ function ownInstall(id) {
 export let jobs = Math.max(1, Number(process.env.BENCH_JOBS) || Math.floor(os.availableParallelism() / 2));
 /** …and what a run was given (scripts/lib/lock.mjs), where BENCH_JOBS does not say. */
 export const given = lease => { Object.assign(process.env, lease.env); if (!Number(process.env.BENCH_JOBS)) jobs = lease.n; };
-/** `fn` of each item, `jobs` at a time; of the items `few` picks (a dev server, a production build) at most two at a
+/** `fn` of each item, `jobs` at a time (with every other pool's); of the items `few` picks (a dev server, a production build) at most two at a
  *  time (three where there are eight processes or more): they wait on their own timers and on a whole toolchain. Answers the results in the items' order. */
 export async function pool(items, fn, few = () => false) {
-  const out = new Array(items.length), waiting = items.map((x, i) => i); let running = 0, heavy = 0, ended;
+  const out = new Array(items.length), waiting = items.map((x, i) => i); let mine = 0, ended;
   const done = new Promise(res => { ended = res; }); if (!items.length) return out;
   const next = () => {
-    while (running < jobs) {
-      const k = waiting.findIndex(i => heavy < (jobs >= 8 ? 6 : 2) || !few(items[i])); if (k < 0) break;
-      const i = waiting.splice(k, 1)[0], h = few(items[i]); running++; if (h) heavy++;
-      fn(items[i], i).then(r => { out[i] = r; }, e => { out[i] = { crash: e.stack ?? String(e) }; }).finally(() => { running--; if (h) heavy--; if (!waiting.length && !running) ended(); else next(); });
+    while (busy < jobs) {
+      const k = waiting.findIndex(i => busyFew < (jobs >= 8 ? 6 : 2) || !few(items[i])); if (k < 0) break;
+      const i = waiting.splice(k, 1)[0], h = few(items[i]); busy++; mine++; if (h) busyFew++;
+      fn(items[i], i).then(r => { out[i] = r; }, e => { out[i] = { crash: e.stack ?? String(e) }; }).finally(() => { busy--; mine--; if (h) busyFew--; if (!waiting.length && !mine) { pools.delete(next); ended(); } for (const p of [...pools]) p(); });
     }
   };
-  next(); await done;
+  pools.add(next); next(); await done;
   return out;
 }
+/** (several pools at once — the tasks' and the coverage suite's — share the `jobs` processes, the first one's items first) */
+const pools = new Set(); let busy = 0, busyFew = 0;
 /** A browser for a process to be started: `{ env, back() }`. */
 const browsers = [], upBrowsers = new Set();
 async function lendBrowser() {
@@ -242,18 +378,36 @@ async function lendBrowser() {
   if (!b) try { const server = await pw().chromium.launchServer({ handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false }); b = { server, gone: false }; upBrowsers.add(b); server.on("close", () => { b.gone = true; upBrowsers.delete(b); }); } catch { return { env: {}, back() {} }; }
   return { env: { RX_BROWSER: b.server.wsEndpoint() }, back() { if (!b.gone) browsers.push(b); } };
 }
-export const end = async () => { await Promise.all([tools.end(), ...[...upBrowsers].map(b => b.server.close().catch(() => {}))]); };
+export const end = async () => { saveTook(); await Promise.all([tools.end(), ...[...upBrowsers].map(b => b.server.close().catch(() => {}))]); };
+/** How long each task, entry and draft took in the runs before (seconds; bench/.out/ws/.took.json): a pool starts the
+ *  longest first, so that what has to run again — a result no longer kept — is not left alone at the end of the run. */
+const tookAt = path.join(ws, ".took.json"); let took_;
+export const took = id => (took_ ??= (() => { try { return JSON.parse(readFileSync(tookAt, "utf8")); } catch { return {}; } })())[id];
+const tookNow = {};
+function saveTook() { if (!Object.keys(tookNow).length) return; try { const all = { ...(took(""), took_), ...tookNow }; writeFileSync(`${tookAt}.${process.pid}`, JSON.stringify(all)); renameSync(`${tookAt}.${process.pid}`, tookAt); } catch { /* not kept */ } }
+/** The items longest first (one never timed first of all: it may be new), `long` ones before the rest. */
+export const longestFirst = (items, idOf, long = () => false) => items.map((x, i) => ({ x, i, t: (long(x) ? 1e6 : 0) + (took(idOf(x)) ?? 1e5) })).sort((a, b) => b.t - a.t || a.i - b.i).map(e => e.x);
 /** `run.mjs` again, for one task, entry or draft (`args`), in a process of its own; its result is read from
  *  `tasks/<id>.result.json` (one left by an earlier run is not taken for it). What it says on stderr is said when it
  *  ends. `crash`: what stands for a result that is not there. */
-export const alone = async (args, id, crash, timeout = 600000) => { const b = await lendBrowser(); const r = await aloneWith(b, args, id, crash, timeout); b.back(); return r; };
+/** Several of them (`[{ args, id, crash }]`: a `--cover` or a `--draft` each) in one process, one after the other: the
+ *  results in their order. */
+export async function together(items, timeout = 900000) {
+  if (items.length === 1) { const [x] = items; return [await alone(x.args, x.id, x.crash, timeout)]; }
+  const b = await lendBrowser();
+  for (const x of items) rmSync(path.join(ws, "tasks", `${x.id}.result.json`), { force: true });
+  const [, err] = await aloneWith(b, items.flatMap(x => x.args), `.together-${process.pid}`, x => ({ crash: x }), timeout * items.length); b.back();
+  return items.map(x => { let r; try { r = JSON.parse(readFileSync(path.join(ws, "tasks", `${x.id}.result.json`), "utf8")); } catch { r = x.crash(`no result (the process of ${items.length}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`); } if (r.cache) { cache.merge(cache.stats, r.cache); delete r.cache; } if (r.took !== undefined) { tookNow[x.id] = r.took; delete r.took; } return [r, err]; });
+}
+export const alone = async (args, id, crash, timeout = 600000) => { const b = await lendBrowser(), t = Date.now(); const r = await aloneWith(b, args, id, crash, timeout); b.back(); tookNow[id] = (Date.now() - t) / 1000; return r; };
 const aloneWith = (browser, args, id, crash, timeout) => new Promise(res => {
   const at = path.join(ws, "tasks", `${id}.result.json`); rmSync(at, { force: true });
   const worker = tools.lend();
-  const c = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(here, "run.mjs"), ...args], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, ...worker.env, ...browser.env } });
+  // (with reads.cjs: what it loads itself is part of what a page that starts processes of its own is keyed by)
+  const c = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", ...(cache.enabled ? ["--require", cache.READS] : []), path.join(here, "run.mjs"), ...args], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, ...worker.env, ...browser.env, ...(cache.enabled ? readsRoots() : {}) } });
   let err = ""; c.stderr.on("data", d => { err += d; });
   const timer = setTimeout(() => c.kill("SIGKILL"), timeout);
-  c.on("close", (code, signal) => { clearTimeout(timer); worker.back(); let r; try { r = JSON.parse(readFileSync(at, "utf8")); } catch { r = crash(`no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`); } if (r.cache) { cache.merge(cache.stats, r.cache); delete r.cache; } res([r, err]); });
+  c.on("close", (code, signal) => { clearTimeout(timer); worker.back(); let r; try { r = JSON.parse(readFileSync(at, "utf8")); } catch { r = crash(`no result (exit ${code}${signal ? `, ${signal}` : ""}) ${err.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`); } if (r.cache) { cache.merge(cache.stats, r.cache); delete r.cache; } delete r.took; res([r, err]); });
 });
 
 /** A record as data, one line an entry: what `--check` compares with, and a diff shows entry by entry. */
@@ -345,15 +499,17 @@ const jsxOfPackages = () => ({ name: "package-jsx", transform: { filter: { id: /
 const nodeBuiltins = () => { const stub = path.join(ws, ".node-stub.cjs"); if (!existsSync(stub)) writeFileSync(stub, "module.exports = {};\n"); const names = ["fs", "fs/promises", "path", "os", "events", "stream", "util", "url", "child_process", "crypto", "module", "worker_threads", "http", "https", "net", "tty", "zlib", "buffer"]; return Object.fromEntries(names.flatMap(n => [[n, stub], [`node:${n}`, stub]])); };
 const pw = () => createRequire(path.join(ws, "package.json"))("playwright");
 
+/** The browser a process was lent (RX_BROWSER), connected to once. */
+let lent;
 /** What a task's `run` drives the compiled program with. */
 export class Runner {
-  constructor(dir, entry, spa) { this.dir = dir; this.entry = path.join(dir, entry); this.spa = spa; this.checks = []; this.servers = []; this.problems = []; this.asked = []; }
+  constructor(dir, entry, spa) { this.dir = dir; this.entry = path.join(dir, entry); this.spa = spa; this.checks = []; this.servers = []; this.problems = []; this.asked = []; this.pages = []; }
   check(name, ok, got) { this.checks.push({ name, ok: !!ok, got: ok ? undefined : typeof got === "string" ? got.slice(0, 600) : JSON.stringify(got)?.slice(0, 600) }); return !!ok; }
   /** The server's render of one URL: `{ html, text, error }` (the stream, to its end; hydration comments dropped from `text`). */
   async ssr(url = "/", { wait = 4000 } = {}) {
     const built = this.server ??= compile(this.entry, "ssr", this.spa, this.asked);
     if (!built.file) return { html: "", text: "", error: new Error(JSON.stringify(built).slice(0, 600)) };
-    const { createApp } = await import(pathToFileURL(path.join(ws, "node_modules/@reactivescript/runtime/dist/server.js")).href);
+    const { createApp } = await import(pathToFileURL(this.loads(path.join(ws, "node_modules/@reactivescript/runtime/dist/server.js"))).href);
     let html = "", error = null;
     const caught = e => { error ??= e; };
     process.on("uncaughtException", caught); process.on("unhandledRejection", caught);
@@ -372,8 +528,13 @@ export class Runner {
     if (!built.file) throw new Error(JSON.stringify(built).slice(0, 600));
     const entry = built.file + ".entry.mjs";
     writeFileSync(entry, `import main from ${JSON.stringify("./" + path.basename(built.file))};\nimport { createApp } from "@reactivescript/runtime";\nconst app = createApp({ root: document.getElementById("app") });\ntry { app.mount(main(app)${hydrate ? ", true" : ""}); } catch (e) { console.error("mount threw: " + (e && e.message)); }\nwindow.__mounted = true;\n`);
-    return timed("bundle", () => bundle(ws, { entry, dir: this.dir, conditions: ["browser", "development"], alias: nodeBuiltins(), plugins: [jsxOfPackages()] }));
+    const b = await timed("bundle", () => bundle(ws, { entry, dir: this.dir, conditions: ["browser", "development"], alias: nodeBuiltins(), plugins: [jsxOfPackages()], ids: true }));
+    // the page's key: what of this repository its bundle holds (the runtime's files; the install and the task's folder are the key's)
+    for (const id of b.ids) if (path.isAbsolute(id) && (id.includes(`${path.sep}node_modules${path.sep}@reactivescript${path.sep}runtime${path.sep}`) || !id.startsWith(ws + path.sep))) this.loads(id);
+    return b.code;
   }
+  /** A file of this repository the page runs, in its trace by its content. */
+  loads(file) { this.asked.push({ ask: { k: "file", p: file }, said: cache.said(fileState(file)) }); return file; }
   /** Serves the program: `ssr` renders each URL on the server and hydrates it; otherwise an empty page the client mounts in. */
   async serve({ ssr = false } = {}) {
     const client = await this.client(ssr);
@@ -381,7 +542,7 @@ export class Runner {
     if (ssr) {
       const built = this.server ??= compile(this.entry, "ssr", this.spa, this.asked);
       if (!built.file) throw new Error(JSON.stringify(built).slice(0, 600));
-      const rt = await import(pathToFileURL(path.join(ws, "node_modules/@reactivescript/runtime/dist/server.js")).href);
+      const rt = await import(pathToFileURL(this.loads(path.join(ws, "node_modules/@reactivescript/runtime/dist/server.js"))).href);
       const main = (await import(pathToFileURL(built.file).href)).default;
       render = (url, res) => {
         res.write(`<!doctype html><html><head>${rt.generateHydrationScript()}</head><body><div id="app">`);
@@ -404,8 +565,9 @@ export class Runner {
   /** A page in Chromium; console errors and warnings and page errors are collected in `problems`. */
   async page() {
     // (a run of many lends each of its processes a browser that is up: a page of it is in a context of its own, as a launched browser's is)
-    this.browser ??= await timed("launch", async () => { if (process.env.RX_BROWSER) try { return await pw().chromium.connect(process.env.RX_BROWSER, { timeout: 5000 }); } catch { /* gone: one of its own */ } return pw().chromium.launch(); });
-    const page = await this.browser.newPage();
+    // (one connection to the browser this process was lent, for all its pages: each page is a context of its own)
+    this.browser ??= await timed("launch", async () => { if (process.env.RX_BROWSER) try { if (!lent?.isConnected()) lent = await pw().chromium.connect(process.env.RX_BROWSER, { timeout: 5000 }); return lent; } catch { /* gone: one of its own */ } this.own = true; return pw().chromium.launch(); });
+    const page = await this.browser.newPage(); this.pages.push(page);
     page.on("console", m => { if (["error", "warning"].includes(m.type())) this.problems.push(m.text().slice(0, 300)); });
     page.on("pageerror", e => this.problems.push(String(e).slice(0, 300)));
     // what a library says on a timer of its own (a development check it defers: `setTimeout(warnIfUnnamed, 300)`) is
@@ -433,7 +595,7 @@ export class Runner {
   }
   async text(page, sel = "#app") { return ((await page.textContent(sel)) ?? "").replace(/\s+/g, " ").trim(); }
   async until(ok, tries = 80) { for (let i = 0; i < tries; i++) { try { if (await ok()) return true; } catch { /* not yet */ } await new Promise(r => setTimeout(r, 50)); } return false; }
-  async close() { await this.browser?.close(); for (const s of this.servers) s.close(); }
+  async close() { if (this.own) await this.browser?.close(); else await Promise.all(this.pages.map(p => p.context().close().catch(() => {}))); for (const s of this.servers) s.close(); }
 }
 
 /** Every file under a task's folder (its own: no node_modules, no dot folders, nothing the build wrote), by a test of its name. */

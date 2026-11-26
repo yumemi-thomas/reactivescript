@@ -93,6 +93,8 @@ function runShare(name, runner, slot, programs) {
     });
   });
 }
+/** The processes free to run a share, shared by the revisions, which run at once (`jobs` in all). */
+const free = [], wakers = new Set();
 async function runAll(name, programs) {
   const res = {}, queue = [];
   for (const r of runners) { res[r] = {}; const n = RUNNERS[r].share; for (let i = 0; i < programs.length; i += n) queue.push({ r, programs: programs.slice(i, i + n) }); }
@@ -100,11 +102,10 @@ async function runAll(name, programs) {
   queue.sort((a, b) => Number(!!RUNNERS[b.r].page) - Number(!!RUNNERS[a.r].page));
   const t0 = Date.now(), spent = {}; let running = 0;
   await new Promise(done => {
-    const idle = [...Array(jobs).keys()];
     const next = () => {
-      if (!queue.length && !running) return done();
-      while (idle.length && queue.length) {
-        const job = queue.shift(), slot = idle.shift(), t = Date.now(); running++;
+      if (!queue.length && !running) { wakers.delete(next); return done(); }
+      while (free.length && queue.length) {
+        const job = queue.shift(), slot = free.shift(), t = Date.now(); running++;
         runShare(name, job.r, slot, job.programs).then(x => {
           spent[job.r] = (spent[job.r] ?? 0) + Date.now() - t;
           const left = job.programs.filter(p => !x.per.has(p.name));
@@ -116,10 +117,10 @@ async function runAll(name, programs) {
             else if (RUNNERS[job.r].whole) { for (const p of job.programs) delete res[job.r][p.name]; const h = job.programs.length >> 1; queue.push({ r: job.r, programs: job.programs.slice(0, h) }, { r: job.r, programs: job.programs.slice(h) }); }
           } else if (x.code !== 0 && RUNNERS[job.r].whole && job.programs.length > 1 && left.length === job.programs.length && !/^\d+\/\d+ /m.test(x.out)) { const h = job.programs.length >> 1; queue.push({ r: job.r, programs: job.programs.slice(0, h) }, { r: job.r, programs: job.programs.slice(h) }); }
           else if (RUNNERS[job.r].whole && x.code !== 0 && left.length && !/pass, |programs/.test(x.out)) for (const p of left) res[job.r][p.name] = ["STOPPED", `crash: ${x.err.trim().split("\n").slice(-2).join(" ").slice(0, 200)}`];
-        }).finally(() => { running--; idle.push(slot); next(); });
+        }).finally(() => { running--; free.push(slot); for (const w of [...wakers]) w(); });
       }
     };
-    next();
+    wakers.add(next); next();
   });
   return { res, seconds: Math.round((Date.now() - t0) / 100) / 10, spent: Object.fromEntries(Object.entries(spent).map(([k, v]) => [k, Math.round(v / 1000)])) };
 }
@@ -170,8 +171,10 @@ if (given.length) {
     const version = root => JSON.parse(readFileSync(path.join(root, "ref/node_modules/playwright/package.json"), "utf8")).version, vs = new Set(Object.values(revs).map(version));
     if (vs.size === 1) { server = await createRequire(path.join(Object.values(revs)[0], "ref/package.json"))("playwright").chromium.launchServer(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {}); process.env.RX_BROWSER = server.wsEndpoint(); }
   }
-  for (const name of Object.keys(revs)) {
-    const x = await runAll(name, programs); file.revs[name] = x.res;
+  free.push(...Array(jobs).keys());
+  const all = await Promise.all(Object.keys(revs).map(name => runAll(name, programs)));
+  for (const [i, name] of Object.keys(revs).entries()) {
+    const x = all[i]; file.revs[name] = x.res;
     console.log(`${name}: ${programs.length} programs, ${runners.length} runners, ${x.seconds} s (${Object.entries(x.spent).map(([k, s]) => `${k} ${s}`).join(", ")} s of process)`);
   }
   await server?.close(); release();

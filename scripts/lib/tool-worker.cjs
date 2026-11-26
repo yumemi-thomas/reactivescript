@@ -4,6 +4,11 @@
 // the one that asked runs it in a process of its own.
 //   node tool-worker.cjs <the language server's folder> <a folder the questions and answers are files of>
 const fs = require("node:fs"), path = require("node:path");
+// what each request reads of this repository, where it asks (scripts/lib/reads.cjs: RX_READS in the request's environment)
+require("./reads.cjs");
+// a WebAssembly build compiled once (src/rxc.js makes its module again with each request: the same bytes, the same module)
+{ const W = WebAssembly.Module, made = new Map(), { createHash } = require("node:crypto");
+  WebAssembly.Module = new Proxy(W, { construct(t, [bytes, ...rest]) { const k = createHash("sha256").update(bytes).digest("hex"); let m = made.get(k); if (!m) { m = new t(bytes, ...rest); made.set(k, m); } return m; } }); }
 const [root, at] = process.argv.slice(2).map(p => fs.realpathSync(p));
 const base = { ...process.env }, home = process.cwd(), argv = process.argv.slice(0, 1);
 class Exit { constructor(code) { this.code = code; } }

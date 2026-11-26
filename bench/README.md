@@ -131,7 +131,9 @@ holds it as it holds the scorecard: an entry that was green may not turn red, it
 words nor hold more `any`s, no draft may write an `any` of its own (or say more by place than recorded), and the list
 itself is held — every module `libraries.json` names is drafted, every one it says a program must import is imported
 by an entry, each package is at its recorded version in `bench/package.json` and still accepts Solid 2. Entries run
-several at once (`BENCH_JOBS`, half the cores by default); a module no entry's program imports is drafted in a process of its own.
+several at once (`BENCH_JOBS`, half the cores by default), beside the tasks; a module no entry's program imports is drafted
+whole too. What took less than a second and a half the time before (`.out/ws/.took.json`) runs several to a process, one
+after the other: what it cost was mostly the process's start.
 `--shard i/n` runs every n-th entry and drafts every n-th such module, and holds the whole list (what an entry drafts
 and imports is read off its `use.mjs`); `.github/workflows/bench.yml`
 runs the tasks and the suite over two jobs each. The tasks run several at once too, those that build with Vite at most two
