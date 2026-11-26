@@ -3381,7 +3381,7 @@ class Checker {
       if (!host || !isValue(host.v)) return e.fields.flatMap(x => "spread" in x ? [] : walk(x.v));
       const el = this.applied([host.v.name], line)[0] as Extract<Markup, { k: "el" }>;
       el.children = kids ? walk(kids.v) : [];
-      if (el.children.length) { const key = `${host.v.name}@${line ?? 0}`; this.nested.set(key, { name: host.v.name, env: f.env, line: line ?? this.line, kids: n!.kids, at: [...(this.nested.get(key)?.at ?? []), host.v] }); }
+      if (el.children.length) { const key = `${host.v.name}@${line ?? 0}`; this.nested.set(key, { name: host.v.name, env: f.env, line: line ?? this.line, kids: this.nested.get(key)?.kids ?? n!.kids, at: [...(this.nested.get(key)?.at ?? []), host.v] }); }
       return [el, ...e.fields.flatMap(x => "spread" in x || x === host || x === kids ? [] : walk(x.v))];
     };
     return f.args.flatMap(walk);

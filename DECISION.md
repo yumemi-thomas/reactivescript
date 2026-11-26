@@ -1150,3 +1150,53 @@ New roadmap items:
 | X12 | DV-27: a store a `ref` writes while hydrating is shown at its next change only (Solid's; a bug page with the TSX twin, and 2.0.4 run) | served ≠ client, Solid's |
 | X13 | a handler prop called in a `ref` (`ref={e => props.onEl(e)}`) whose closure reads what another `ref` writes, and a `ref` of another module: SC-4c does not follow them; needs the callee's printed row to say a handler is called in a `ref` | accepted and wrong, not seen in any corpus |
 | X14 | SV-3b: the client asks again a server fn the server answered, for a row made after hydration (track 2, c) | served ≠ client, ours |
+
+### Review sets on 3395c64e (and the three fixes of the commit that adds this section)
+
+Every set I could find, 72 folders, 18,798 programs (a filled folder repeats programs of its raw one) (copies, chunked, outputs and scripts in
+`/Users/thomas/dev/rx-t3.noindex/sets`: `run.mjs`, `merge.mjs`, `table.mjs`, `now.mjs`). Each through
+`scripts/matrix.mjs` twice: **before** = c8ed3aa6 (the roadmap's base, `rx-merge.noindex/rs`), **after** = this tree;
+the interpreter, the oracle, both emitters, both checkers alike (`same`), both emitters lowered alike (`lower`). Where
+every frame of a set is written (the `f` folders, the astra reviews), served and hydrated in both emitters too, on this
+tree. Then once more on this tree after the fixes below (`@now`): only the programs they were for moved.
+
+| set (programs) | before | after | both checkers, lowered | served and hydrated, both emitters | moved, and why |
+| --- | --- | --- | --- | --- | --- |
+| review-astra (18), review-astra2 (35) | 14 / 4 refused; 26 / 9 | the same | all | 14 of 14; 26 of 26 | none |
+| opus2 p1 (506), p1f (483) | 483 agree, 23 refused | the same | all | 483 of 483 | none |
+| p2 (474), p2f (328) | 389 agree, 68 refused, 17 same error | the same | all | 328 of 328 | none |
+| p3 (408), p3f (344) | 344 agree, 64 differ | 372 agree, 36 differ | all | 343 of 344 | 28 differ → agree: an error's text (X7, track 2 e). The 36 left are the "unread await" programs (track 2 e: E-3 demand, recorded). The one served miss is `p3-err-aw-ifinner-app`, DV-26 (Solid's) |
+| s1 (149), s1f (146) | 98 agree, 51 differ; 98 / 48 | 149; 146 | all | 146 of 146 | 51 and 48 differ → agree: X1 (track 2 a) |
+| e1 (98), e1f (74) | 74 agree, 24 refused | the same | all | 74 of 74 | none |
+| v1 (265), v1f (246) | 258 agree, 5 refused, 2 differ | 260 agree, 5 refused | all | 244 of 246 | 2 differ → agree (track 2). The served misses are `v1-aw-loop-app`/`-part`: X14 |
+| m1 (168), m1f (113) | 112 agree, 56 refused | the same | all | 112 of 112 accepted | none |
+| t1 (96), t1f (42) | 70 agree, 14 refused, 12 stopped | the same | all | 42 of 42 | none (the 12 stopped are the review's own frames) |
+| y1 (26), k1 (15), k1f (3) | 23 / 3; 11 / 4; 3 | the same | all | 3 of 3 | none |
+| o1 (167), o1f (129), o2 (13), o3 (8) | 149 / 8 / 5 same error / 5 stopped; 107 + 22 stopped; 7 / 6; 5 / 3 | the same | all but the 22 `o1f` programs whose frames have a `\|` (the harness stops on them) | 107 of 107 readable | none |
+| 505 (`a505`), its 333 filled (`w/c6f`) | 334 agree, 169 refused, 1 differ, 1 stopped | 335 agree, 169 refused, 1 stopped | all | 319 of 333 | 1 differ → agree (the oracle's keyed rows, track 2 b). Served: 12 portal programs whose filled frames have no ` » ` (filled before PT-3's mark: the harness compares a portal's content with a server that never renders it) and 2 (`fn-`/`view-await-C-portal-ok`) "asked again: k" after hydrating early, a question under a portal: X14's class, not reduced |
+| 1,642 (`a1642`), filled (`w/p6f`) | 1,642 agree | the same | all | 1,642 of 1,642 | none |
+| 1,147 (`w/amb`), filled 800 | 800 agree, 347 refused | the same | all | 800 of 800 | none |
+| 979 (`w/g1`), filled 823 | 822 agree, 157 refused | the same | all | 822 of 822 accepted | none |
+| rx-best `a/` (`mkx.py` x 444, x2 72, q1–q9 29) | 384 / 60; 72; 22 agree, 3 same error, 3 refused, 1 differ | the same, then `q-order` agrees | all | — | `q-order` (an equation reading one written below it): **the oracle threw `unbound x`**, fixed here |
+| rx-best `b/` (d, g, h, k, m, n, t: 965, and their 9 filled folders, 626) | e.g. g2 138 agree, 16 differ, 13 refused; t3 95 / 151 refused | the same | all | 607 of 607 accepted | none. g2's 16 "differ" are its `ty-*-wrong-*` programs, wrong types the type pass refuses (16 of 16 `TS2551`/`TS2322`/`TS2339`, run here); the four runners read no types |
+| 635 (`w/old`) | 342 agree, 261 refused, 23 differ, 6 same error | 349, 260, 15, 8 | checkers all; **lowered 634 of 635 → 635** | — | 7 differ → agree, 1 → same error (track 2 e: keyed lists, a pending attribute, a lazy default, an error's text); 1 refused → same error: `px_ok-method`, named correct, accepted by W2 (track 1), its harness cannot click it |
+| 3,802 (`w/opus`) | 2,165 refused, 1,547 agree, 48 differ, 39 same error | 2,162, 1,556, 40, 41 | **checkers 3,800 of 3,802 → all; lowered 3,801 → all** | — | the same 8 as the 635 (copies), and 2 refused → agree, `ALL_A2-toast-comp`/`-handler`: a context default `{ push: (m) => { … } }`, accepted by B3 (track 1), alike in four runners |
+
+Nothing moved from agree or differ to refused; no program both revisions agree on shows anything else; nothing
+accepted that every runner did not already show alike. The 55 programs that still differ on this tree (15 of the 635, 40
+of the 3,802, one program often in both) are exactly track 2's "45 left" by kind: a closure given as content or as
+`children: any` (W4, track 1 step 5), an instantiating call through a value (L8, step 6), handlers the harness's tables
+hold, closures given as children and shown again, and four instrument cases.
+
+Fixed here, all three older than the roadmap (the same at c8ed3aa6):
+
+- **Both checkers differed** on `ALL_D-two-fns` and `-rev` (`NESTED_NOT_RENDERED`): one component nested by two
+  records on one line, under `children` and under `kids`; the reference named the last record's word, the crate the
+  first's. The reference now keeps the first, as the crate does.
+- **The two emitters differed** on `px_plain-style` (a `<style>` whose CSS is refused): the reference's message carried
+  `(1:42)`, a position in the text the emitter made, not in the program. Taken off, as the crate's has none.
+- **The oracle** made equations in written order and threw on one that reads an equation written below it (E-1 has no
+  order; the interpreter and both emitters read it). It orders them by what they read, as it already did for a
+  provision.
+
+Not found on disk: proposals/31's 456 (track 1 says so too). The 3,802 and 635 are `w/opus` and `w/old`.

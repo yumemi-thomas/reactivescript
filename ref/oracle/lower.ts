@@ -339,8 +339,10 @@ export class Oracle {
   /** RG-7b: a block's provision is the block's, wherever it is written in it: it is made before what uses it there (and
    *  what it is given from, by name, before it). The rest stays in the written order. */
   private provisionsFirst(decls: Decl[]): Decl[] {
-    if (!decls.some(d => d.k === "provide")) return decls;
     const ids = (e: unknown, out = new Set<string>()): Set<string> => { if (e && typeof e === "object") { if ((e as { k?: string }).k === "id") out.add((e as { name: string }).name); for (const v of Object.values(e)) ids(v, out); } return out; };
+    // (and an equation that reads one written below it, `y = x + "!"` above `x = …`: E-1 has no order, the other runners read it)
+    const later = decls.some((d, i) => (d.k === "eq" || d.k === "source") && [...ids(d.k === "source" ? d.init : d.e)].some(n => decls.slice(i + 1).some(x => (x.k === "eq" || x.k === "source") && x.name === n)));
+    if (!later && !decls.some(d => d.k === "provide")) return decls;
     const out: Decl[] = [], seen = new Set<Decl>();
     const visit = (d: Decl) => {
       if (seen.has(d)) return; seen.add(d);

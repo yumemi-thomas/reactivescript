@@ -218,7 +218,7 @@ class Gen {
   private classMap(css: string, line?: number): string {
     let r: { code: string; css?: string };
     try { r = transform(`export const __s = <style>${css}</style>;`, { filename: this.file.replace(/\.rx$/, "") + `.${line ?? 0}.tsrx`, generate: "dom" }) as typeof r; }
-    catch (e) { throw new CompileError(`<style> (line ${line ?? "?"}): ${(e as Error).message}`); }
+    catch (e) { throw new CompileError(`<style> (line ${line ?? "?"}): ${(e as Error).message.replace(/ \(\d+:\d+\)$/, "")}`); }   // the position is in the text made here, not the program's (the crate's message has none)
     const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); if (!m) throw new CompileError(`<style> (line ${line ?? "?"}): no class map`);
     if (r.css) this.css.push(r.css);
     return `Object.freeze(${m[1]})`;
@@ -244,7 +244,7 @@ class Gen {
     const src = `export const __view = () => <><style>${st.css}</style>${tree(view)}</>;`;
     let r: { css?: string; cssHash?: string | null };
     try { r = transform(src, { filename: this.file.replace(/\.rx$/, "") + ".tsrx", generate: "dom" }) as typeof r; }
-    catch (e) { throw new CompileError(`<style> (line ${st.line ?? "?"}): ${(e as Error).message}`); }
+    catch (e) { throw new CompileError(`<style> (line ${st.line ?? "?"}): ${(e as Error).message.replace(/ \(\d+:\d+\)$/, "")}`); }   // the position is in the text made here, not the program's (the crate's message has none)
     if (!r.cssHash) return null;
     this.css.push(r.css ?? ""); return r.cssHash;
   }
