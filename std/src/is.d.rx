@@ -1,5 +1,7 @@
-export pure fn isArray(x: unknown): boolean
-export pure fn isFunction(x: unknown): boolean
-export pure fn isNumber(x: unknown): boolean
-export pure fn isString(x: unknown): boolean
-export pure fn isObject(x: unknown): boolean
+export pure fn isArray(x: unknown): x is unknown[]
+export pure fn isFunction(x: unknown): x is (...args: any[]) => any
+export pure fn isNumber(x: unknown): x is number
+export pure fn isString(x: unknown): x is string
+export pure fn isObject(x: unknown): x is object
+export pure fn isBoolean(x: unknown): x is boolean
+export pure fn cast<T>(x: unknown): T

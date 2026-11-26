@@ -11,3 +11,5 @@ export const sin = x => Math.sin(x);
 export const sqrt = x => Math.sqrt(x);
 export const isFinite = x => Number.isFinite(x);
 export const isInteger = x => Number.isInteger(x);
+// JavaScript's unary `+`: a number of what it is given (`NaN` where it is none).
+export const num = x => Number(x);

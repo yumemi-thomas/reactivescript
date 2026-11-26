@@ -1,6 +1,7 @@
 // Menu, MenuItem, RadioGroup and its parts, Listbox and its parts. Derived from components/menu, radio-group and listbox of terracotta 2.0.0 (MIT, see ../NOTICE).
 import { call, give, pressKey, roam, focusFirst, focus, click, leaves } from "./dom.js"
-import pure { uniqueId, flag, same, attr } from "./dom.js"
+import pure { uniqueId, flag, same } from "./dom.js"
+import { fromEntries } from "@reactivescript/std/object"
 import { Div, Ul, Li, Label, Button as ButtonProps } from "./types.js"
 import { createDisclosure, State, Options } from "./disclosure.rx"
 
@@ -15,7 +16,7 @@ export component Menu(props: Div) {
 export component MenuItem(props: Omit<Li, "children"> & { disabled?: boolean; children?: View | ((s: { disabled: boolean }) => View) }) {
   { disabled, onClick, onKeyDown, onKeyUp, children: shown, ...rest } = props
   m = use menu
-  <li tc-button="" tc-menu-item="" tc-owner={m.id} role="menuitem" tabindex={0 - 1} {...attr("disabled", disabled)} tc-disabled={flag(disabled)} aria-disabled={disabled ? "true" : disabled == undefined ? undefined : "false"} {...rest}
+  <li tc-button="" tc-menu-item="" tc-owner={m.id} role="menuitem" tabindex={0 - 1} {...fromEntries([["disabled", disabled]])} tc-disabled={flag(disabled)} aria-disabled={disabled ? "true" : disabled == undefined ? undefined : "false"} {...rest}
     onClick={(e) => { if (disabled) { e.preventDefault() } else { call(e, onClick) } }} onKeyDown={(e) => { call(e, onKeyDown); pressKey(e, disabled) }} onKeyUp={(e) => { call(e, onKeyUp); pressKey(e, disabled) }}><props.children disabled={disabled ?? false} /></li>
 }
 

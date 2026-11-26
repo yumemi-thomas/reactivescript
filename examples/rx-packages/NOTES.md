@@ -142,3 +142,48 @@ Left out, each with what is written instead:
 - **State given to TSX children as accessors** (B12): a view's parameter is props, as a component's are — read
   `s.checked`, reactive where read. That is Solid's own convention for what a component is given; an API of
   accessors (`s.checked()`) is the original's choice, and stays the facade's six lines.
+
+## 6. B1 — a listener starts in an effect, after mount (decided: mount-time is the rule)
+
+- The original starts when it is called: `addEventListener` in the body, `onCleanup` beside it, and an `isServer`
+  test around both. The rewrite starts in `effect (…) { return listen(…) }`: when the pass that made it is flushed.
+- **Not added: a form that does io at the call.** (a) A call may run on the server; an effect's block is the one place
+  the language already says is the browser's (SV-2), and a second such place would be a statement position reactive
+  scope does not have (W-2). (b) A call's pass may be held or dropped before it shows (05 H); the block runs when the
+  pass commits, so nothing listens for content that was never shown. (c) What the originals guard by hand (`isServer`,
+  and reading nothing reactive at the call) is what the effect's inputs and its `return` already are.
+- **The difference, stated:** between the call and the flush of the pass that made it, nothing listens. In a browser no
+  event is delivered there (Solid flushes in the task that rendered, before the next task), so a mounted component
+  misses nothing. What sees it is code that looks in the same task: a test that calls the primitive inside
+  `createRoot` and dispatches at once (12 primitive packages' tests: event-listener 12/16, scroll 5/16, websocket
+  18/21, mouse 3/5, …), and a body that reads back a DOM style it "just set". Such a test flushes first (`flush()`).
+- A measure tried and thrown away: wrapping each function a test imports so that Solid's `flush()` follows the call
+  (647 → 611 passing of 774): three files gained (event-listener +2, favicon +1, websocket +1), others broke (a class
+  wrapped as a function, a test that expects the pending state the flush ended). It shows nothing either way; the
+  statement above rests on reading the failing tests (`V=1 node run.mjs test/p-scroll …`), which are of that one kind
+  for event-listener, websocket and `createPreventScroll`.
+- The tests are unchanged by this pass: client 1228 · 1074 of 1262 in 72 files, server 101 · 90 of 105 in 21 (original
+  · rewrite), the same counts as before it.
+
+## 7. `typeof`, `as`, unary `+`, `new`, computed keys (decided: no language change; the standard module)
+
+- "The only way out of the language is an import" (10 SV-7a) holds: none of the five is added to the grammar.
+- What made the helpers painful was not the import but that the import lost the type: `isString(v)` did not narrow.
+  A row may already say so — `export pure fn isString(x: unknown): x is string` — and TypeScript narrows through the
+  projection (tried: `isString(v) ? v.toUpperCase() : …` type-checks). `@reactivescript/std/is` now says it of each.
+- Added to std, each `pure` and proven from its code by `rx-declare --audit` (`from` stays the one it does not show):
+  `is`: `isBoolean`, `cast<T>(x)` (JavaScript's `x as T`: the caller's word, nothing checked); `math`: `num(x)` (unary
+  `+`); `object`: `setOf(xs)`, `mapOf(pairs)` (`new Set`, `new Map`). A computed key is `fromEntries([[k, v]])`, which
+  was there. `as const` is a written type. `new` of a library's class stays a helper of that library's.
+- Four packages' own helpers went for them (p-set `setOf`, icons `num`, cmdk `one`, terracotta `attr`).
+
+## The rerun
+
+- `node build.mjs`: 33 of 33 packages built, the seven empty `types.js` files removed first (bug 4).
+- `node check.mjs`: caught 288 → 292 of 300; correct refused 25 → 3 of 200; good programs refused 4 → 0; draft
+  column 219 / 25 and TSX 35 / 5, unchanged; the checkers disagree on none.
+- `node run.mjs`, `SSR=1 node run.mjs`: 1,228 · 1,074 of 1,262 (72 files) and 101 · 90 of 105 (21 files), unchanged.
+- `node live.mjs`: 90 client and 74 hydrated of 130 steps in 27 cases, unchanged. `node size.mjs`, `node report.mjs`.
+- Lines: `.rx` 2,029 → 2,030, JavaScript 457 → 446, declarations 495 → 491, facade 87.
+- A slip of mine: I removed `test/*/.hydration-harness-*` folders taking them for a run's leftovers; 32 files in them
+  are tracked (the first pass committed them). Restored from git; only this pass's untracked ones were then removed.

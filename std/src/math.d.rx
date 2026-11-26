@@ -10,3 +10,4 @@ export pure fn sin(x: number): number
 export pure fn sqrt(x: number): number
 export pure fn isFinite(x: unknown): boolean
 export pure fn isInteger(x: unknown): boolean
+export pure fn num(x: number | string | boolean | null | undefined): number

@@ -11,4 +11,3 @@ export fn trapTab(event: any): void
 export client fn holdFocus(element: any): () => void
 export fn leaves(event: any, ...inside: any[]): boolean
 export pure fn same(by: any, a: any, b: any): boolean
-export pure fn attr(name: string, value: any): any

@@ -1,25 +1,25 @@
 {
  "cmdk": {
   "rx": 116,
-  "js": 100,
-  "decl": 48,
+  "js": 98,
+  "decl": 47,
   "facade": 2
  },
  "editors": {
   "rx": 34,
-  "js": 13,
+  "js": 12,
   "decl": 46,
   "facade": 0
  },
  "icons": {
   "rx": 19,
-  "js": 4,
-  "decl": 45,
+  "js": 2,
+  "decl": 44,
   "facade": 0
  },
  "kobalte": {
   "rx": 1031,
-  "js": 92,
+  "js": 91,
   "decl": 69,
   "facade": 19
  },
@@ -121,8 +121,8 @@
  },
  "p-set": {
   "rx": 6,
-  "js": 2,
-  "decl": 2,
+  "js": 1,
+  "decl": 1,
   "facade": 2
  },
  "p-share": {
@@ -175,19 +175,19 @@
  },
  "slider": {
   "rx": 56,
-  "js": 12,
+  "js": 11,
   "decl": 40,
   "facade": 0
  },
  "terracotta": {
-  "rx": 273,
-  "js": 42,
-  "decl": 49,
+  "rx": 274,
+  "js": 40,
+  "decl": 48,
   "facade": 7
  },
  "toast": {
   "rx": 43,
-  "js": 4,
+  "js": 3,
   "decl": 37,
   "facade": 0
  },
@@ -200,13 +200,13 @@
  "cases": {
   "cmdk": {
    "orig": 12362,
-   "withRuntime": 4732,
-   "alone": 11989
+   "withRuntime": 4739,
+   "alone": 11991
   },
   "icons": {
    "orig": 1719,
-   "withRuntime": 1318,
-   "alone": 8669
+   "withRuntime": 1323,
+   "alone": 8672
   },
   "kobalte-accordion": {
    "orig": 11097,
@@ -290,18 +290,18 @@
   },
   "terracotta-listbox": {
    "orig": 4753,
-   "withRuntime": 6360,
-   "alone": 13421
+   "withRuntime": 6372,
+   "alone": 13427
   },
   "terracotta-menu": {
    "orig": 2429,
-   "withRuntime": 6313,
-   "alone": 13379
+   "withRuntime": 6328,
+   "alone": 13384
   },
   "terracotta-radio": {
    "orig": 3191,
-   "withRuntime": 6240,
-   "alone": 13450
+   "withRuntime": 6255,
+   "alone": 13456
   },
   "terracotta-switch": {
    "orig": 1318,

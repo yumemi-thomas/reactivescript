@@ -1,6 +1,6 @@
 // An icon set: one component over the shapes, a context for what all take, a component for each icon.
 // Derived from @lucide/solid 1.80.0 (ISC) and solid-icons 2.0.0 (MIT): see ../NOTICE.
-import pure { num } from "./icons.js"
+import { num } from "@reactivescript/std/math"
 import { check, circle, Node } from "./icons.js"
 import { Svg } from "./types.js"
 

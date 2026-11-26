@@ -6,7 +6,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -36,11 +36,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -62,7 +58,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -92,11 +88,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -173,26 +165,22 @@
  },
  "kobalte-accordion": {
   "caught": {
-   "rx": 11,
+   "rx": 12,
    "orig": 9,
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
   "good": {
-   "rx": [
-    "CONTEXT_NOT_FOUND"
-   ],
+   "rx": [],
    "orig": [],
    "tsx": []
   },
   "missed": {
-   "rx": [
-    "P1"
-   ],
+   "rx": [],
    "orig": [
     "P1",
     "P2",
@@ -212,11 +200,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -238,7 +222,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -268,11 +252,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -289,25 +269,22 @@
  },
  "kobalte-dialog": {
   "caught": {
-   "rx": 9,
+   "rx": 10,
    "orig": 9,
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
   "good": {
-   "rx": [
-    "CONTEXT_NOT_FOUND"
-   ],
+   "rx": [],
    "orig": [],
    "tsx": []
   },
   "missed": {
    "rx": [
-    "P1",
     "P2",
     "P3"
    ],
@@ -330,11 +307,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -356,7 +329,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -388,11 +361,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -410,26 +379,22 @@
  },
  "kobalte-progress": {
   "caught": {
-   "rx": 11,
+   "rx": 12,
    "orig": 10,
    "tsx": 0
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 1
   },
   "good": {
-   "rx": [
-    "CONTEXT_NOT_FOUND"
-   ],
+   "rx": [],
    "orig": [],
    "tsx": []
   },
   "missed": {
-   "rx": [
-    "P1"
-   ],
+   "rx": [],
    "orig": [
     "P1",
     "P2"
@@ -450,11 +415,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -476,7 +437,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -506,11 +467,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -527,28 +484,24 @@
  },
  "kobalte-select": {
   "caught": {
-   "rx": 11,
+   "rx": 12,
    "orig": 9,
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
   "good": {
-   "rx": [
-    "CONTEXT_NOT_FOUND"
-   ],
+   "rx": [],
    "orig": [
     "VIEW_FN_MISPLACED"
    ],
    "tsx": []
   },
   "missed": {
-   "rx": [
-    "P1"
-   ],
+   "rx": [],
    "orig": [
     "P1",
     "P2",
@@ -568,11 +521,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -595,7 +544,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -625,11 +574,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -651,7 +596,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -683,11 +628,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -709,7 +650,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -741,11 +682,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -816,7 +753,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -846,11 +783,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -872,7 +805,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -902,11 +835,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -1004,7 +933,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -1034,11 +963,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -1056,7 +981,7 @@
    "tsx": 0
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -1094,11 +1019,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -1121,7 +1042,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -1151,11 +1072,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -1177,7 +1094,7 @@
    "tsx": 1
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -1209,11 +1126,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -1235,7 +1148,7 @@
    "tsx": 0
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -1275,11 +1188,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -1302,7 +1211,7 @@
    "tsx": 0
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -1340,11 +1249,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -1367,7 +1272,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -1399,11 +1304,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"
@@ -1425,7 +1326,7 @@
    "tsx": 2
   },
   "refused": {
-   "rx": 1,
+   "rx": 0,
    "orig": 1,
    "tsx": 0
   },
@@ -1455,11 +1356,7 @@
    ]
   },
   "refusedWhat": {
-   "rx": {
-    "C7": [
-     "REACTIVE_WRITE_IN_OWNED_SCOPE"
-    ]
-   },
+   "rx": {},
    "orig": {
     "C7": [
      "REACTIVE_WRITE_IN_OWNED_SCOPE"

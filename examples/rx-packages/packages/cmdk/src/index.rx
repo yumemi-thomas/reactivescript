@@ -1,8 +1,8 @@
 // The command menu. Derived from cmdk-solid 2.0.0-rc.0 (MIT, see ../NOTICE), without its Dialog (Kobalte's).
 import { give, call, textOf, firstValue, step, pressSelected, reveal, listHeight } from "./dom.js"
 import client { onResize } from "@reactivescript/std/browser"
-import { keys } from "@reactivescript/std/object"
-import pure { uniqueId, one } from "./dom.js"
+import { keys, fromEntries } from "@reactivescript/std/object"
+import pure { uniqueId } from "./dom.js"
 import { HIDDEN } from "./dom.js"
 import { commandScore } from "./score.js"
 import { Div, Input as InputProps } from "./types.js"
@@ -50,7 +50,7 @@ export component Command(props: CommandProps) {
     <label cmdk-label="" for={input} id={label_} style={HIDDEN}>{label ?? ""}</label>{children}</div>
 }
 fn of(k: Known | undefined, search: string, score: (value: string, search: string, keywords?: string[]) => number): number => k == undefined || k.value == "" ? 0 : score(k.value, search, k.keywords)
-fn Object_(xs: { id: string; n: number }[]): { [id: string]: number } => xs.reduce((o: { [id: string]: number }, x: { id: string; n: number }) => ({ ...o, ...one(x) }), {})
+fn Object_(xs: { id: string; n: number }[]): { [id: string]: number } => xs.reduce((o: { [id: string]: number }, x: { id: string; n: number }) => ({ ...o, ...fromEntries([[x.id, x.n]]) }), {})
 
 export component Item(props: Omit<Div, "onSelect"> & { value?: string; keywords?: string[]; disabled?: boolean; forceMount?: boolean; onSelect?: (v: string) => void }) {
   { value, keywords, disabled = false, forceMount, onSelect, children, ref: user, ...rest } = props

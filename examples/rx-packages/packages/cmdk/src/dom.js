@@ -19,4 +19,3 @@ export const reveal = (list) => requestAnimationFrame(() => selected(list)?.scro
 export const idOf = (list, value) => valid(list).find((e) => at(e) === value)?.id;
 export const HIDDEN = { position: "absolute", width: "1px", height: "1px", padding: "0", margin: "-1px", overflow: "hidden", clip: "rect(0, 0, 0, 0)", "white-space": "nowrap", "border-width": "0" };
 export function listHeight(wrapper, sizer) { wrapper.style.setProperty("--cmdk-list-height", sizer.offsetHeight.toFixed(1) + "px"); }
-export const one = (x) => ({ [x.id]: x.n });

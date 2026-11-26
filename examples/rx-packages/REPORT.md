@@ -12,6 +12,40 @@ repositories (no install scripts); licences in `LICENSES.md` and each package's 
 
 **2,029 lines of `.rx`, 457 of JavaScript, 495 of declarations (`.d.rx`, `.d.ts`), 87 of facade.**
 
+## After the fixes (2026-11-26, same day, `rx-packages` after b0c6aa8e)
+
+What the packages hit was then fixed in the language and its tools (`NOTES.md` has each item, with what was left out
+and why), every package rebuilt, and the measures run again. The sections below this one are the first pass's, as they
+were written; the table is the new one.
+
+| | before | after |
+| --- | --- | --- |
+| mistakes caught, `.rx` over the rewrite (of 300) | 288 | **292** |
+| correct changes refused, `.rx` over the rewrite (of 200) | 25 (22 of them one shape, 2 the check's own text) | **3** (1 a class list on an `<svg>`, the icon's own type; 2 the check's own text) |
+| the good program as is, refused | 4 of 25 | **0** |
+| `.rx` over the original's draft: caught / refused | 219 / 25 | 219 / 25 (a JavaScript component's `ref` is a handler where its declaration says so) |
+| the two checkers disagree | 0 | 0 |
+| the originals' tests, client (original · rewrite, 72 files, 1,262 tests) | 1,228 · 1,074 | 1,228 · 1,074 |
+| …server (21 files, 105 tests) | 101 · 90 | 101 · 90 |
+| live: pages the same as the original's, rendered · hydrated (130 steps, 27 cases) | 90 · 74 | 90 · 74 |
+| lines: `.rx` / JavaScript / declarations / facade | 2,029 / 457 / 495 / 87 | 2,030 / **446** / 491 / 87 |
+
+- **B2** (a `ref` closure given to a component): fixed, a rule (02 SC-4b). The 22 refusals are gone, and the 4 mistakes
+  that bug 5 hid are caught. The hole it closes on the way was open for `on…` props too.
+- **Bug 5** (lost `provides`): fixed; it was the summary of a spread, in one module too, not the printing.
+- **Bug 2** (a write under a narrowing `if`), **bug 3** (`on`, `from`), **bug 4** (a types-only module: the seven empty
+  `types.js` files are gone), **bug 6** (`ref` on a source fn's result): fixed.
+- **B5, B6, B7** (optional `ref`, optional action parameters, a quoted key in a pattern): in the language now.
+- **B8** (`typeof`, `as`, unary `+`, `new`, computed keys): no language change. A row may say `x is string`, so
+  `@reactivescript/std/is` narrows; it has `cast<T>(x)`; `std/math` has `num`; `std/object` has `setOf`, `mapOf`, and
+  `fromEntries([[k, v]])` is a computed key. Four packages' own one-line helpers went (`setOf`, `num`, `one`, `attr`).
+- **B1** (a listener starts after mount): decided, mount-time is the rule; the tests that look in the same task still
+  fail, by design. **B3, B4, B9, B10, B12, B13**: left, each with what is written instead (`NOTES.md`).
+- **A kit with one entry** (a re-export, an exported context that holds a view): not built; `NOTES.md` 4a says why.
+- **Not redone in the packages:** Kobalte's Trigger is still written as a `<button>` and the UI SDK bridge still has
+  `own()` in JavaScript, though B2 no longer forces either; the scroll, mouse and pointer facades still pass
+  `undefined` where an optional `ref` would do. The JavaScript count would fall further with them.
+
 ## How it was measured (all here, `node <script>`)
 
 - `build.mjs`: each package built with `rx-lib`, as an author would.
@@ -38,38 +72,38 @@ rendered in the browser, and served then hydrated. Lines are per package (″: a
 
 | package / part | tests: original · rewrite | live: client, hydrated (same steps of) | alive after 50 mounts: orig · rx | lines .rx / JS / decl. / facade (package) | gzip B: original · rx in app with runtime · rx alone | mistakes caught: rx / draft / TSX (of 12) | correct refused: rx / draft / TSX (of 8) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Kobalte Switch | 36 · 36 of 36 | 6, 6 of 6 | 0 · 0 | 1031 / 92 / 69 / 19 | 3511 · 3613 · 10730 | 12 / 9 / 2 | 1 / 1 / 0 |
-| Kobalte Checkbox | 41 · 41 of 41 | 5, 5 of 5 | 0 · 0 | ″ | 4211 · 3674 · 10871 | 12 / 9 / 2 | 1 / 1 / 0 |
+| Kobalte Switch | 36 · 36 of 36 | 6, 6 of 6 | 0 · 0 | 1031 / 91 / 69 / 19 | 3511 · 3613 · 10730 | 12 / 9 / 2 | 0 / 1 / 0 |
+| Kobalte Checkbox | 41 · 41 of 41 | 5, 5 of 5 | 0 · 0 | ″ | 4211 · 3674 · 10871 | 12 / 9 / 2 | 0 / 1 / 0 |
 | Kobalte Button, ToggleButton | 19 · 14 of 19 | – | – | ″ | – | – | – |
-| Kobalte ToggleGroup | 9 · 9 of 9 | 0, 0 of 5 | 0 · 0 | ″ | 9326 · 2362 · 9603 | 11 / 9 / 2 | 1 / 1 / 0 |
+| Kobalte ToggleGroup | 9 · 9 of 9 | 0, 0 of 5 | 0 · 0 | ″ | 9326 · 2362 · 9603 | 11 / 9 / 2 | 0 / 1 / 0 |
 | Kobalte Collapsible | 4 · 4 of 4 | – | – | ″ | – | – | – |
-| Kobalte Accordion | 19 · 19 of 19 | 6, 6 of 6 | 0 · 0 | ″ | 11097 · 4139 · 11277 | 11 / 9 / 2 | 1 / 1 / 0 |
-| Kobalte Tabs | 15 · 15 of 16 | 4, 4 of 4 | 0 · 0 | ″ | 11063 · 3032 · 10261 | 12 / 9 / 2 | 1 / 1 / 0 |
-| Kobalte RadioGroup | 54 · 54 of 54 | 4, 1 of 4 | 0 · 0 | ″ | 5327 · 4122 · 11310 | 12 / 9 / 2 | 1 / 1 / 0 |
-| Kobalte Pagination | 8 · 8 of 8 | 6, 6 of 6 | 0 · 0 | ″ | 3207 · 3638 · 10890 | 12 / 9 / 2 | 1 / 1 / 0 |
-| Kobalte Meter, Progress | 17 · 17 of 17 | 3, 3 of 3 | 0 · 0 | ″ | 2879 · 1587 · 8863 | 11 / 10 / 0 | 1 / 1 / 1 |
+| Kobalte Accordion | 19 · 19 of 19 | 6, 6 of 6 | 0 · 0 | ″ | 11097 · 4139 · 11277 | 12 / 9 / 2 | 0 / 1 / 0 |
+| Kobalte Tabs | 15 · 15 of 16 | 4, 4 of 4 | 0 · 0 | ″ | 11063 · 3032 · 10261 | 12 / 9 / 2 | 0 / 1 / 0 |
+| Kobalte RadioGroup | 54 · 54 of 54 | 4, 1 of 4 | 0 · 0 | ″ | 5327 · 4122 · 11310 | 12 / 9 / 2 | 0 / 1 / 0 |
+| Kobalte Pagination | 8 · 8 of 8 | 6, 6 of 6 | 0 · 0 | ″ | 3207 · 3638 · 10890 | 12 / 9 / 2 | 0 / 1 / 0 |
+| Kobalte Meter, Progress | 17 · 17 of 17 | 3, 3 of 3 | 0 · 0 | ″ | 2879 · 1587 · 8863 | 12 / 10 / 0 | 0 / 1 / 1 |
 | Kobalte Separator, Breadcrumbs, Link, Alert, Badge | 33 · 30 of 33 | 2, 2 of 2 | 0 · 0 | ″ | 1075 · 1336 · 8665 | – | – |
-| Kobalte Dialog | 2 · 2 of 2 | 2, 2 of 5 | 0 · 0 | ″ | 8558 · 11040 · 18087 | 9 / 9 / 2 | 1 / 1 / 0 |
+| Kobalte Dialog | 2 · 2 of 2 | 2, 2 of 5 | 0 · 0 | ″ | 8558 · 11040 · 18087 | 10 / 9 / 2 | 0 / 1 / 0 |
 | Kobalte Popover | – | 1, 1 of 5 | 0 · 0 | ″ | 17178 · 10974 · 18031 | – | – |
-| Kobalte Tooltip | – | 3, 3 of 7 | 0 · 0 | ″ | 14778 · 8656 · 15829 | 11 / 9 / 2 | 1 / 1 / 0 |
-| Kobalte Select | 57 · 48 of 58 | 1, 1 of 6 | 0 · 0 | ″ | 28154 · 14015 · 21077 | 11 / 9 / 2 | 1 / 1 / 0 |
+| Kobalte Tooltip | – | 3, 3 of 7 | 0 · 0 | ″ | 14778 · 8656 · 15829 | 11 / 9 / 2 | 0 / 1 / 0 |
+| Kobalte Select | 57 · 48 of 58 | 1, 1 of 6 | 0 · 0 | ″ | 28154 · 14015 · 21077 | 12 / 9 / 2 | 0 / 1 / 0 |
 | Kobalte Toast (data API) | – | – | – | ″ | – | – | – |
-| terracotta Button, Switch | 17 · 13 of 19 | 3, 3 of 3 | 0 · 0 | 273 / 42 / 49 / 7 | 1318 · 1220 · 8528 | 12 / 9 / 2 | 1 / 1 / 0 |
-| terracotta Disclosure | 7 · 7 of 8 | 4, 4 of 4 | 0 · 0 | ″ | 1814 · 2792 · 10002 | 12 / 9 / 2 | 1 / 1 / 0 |
-| terracotta Dialog | 22 · 16 of 26 | 5, 5 of 5 | 0 · 0 | ″ | 3459 · 2793 · 10006 | 12 / 9 / 2 | 1 / 1 / 0 |
-| terracotta Menu | 24 · 14 of 24 | 6, 6 of 6 | 0 · 0 | ″ | 2429 · 6313 · 13379 | 12 / 9 / 2 | 1 / 1 / 0 |
-| terracotta RadioGroup | 18 · 15 of 19 | 4, 0 of 4 | 0 · 0 | ″ | 3191 · 6240 · 13450 | 12 / 7 / 0 | 1 / 1 / 0 |
-| terracotta Listbox | 14 · 12 of 19 | 4, 4 of 6 | 0 · 0 | ″ | 4753 · 6360 · 13421 | 12 / 7 / 0 | 2 / 2 / 2 |
-| cmdk-solid Command | – | 7, 0 of 7 | 13 · 0 | 116 / 100 / 48 / 2 | 12362 · 4732 · 11989 | 12 / 9 / 2 | 1 / 1 / 0 |
-| solid-slider | – | 2, 0 of 5 | 0 · 0 | 56 / 12 / 40 / 0 | 7031 · 7386 · 14647 | 12 / 10 / 0 | 0 / 0 / 1 |
-| icon set (lucide-like) | – | 0, 0 of 2 | 0 · 0 | 19 / 4 / 45 / 0 | 1719 · 1318 · 8669 | 10 / 10 / 0 | 1 / 1 / 1 |
-| CodeMirror / Tiptap in a component | – | – | – | 34 / 13 / 46 / 0 | – | – | – |
-| toast kit (solid-toast / sonner-like) | – | – | – | 43 / 4 / 37 / 0 | – | – | – |
-| UI SDK checkbox | – | 5, 5 of 5 | 0 · 0 | 171 / 123 / 121 / 5 | 15194 · 48042 · 55003 | 11 / 7 / 0 | 1 / 1 / 0 |
-| UI SDK switch | – | 3, 3 of 3 | 0 · 0 | ″ | 12717 · 47964 · 54941 | 11 / 9 / 2 | 1 / 1 / 0 |
-| UI SDK accordion | – | 4, 4 of 5 | 0 · 0 | ″ | 15084 · 47970 · 54953 | 12 / 8 / 1 | 1 / 1 / 0 |
-| UI SDK tooltip | – | 0, 0 of 6 | 0 · 0 | ″ | 31936 · 47923 · 54909 | 12 / 9 / 2 | 1 / 1 / 0 |
-| UI SDK listbox | – | 0, 0 of 5 | 0 · 0 | ″ | 24166 · 48102 · 55069 | 12 / 7 / 0 | 1 / 1 / 0 |
+| terracotta Button, Switch | 17 · 13 of 19 | 3, 3 of 3 | 0 · 0 | 274 / 40 / 48 / 7 | 1318 · 1220 · 8528 | 12 / 9 / 2 | 0 / 1 / 0 |
+| terracotta Disclosure | 7 · 7 of 8 | 4, 4 of 4 | 0 · 0 | ″ | 1814 · 2792 · 10002 | 12 / 9 / 2 | 0 / 1 / 0 |
+| terracotta Dialog | 22 · 16 of 26 | 5, 5 of 5 | 0 · 0 | ″ | 3459 · 2793 · 10006 | 12 / 9 / 2 | 0 / 1 / 0 |
+| terracotta Menu | 24 · 14 of 24 | 6, 6 of 6 | 0 · 0 | ″ | 2429 · 6328 · 13384 | 12 / 9 / 2 | 0 / 1 / 0 |
+| terracotta RadioGroup | 18 · 15 of 19 | 4, 0 of 4 | 0 · 0 | ″ | 3191 · 6255 · 13456 | 12 / 7 / 0 | 0 / 1 / 0 |
+| terracotta Listbox | 14 · 12 of 19 | 4, 4 of 6 | 0 · 0 | ″ | 4753 · 6372 · 13427 | 12 / 7 / 0 | 2 / 2 / 2 |
+| cmdk-solid Command | – | 7, 0 of 7 | 13 · 0 | 116 / 98 / 47 / 2 | 12362 · 4739 · 11991 | 12 / 9 / 2 | 0 / 1 / 0 |
+| solid-slider | – | 2, 0 of 5 | 0 · 0 | 56 / 11 / 40 / 0 | 7031 · 7386 · 14647 | 12 / 10 / 0 | 0 / 0 / 1 |
+| icon set (lucide-like) | – | 0, 0 of 2 | 0 · 0 | 19 / 2 / 44 / 0 | 1719 · 1323 · 8672 | 10 / 10 / 0 | 1 / 1 / 1 |
+| CodeMirror / Tiptap in a component | – | – | – | 34 / 12 / 46 / 0 | – | – | – |
+| toast kit (solid-toast / sonner-like) | – | – | – | 43 / 3 / 37 / 0 | – | – | – |
+| UI SDK checkbox | – | 5, 5 of 5 | 0 · 0 | 171 / 123 / 121 / 5 | 15194 · 48042 · 55003 | 11 / 7 / 0 | 0 / 1 / 0 |
+| UI SDK switch | – | 3, 3 of 3 | 0 · 0 | ″ | 12717 · 47964 · 54941 | 11 / 9 / 2 | 0 / 1 / 0 |
+| UI SDK accordion | – | 4, 4 of 5 | 0 · 0 | ″ | 15084 · 47970 · 54953 | 12 / 8 / 1 | 0 / 1 / 0 |
+| UI SDK tooltip | – | 0, 0 of 6 | 0 · 0 | ″ | 31936 · 47923 · 54909 | 12 / 9 / 2 | 0 / 1 / 0 |
+| UI SDK listbox | – | 0, 0 of 5 | 0 · 0 | ″ | 24166 · 48102 · 55069 | 12 / 7 / 0 | 0 / 1 / 0 |
 | @solid-primitives/animation | 43 · 29 of 55 | – | – | 11 / 1 / 1 / 2 | – | – | – |
 | @solid-primitives/connectivity | 15 · 10 of 15 | – | – | 10 / 1 / 1 / 2 | – | – | – |
 | @solid-primitives/controlled-signal | 62 · 45 of 62 | – | – | 25 / 0 / 0 / 5 | – | – | – |
@@ -86,7 +120,7 @@ rendered in the browser, and served then hydrated. Lines are per package (″: a
 | @solid-primitives/pointer | 7 · 6 of 7 | – | – | 13 / 7 / 2 / 2 | – | – | – |
 | @solid-primitives/raf | 23 · 19 of 23 | – | – | 8 / 0 / 0 / 2 | – | – | – |
 | @solid-primitives/scroll | 20 · 9 of 20 | – | – | 9 / 4 / 3 / 3 | – | – | – |
-| @solid-primitives/set | 26 · 26 of 26 | – | – | 6 / 2 / 2 / 2 | – | – | – |
+| @solid-primitives/set | 26 · 26 of 26 | – | – | 6 / 1 / 1 / 2 | – | – | – |
 | @solid-primitives/share | 6 · 6 of 6 | – | – | 14 / 1 / 1 / 2 | – | – | – |
 | @solid-primitives/signal-builders | 112 · 111 of 112 | – | – | 10 / 2 / 2 / 2 | – | – | – |
 | @solid-primitives/spring | 25 · 10 of 25 | – | – | 10 / 7 / 1 / 2 | – | – | – |
@@ -96,7 +130,7 @@ rendered in the browser, and served then hydrated. Lines are per package (″: a
 | @solid-primitives/url | 36 · 35 of 36 | – | – | 8 / 5 / 3 / 2 | – | – | – |
 | @solid-primitives/websocket | 21 · 18 of 21 | – | – | 12 / 7 / 3 / 2 | – | – | – |
 
-Checks over 25 programs: caught 288 / 219 / 35 of 300; correct refused 25 / 25 / 5 of 200.
+Checks over 25 programs: caught 292 / 219 / 35 of 300; correct refused 3 / 25 / 5 of 200.
 Tests: client 1175 · 1021, server 101 · 90 (original · rewrite, of the files in the table).
 
 Not counted in the table: Kobalte's image, steps, text-field and number-field tests (not rewritten: both columns run the

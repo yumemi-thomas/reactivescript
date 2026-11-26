@@ -9,4 +9,3 @@ export fn reveal(list: any): void
 export fn idOf(list: any, value: string): string | undefined
 export const HIDDEN: any
 export fn listHeight(wrapper: any, sizer: any): void
-export pure fn one(x: { id: string; n: number }): { [id: string]: number }
