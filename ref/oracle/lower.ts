@@ -29,17 +29,11 @@ const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: 
 const hoistedOf = new WeakMap<object, Map<Expr, () => unknown>>();
 const NO_PROVISION = { k: "const", value: undefined } as const;
 class Returned { value: unknown; constructor(v: unknown) { this.value = v; } }
-/** R-f-4: a typed `errored` boundary's fallback for a failure of another class — the wrapper throws it to the next boundary up. */
-class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
 /** R-f-4: `e catch (x: C) => alt` as Solid code. A read of an errored node reaches the nearest boundary even inside a JS `try`
  *  (the status flows through the graph), so the catch is an error boundary around the read whose fallback is the value. */
 function boundaryRead(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): () => unknown {
-  const acc = untrack(() => createErrorBoundary(f, (err: () => unknown) => new Fallback(() => { const e0 = err(); return match(e0) ? alt(e0) : new Forward(e0); })));
-  return () => unwrapFallback(acc());
+  return untrack(() => createErrorBoundary(f, (err: () => unknown) => { const e0 = err(); if (!match(e0)) throw e0; return alt(e0); }));   // another class is thrown to the boundary above; a change of class re-decides
 }
-/** A boundary's fallback that is decided when read, so a failure that changes class while the fallback shows is re-decided. */
-class Fallback { get: () => unknown; constructor(g: () => unknown) { this.get = g; } }
-function unwrapFallback(v0: unknown): unknown { let v = v0; if (v instanceof Fallback) v = v.get(); if (v instanceof Forward) throw v.err; return v; }
 /** A keyed answer is returned from the derive, and Solid reconciles it by key at any depth (ST-4a): a row whose key is
  *  still there keeps its object and takes the new leaves, so an equal answer changes nothing (#51, #64). Any other
  *  answer is assigned to the draft. */
@@ -865,13 +859,11 @@ export class Oracle {
         const out = R.createComponent(Errored as any, {
           fallback: (err: () => unknown) => {
             if (!classes) return view(err);
-            const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
-            return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => view(err))) : new Forward(err()));
+            const ok = createMemo(() => isA(err(), classes)); if (!ok()) throw err(); return view(err);   // R-f-4: another class passes to the boundary above, thrown from the fallback (DV-7, fixed in solidjs/solid#4277, had a memo around the boundary throw it)
           },
           get children() { const s2 = new Scope(scope); return self.region(m.decls, m.body, s2); },
         });
-        if (!classes) return out;
-        return createMemo(() => unwrapFallback(typeof out === "function" ? (out as () => unknown)() : out));   // R-f-4: another class passes to the boundary above (a rethrow from the fallback itself did not recover until solidjs/solid#4277 — ref/oracle/repros/dv7-rethrow.mjs)
+        return out;
       }
     }
   }

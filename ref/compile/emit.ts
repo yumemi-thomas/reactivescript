@@ -325,7 +325,7 @@ class Gen {
       out.push(`${pad}__rt.effect(${d.inputs.length}, () => [${d.inputs.map(i => this.expr(i, env, { imp: false })).join(", ")}], ($p) => __rt.untrack(() => {\n${this.stmts(d.body, inner, { imp: true, effect: true }, ind + 1, true)}\n${pad}}));   // SC-2: the apply reads σ, untracked`);
     }
     if (!exportsTail) out.push(...this.hoistAll(viewReaders(view, t => /^[A-Z]/.test(t)), env, pad));
-    out.push(exportsTail ? `${pad}return ${exportsTail};` : `${pad}return ${this.markup(view, env, ind)};`);
+    out.push(exportsTail ? `${pad}return ${exportsTail};` : `${pad}return ${view.length ? this.markup(view, env, ind) : "null"};`);   // a block with no view returns null, which a fn's body drops
     return out.join("\n");
   }
   private above = new Map<object, string>(); private upSeq = 0;   // RG-7b: a `use` written in its own provision, and the name of what is above it
@@ -772,7 +772,7 @@ class Gen {
   // ---- views: JSX, which Solid's compiler (@solidjs/compiler) lowers for the DOM, the server and the test renderer ----
   /** A view: a fragment of children. Text is a string child; `{e}` is `{__rt.show(e)}` (a value is formatted, a view is
    *  inserted); control flow is Solid's components. What is a hole, a scope or a memo is the compiler's to decide. */
-  markup(ms: Markup[], env: Env, ind: number): string { return ms.length ? `<>${ms.map(m => this.child(m, env, ind)).join("")}</>` : "null"; }   // an empty view is null, not `<></>` (an empty array loses its slot in the universal renderer: DV-13)
+  markup(ms: Markup[], env: Env, ind: number): string { return `<>${ms.map(m => this.child(m, env, ind)).join("")}</>`; }   // an empty view is `<></>` as any other (it was `null` while the universal renderer lost an empty array's slot: DV-13, fixed in solidjs/solid#4276)
   /** A region's body as a child: its declarations, then its view (a function body, so it is owned where it is called). */
   private regionFn(decls: Decl[], view: Markup[], env: Env, ind: number, param = "", bind?: (e: Env) => string): string {
     const pad = " ".repeat(ind * 2);

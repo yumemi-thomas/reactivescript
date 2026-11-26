@@ -318,7 +318,9 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   (`solid-main.noindex/drafts/2-errored-stream-nested`): reproduced on main
   (ad1f561), 2.0.4, 2.0.0, rc.23 and rc.21; the remainder of #4287, named as a
   limit in #4303; the cause in the server `createErrorBoundary`'s
-  `renderOutcome`. Nothing here changes when it is fixed but this record.
+  `renderOutcome`. A fix of the before-shell case is open upstream as
+  solidjs/solid#5225; the after-shell case, which S-server-7 shows, has no
+  fix yet. Nothing here changes when it is fixed but this record.
 
 - **DV-27 (a store a `ref` writes while hydrating) — Solid's, 2026-11-26**
   (`ref/oracle/repros/dv27-hydrate`, plain Solid compiled by its own
@@ -328,9 +330,13 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   array or a record, ST-1) is made but its reader does not run again for
   it: the page keeps the server's text until the next change of the store.
   Recorded as a `hydrated` divergence; the program is ordinary, and nothing
-  is refused. Found by track 3 beside SC-4c's programs. *Memo:* no Solid
-  issue is drafted for it yet; `ref/oracle/repros/dv27-hydrate` is the
-  plain-Solid program one would start from.
+  is refused. Found by track 3 beside SC-4c's programs. *Memo (2026-11-27):*
+  the plain-Solid issue is being drafted (`solid-main.noindex/drafts/6-ref-store-write-hydration`,
+  not posted), which finds it in every release since rc.21 and fixed on
+  Solid's main by solidjs/solid#4906 (stores on the thin engine, merged
+  2026-11-26, after the pin); `ref/oracle/repros/dv27-hydrate` still shows
+  it at the pin. Nothing here changes when a release has it but this
+  record.
 
 - **DV-28 (a `ref` reads an earlier `ref`'s write in the same pass) —
   Solid's, a regression in 2.0.0-rc.22, 2026-11-26** (S-server-8; the
@@ -345,7 +351,10 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   shows an earlier `ref`'s write to a `ref` in a `<For>` row and in a
   `<Show>`; hydrating, a row's `ref` reads the screen, and the `<Show>`'s
   served content is thrown away and made again, its `ref` called twice, the
-  second time reading the write. The minimal case is an ordinary
+  second time reading the write. Solid's maintainer ruled what a `ref` reads
+  on 2026-11-20: "refs are like event handlers or effect callbacks"
+  (solidjs/solid#5110, which fixes #5098 and is in the pin) — the screen, as
+  SC-4c says; what is left is the order of the pass. The minimal case is an ordinary
   UI-library one: `<button ref={setAnchor}>` and a popover in `<Show>` whose
   `ref` reads `anchor()`. Recorded as `oracle` and `hydrated` divergences;
   nothing is refused, and the interpreter is not made to follow it.

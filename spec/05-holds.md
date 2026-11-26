@@ -387,8 +387,21 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   `null` markers, and each region keeps its place with a sentinel; a region
   whose value becomes an empty array (`<></>` compiles to `[]`) removes its
   sentinel, and what replaces it later is appended after its siblings. The
-  DOM build uses comment markers and is not affected. The emitter writes an
-  empty view as `null`, which keeps its slot.
+  DOM build uses comment markers and is not affected. The emitters wrote an
+  empty view as `null`, which keeps its slot, until the audit of 2026-11-27
+  removed the workaround: an empty view is `<></>` again (a block with no
+  view still returns `null`, which is "nothing to show", not this case).
+- **DV-7 (a rethrow from an inner error fallback) — a Solid bug, found
+  2026-10-23 while lowering typed boundaries; fixed on `next` 2026-10-26
+  (solidjs/solid#4270, fix #4277)** (`ref/oracle/repros/dv7-rethrow.mjs`).
+  An outer error boundary that took an error rethrown from an inner
+  boundary's fallback did not recover when the content did. It showed in no
+  scenario: a typed boundary (R-f-4) and a reactive `catch` handed a failure
+  of another class out of the fallback as a value, and a memo around the
+  boundary threw it. That lowering went in the audit of 2026-11-27 (the
+  repro shows `ok0` at the pin): the fallback throws a failure of another
+  class itself, in the oracle and both client runtimes, as the server
+  runtime always did.
 - **DV-9, DV-11, DV-12, DV-14 (the server and hydration)** — Solid's server render
   and its hydrating client; recorded in 10-server.md.
 - **DV-17 (a shared boundary merges mounts) — a Solid bug, ruled
@@ -454,7 +467,10 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   S-latest-reask records `2 / 3` for `2 / 2` (and `2 / 4` in its variant)
   on the oracle and the compiled runtime. `untrack` answers the guess
   throughout. Built in Solid 2.0.1 (the repin of 2026-11-19): no longer
-  recorded.
+  recorded. (At the pin the repro's store mode, which nothing displays,
+  still answers `latest=3`; decision 3 is about a slot that displays a
+  guess, and the scenario, which displays it, is right on every runner. Not
+  a divergence: noted by the audit of 2026-11-27.)
 - **DV-20 (a guess read by effects alone reverts under the action's
   refresh) — a Solid bug, reproduced 2026-11-05** (solidjs/solid#4690,
   `ref/oracle/repros/4690-guess-reask-refresh.mjs`). With nothing

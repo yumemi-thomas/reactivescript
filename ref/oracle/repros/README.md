@@ -1,8 +1,10 @@
 # Repros for Solid 2.0 (`next`)
 
 Standalone scripts against Solid's `next` branch built from source at the
-commit in `ref/SOLID_NEXT` (every one re-run there, `0847122`, 2026-10-26) —
-no ReactiveScript code involved. Run from `ref/oracle/` after `npm install`:
+commit in `ref/SOLID_NEXT` (every one re-run there, `0847122`, 2026-10-26; and
+again at `30e7805` on 2026-11-27: every bug marked fixed shows the ruled
+output; DV-26, DV-27 and DV-28 still reproduce) — no ReactiveScript code
+involved. Run from `ref/oracle/` after `npm install`:
 
 ```
 node --conditions=browser --conditions=development repros/dv3-signals.mjs [effect-in-fallback|read-in-fallback]
@@ -115,10 +117,12 @@ fallback's computation; when the inner switches back to its content that
 computation is disposed, and the outer is not told the error's source is
 gone.
 
-**How we lower around it.** The inner fallback returns a marker carrying
-the error instead of throwing; a memo around the inner boundary reads it
-and throws. That memo is an ordinary dependent of the boundary, so it
-re-runs and recovers when the content does (S-fail-1 instants 6–8).
+**How we lowered around it, until 2026-11-27.** The inner fallback returned
+a marker carrying the error instead of throwing; a memo around the inner
+boundary read it and threw. At the pin this repro shows `ok0` at the ✗ (the
+fix is #4277), so the workaround is gone: a typed boundary's fallback and a
+reactive `catch` throw a failure of another class themselves, as the server
+runtime always did (S-fail-1 instants 6–8 on every runner).
 
 ---
 
@@ -397,6 +401,10 @@ over `createSignal(async)`.
 
 **Observed on 2.0.0-rc.21 (next @ 2105ffb8).** `store.length` 2, `untrack` 2, `latest` 3. Before the re-ask lands,
 `latest` is 2. The signal form: `detail().title` "New", `latest` "Old".
+
+**At the pin (30e7805, 2026-11-27).** The signal form answers `latest` "New". The store form still answers `latest` 3
+after the re-ask: nothing displays the store here, and decision 3 is about a slot that displays a guess
+(S-latest-reask, which displays it, is right on every runner). Not recorded as a divergence.
 
 **Found by** the round 8 timing fuzzer on the chain4 reference desk, regraded on rc.21 (2026-11-05): a tab count read
 with `latest issues` beside a list with a close in flight.

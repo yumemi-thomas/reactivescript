@@ -13,10 +13,13 @@
 // key holds at any depth, as Solid's does. Nothing is written that the list's reconcile would not write: the rows'
 // readers are told of the fields that changed, once, as they were.
 //
-// Memo (2026-11-26): this is a workaround of a Solid bug, not a design of the language. Solid's documentation promises a
-// kept proxy for a kept key; the plain-Solid issue is drafted, not posted (solid-main.noindex/drafts/1-reconcile-kept-row:
-// reproduced on main ad1f561, 2.0.4, 2.0.0, rc.23, rc.21; the cause in `descend()`). Once Solid keeps the proxy itself,
-// `keyedWrite` can become `reconcile(v, key)` again, with compiler/test/rows.mjs and S-store-kept-row as the check.
+// Memo (2026-11-26, 2026-11-27): this works around Solid, not a design of the language. Solid's documentation promises a
+// kept proxy for a kept key; its code prunes a row nothing has subscribed to, a prune ruled intended in solidjs/solid#2902
+// and pinned by a test. Filed upstream as solidjs/solid#5220 (open), fix proposed in #5222 (open); reproduced on main
+// ad1f561, 2.0.4, 2.0.0, rc.23, rc.21 (solid-main.noindex/drafts/1-reconcile-kept-row; the cause in `descend()`). Once
+// Solid keeps the proxy itself, `keyedWrite` can become `reconcile(v, key)` again, with compiler/test/rows.mjs and
+// S-store-kept-row as the check. If Solid documents the prune instead, this stays, as the language's own lowering of
+// ST-4a (proposals/32).
 type Reconcile = (v: any, key: string) => (state: any) => void;
 const isObj = (v: unknown): v is Record<PropertyKey, any> => v !== null && typeof v === "object";
 

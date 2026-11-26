@@ -136,10 +136,10 @@ const isA = (err: unknown, classes: unknown[] | undefined): boolean => !classes 
   return false;
 });
 /** `e catch (x: C) => alt`, reactive: an error boundary around the read whose fallback is the value (Solid: an errored read
- *  reaches the nearest boundary even inside a JS `try`). The fallback is decided when read, so a change of class re-decides it. */
+ *  reaches the nearest boundary even inside a JS `try`). The fallback reads the failure, so a change of class re-decides it;
+ *  another class is thrown from the fallback to the boundary above (R-f-4). */
 function catchAcc(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): () => unknown {
-  const acc = untrack(() => createErrorBoundary(() => readWhole(f()), (err: () => unknown) => new Fallback(() => { const e0 = err(); return match(e0) ? alt(e0) : new Forward(e0); })));
-  return () => unwrapFallback(acc());
+  return untrack(() => createErrorBoundary(() => readWhole(f()), (err: () => unknown) => { const e0 = err(); if (!match(e0)) throw e0; return alt(e0); }));
 }
 /** Imperative scope: an ordinary try. */
 function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
@@ -151,10 +151,7 @@ function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err:
 function catchRead(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
   return getObserver() ? catchAcc(f, match, alt)() : tryCatch(f, match, alt);
 }
-class Fallback { get: () => unknown; constructor(g: () => unknown) { this.get = g; } }
-function unwrapFallback(v0: unknown): unknown { let v = v0; if (v instanceof Fallback) v = v.get(); if (v instanceof Forward) throw (v as Forward).err; return v; }
 const NO_PROVISION: Entry = {};
-class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
 
 // ---------------------------------------------------------------- the wire (12 SF-6; a copy of ref/src/failure.ts's)
 function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unknown {
@@ -563,18 +560,18 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     opt: (v: unknown) => v === undefined ? v : isView(v) ? v : fmt(v),
     /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
     kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
-    /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
-     *  and a memo throws it there (a rethrow from the fallback itself did not recover until solidjs/solid#4277: ref/oracle/repros/dv7-rethrow.mjs). */
+    /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4): the fallback throws it,
+     *  and re-decides when the failure changes class. (Until solidjs/solid#4277, 2026-10-26, a boundary that took such a
+     *  rethrow did not recover, DV-7, and the fallback handed the failure to a memo around the boundary to throw instead.) */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
       const classes = props.classes;
       const out = createComponent(Errored as any, {
         fallback: (err: Acc) => {
-          const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
-          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => props.fallback(err))) : new Forward(err()));
+          const ok = createMemo(() => isA(err(), classes)); if (!ok()) throw err(); return props.fallback(err);
         },
         get children() { return props.children; },
       });
-      return createMemo(() => unwrapFallback(typeof out === "function" ? (out as Acc)() : out));
+      return out;
     },
   };
   return app;

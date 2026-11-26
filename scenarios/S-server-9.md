@@ -38,4 +38,4 @@ export default component App() {
 
 The hydrated page shows the `ref`'s write of `n` and not that of `els`, which is in the store (the click shows `3`).
 The same with the source replaced by Solid's own `createStore` in the compiled module
-(`ref/oracle/repros/dv27-store-written-while-hydrating.mjs`); a signal holding the array is shown.
+(`ref/oracle/repros/dv27-hydrate`); a signal holding the array is shown.
