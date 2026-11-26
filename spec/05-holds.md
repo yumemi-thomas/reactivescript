@@ -447,11 +447,19 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   probe opens whose content read the held write plainly attaches with its
   slot empty and removes the old arm (S-solid-46 instant 2: `0 d0`); ruled:
   it is born held and the old arm stays until the landing.
-- **DV-25 (a reader out of an error state does not hold the change) — a
-  Solid regression in 2.0.1, reproduced 2026-11-19; still in 2.0.3 (99db9bce4),
-  where S-fail-2's client runners show the ruled frame and its hydrated page does not**
-  (`ref/oracle/repros/dv25-errored-reask.mjs`, plain Solid: rc.21 holds,
-  2.0.1 and 2.0.2 do not). After a source's question fails into a `catch` value or
+- **DV-25 (a reader out of an error state does not hold the change) —
+  Solid's intended behaviour since 2.0.0-rc.23 (#4908), not a regression;
+  reproduced 2026-11-19; still in 2.0.3 (99db9bce4), where S-fail-2's client
+  runners show the ruled frame and its hydrated page does not**
+  (`ref/oracle/repros/dv25-errored-reask.mjs`, plain Solid: rc.21 and rc.22
+  hold, rc.23 and after do not). *Memo (2026-11-26):* this was recorded as a
+  2.0.1 regression; the plain-Solid draft
+  (`solid-main.noindex/drafts/3-errored-reask-write`, not to be filed) finds
+  it is #4908's change, pinned by Solid's own test (`lean.test.ts` "E1 a write
+  publishes beside a shown error fallback") and its rule F-3 ("a boundary on
+  its fallback is the display of everything under it … a change that only such
+  content needed reveals at once"), in the 2.0.0 changelog. So the spec's rule
+  below and Solid's ruling differ by design, not by a bug. After a source's question fails into a `catch` value or
   an `errored` fallback, a change that makes it ask again shows at once:
   the new input beside the old fallback, with the question in flight
   (S-module-1 instant 3: `#2 nobody Z`; S-fail-2 instant 6: `zzznone`, the
