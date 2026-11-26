@@ -820,6 +820,49 @@ function … write `x := () => v`, which stores `v` for every type". The code st
 What this refuses that was accepted: a bare `T` written to a source, and a function written to a path. Nothing of the
 tree but S-generic-2's combobox was either.
 
+### Step 3: W2 — a value that holds io, followed
+
+*The one mechanism* (04 R-io-3, both checkers, alike). An expression holds io at a path: `actionParts`, which existed
+for a field called by name (`r.go()` was refused), plus `itemParts`, what an item of a list holds (each item of a
+literal, after a spread too; through names, choices, `filter`/`toSorted`/`slice`/`concat`). Three uses of it:
+
+1. The parameter of a closure given to `map`, `filter`, `some`, `every`, `find`, `reduce` (its second), `forEach`,
+   `flatMap`, `toSorted` — as a method or the language's function — over a list, and a `for` row in a view, hold what an
+   item holds: calling them (or a field of them) in reactive scope is `ACTION_CALLED_IN_OWNED_SCOPE`, by the rule that
+   already refused `g = inc; g()`.
+2. `calledPaths`: the paths of a fn's parameter its body calls while it runs ("" the parameter, `go` a field, `*` an
+   item), through a local that names a path, a closure given to a calling method, and a parameter of another fn that
+   calls it — a fixpoint over the module's fns, the cycle cut where it closes (a recursive fn and two that call each
+   other are held). It replaces `paramCalledNow` (one step, by name). A call in reactive scope that gives a value holding
+   io at a called path is refused; so is an item given by name (`[inc].map(callIt)`).
+3. The printed row says it: `export pure fn runAll(fs: any[]) calls(fs.*)` (09 MO-9b), read back by both readers and the
+   grammar, so an importer holds a fn of another module, and one re-exported through a third, the same.
+
+*Decided.* (a) `calls(…)` is a derived mark of a printed `.rx` signature, never written: a JavaScript declaration that
+says it is refused by name in both declaration parsers (it was read into the result's type text in silence). So the
+vocabulary bar (MO-8r) is not engaged; a JS fn that runs what it is given is one the generator declines `pure` for. (b) A
+method called on a parameter is a path too (`fs.map(…)` prints `fs.map`): a record `{ map: inc }` given there is called,
+so it is no noise to the soundness, only to the row. (c) An instantiating fn's call bound to a name (`y = run(…)` of a fn
+that declares) never reached the call check: it does now — it runs where it is written. (d) `fs.map((g) => () => g())`
+is refused: a closure written in reactive scope is pure (SC-3), as `() => inc()` there already was.
+
+*Still open, and said* (spec 04): an io value inside a value whose type is not read (a prop or context typed `any`:
+step 5, W4), and one given to JavaScript that calls it at once (bugs/05).
+
+| | |
+| --- | --- |
+| programs (`mk3.py`: 10 holders — a list, two, nested, a record in a list, a spread, after a spread, a name, filtered, a choice, a field — × 11 ways to call — `map`, `forEach`, `some`, `filter`, `reduce`, the language's `map`, a fn, a second, a third, an item by name, another module — × in an equation / in a handler; a `for` row; carried five ways; a record's field through one and two fns; a local naming an item; a pure list; recursive and mutual fns; a shadowed name; a component's handler in a list six ways; another module's fn four ways, a pure twin and a handler twin each; a fn re-exported through a third module) | 294: 134 refused by both checkers, 160 accepted, each as named |
+| both checkers, lowered, projected; the type pass | 294 of 294 alike; 294 of 294 |
+| the 160 accepted, frames from the interpreter: interpreter, oracle, both emitters, served and hydrated in both | 160 of 160 alike |
+| census: scenarios (four runners, the type pass, crate parity) | nothing newly refused |
+| `bench/run.mjs --check --strict` | as the scorecard |
+| `examples/rx-packages/check.mjs` | `check.json` rewritten byte for byte (292 of 300 caught, 3 of 200 correct refused: unchanged) |
+| `examples/rx-std` (13 build), `examples/rx-ui-sdk` (builds; `check/run.mjs` output identical) | unchanged |
+| the signature round trip | `ref/units.ts` (`calls(f, fs.*, fs.map, r.go)` printed, read, printed again), the crate's by the parity runner on every program with a module, a corpus test |
+
+proposals/31's 456 programs were not found on disk (their generator is not kept); its five leftovers are written again
+here: the two that are W2's are refused (S-check-6), the three of a prop or a context typed `any` are step 5's.
+
 ## Roadmap, track 2: every runner agrees (2026-11-26)
 
 The second track of `ROADMAP-fable.md` (X1, W5, W3 + X6, X2, X7), beside track 1 on the same PR. The sets and logs are

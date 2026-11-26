@@ -36,6 +36,24 @@ and where they may not go.
   `flatMap`, `toSorted`, `replace`), and a fn of the module whose body
   calls that parameter. What may keep it (a JavaScript import, a prop, a
   record, a fn that hands it back) carries it. S-check-4.
+  *A value that holds io (2026-11-26).* An expression holds io at a path
+  when it is an action, a handler prop, an `io` part, or a list or record
+  literal, a spread, a choice or a name of one with such an item or field
+  (`[inc]` at `*`, `{ go: inc }` at `go`, `[{ go: inc }]` at `*.go`). The
+  parameter of a closure given to one of those methods over a list, and
+  the row of a `for` over one, holds what an item holds: calling it, or a
+  field of it, in reactive scope is `ACTION_CALLED_IN_OWNED_SCOPE`
+  (`[inc].map((g) => g())`, `{for g in fs { <li>{str(g())}</li> }}`). A fn
+  calls the paths of a parameter its body calls while it runs — by a path
+  of it, given to one of those methods (each item is then given), or given
+  to a parameter of another fn that calls it: a fixpoint over the module's
+  fns, and across modules by the signature's `calls(…)` (09 MO-9b). A call
+  in reactive scope that gives such a fn a value holding io at a path it
+  calls is refused, an instantiation's call too (`run([inc])`,
+  `go({ go: inc })`, `ap(inc)` of another module). Carrying is as before:
+  `[inc].map((g) => g)`, `len([inc])`, a fn that keeps its parameter. Open:
+  an io value inside a value whose type is not read (a prop typed `any`),
+  and one given to JavaScript that calls it at once (bugs/05). S-check-6.
   *An action a value carries (2026-11-24).* What a name, a field, an item
   or a fn's result holds is followed through the literals that say it: an
   action handed back by a fn (`{ n: n, set: set }`, `[n, set]`, `set`), of
