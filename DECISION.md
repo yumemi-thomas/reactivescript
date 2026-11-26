@@ -1050,6 +1050,31 @@ a rejected variant. Census, every program's diagnostics before and after (`censu
 accepted variant, bench, rx-packages, rx-std, the UI SDK, std, the examples and eval's 340 .rx files, 1,593 programs): none
 differs; the only newly refused program is the new variant. Not a Solid matter.
 
+### Step 9: B10 — an action that answers at the call (a prototype, local branch `proto-b10`, not merged, not pushed)
+
+*The test the roadmap set:* can the difference from Solid's `action()` be said in two sentences? Yes: *an action that
+never waits gives `action()` nothing to hold — AC-1 already calls such a body an ordinary instant, AC-1g has no answer
+to guard and AC-1h no held write of its own. So the only thing lost is the promise, and with it a caller's way to wait
+for a change that has already settled when the call returns.* So the form was built (06 AC-1i): `action show(t:
+string): number { … return id }` answers that value at the call (a `.tsx` caller gets a number); an `await`,
+`refresh`, `affects`, a guess or an inline `action { … }` in its own statements is `ACTION_ANSWER_HELD`; its body is
+checked as a handler's run (AC-1h's run form applies: a counter it writes before calling an action that waits is
+`STALE_NEXT_READ`); it is still an action (refused while a view computes; R-f-6, no failure out). Lowered to a plain
+function (`__rt.now`) in both emitters; the interpreter runs it as a handler's body and answers its result; the oracle
+drives its body to the end at once; both projections type it `function f(…): T`. Not shaped by any Solid bug: it is
+Solid's documented `action()` that is left out, because there is nothing for it to do.
+
+| | |
+| --- | --- |
+| programs (`mk9.py`: the answer in a handler, twice; one that answers calls another; a branch, a loop, an early return; a type alias as the result; `: void`; a counter beside it, not held; one inside a waiting action; from another module; the seven held words, in a branch and a loop too; called while a view computes, twice; a stale counter before a waiting action it calls; a failure let out; three type mistakes) | 23: 11 refused by both checkers, 3 refused by the type pass, 9 accepted, each as named; both checkers, lowered, projected alike |
+| the 9 with frames, the interpreter, the oracle, both emitters | alike; served and hydrated in both servers, 9 of 9 |
+| quick on the branch | 21 of 21 |
+
+*Left, for the user:* whether to merge it (the brief: a prototype only). Known edges: R-f-6's message says "a handler
+cannot (it does not await the action)", which reads oddly for one that answers at once; the printed `.d.rx` row is still
+`export action show` (the type is the projection's, which is what a `.tsx` caller and an `.rx` importer's type pass
+read); `@reactivescript/runtime` gains `now`, so a package using the form needs the runtime of its version (MO-13i).
+
 ### Read again under the user's rule of 2026-11-26: no rule bent around a Solid bug
 
 The rule: a Solid bug is never a reason to refuse correct code or to shape a language rule; it is recorded as a DV
