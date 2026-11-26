@@ -34,6 +34,9 @@ module.exports = grammar(tsx, {
     ...['throw_expression', 'pending_expression', 'latest_expression', 'peek_expression', 'pre_expression']
       .map((name) => [$.call_expression, $.instantiation_expression, $.binary_expression, $[name]]),
     [$.object, $._property_name],
+    // `export { a } from "m.rx"` (a re-export) and `export { a } = e` (an exported destructuring) read alike to the `}`
+    [$.export_clause, $._equation_object_pattern],
+    [$._module_export_name, $._equation_object_pattern],
     // `keyof import("pkg").T[]`: as TSX's `keyof` takes the whole primary type, `keyof (T[])`
     [$.index_type_query, $.import_lookup_type, $.import_array_type],
     [$.primary_expression, $._equation_object_pattern],
@@ -211,6 +214,8 @@ module.exports = grammar(tsx, {
         field('declaration', $._declaration_item),
       ),
       seq('export', 'default', field('declaration', $.host_view)),
+      // MO-6e: `export { Root, Item as SelectItem } from "./root.rx"`, a re-export
+      seq('export', $.export_clause, $._from_clause, $._semicolon),
     ),
 
     // 09 MO-14b, in a host declaration (`host.d.rx`): the view a JS host makes of the `.rx` components it renders,

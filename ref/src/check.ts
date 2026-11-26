@@ -1054,6 +1054,7 @@ class Checker {
     for (const d of decls) {
       this.line = d.line;
       if (d.k === "import") {
+        for (const { alias } of d.names) if (env.vars.has(alias)) this.err("DUPLICATE_DECLARATION", "E-7", `${alias} is imported twice in one module: one name, one import (\`import { … as other }\`)`);   // 2026-11-26: the second was taken in silence
         if (d.resolved) this.importRx(d, env);                                                                    // MO-1/MO-3: an .rx module's signature
         else if (d.declared) this.importDeclared(d, env);                                                         // MO-8: a JS module's declaration file
         else for (const { alias } of d.names) this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, ...(d.pure ? { pureFn: true } : {}), rejects: new Set(d.fails ?? ["Error"]), side: d.side, undeclared: d.from });   // R-io-4, R-f-8, SF-5

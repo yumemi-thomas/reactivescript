@@ -2,7 +2,7 @@
 //! parses every module once, and orders them dependencies first (MO-1). A cycle is refused (MO-5).
 
 use crate::parse::JsTrim;
-use crate::ast::{decls_json, markups_json, Decl, Expr, ExprKind, Lit, Markup, MarkupKind, Program};
+use crate::ast::{decls_json, markups_json, Decl, Expr, ExprKind, ImportName, Lit, Markup, MarkupKind, Program};
 use crate::check::Diagnostic;
 use crate::parse::{field_name, is_view_type, parse_declarations, parse_program, split_top, JsDecl, ParseError};
 use crate::signature::{parse_signature, ModSig};
@@ -490,6 +490,7 @@ impl Loader<'_> {
             st.push(path.to_string());
             self.visit(&to, &st)?;
         }
+        reexported(&mut p, path, &self.programs);
         name_methods(&mut p, &self.declarations);
         name_locals(&mut p, &|d, name| self.instantiating_export(d, name));
         self.programs.insert(path.to_string(), p);
@@ -503,6 +504,73 @@ impl Loader<'_> {
 /// E-9b: the fns of a module that only name values are marked, where none of those values is a call that instantiates (each
 /// is marked, and a mark is taken off until none has to be: one such fn may name a call of another). By name, whatever block
 /// a fn is in: a name that is some fn's that instantiates is read as that fn. `imported`: an import's name is one.
+/// A module's path from another's, as an import writes it (`./kit/root.rx`, `../a.rx`); None where it does not read back.
+fn relative_spec(from_file: &str, to: &str) -> Option<String> {
+    let from: Vec<&str> = from_file.split('/').collect();
+    let from = &from[..from.len() - 1];
+    let parts: Vec<&str> = to.split('/').collect();
+    let mut i = 0;
+    while i < from.len() && i + 1 < parts.len() && from[i] == parts[i] {
+        i += 1;
+    }
+    let spec = format!("{}{}", if from.len() > i { "../".repeat(from.len() - i) } else { "./".to_string() }, parts[i..].join("/"));
+    (join_path(from_file, &spec) == to).then_some(spec)
+}
+/// MO-6e (2026-11-26): a name a module re-exports (`export { Item } from "./item.rx"`) is the declaring module's: an import
+/// of it is an import from that module, as a namespace import is the named imports of its members (MO-6d). So a context
+/// keeps its identity, and the checkers and every runner see only the module that declares. Run when the modules a
+/// program imports are loaded, each with its own re-exports already resolved. `ref/src/modules.ts` `reexported`.
+fn reexported(p: &mut Program, path: &str, programs: &HashMap<String, Program>) {
+    let mut out = vec![];
+    for d in std::mem::take(&mut p.decls) {
+        let Decl::Import { names, resolved: Some(r), .. } = &d else {
+            out.push(d);
+            continue;
+        };
+        let Some(from) = programs.get(r) else {
+            out.push(d);
+            continue;
+        };
+        let mut by: HashMap<String, (String, String, String)> = HashMap::new(); // alias -> (the declaring module, its spec, the name there)
+        for x in &from.decls {
+            if let Decl::Import { reexport: true, resolved: Some(xr), from: xf, names: xn, .. } = x {
+                for n in xn {
+                    by.insert(n.alias.clone(), (xr.clone(), xf.clone(), n.name.clone()));
+                }
+            }
+        }
+        if !names.iter().any(|n| by.contains_key(&n.name)) {
+            out.push(d);
+            continue;
+        }
+        let kept: Vec<ImportName> = names.iter().filter(|n| !by.contains_key(&n.name)).cloned().collect();
+        let mut moved: IndexMap<String, Vec<ImportName>> = IndexMap::new();
+        for n in names {
+            if let Some((to, _, name)) = by.get(&n.name) {
+                moved.entry(to.clone()).or_default().push(ImportName { name: name.clone(), alias: n.alias.clone() });
+            }
+        }
+        let Decl::Import { from: dfrom, .. } = &d else { unreachable!() };
+        let dfrom = dfrom.clone();
+        if !kept.is_empty() {
+            let mut k = d.clone();
+            if let Decl::Import { names, .. } = &mut k {
+                *names = kept;
+            }
+            out.push(k);
+        }
+        for (to, ns) in moved {
+            let mut m = d.clone();
+            if let Decl::Import { names, from, resolved, .. } = &mut m {
+                *names = ns;
+                *from = relative_spec(path, &to).unwrap_or_else(|| dfrom.clone());
+                *resolved = Some(to);
+            }
+            out.push(m);
+        }
+    }
+    p.decls = out;
+}
 pub fn name_locals(p: &mut Program, imported: &dyn Fn(&Decl, &str) -> bool) {
     let mut can = false;
     crate::ast::fns_mut(p, &mut |d| {
@@ -1096,7 +1164,13 @@ pub fn types_of(set: &ModuleSet, path: &str) -> Types {
                     if let Some(n) = names.iter().find(|n| n.alias == name) {
                         // MO-9: a signature says what it stands for
                         return match set.programs.contains_key(r) {
-                            true => named(set, r, &n.name, busy),
+                            // an import cycle that names one name ends here
+                            true => {
+                                busy.push(at.clone());
+                                let t = named(set, r, &n.name, busy);
+                                busy.pop();
+                                t
+                            }
                             false => set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).and_then(|x| match x { crate::signature::ExportSig::Type(t, tp) => t.clone().map(|t| (t, tp.clone())), _ => None }),
                         };
                     }

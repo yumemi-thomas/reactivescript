@@ -163,6 +163,22 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   members). This is how a kit's parts are written: a module of exported
   components, applied as `<Select.Root>`, `<Select.Item>`; JavaScript
   imports the same module the same way. S-module-47.
+- **MO-6e (A re-export; 2026-11-26).** `export { Root, Item as SelectItem }
+  from "./root.rx"` makes another module's names this module's exports too,
+  so a kit in several modules is one entry (`import * as Select from
+  "./select/index.rx"`). A re-exported name *is* the declaring module's: the
+  loaders resolve an import of it to that module, through any chain of
+  re-exports, as a namespace import is its members' named imports (MO-6d) —
+  so a context keeps its identity (provided through one name, read through
+  another, it is one context), and no checker or runner sees the entry
+  module in between. Its names are imports of the re-exporting module too.
+  Only an `.rx` module is re-exported (a JavaScript module's names are
+  declared by its declaration file and imported); a name re-exported twice
+  under one alias is `DUPLICATE_DECLARATION`, as two imports of one name are
+  (2026-11-26: the second was taken in silence); a cycle of re-exports is
+  `MODULE_CYCLE`. A package's entry (its printed signature, its JavaScript,
+  its `.d.ts`) is not yet written for one: a re-export serves the modules of
+  a program, as sources. S-module-50.
 
 ## MO-7 — Contexts across modules
 
