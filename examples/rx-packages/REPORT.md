@@ -27,7 +27,7 @@ were written; the table is the new one.
 | the two checkers disagree | 0 | 0 |
 | the originals' tests, client (original · rewrite, 72 files, 1,262 tests) | 1,228 · 1,074 | 1,228 · 1,074 |
 | …server (21 files, 105 tests) | 101 · 90 | 101 · 90 |
-| live: pages the same as the original's, rendered · hydrated (130 steps, 27 cases) | 90 · 74 | 90 · 74 |
+| live: pages the same as the original's, rendered · hydrated (130 steps, 27 cases) | 90 · 74 | 115 · 99 (track 2 d: every step that differs has its cause in `live.json`) |
 | lines: `.rx` / JavaScript / declarations / facade | 2,029 / 457 / 495 / 87 | 2,030 / **446** / 491 / 87 |
 
 - **B2** (a `ref` closure given to a component): fixed, a rule (02 SC-4b). The 22 refusals are gone, and the 4 mistakes
@@ -75,7 +75,7 @@ rendered in the browser, and served then hydrated. Lines are per package (″: a
 | Kobalte Switch | 36 · 36 of 36 | 6, 6 of 6 | 0 · 0 | 1031 / 91 / 69 / 19 | 3511 · 3613 · 10730 | 12 / 9 / 2 | 0 / 1 / 0 |
 | Kobalte Checkbox | 41 · 41 of 41 | 5, 5 of 5 | 0 · 0 | ″ | 4211 · 3674 · 10871 | 12 / 9 / 2 | 0 / 1 / 0 |
 | Kobalte Button, ToggleButton | 19 · 14 of 19 | – | – | ″ | – | – | – |
-| Kobalte ToggleGroup | 9 · 9 of 9 | 0, 0 of 5 | 0 · 0 | ″ | 9326 · 2362 · 9603 | 11 / 9 / 2 | 0 / 1 / 0 |
+| Kobalte ToggleGroup | 9 · 9 of 9 | 5, 5 of 5 | 0 · 0 | ″ | 9326 · 2362 · 9603 | 11 / 9 / 2 | 0 / 1 / 0 |
 | Kobalte Collapsible | 4 · 4 of 4 | – | – | ″ | – | – | – |
 | Kobalte Accordion | 19 · 19 of 19 | 6, 6 of 6 | 0 · 0 | ″ | 11097 · 4139 · 11277 | 12 / 9 / 2 | 0 / 1 / 0 |
 | Kobalte Tabs | 15 · 15 of 16 | 4, 4 of 4 | 0 · 0 | ″ | 11063 · 3032 · 10261 | 12 / 9 / 2 | 0 / 1 / 0 |
@@ -84,9 +84,9 @@ rendered in the browser, and served then hydrated. Lines are per package (″: a
 | Kobalte Meter, Progress | 17 · 17 of 17 | 3, 3 of 3 | 0 · 0 | ″ | 2879 · 1587 · 8863 | 12 / 10 / 0 | 0 / 1 / 1 |
 | Kobalte Separator, Breadcrumbs, Link, Alert, Badge | 33 · 30 of 33 | 2, 2 of 2 | 0 · 0 | ″ | 1075 · 1336 · 8665 | – | – |
 | Kobalte Dialog | 2 · 2 of 2 | 2, 2 of 5 | 0 · 0 | ″ | 8558 · 11040 · 18087 | 10 / 9 / 2 | 0 / 1 / 0 |
-| Kobalte Popover | – | 1, 1 of 5 | 0 · 0 | ″ | 17178 · 10974 · 18031 | – | – |
-| Kobalte Tooltip | – | 3, 3 of 7 | 0 · 0 | ″ | 14778 · 8656 · 15829 | 11 / 9 / 2 | 0 / 1 / 0 |
-| Kobalte Select | 57 · 48 of 58 | 1, 1 of 6 | 0 · 0 | ″ | 28154 · 14015 · 21077 | 12 / 9 / 2 | 0 / 1 / 0 |
+| Kobalte Popover | – | 5, 5 of 5 | 0 · 0 | ″ | 17178 · 10974 · 18031 | – | – |
+| Kobalte Tooltip | – | 7, 7 of 7 | 0 · 0 | ″ | 14778 · 8656 · 15829 | 11 / 9 / 2 | 0 / 1 / 0 |
+| Kobalte Select | 57 · 48 of 58 | 6, 6 of 6 | 0 · 0 | ″ | 28154 · 14015 · 21077 | 12 / 9 / 2 | 0 / 1 / 0 |
 | Kobalte Toast (data API) | – | – | – | ″ | – | – | – |
 | terracotta Button, Switch | 17 · 13 of 19 | 3, 3 of 3 | 0 · 0 | 274 / 40 / 48 / 7 | 1318 · 1220 · 8528 | 12 / 9 / 2 | 0 / 1 / 0 |
 | terracotta Disclosure | 7 · 7 of 8 | 4, 4 of 4 | 0 · 0 | ″ | 1814 · 2792 · 10002 | 12 / 9 / 2 | 0 / 1 / 0 |
@@ -101,8 +101,8 @@ rendered in the browser, and served then hydrated. Lines are per package (″: a
 | toast kit (solid-toast / sonner-like) | – | – | – | 43 / 3 / 37 / 0 | – | – | – |
 | UI SDK checkbox | – | 5, 5 of 5 | 0 · 0 | 171 / 123 / 121 / 5 | 15194 · 48042 · 55003 | 11 / 7 / 0 | 0 / 1 / 0 |
 | UI SDK switch | – | 3, 3 of 3 | 0 · 0 | ″ | 12717 · 47964 · 54941 | 11 / 9 / 2 | 0 / 1 / 0 |
-| UI SDK accordion | – | 4, 4 of 5 | 0 · 0 | ″ | 15084 · 47970 · 54953 | 12 / 8 / 1 | 0 / 1 / 0 |
-| UI SDK tooltip | – | 0, 0 of 6 | 0 · 0 | ″ | 31936 · 47923 · 54909 | 12 / 9 / 2 | 0 / 1 / 0 |
+| UI SDK accordion | – | 5, 5 of 5 | 0 · 0 | ″ | 15084 · 47970 · 54953 | 12 / 8 / 1 | 0 / 1 / 0 |
+| UI SDK tooltip | – | 6, 6 of 6 | 0 · 0 | ″ | 31936 · 47923 · 54909 | 12 / 9 / 2 | 0 / 1 / 0 |
 | UI SDK listbox | – | 0, 0 of 5 | 0 · 0 | ″ | 24166 · 48102 · 55069 | 12 / 7 / 0 | 0 / 1 / 0 |
 | @solid-primitives/animation | 43 · 29 of 55 | – | – | 11 / 1 / 1 / 2 | – | – | – |
 | @solid-primitives/connectivity | 15 · 10 of 15 | – | – | 10 / 1 / 1 / 2 | – | – | – |

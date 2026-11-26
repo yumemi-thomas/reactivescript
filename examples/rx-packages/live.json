@@ -3,6 +3,10 @@
   "steps": 6,
   "same": 6,
   "sameSsr": 6,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -28,6 +32,10 @@
   "steps": 6,
   "same": 6,
   "sameSsr": 6,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -51,6 +59,10 @@
   "steps": 2,
   "same": 2,
   "sameSsr": 2,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -74,6 +86,10 @@
   "steps": 5,
   "same": 5,
   "sameSsr": 5,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -97,6 +113,36 @@
   "steps": 5,
   "same": 2,
   "sameSsr": 2,
+  "differ": {
+   "client": [
+    {
+     "step": "key Escape",
+     "cause": "original: Escape does not close the modal dialog (onOpenChange is never called on Solid 2.0.3; Kobalte documents that Escape dismisses it); the rewrite closes it"
+    },
+    {
+     "step": "click #t-o",
+     "cause": "follows from `key Escape`: the original is still open, so the trigger closes it and the close button is not there"
+    },
+    {
+     "step": "click #t-x",
+     "cause": "follows from `key Escape`: the original is still open, so the trigger closes it and the close button is not there"
+    }
+   ],
+   "hydrated": [
+    {
+     "step": "key Escape",
+     "cause": "original: as rendered (and it is not served: Client-only API on the server)"
+    },
+    {
+     "step": "click #t-o",
+     "cause": "follows from `key Escape`"
+    },
+    {
+     "step": "click #t-x",
+     "cause": "follows from `key Escape`"
+    }
+   ]
+  },
   "errors": {
    "orig": [
     "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
@@ -122,6 +168,10 @@
   "steps": 6,
   "same": 6,
   "sameSsr": 6,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [
     "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
@@ -145,8 +195,12 @@
  },
  "kobalte-popover": {
   "steps": 5,
-  "same": 1,
-  "sameSsr": 1,
+  "same": 5,
+  "sameSsr": 5,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [
     "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
@@ -172,6 +226,10 @@
   "steps": 3,
   "same": 3,
   "sameSsr": 3,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -195,6 +253,23 @@
   "steps": 4,
   "same": 4,
   "sameSsr": 1,
+  "differ": {
+   "client": [],
+   "hydrated": [
+    {
+     "step": "mount",
+     "cause": "original: hydrated, it keeps aria-describedby and `for` ids from its server render that its own rendered page does not have (ids of parts it does not render); the rewrite's hydrated page is its rendered page"
+    },
+    {
+     "step": "click #t-set",
+     "cause": "original: hydrated, it keeps aria-describedby and `for` ids from its server render that its own rendered page does not have (ids of parts it does not render); the rewrite's hydrated page is its rendered page"
+    },
+    {
+     "step": "press input[value=a] ArrowDown",
+     "cause": "original: hydrated, it keeps aria-describedby and `for` ids from its server render that its own rendered page does not have (ids of parts it does not render); the rewrite's hydrated page is its rendered page"
+    }
+   ]
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -216,8 +291,12 @@
  },
  "kobalte-select": {
   "steps": 6,
-  "same": 1,
-  "sameSsr": 1,
+  "same": 6,
+  "sameSsr": 6,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [
     "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
@@ -243,6 +322,10 @@
   "steps": 4,
   "same": 4,
   "sameSsr": 4,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -264,8 +347,12 @@
  },
  "kobalte-toggle-group": {
   "steps": 5,
-  "same": 0,
-  "sameSsr": 0,
+  "same": 5,
+  "sameSsr": 5,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -287,8 +374,12 @@
  },
  "kobalte-tooltip": {
   "steps": 7,
-  "same": 3,
-  "sameSsr": 3,
+  "same": 7,
+  "sameSsr": 7,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [
     "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
@@ -314,6 +405,39 @@
   "steps": 7,
   "same": 7,
   "sameSsr": 0,
+  "differ": {
+   "client": [],
+   "hydrated": [
+    {
+     "step": "mount",
+     "cause": "original: cmdk-solid cannot be served (\"Client-only API called on the server side\"), so its hydrated page is a browser render; the rewrite's served <input> keeps value=\"\" as an attribute, as Solid's server render writes a value (the same in TSX)"
+    },
+    {
+     "step": "fill [cmdk-input] ca",
+     "cause": "original: cmdk-solid cannot be served (\"Client-only API called on the server side\"), so its hydrated page is a browser render; the rewrite's served <input> keeps value=\"\" as an attribute, as Solid's server render writes a value (the same in TSX)"
+    },
+    {
+     "step": "key ArrowDown",
+     "cause": "original: cmdk-solid cannot be served (\"Client-only API called on the server side\"), so its hydrated page is a browser render; the rewrite's served <input> keeps value=\"\" as an attribute, as Solid's server render writes a value (the same in TSX)"
+    },
+    {
+     "step": "key Enter",
+     "cause": "original: cmdk-solid cannot be served (\"Client-only API called on the server side\"), so its hydrated page is a browser render; the rewrite's served <input> keeps value=\"\" as an attribute, as Solid's server render writes a value (the same in TSX)"
+    },
+    {
+     "step": "fill [cmdk-input] zzz",
+     "cause": "original: cmdk-solid cannot be served (\"Client-only API called on the server side\"), so its hydrated page is a browser render; the rewrite's served <input> keeps value=\"\" as an attribute, as Solid's server render writes a value (the same in TSX)"
+    },
+    {
+     "step": "fill [cmdk-input] ",
+     "cause": "original: cmdk-solid cannot be served (\"Client-only API called on the server side\"), so its hydrated page is a browser render; the rewrite's served <input> keeps value=\"\" as an attribute, as Solid's server render writes a value (the same in TSX)"
+    },
+    {
+     "step": "click #t-more",
+     "cause": "original: cmdk-solid cannot be served (\"Client-only API called on the server side\"), so its hydrated page is a browser render; the rewrite's served <input> keeps value=\"\" as an attribute, as Solid's server render writes a value (the same in TSX)"
+    }
+   ]
+  },
   "errors": {
    "orig": [
     "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
@@ -341,6 +465,28 @@
   "steps": 2,
   "same": 0,
   "sameSsr": 0,
+  "differ": {
+   "client": [
+    {
+     "step": "mount",
+     "cause": "original: @lucide/solid writes each shape's React `key` (key=1gmf2c) as an attribute of the <path> and <circle>"
+    },
+    {
+     "step": "click #t-b",
+     "cause": "original: @lucide/solid writes each shape's React `key` (key=1gmf2c) as an attribute of the <path> and <circle>"
+    }
+   ],
+   "hydrated": [
+    {
+     "step": "mount",
+     "cause": "original: as rendered, the React `key` written as an attribute"
+    },
+    {
+     "step": "click #t-b",
+     "cause": "original: as rendered, the React `key` written as an attribute"
+    }
+   ]
+  },
   "errors": {
    "orig": [
     "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
@@ -366,11 +512,49 @@
   "steps": 5,
   "same": 2,
   "sameSsr": 0,
+  "differ": {
+   "client": [
+    {
+     "step": "click #t-n",
+     "cause": "harness: the slides' transform is read 60 ms into their animation, and where that falls varies from run to run (the next step, `wait 900`, agrees); not counted against either side"
+    },
+    {
+     "step": "click #t-more",
+     "cause": "original: its dots do not follow a slide that is added (two dots for three slides); the rewrite shows three"
+    },
+    {
+     "step": "wait 300",
+     "cause": "original: its dots do not follow a slide that is added (two dots for three slides); the rewrite shows three"
+    }
+   ],
+   "hydrated": [
+    {
+     "step": "mount",
+     "cause": "original: fails to hydrate (\"Failed attempt to create new DOM elements during hydration\", then REACTIVITY_HALTED)"
+    },
+    {
+     "step": "click #t-n",
+     "cause": "original: fails to hydrate (\"Failed attempt to create new DOM elements during hydration\", then REACTIVITY_HALTED)"
+    },
+    {
+     "step": "wait 900",
+     "cause": "original: fails to hydrate (\"Failed attempt to create new DOM elements during hydration\", then REACTIVITY_HALTED)"
+    },
+    {
+     "step": "click #t-more",
+     "cause": "original: fails to hydrate (\"Failed attempt to create new DOM elements during hydration\", then REACTIVITY_HALTED)"
+    },
+    {
+     "step": "wait 300",
+     "cause": "original: fails to hydrate (\"Failed attempt to create new DOM elements during hydration\", then REACTIVITY_HALTED)"
+    }
+   ]
+  },
   "errors": {
    "orig": [
     "[REACTIVITY_HALTED] An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.\n  in <App> › <SliderProvider> › <provider",
     "Error: Failed attempt to create new DOM elements during hydration. Check that the libraries you are using support hydration.",
-    "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error.\n  in <App> › <SliderProvider> › <provider> › computed\n  at http://127.0.0.1:52837/cases/slider.tsx:6:12",
+    "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error.\n  in <App> › <SliderProvider> › <provider> › computed\n  at http://127.0.0.1:53979/cases/slider.tsx:6:12",
     "not mounted"
    ],
    "rx": []
@@ -396,6 +580,10 @@
   "steps": 5,
   "same": 5,
   "sameSsr": 5,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -419,6 +607,10 @@
   "steps": 4,
   "same": 4,
   "sameSsr": 4,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -442,6 +634,28 @@
   "steps": 6,
   "same": 4,
   "sameSsr": 4,
+  "differ": {
+   "client": [
+    {
+     "step": "key Enter",
+     "cause": "rewrite, left: after the listbox closes the original keeps an active option (tc-has-active): its blur listener goes with the option's owner before the focus moves; the rewrite's onBlur sees that blur and clears it. Copying it needs the closing known inside a nested blur run"
+    },
+    {
+     "step": "key Escape",
+     "cause": "rewrite, left: after the listbox closes the original keeps an active option (tc-has-active): its blur listener goes with the option's owner before the focus moves; the rewrite's onBlur sees that blur and clears it. Copying it needs the closing known inside a nested blur run"
+    }
+   ],
+   "hydrated": [
+    {
+     "step": "key Enter",
+     "cause": "rewrite, left: as rendered"
+    },
+    {
+     "step": "key Escape",
+     "cause": "rewrite, left: as rendered"
+    }
+   ]
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -465,6 +679,10 @@
   "steps": 6,
   "same": 6,
   "sameSsr": 6,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -488,6 +706,27 @@
   "steps": 4,
   "same": 4,
   "sameSsr": 0,
+  "differ": {
+   "client": [],
+   "hydrated": [
+    {
+     "step": "mount",
+     "cause": "original: hydrated, it keeps aria-describedby/aria-labelledby ids from its server render that its own rendered page does not have; the rewrite's hydrated page is its rendered page"
+    },
+    {
+     "step": "click [role=radio]:nth-of-type(2)",
+     "cause": "original: hydrated, it keeps aria-describedby/aria-labelledby ids from its server render that its own rendered page does not have; the rewrite's hydrated page is its rendered page"
+    },
+    {
+     "step": "key ArrowUp",
+     "cause": "original: hydrated, it keeps aria-describedby/aria-labelledby ids from its server render that its own rendered page does not have; the rewrite's hydrated page is its rendered page"
+    },
+    {
+     "step": "click #t-set",
+     "cause": "original: hydrated, it keeps aria-describedby/aria-labelledby ids from its server render that its own rendered page does not have; the rewrite's hydrated page is its rendered page"
+    }
+   ]
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -511,6 +750,10 @@
   "steps": 3,
   "same": 3,
   "sameSsr": 3,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -532,8 +775,12 @@
  },
  "ui-accordion": {
   "steps": 5,
-  "same": 4,
-  "sameSsr": 4,
+  "same": 5,
+  "sameSsr": 5,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -557,6 +804,10 @@
   "steps": 5,
   "same": 5,
   "sameSsr": 5,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [
     "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
@@ -582,6 +833,52 @@
   "steps": 5,
   "same": 0,
   "sameSsr": 0,
+  "differ": {
+   "client": [
+    {
+     "step": "mount",
+     "cause": "rewrite, left: no form inputs (the textarea and the hidden value inputs of form-inputs.tsx were not rewritten), and a controlled value's item indicator is never shown: the bridge reads core's presence in the pass before its effect has given core the new value (the original tracks what core delivered, use-primitive's `marks`)"
+    },
+    {
+     "step": "click #t-b",
+     "cause": "rewrite, left: no form inputs (the textarea and the hidden value inputs of form-inputs.tsx were not rewritten), and a controlled value's item indicator is never shown: the bridge reads core's presence in the pass before its effect has given core the new value (the original tracks what core delivered, use-primitive's `marks`)"
+    },
+    {
+     "step": "key ArrowDown",
+     "cause": "rewrite, left: no form inputs (the textarea and the hidden value inputs of form-inputs.tsx were not rewritten), and a controlled value's item indicator is never shown: the bridge reads core's presence in the pass before its effect has given core the new value (the original tracks what core delivered, use-primitive's `marks`)"
+    },
+    {
+     "step": "key Enter",
+     "cause": "rewrite, left: no form inputs (the textarea and the hidden value inputs of form-inputs.tsx were not rewritten), and a controlled value's item indicator is never shown: the bridge reads core's presence in the pass before its effect has given core the new value (the original tracks what core delivered, use-primitive's `marks`)"
+    },
+    {
+     "step": "click #t-set",
+     "cause": "rewrite, left: no form inputs (the textarea and the hidden value inputs of form-inputs.tsx were not rewritten), and a controlled value's item indicator is never shown: the bridge reads core's presence in the pass before its effect has given core the new value (the original tracks what core delivered, use-primitive's `marks`)"
+    }
+   ],
+   "hydrated": [
+    {
+     "step": "mount",
+     "cause": "rewrite, left: as rendered"
+    },
+    {
+     "step": "click #t-b",
+     "cause": "rewrite, left: as rendered"
+    },
+    {
+     "step": "key ArrowDown",
+     "cause": "rewrite, left: as rendered"
+    },
+    {
+     "step": "key Enter",
+     "cause": "rewrite, left: as rendered"
+    },
+    {
+     "step": "click #t-set",
+     "cause": "rewrite, left: as rendered"
+    }
+   ]
+  },
   "errors": {
    "orig": [
     "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
@@ -607,6 +904,10 @@
   "steps": 3,
   "same": 3,
   "sameSsr": 3,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [
     "SSR: Error: Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
@@ -630,8 +931,12 @@
  },
  "ui-tooltip": {
   "steps": 6,
-  "same": 0,
-  "sameSsr": 0,
+  "same": 6,
+  "sameSsr": 6,
+  "differ": {
+   "client": [],
+   "hydrated": []
+  },
   "errors": {
    "orig": [],
    "rx": []
@@ -647,7 +952,7 @@
    ],
    "rx": [
     0,
-    50
+    100
    ]
   }
  }

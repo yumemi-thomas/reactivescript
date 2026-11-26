@@ -1,6 +1,6 @@
-// Derived from tooltip/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE). Without the safe area between trigger and content, and the warm-up shared by all tooltips.
+// Derived from tooltip/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE). Without the safe area between trigger and content.
 import { call, give, within } from "./dom.js"
-import client { float } from "./layer.js"
+import client { float, tipShown, tipHidden, tipWarm } from "./layer.js"
 import client { onDocument } from "@reactivescript/std/browser"
 import { after } from "@reactivescript/std/time"
 import pure { uniqueId, flag, mix } from "./dom.js"
@@ -11,9 +11,9 @@ type Tip = { id: string; open: boolean; mount: boolean; disabled: boolean; focus
   want: (v: boolean, now: boolean) => void; name: (id: string | undefined) => void; triggerRef: (e: any) => void; contentRef: (e: any) => void }
 context tip: Tip
 fn data(c: Tip) => ({ "data-expanded": flag(c.open), "data-closed": flag(!c.open) })
-export type RootProps = { id?: string; open?: boolean; defaultOpen?: boolean; onOpenChange?: (v: boolean) => void; disabled?: boolean; triggerOnFocusOnly?: boolean; openDelay?: number; closeDelay?: number; forceMount?: boolean; placement?: string; gutter?: number; children?: View }
+export type RootProps = { id?: string; open?: boolean; defaultOpen?: boolean; onOpenChange?: (v: boolean) => void; disabled?: boolean; triggerOnFocusOnly?: boolean; openDelay?: number; closeDelay?: number; skipDelayDuration?: number; forceMount?: boolean; placement?: string; gutter?: number; children?: View }
 export component Root(props: RootProps) {
-  { openDelay = 700, closeDelay = 300, placement = "bottom", gutter = 0, disabled = false, triggerOnFocusOnly = false, forceMount = false } = props
+  { openDelay = 700, closeDelay = 300, skipDelayDuration = 300, placement = "bottom", gutter = 0, disabled = false, triggerOnFocusOnly = false, forceMount = false } = props
   own = uniqueId("tooltip")
   source mine := peek(props.defaultOpen) ?? false
   source wanted: { open: boolean; in: number } | undefined := undefined
@@ -23,9 +23,10 @@ export component Root(props: RootProps) {
   now = props.open ?? mine
   action set(v: boolean) { wanted := undefined
     if (v != now) { mine := v
+      if (v) { tipShown() } else { tipHidden(skipDelayDuration, closeDelay) }
       if (props.onOpenChange) { props.onOpenChange(v) } } }
   action want(v: boolean, atOnce: boolean) { let ms = v ? openDelay : closeDelay
-    if (atOnce || ms <= 0) { set(v) } else { wanted := v == now ? undefined : { open: v, in: ms } } }
+    if (atOnce || ms <= 0 || (v && tipWarm())) { set(v) } else { wanted := v == now ? undefined : { open: v, in: ms } } }
   action name(v: string | undefined) { content := v }
   action triggerRef(e: any) { trigger := e }
   action contentRef(e: any) { contentEl := e }
@@ -58,8 +59,8 @@ export component Content(props: Div) {
     let a = $1
     return e && a ? float(a, e, { placement: c.placement, gutter: c.gutter, placed: () => {} }) : undefined }
   {if c.mount {
-    <div ref={(e: Element) => { at := e }} data-popper-positioner="" style={{ position: "absolute", top: "0", left: "0" }}>
-      <div ref={(e: Element) => { c.contentRef(e); give(user, e) }} id={mine} role="tooltip" style={mix({ position: "relative" }, style)} onPointerEnter={() => { c.want(true, false) }} onPointerLeave={() => { c.want(false, false) }} {...data(c)} {...rest}>{children}</div>
+    <div ref={(e: Element) => { at := e }} data-popper-positioner="" style={{ position: "absolute", top: "0", left: "0", "min-width": "max-content" }}>
+      <div ref={(e: Element) => { c.contentRef(e); give(user, e) }} id={mine} role="tooltip" style={mix({ "--kb-tooltip-content-transform-origin": "var(--kb-popper-content-transform-origin)", "pointer-events": "auto", position: "relative" }, style)} onPointerEnter={() => { c.want(true, false) }} onPointerLeave={() => { c.want(false, false) }} {...data(c)} {...rest}>{children}</div>
     </div>
   }}
 }

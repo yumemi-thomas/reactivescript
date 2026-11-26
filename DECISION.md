@@ -874,3 +874,53 @@ Each of the third review's three programs was reduced, and the reduced shape run
   `n := v => v + 1`, composes in any order and stays accepted). Spec 07 now says what was measured (its sentence said
   the rendering browser reads the write, which is wrong for siblings). The refusal needs both checkers; it is the next
   thing after d and e.
+
+### d. X2: every live step of the rewritten packages that differs, attributed
+
+`examples/rx-packages/live.mjs` over the 27 cases, both ways, rendered and served then hydrated. Before: 90 and 74 of
+130 alike, with no cause written. Each differing step was read (`V=1 ALL=1 FULL=1`; `SELF=1` compares a side with
+itself hydrated, `DUMP=n` prints both pages, `WHY=1` a diagnostic's text; a line that is in both but more often in one
+is now shown), and its cause is in `causes.json`, merged into `live.json` per step (`differ`); a step that differs with
+no cause makes `live.mjs` exit 1.
+
+**After: 115 and 99 of 130.** Of the 15 rendered steps that differ: the original 5, a step that follows from the
+original's 2, the rewrite (left) 7, the harness 1. Of the 31 hydrated: the original 22, following 2, the rewrite (left)
+7. **The language: none.** So nothing goes ahead of track 1 from this step.
+
+The rewrite's own mistakes, fixed in the packages (each case then alike in both columns):
+
+- Kobalte ToggleGroup (0 → 5 of 5): an item's value was written as `data-value` (the original keeps it off the page; now a
+  symbol on the element, `mark`), and a disabled item had a `tabindex`.
+- Kobalte Popover (1 → 5): the positioner's CSS variables (`--kb-popper-*`, `min-width: max-content`, the content's
+  `z-index`), the content's `--kb-popover-content-transform-origin`, `data-expanded` on its title and close button, and
+  the focus: Kobalte traps, gives and returns it only for a modal layer, and its trigger cancels `pointerdown` so it is
+  not focused by a click.
+- Kobalte Select (1 → 6): `data-pointer-type`, the content's style variables, the listbox's `tabindex` while nothing is
+  focused, `aria-disabled="false"`, `data-highlighted` on an item's label and indicator.
+- Kobalte Tooltip (3 → 7): the style variables, and the warm-up shared by all tooltips (a tooltip shows at once while one
+  is open and for `skipDelayDuration` after one closed): the rewrite had left it out, and the step after Escape shows it.
+- Icons: the `circle-check` shape of 1.80.0 and its alias class `lucide-check-circle-2` (what is left is the original's).
+- UI SDK Accordion (4 → 5): a part's binding to its element lived as long as the part's component, so core kept
+  `aria-controls` on a closed trigger; it is now made in the shown region and ends with the element.
+- UI SDK Tooltip (0 → 6): its content was always portaled; the original renders it in place, and portals only into a
+  `container` given (now taken).
+
+The original's (written per step in `causes.json`): Kobalte Dialog does not close on Escape on Solid 2.0.3 (and the two
+steps after follow); @lucide/solid writes React's `key` as an attribute; both RadioGroups, hydrated, keep ids from their
+server render that their own rendered page does not have; solid-slider's dots do not follow an added slide, and it fails
+to hydrate; cmdk-solid and Kobalte's layered parts cannot be served ("Client-only API called on the server side"), so
+their hydrated column compares a served rewrite with a browser render. The harness: a slider transform read mid-way
+through its animation.
+
+Left, the rewrite's, with why: terracotta Listbox keeps `tc-has-active` after closing in the original only because its
+blur listener goes with the option's owner before the focus moves (copying it needs the closing known inside a nested
+blur run); UI SDK Listbox has no form inputs, and its bridge reads core's presence before its effect has given core a
+controlled value (the original tracks what core delivered, `use-primitive`'s `marks`) — a bridge redesign.
+
+The originals' tests on the edited packages: Kobalte's as before (icons and the UI SDK have none); `check.mjs` 292 / 219
+/ 35 caught, 3 / 25 / 5 correct refused, unchanged (`check.json` identical). Not rerun: `size.mjs` (the gzip column; the
+fixes add a few hundred bytes), the primitives' tests (untouched).
+
+Found on the way, not a step: the rewritten cmdk, hydrated, makes Solid's development build report
+`STRICT_READ_UNTRACKED` ("reactive value read directly in an effect callback"): an effect's apply reads by design, so
+this is a read the runtime does not wrap; recorded, not reduced.

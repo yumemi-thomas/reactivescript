@@ -21,9 +21,37 @@ export function openLayer(element, { modal, trigger, dismiss, autofocus = true, 
   return () => { for (const u of undo.reverse()) u(); if (returnFocus && (element.contains(doc.activeElement) || doc.activeElement === doc.body || !doc.activeElement?.isConnected)) (trigger?.isConnected ? trigger : was)?.focus?.({ preventScroll: true }); };
 }
 /** Keep `floating` beside `anchor`; answers what stops it. */
+const REVERSE = { top: "bottom", right: "left", bottom: "top", left: "right" };
+/** Kobalte's popper: the origin a transition of the content starts from, for where it was placed. */
+function origin(placement, rtl) {
+  const [side, align] = placement.split("-"), back = REVERSE[side];
+  if (!align) return `${back} center`;
+  if (side === "left" || side === "right") return `${back} ${align === "start" ? "top" : "bottom"}`;
+  return `${back} ${(align === "start") !== rtl ? "left" : "right"}`;
+}
 export function float(anchor, floating, { placement = "bottom", gutter = 0, sameWidth = false, placed }) {
-  const go = async () => { const p = await computePosition(anchor, floating, { placement, strategy: "absolute", middleware: [offset(gutter), flip({ padding: 8 }), shift({ padding: 8 }), size({ padding: 8, apply: ({ rects }) => { if (sameWidth) floating.style.width = `${Math.round(rects.reference.width)}px`; } })] });
-    Object.assign(floating.style, { top: "0", left: "0", transform: `translate3d(${Math.round(p.x)}px, ${Math.round(p.y)}px, 0)` }); placed(p.placement); };
+  const pad = 8;   // Kobalte's overflowPadding
+  const go = async () => {
+    floating.style.setProperty("--kb-popper-content-overflow-padding", `${pad}px`);
+    const p = await computePosition(anchor, floating, { placement, strategy: "absolute", middleware: [offset(gutter), flip({ padding: pad }), shift({ padding: pad }), size({ padding: pad, apply: ({ availableWidth, availableHeight, rects }) => {
+      const w = Math.round(rects.reference.width);
+      floating.style.setProperty("--kb-popper-anchor-width", `${w}px`);
+      floating.style.setProperty("--kb-popper-content-available-width", `${Math.floor(availableWidth)}px`);
+      floating.style.setProperty("--kb-popper-content-available-height", `${Math.floor(availableHeight)}px`);
+      if (sameWidth) floating.style.width = `${w}px`; } })] });
+    floating.style.setProperty("--kb-popper-content-transform-origin", origin(p.placement, getComputedStyle(floating).direction === "rtl"));
+    Object.assign(floating.style, { top: "0", left: "0", transform: `translate3d(${Math.round(p.x)}px, ${Math.round(p.y)}px, 0)` });
+    const content = floating.firstElementChild; if (content) floating.style.zIndex = getComputedStyle(content).zIndex;
+    placed(p.placement); };
   return autoUpdate(anchor, floating, go);
 }
 export const timer = () => { let t; return { start(ms, f) { clearTimeout(t); t = setTimeout(f, ms); }, stop() { clearTimeout(t); } }; };
+/** Kobalte's tooltips share a warm-up: once one has shown, another (or the same) shows at once while one is open, and
+ *  for `skipDelayDuration` after the last closed (tooltip-root's globalWarmedUp and globalSkipDelayTimeout). */
+const warm = { on: false, skip: undefined, cool: undefined };
+export function tipShown() { warm.on = true; clearTimeout(warm.skip); clearTimeout(warm.cool); warm.skip = warm.cool = undefined; }
+export function tipHidden(skipDelay, closeDelay) {
+  clearTimeout(warm.skip); warm.skip = skipDelay >= 0 ? setTimeout(() => { warm.skip = undefined; }, skipDelay) : undefined;
+  if (warm.on) { clearTimeout(warm.cool); warm.cool = setTimeout(() => { warm.cool = undefined; warm.on = false; }, closeDelay); }
+}
+export const tipWarm = () => warm.on || warm.skip !== undefined;
