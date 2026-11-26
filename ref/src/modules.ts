@@ -428,6 +428,13 @@ export function viewCtx(type: string | undefined, types: Types): { fn: boolean; 
   if (isViewType(t)) return { fn: false };
   const v = viewType(t); return v && !v.mixed ? { fn: true, ...(v.param !== undefined ? { param: v.param } : {}) } : undefined;
 }
+/** RG-7a (X9): a context's type that is a generic function type, `<T>(p: { item: T }) => View`, in parentheses too. */
+export function genericCtx(type: string | undefined, types: Types): boolean {
+  if (type === undefined) return false;
+  let t = expandType(type, types).trim();
+  for (;;) { if (!t.startsWith("(") || !t.endsWith(")")) break; let d = 0, whole = true; for (let i = 0; i < t.length - 1; i++) { if (t[i] === "(") d++; else if (t[i] === ")") d--; if (d === 0) { whole = false; break; } } if (!whole) break; t = t.slice(1, -1).trim(); }
+  return t.startsWith("<");
+}
 /** The declarations of the contexts that hold a view, of every module of a program: for the runners. */
 export function viewCtxAll(set: ModuleSet): Set<unknown> {
   const out = new Set<unknown>();

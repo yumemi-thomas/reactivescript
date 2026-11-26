@@ -257,7 +257,13 @@ palette = (use theme).palette           // used: in any region beneath — the n
   that each declare `context theme` declare two contexts (09 MO-7). A
   `provide` or `use` of a name that is not a context is `NOT_A_CONTEXT`; of
   an undeclared name, `UNBOUND`. A context is not a value: `{theme}` is
-  `CONTEXT_AS_VALUE`.
+  `CONTEXT_AS_VALUE`. A context has no type parameter: it is declared once,
+  at module level, and every provision and `use` is of that one type. A
+  generic function type as its type (`context item: <T>(p: { item: T }) =>
+  View`, in parentheses too) is `GENERIC_CONTEXT` (2026-11-26): it read as a
+  context of a plain value, and was no context that holds a view. Write the
+  type parameter's place `any` or `unknown`; a generic root's props type the
+  caller's view (proposals/28).
 - **RG-7b (Provide, use).** `provide name = e` in a region makes `e` the
   context's value for every region *instantiated beneath* it — the
   instantiation chain (the tree of views), not the lexical one. `use name`

@@ -12195,6 +12195,10 @@
                 "value": "property_identifier"
               },
               {
+                "type": "SYMBOL",
+                "name": "string"
+              },
+              {
                 "type": "STRING",
                 "value": "...props"
               }
@@ -12685,6 +12689,10 @@
                         "value": "property_identifier"
                       },
                       {
+                        "type": "SYMBOL",
+                        "name": "string"
+                      },
+                      {
                         "type": "STRING",
                         "value": "...props"
                       }
@@ -12736,6 +12744,10 @@
                               },
                               "named": true,
                               "value": "property_identifier"
+                            },
+                            {
+                              "type": "SYMBOL",
+                              "name": "string"
                             },
                             {
                               "type": "STRING",

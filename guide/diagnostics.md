@@ -794,6 +794,26 @@ export default component App() {
 }
 ```
 
+In a plain source's seed, `source x := await …`: a seed is a snapshot taken once (E-4), with no question to wait on.
+The source that waits is the one with a question, `source x = await …` (ST-5a): it is asked again when what it reads
+changes, and a write overrides it.
+
+```rx before
+import pure { load } from "./api.js"
+export default component App() {
+  source x := await load(1) -> 0
+  {errored fallback(e) { <i>e</i> } { <p>{x}</p> }}
+}
+```
+
+```rx after
+import pure { load } from "./api.js"
+export default component App() {
+  source x = await load(1) -> 0
+  {errored fallback(e) { <i>e</i> } { <p>{x}</p> }}
+}
+```
+
 
 ### ASYNC_WATERFALL
 
@@ -1974,6 +1994,27 @@ export default component App() {
 context theme: string = "light"
 export default component App() {
   <b>{use theme}</b>
+}
+```
+
+### GENERIC_CONTEXT
+
+A context is declared once, at module level, and every provision and `use` of it is of that one type (RG-7a): it has no
+type parameter. A generic function type as its type read as a context of a plain value, and no context that holds a
+view. Write the parameter's place `any` (or `unknown` and the fields' types); a generic root's props type the caller's
+view (proposals/28).
+
+```rx before
+context row: <T>(p: { item: T }) => View
+export default component App() {
+  <b>x</b>
+}
+```
+
+```rx after
+context row: (p: { item: any }) => View
+export default component App() {
+  <b>x</b>
 }
 ```
 

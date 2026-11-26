@@ -1,6 +1,6 @@
 # `source x := await …` is checked and not compiled
 
-<!-- check branch=ok upstream=ok -->
+<!-- check branch=AWAIT_IN_EXPRESSION upstream=ok -->
 ```rx
 import pure { load } from "./data.js"
 export default component App() {
@@ -9,7 +9,7 @@ export default component App() {
 }
 ```
 
-<!-- app branch=ok upstream=ok says-branch="is not lowered yet" says-upstream="`await` outside an equation's result position is not lowered yet" -->
+<!-- app branch=failed upstream=ok says-branch="write `source x = …`" says-upstream="`await` outside an equation's result position is not lowered yet" -->
 ```rx
 import pure { load } from "./data.js"
 export default component App() {
@@ -22,6 +22,8 @@ export default component App() {
 
 **On upstream (e650b85; bbe2a18 run by hand, the same).** Both checkers accept; the compiler stops, with no line.
 
-**Spec.** 06 ST-5a: `source x = e` "may `await`". Nothing says what a plain source's first value is while it waits, nor whether it is asked again.
+**Spec.** 06 ST-5a: `source x = e` "may `await`". Nothing said what a plain source's first value is while it waits, nor whether it is asked again.
 
-**Not fixed.** Two answers stand: refuse it (a plain source has no question, and `=` says the one that has), or wait for it once. The first is the smaller.
+**Fixed (2026-11-26, the smaller of the two answers).** A plain source's seed is a snapshot taken once (E-4), with no
+question to wait on: an `await` in it is `AWAIT_IN_EXPRESSION` [ST-5a], whose message says to write `source x = …`.
+ST-5a says so. Test: S-check-5.

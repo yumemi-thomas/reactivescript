@@ -755,3 +755,31 @@ Tooling: the tree-sitter grammar reads a component's type parameters and a signa
 a namespace import needed no grammar change. The language server runs the crate's wasm: nothing of its own changed,
 and no test of it was added for these forms. Its untracked copy of the wasm was refreshed by hand before the suite.
 
+
+## Roadmap, track 1 (2026-11-26: the checkers and the language)
+
+The roadmap of 2026-11-26 (kept beside the tree, `ROADMAP-fable.md`), track 1, in its order; each step merged green
+alone. Its program sets are generated with the verdict in each program's name and kept outside the tree
+(`rx-t1.noindex/sets/`: `mk1.py` …, `ck.py` holds each program to its name, `fill.py` writes the frames the four
+runners agree on for the served run).
+
+### Step 1: five defects (X3, X4, X5, X9, X10)
+
+| | what was wrong | now | held by |
+| --- | --- | --- | --- |
+| X3 | `source x := await …` passed both checkers and was never compiled (bugs/42) | `AWAIT_IN_EXPRESSION` [ST-5a], "write `source x = …`" | S-check-5, bugs/42 |
+| X4 | `p.h ?? ((e: any) => 0)`: the reference emitter wrote the arrow as a bare operand (`a ?? (e) => 0`), which JavaScript does not parse; the crate compiled it | an arrow operand is written in parentheses | S-check-5 |
+| X5 | a props key that is no identifier (`"tc-button"`) was printed bare in a signature row | printed quoted, read back so by both readers (a name may hold `:`), and by the grammar | S-check-5 (MO-9 check), `ref/units.ts`, a corpus test |
+| X9 | `context sel: <T>(p: { item: T }) => View` was a context of a plain value, silently | `GENERIC_CONTEXT` [RG-7a], through an alias and in parentheses too | S-check-5 |
+| X10 | `INSTANTIATION_NOT_BOUND` said "declares state" of a fn that declares an equation (bugs/22) | it names the first `ref` parameter, the first declaration (`declares an equation, \`half\``), or the context read | S-check-5, bugs/22 |
+
+*Decided.* X3 takes bug 42's smaller answer: a seed is a snapshot (E-4), and the source that waits is the one with a
+question; waiting once for a seed would be a second, unwritten meaning of `:=`. The code is the existing
+`AWAIT_IN_EXPRESSION` (an `await` where none can stand), with ST-5a as its rule. X9 is a code of its own, since nothing
+else names it: a context has no type parameter (the decision of proposals/28 and B13, kept). X5: the row lists the
+props a component reads, as before; a key it does not read is not in the row (the roadmap's probe read none), and that
+is not a loss — an importer reads an unlisted prop as one the component does not read, as the module's own check does.
+
+*Census.* No `.rx` program of the tree has `source … := await` or a generic context, so nothing is newly refused there
+(`rx-std`'s REPORT.md noted the `:=` form as one that `rx-lib` refused; it now fails at the checkers, with the
+rewrite in the message).

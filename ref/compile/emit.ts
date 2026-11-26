@@ -659,7 +659,8 @@ class Gen {
         if (e.op !== "??" && e.op !== "||" && e.op !== "&&") { this.raw.add(e.l); this.raw.add(e.r); }   // MO-10i: an operator that makes a primitive keeps nothing of what it reads
         if (e.op === "==") return `__rt.eq(${go(e.l)}, ${go(e.r)})`;
         if (e.op === "!=") return `!__rt.eq(${go(e.l)}, ${go(e.r)})`;
-        return `(${go(e.l)} ${e.op} ${go(e.r)})`;
+        const side = (x: Expr) => x.k === "fn" ? `(${go(x)})` : go(x);   // an arrow is no operand of JavaScript's without its parentheses (`a ?? ((e) => 0)`)
+        return `(${side(e.l)} ${e.op} ${side(e.r)})`;
       }
       case "un": return this.asks(e, env, false) ?? `(${e.op}${rawGo(e.e)})`;
       case "draft": throw new CompileError("a draft is an equation's whole expression");

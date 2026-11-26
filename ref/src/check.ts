@@ -4,9 +4,9 @@
 // site, never its caller — RG-7a); provisions resolve through the static application tree (RG-7b).
 import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
-import { hasRegion, instantiates, ownUses, usesNow } from "./ast.ts";
+import { hasRegion, instantiates, instantiatesWhy, ownUses, usesNow } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
-import { childrenParam, fnText, expandType, otherMention, shown, shownIn, usedIn, typesOf, viewUses, viewNotShown, takesView, viewCtx, type ViewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
+import { childrenParam, fnText, expandType, otherMention, shown, shownIn, usedIn, typesOf, viewUses, viewNotShown, takesView, viewCtx, genericCtx, type ViewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
 import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, USE, carriedBy, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
@@ -1015,6 +1015,7 @@ class Checker {
       if (d.k === "context") {                                                             // RG-7: a declared context — its identity is the declaration, not its spelling
         if (env.vars.has(d.name)) this.err("DUPLICATE_DECLARATION", "E-7", `${d.name} is declared twice in one block`);
         const contract = (d.type && ROW_WORDS.test(d.type)) || d.exported ? this.contractOf(d.type) : null;   // RG-7e: written rows, or exported (its type is then the contract: no row words, no rows)
+        if (genericCtx(d.type?.replace(ROW_WORDS, ""), this.types)) this.err("GENERIC_CONTEXT", "RG-7a", `context ${d.name} is declared a generic function type: a context is declared once, at module level, and has no type parameter — every provision and \`use\` of it is of one type. Write the parameter's place \`any\` or \`unknown\` (\`context ${d.name}: (p: { item: any }) => View\`); a generic root's props type the caller's view`);
         if (d.source) this.err("SOURCE_CONTEXT", "O-4", `context ${d.name}: source … is withdrawn (RG-7c, 2026-10-31): what is provided is read beneath it — provide the writes you allow, as actions (\`context ${d.name}: { current: T; set: (v: T) => void }\`)`);
         this.bind(env, d.name, { kind: "context", name: d.name, region: env.region, line: d.line, ctx: { key: `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${this.seq++}` : ""}`, source: d.source, dflt: !!d.dflt, contract, ...(d.type !== undefined ? { ty: fieldRows(d.type.replace(ROW_WORDS, "")).text } : {}) } });
         { const view = viewCtx(d.type?.replace(ROW_WORDS, ""), this.types);                  // RG-4c: a context that holds a view
@@ -1417,7 +1418,7 @@ class Checker {
         const reads = new Set<string>(); readsOutsidePeek(d.init, reads);
         const hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind); });
         if (hit) this.err("SNAPSHOT_INITIALIZER", "E-4", `source ${d.name} := … reads ${hit} outside peek(…): write the snapshot as one (DV-6)`);
-        this.comp("seed", env, { name: d.name }, () => { this.model.snap++; this.expr(d.init, env, { scope: "reactive", inFn: ctx.inFn }); });   // E-4: a seed is a snapshot
+        this.comp("seed", env, { name: d.name }, () => { this.model.snap++; const was = this.seed; this.seed = { name: d.name, depth: this.fnStack.length }; this.expr(d.init, env, { scope: "reactive", inFn: ctx.inFn }); this.seed = was; });   // E-4: a seed is a snapshot
         return;
       }
       case "eq": {
@@ -2102,6 +2103,7 @@ class Checker {
   }
   /** MO-10i: the closures being walked (ids, innermost last) — a library's draft is its callback's alone */
   private fnStack: number[] = []; private fnSeq = 0;
+  private seed?: { name: string; depth: number };                         // ST-5a (bug 42): the plain source whose seed is being walked, and the fnStack's depth there
   private updaters = new Set<Expr>();                                    // MO-10i: a draft path's updater (`d.n := v => v + 1`): applied where it is written, not a closure that runs later
   private draftCbs: number[] = [];                                       // MO-10i: the draft callbacks being walked, innermost last (their fnStack ids)
   private wholeOk = new Set<Expr>();                                     // MO-10f, MO-10i: expressions written where a result with held fields, or one with draft parts, may stand whole
@@ -2471,6 +2473,8 @@ class Checker {
       case "await":
         this.awaited.add(e.e);                                                               // MO-10b: a promise that is awaited is asked for
         if (ctx.scope === "imperative" && !this.stmtAwaits.has(e)) this.err("AWAIT_IN_EXPRESSION", "AC-1", `\`${show(e)}\` inside an expression of imperative scope: a run suspends only at a statement — bind it first, \`let v = ${show(e)}\` (a \`catch (e) => alt\` may follow it)`);
+        // ST-5a (bug 42): a seed is taken once, and a source written `:=` has no question to wait on
+        else if (ctx.scope === "reactive" && this.seed && this.fnStack.length === this.seed.depth) this.err("AWAIT_IN_EXPRESSION", "ST-5a", `\`${show(e)}\` in the seed of \`source ${this.seed.name} := …\`: a seed is a snapshot, taken once, with nothing to wait on — write \`source ${this.seed.name} = …\`, a source whose question waits and is asked again when what it reads changes, and which a write overrides`);
         // R-1, 07 §3: an `await` is a flight of the expression it is written in; a closure's and a lifted fn's (E-9) body is computed wherever it is called
         else if (ctx.scope === "reactive" && (ctx.lifted || this.fnStack.length)) this.err("AWAIT_IN_EXPRESSION", "R-1", ctx.lifted && !this.fnStack.length ? `\`${show(e)}\` in a fn that declares nothing: its call is a part of the expression that calls it (E-9), and has no flight of its own — answer the promise and await it at the call (\`fn f(…) => ${show(e.e)}\`, \`x = await f(…)\`), or name the answer in the block, \`r = ${show(e)}\` then \`r\`, with each parameter it follows declared \`ref\`` : `\`${show(e)}\` in a closure of reactive scope: a closure is called where it is called, and has no flight of its own — await in an equation, and use its name`);
         // MO-10i: the draft is the callback's only while the library's call of it runs
@@ -2581,7 +2585,7 @@ class Checker {
             else this.err(s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${e.f.name}(…) is io and is called in reactive scope (R-io-3)${s?.ioVia ? ` — its server body calls ${s.ioVia}` : ""}${s?.generated ? ` — its declaration is a draft generated from ${s.generated}'s types, which never guesses \`pure\`: if calling it writes nothing, say so at the import, \`import pure { … }\`, or declare it \`pure fn\` in rx-types/${s.generated}.d.rx (MO-8l)` : ""}`);
           }
           if (s?.side === "client" && ctx.scope === "reactive" && !ctx.server && !this.awaitedCalls.has(e)) this.err("CLIENT_NOT_AWAITED", "SF-5b", `${e.f.name}(…) is \`client\` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now`);
-          if (s?.generated && ctx.scope === "imperative" ? s.makes && !this.refCalls.has(e) : s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) declares state or reads a context: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
+          if (s?.generated && ctx.scope === "imperative" ? s.makes && !this.refCalls.has(e) : s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) ${s?.kind === "fn" && s.fnDecl ? instantiatesWhy(s.fnDecl) : "declares state or reads a context"}: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
           if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.f.name} called as a function: apply it in a view`);
           this.markCallbacks(e.args, s?.cbs);
           if (s?.kind === "action" && s.arity !== undefined && (e.args.length > s.arity || e.args.length < (s.arityMin ?? s.arity))) this.err("ARGUMENT_COUNT", "AC-1f", `${e.f.name} takes ${s.arityMin !== undefined ? `${s.arityMin} to ${s.arity} arguments` : s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);

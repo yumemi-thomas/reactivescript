@@ -227,11 +227,30 @@ fn split_hash(key: &str) -> (String, String) {
     }
 }
 /// A context key relative to the module whose signature names it (`./theme.rx#theme`).
+/// A prop's name in a row: `...props` for the spread, a key that is no identifier quoted (`"tc-button"`, X5).
+fn field_text(f: &str) -> String {
+    let ident = f.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && f.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    if f == "*" { "...props".into() } else if ident { f.into() } else { serde_json::to_string(f).unwrap_or_else(|_| f.into()) }
+}
+/// A row's prop name and what follows its `:`, read back (a quoted name may hold a `:`).
+fn field_of(s: &str) -> (String, String) {
+    let t = crate::parse::js_trim(s);
+    if t.starts_with('"') {
+        let mut esc = false;
+        let end = t.char_indices().skip(1).find(|&(_, c)| { let close = c == '"' && !esc; esc = c == '\\' && !esc; close }).map(|(i, _)| i + 1);
+        if let Some(name) = end.and_then(|e| serde_json::from_str::<String>(&t[..e]).ok().map(|n| (n, e))) {
+            let rest = crate::parse::js_trim(&t[name.1..]);
+            return (name.0, crate::parse::js_trim(rest.strip_prefix(':').unwrap_or(rest)).to_string());
+        }
+    }
+    let (f, rest) = match t.find(':') { Some(i) => (crate::parse::js_trim(&t[..i]), crate::parse::js_trim(&t[i + 1..])), None => (t, "") };
+    (if f == "...props" { "*".into() } else { f.into() }, rest.into())
+}
 /// O-3: the props a component stores where they outlive it, and where.
 fn retains_text(file: &str, st: &IndexMap<String, Vec<String>>) -> String {
     let mut fs: Vec<&String> = st.keys().collect();
     fs.sort();
-    let xs: Vec<String> = fs.into_iter().flat_map(|f| st[f].iter().map(move |t| format!("{}: {}", if f == "*" { "...props" } else { f }, if t == "module" { t.clone() } else { rel_key(file, t) }))).collect();
+    let xs: Vec<String> = fs.into_iter().flat_map(|f| st[f].iter().map(move |t| format!("{}: {}", field_text(f), if t == "module" { t.clone() } else { rel_key(file, t) }))).collect();
     if xs.is_empty() { String::new() } else { format!(" retains({})", xs.join(", ")) }
 }
 fn rel_key(from: &str, key: &str) -> String {
@@ -509,7 +528,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                     if v.pure {
                         parts.push("pure".to_string());
                     }
-                    format!("{}{}", if f == "*" { "...props" } else { f }, if parts.is_empty() { String::new() } else { format!(": {}", parts.join(" ")) })
+                    format!("{}{}", field_text(f), if parts.is_empty() { String::new() } else { format!(": {}", parts.join(" ")) })
                 })
                 .collect();
             let own: IndexSet<String> = s.own.iter().map(|o| o.cls.clone()).collect();
@@ -783,11 +802,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             let mut sig = CompSig { tparams: tparams.clone(), made: false, own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new(), hosts: IndexMap::new(), through: false };
             let inner = &m[2][1..m[2].len() - 1];
             for f in split(inner, ';') {
-                let (fname0, spec) = match f.find(':') {
-                    Some(c) => (crate::parse::js_trim(&f[..c]).to_string(), crate::parse::js_trim(&f[c + 1..]).to_string()),
-                    None => (crate::parse::js_trim(&f).to_string(), String::new()),
-                };
-                let fname = if fname0 == "...props" { "*".to_string() } else { fname0 };
+                let (fname, spec) = field_of(&f);
                 let mut v = PropSig { f: Catch::Set(IndexSet::new()), p: Catch::Set(IndexSet::new()), rendered: true, pure: false, action: None, component: false, components: false, takes: vec![], view: None };
                 let mut spec = spec;
                 if let Some(m) = P_VIEW.captures(&spec) {
@@ -872,10 +887,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             }
             if let Some(so) = C_RETAINS.captures(tail) {
                 for x in split(&so[2], ',') {
-                    let i = x.find(':').unwrap_or(x.len());
-                    let f0 = crate::parse::js_trim(&x[..i]).to_string();
-                    let f = if f0 == "...props" { "*".to_string() } else { f0 };
-                    let t = crate::parse::js_trim(x.get(i + 1..).unwrap_or("")).to_string();
+                    let (f, t) = field_of(&x);
                     sig.stored.entry(f).or_default().push(if t == "module" { t } else { abs_key(file, &t) });
                 }
             }

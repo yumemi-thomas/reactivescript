@@ -1136,6 +1136,31 @@ fn expand(t: &str, depth: usize, named: &mut dyn FnMut(&str) -> Option<String>) 
 /// `<props.f … />`: the name of the props, and the field.
 /// RG-4c, a context that holds a view (proposals/27): its declared type, read, is `View` (`fn_: false`) or a function
 /// giving one, of one parameter or none (`fn_: true`; the parameter's type). `ref/src/modules.ts` `viewCtx`.
+/// RG-7a (X9): a context's type that is a generic function type, `<T>(p: { item: T }) => View`, in parentheses too.
+pub fn generic_ctx(ty: Option<&str>, types: &Types) -> bool {
+    let Some(ty) = ty else { return false };
+    let t = expand_type(ty, types, 0);
+    let mut t = t.trim();
+    while t.starts_with('(') && t.ends_with(')') {
+        let (mut d, mut whole) = (0i32, true);
+        for c in t[..t.len() - 1].chars() {
+            match c {
+                '(' => d += 1,
+                ')' => d -= 1,
+                _ => {}
+            }
+            if d == 0 {
+                whole = false;
+                break;
+            }
+        }
+        if !whole {
+            break;
+        }
+        t = t[1..t.len() - 1].trim();
+    }
+    t.starts_with('<')
+}
 pub fn view_ctx(ty: Option<&str>, types: &Types) -> Option<(bool, Option<String>)> {
     let t = expand_type(ty?, types, 0);
     let mut t = t.trim();

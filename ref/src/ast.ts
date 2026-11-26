@@ -82,6 +82,23 @@ const readsContext = (x: unknown): boolean => x !== null && typeof x === "object
 export const instantiates = (f: Extract<Decl, { k: "fn" }>): boolean => f.params.some(p => p.ref) || hasRegion(f);
 /** RG-6a: its call is a region of its own. */
 export const hasRegion = (f: Extract<Decl, { k: "fn" }>): boolean => f.decls.length > 0 || readsContext(f.tail);
+/** E-9: what makes it instantiate, for a message (bug 22): its first `ref` parameter, its first declaration, or a context. */
+export function instantiatesWhy(f: Extract<Decl, { k: "fn" }>): string {
+  const p = f.params.find(p => p.ref); if (p) return `takes a \`ref\` parameter, \`${p.name}\``;
+  const d = f.decls[0];
+  if (d) {
+    const named = (what: string) => "name" in d && d.name ? `${what}, \`${d.name}\`` : what;
+    switch (d.k) {
+      case "source": return `declares ${named("a source")}`;
+      case "eq": return `declares ${named("an equation")}`;
+      case "typedecl": return `declares ${named("a type")}`;
+      case "effect": return "declares an effect";
+      case "provide": return `provides ${named("a context")}`;
+      default: return `declares ${named(`a${/^[aeiou]/.test(d.k) ? "n" : ""} ${d.k}`)}`;
+    }
+  }
+  return "reads a context";
+}
 
 /** RG-7b: the `use c` written in what `provide c = e` is given — they read what is above that provision, wherever they
  *  run (a closure in e too: it is written above the provision). Not those of a block inside e that provides c itself:
