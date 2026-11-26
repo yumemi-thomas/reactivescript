@@ -51,13 +51,24 @@ function flatten(d, newLine = "\n", level = 0) {
   for (const c of d.messageChain ?? []) text += flatten(c, newLine, level + 1);
   return text;
 }
+/** W-6 (2026-11-26, the roadmap's W1): a write's value is refused by its type where it is a function, or a value of a type
+ *  parameter (which may be one) — the prelude's `set`/`setAt` take `Exclude<T, Function>` or an updater `(p: T) => T`. The
+ *  message says why, and what to write. TS2345 stays its code. */
+const W6 = " — W-6: a write applies a function it is given to what the slot holds, so a function (or a value of a type parameter, which may be one) is no value to write: write `x := () => v`, which stores `v` for every type";
+function written(code, message) {
+  if (code !== 2345) return message;
+  const first = message.split("\n")[0];
+  const generic = /parameter of type '.*Exclude<.+, Function>/.test(first);
+  const fnOverUpdater = /^Argument of type '\(.*' is not assignable to parameter of type '\(+p: (.+)\) => \1\)?(?: \| undefined)?'/.test(first);
+  return generic || fnOverUpdater ? first + W6 + message.slice(first.length) : message;
+}
 /** `{ file, start, length, line, column, code, category, message, related }`: `line` from 1, `column` from 0, in UTF-16. */
 function plain(d) {
   return {
     file: d.fileName, start: d.fileName === undefined ? undefined : d.pos, length: d.fileName === undefined ? undefined : d.end - d.pos,
     line: d.startPosition ? d.startPosition.line + 1 : 0, column: d.startPosition?.character ?? 0,
     end: d.endPosition ? { line: d.endPosition.line + 1, column: d.endPosition.character } : undefined,
-    code: d.code, category: d.category, message: flatten(d), related: (d.relatedInformation ?? []).map(plain),
+    code: d.code, category: d.category, message: written(d.code, flatten(d)), related: (d.relatedInformation ?? []).map(plain),
   };
 }
 /** TypeScript's order (`sortAndDeduplicateDiagnostics`): no file first, then by file, place, code and text; each once. */

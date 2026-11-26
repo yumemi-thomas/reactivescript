@@ -79,7 +79,7 @@ component Combobox<T>(p: { options: T[]; text: (o: T) => string; opt: (props: { 
   source value: T | undefined := undefined
   shown = filter(p.options, (o) => query == "" || p.text(o).includes(query))
   action type(q: string) { query := q }
-  action pick(v: T) { value := v
+  action pick(v: T) { value := () => v
     query := p.text(v) }
   provide combo = { shown: shown, query: query, value: value, type: type, pick: pick }
   provide opt = p.opt
@@ -240,6 +240,23 @@ export default component App() { source on := false
 
 ## Rejected variants
 
+A source of a type parameter written with a value of it: `T` may be a function, and a write applies a function (W-6),
+so the type pass refuses it with what to write, `value := () => v`, which stores `v` for every `T` (2026-11-26: this was
+taken for one release, and a caller's function was then applied, not stored).
+
+```rx
+-- types: TS2345
+component Keep<T>(props: { v: T; go: boolean }) {
+  source value: T | undefined := undefined
+  effect (props.go) { if ($0) { value := props.v } }
+  <b>{value == undefined ? "none" : "set"}</b>
+}
+export default component App() {
+  source go := false
+  <Keep v={(x: number) => 7} go={go} />
+}
+```
+
 The caller's row type reaches the view the component shows.
 
 ```rx
@@ -277,7 +294,7 @@ component Combobox<T>(p: { options: T[]; text: (o: T) => string; opt: (props: { 
   source value: T | undefined := undefined
   shown = filter(p.options, (o) => query == "" || p.text(o).includes(query))
   action type(q: string) { query := q }
-  action pick(v: T) { value := v
+  action pick(v: T) { value := () => v
     query := p.text(v) }
   provide combo = { shown: shown, query: query, value: value, type: type, pick: pick }
   provide opt = p.opt
