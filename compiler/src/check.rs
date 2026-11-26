@@ -6774,9 +6774,6 @@ impl<'a> Checker<'a> {
         }
         r
     }
-    fn named_parts(&mut self, s: SId, v: Option<(&'a Expr, EId)>) -> IndexSet<String> {
-        self.named_parts_cl(s, v, false)
-    }
     fn named_parts_cl(&mut self, s: SId, v: Option<(&'a Expr, EId)>, cl: bool) -> IndexSet<String> {
         let memo = if cl { &mut self.closure_memo } else { &mut self.parts_memo };
         if let Some(m) = memo.get(&s) {

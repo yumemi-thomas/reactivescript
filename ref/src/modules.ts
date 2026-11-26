@@ -380,10 +380,12 @@ export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set
 /** The fields declared `View` of a component's props, where its type is read: written out, a type of the module, one
  *  imported from `.rx`. One classification for the checkers, the interpreter, the oracle and the compiled module. */
 export function viewsOf(propsType: string | undefined, types: Types, decls: Decl[] = [], tparams?: string): Set<string> {
-  if (propsType === undefined) return new Set();
+  const say = childrenSayNothing(propsType, types, tparams) ? ["children"] : [];   // W4 (2026-11-26): content between the tags is a view
+  if (propsType === undefined) return new Set(say);
   const ps = tparams ? typeParamNames(tparams) : [];
   const out = viewFields(propsType, ps.length ? decls.filter(d => !(d.k === "typedecl" && ps.includes(d.name))) : decls);
   for (const f of viewFields(expandType(propsType, without(types, tparams)), [])) out.add(f);
+  for (const f of say) out.add(f);
   return out;
 }
 /** The same of every component of a program, for the runners. */
@@ -593,6 +595,18 @@ export function shownFields(d: { props: string; decls: Decl[]; view: Markup[] })
   if (/^[a-z_$]/.test(d.props)) walk([...d.decls, ...d.view]);
   return out;
 }
+/** W4 (2026-11-26): whether a component's `children` are declared by a type that says nothing of them — no props type,
+ *  props `any` or `unknown`, `children: any` or `unknown` — written so in the module. Content a caller
+ *  writes between its tags is a view, so the component's use of them is checked as `children?: View` is: a view is only
+ *  shown (RG-4c). A record written out without `children` declares none: the type pass holds a use of them. */
+export function childrenSayNothing(propsType: string | undefined, types: Types, tparams?: string): boolean {
+  if (propsType === undefined) return true;
+  const t = expandType(propsType, without(types, tparams)).trim();
+  if (t === "any" || t === "unknown") return true;
+  const f = fieldType(t, "children");
+  if (f) return f.type.trim() === "any" || f.type.trim() === "unknown";
+  return false;   // a type it does not read (an imported alias): what its children are is that type's, unknown here
+}
 /** A field of a record type written out: its type, and whether it is optional. In two records of an intersection, it is neither's. */
 function fieldType(t: string, field: string): { type: string; optional: boolean } | undefined {
   const found: { type: string; optional: boolean }[] = [];
@@ -679,7 +693,9 @@ export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; 
   const look = (sc: Sc) => (n: string): Given | undefined => { for (let s: Sc | null = sc; s; s = s.up) if (s.names.has(n)) return s.names.get(n) ?? undefined; return undefined; };
   const view = (e: Expr, sc: Sc): Given | undefined => { const g = given(e, look(sc)); return g?.held && g.view ? g : undefined; };
   const form = (e: Expr, sc: Sc): boolean => (e.k === "id" || e.k === "member") && !!view(e, sc);
-  const left = (e: Expr, sc: Sc): string[] => { const p = given(e, look(sc))?.props; return p ? [...p.views].filter(v => !p.less.includes(v)).sort() : []; };
+  // W4: children nobody declares are a view where they are read, and no view a spread of the whole props hands on
+  const loose = !skip.has("children") && childrenSayNothing(d.propsType, types, d.tparams);
+  const left = (e: Expr, sc: Sc): string[] => { const p = given(e, look(sc))?.props; return p ? [...p.views].filter(v => !p.less.includes(v) && !(loose && v === "children" && p.views === views)).sort() : []; };
   const nothing = (e: Expr): boolean => e.k === "lit" && e.v == null;
   const near = (how: string, k: string): string => how === "handler" || how === "effect" ? how : k;   // what reads it: the nearest, but a handler's or an effect's body whatever is in it
   const hit = (field: string, line: number, how: string, of?: string): void => { bad.push({ field, line, how, ...(of ? { of } : {}) }); };

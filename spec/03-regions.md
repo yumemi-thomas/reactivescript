@@ -147,7 +147,17 @@ A component is a function from a props value to a region whose tail is a view.
   where the type is read (written out, a type of the module, one imported
   from `.rx`), and of the names bound to it (a parameter, a loop's item or an
   inner block's equation of the same spelling is another name); children
-  declared a number are a number. A component only shows a view it is
+  declared a number are a number. *Children nobody declares (2026-11-26,
+  W4).* Where the module's own text says nothing of them — no props type,
+  props `any` or `unknown`, `children: any` or `unknown` — they are what a
+  caller writes between the tags, a view: `children?: View` for this rule and
+  for every runner (`str(props.children)` was accepted, and the interpreter
+  showed `#error` where compiled code threw; `{if props.children { …
+  {props.children} … }}` of markup failed to hydrate). A spread of the whole
+  props does not count as giving them on (`<input {...props} />`). A type the
+  checkers do not read (an alias imported from JavaScript) is left as it was:
+  its children may be a function of state the component hands to its own
+  JavaScript. A component only shows a view it is
   given: `{props.children}` in its view (also `props.children ?? e`, and under
   a choice, `c ? props.children : e`); gives it on, as another component's
   content or argument, or in a spread of its props; names it by a projection
