@@ -59,3 +59,46 @@ results are outside the repository (`../work/gen-*.mjs`, `../work/*.json`); the 
   read the old compiler. Removed (ignored files); `examples/rx-packages/check.mjs` reads the built one again.
 - Found: `a := p => { k: "off" }` (an arrow whose body is a record) parses, and the editor's recovering parse reports
   an error in it (`crate.ts`: "the editor's parse recovered from 1 error(s) in a program that parses"). Not fixed.
+
+## 4a. A view context split across modules, and re-exports (left out, both)
+
+- **A re-export** (`export { Root, Item } from "./root.rx"`): not built. The loader can resolve an importer's name to the
+  module that declares it (so a context keeps its identity), and for a program of `.rx` sources that is the whole of it.
+  A kit is a *package*, though: an importer reads `kit.d.rx` (a printed signature) and takes `__rx`, the module's
+  factory, from the JavaScript the import names (MO-13c: `import { __rx } from "pkg/kit"`). Resolved to `root.rx`, the
+  importer needs root's factory, which the package may not export at any path (`exports` in package.json), so `kit.js`
+  would have to hand on each target's factory under a name, and `rx-lib` to write that, the `.d.ts` re-exports and the
+  signature rows. That is MO-13's protocol in two emitters, two loaders, two signature printers and `rx-lib`: not
+  provable here in the time, and half of it (sources only) would not serve the packages it is asked for.
+- **An exported context that holds a view**: stays refused, for the reason proposals/27 gives (the caller's view is
+  checked at the root's application against every place that shows it; a place in another module is not known there).
+- What a kit in several modules has today: a namespace for each module (proposals/30), or a module of components that
+  hand their props on, `export component Root(props: RootProps) { <Shell {...props} /> }` — which carries what `Shell`
+  provides to its children since item 2 (it did not: bug 5), at the cost of one component a part. A view with a
+  parameter through that spread is item 5's (B4).
+
+## 4b. Function parts of a declared result: `io` (done)
+
+- Rule (09 MO-10b, revised): a function part of a declared result is io where it answers nothing or a promise, or where
+  the row marks it `io` (`write: io (t: string) => boolean`; the whole result, a tuple's item, a record's field); one
+  that answers a value and is not marked is a read. Read the same bound by a name and as a field (it was: by a name,
+  always io — `{ read } = make(); read()` refused where `c.read()` was not; and a void field of a fn that is no
+  instantiation was called in a view unrefused). So `pure fn makeClipboard(): { read: () => string; write: io (t:
+  string) => boolean }` keeps `pure`.
+- The word is cut from the type TypeScript reads, as `ref` is (`typeWords`); the checker steps the marked text
+  (`retIo`). Every declared fn's result type is now read at its calls (it was: an instantiation's only).
+- `rx-declare` (declare-infer.js) marks a function part that is not shown to only compute, where the row writes it a
+  function type, and keeps `pure`; `rx-verify`'s audit reads a marked part as no part of what `pure` claims.
+- 425 generated programs: both checkers agree 425/425; 245 accepted, 180 refused, each as wanted; projection alike;
+  the accepted ones type-check. S-module-49; tooling tests (declare 96, words 85, words-audit 39, generate 47, verify
+  110) pass, two expectations changed (createCounter keeps `pure` with both parts marked).
+- A slip caught by `test/verify.js`, not by the scenarios: the same change first made a prop typed `(n) => number` no
+  longer a function-typed prop (`pure`), so a statement closure there would have been a handler by its name. Props and
+  parameters keep the old test (`fnType`); no scenario holds that case (S-module-28 has `=> void` only).
+- Bench (`bench/run.mjs --check --strict`: as the scorecard or better): tasks good 44/44, types 186/186, runtime
+  279/279, bad 247/247, unrepresentable 13/13; hand-written words 436, inferred 12, TODOs 82 (no task's declarations
+  changed). Coverage, 245 modules drafted whole (6,431 rows): 1,281 words read from the code — 943 handler, **149
+  pure** (126 was recorded for the generator at a5a6f374), 145 instantiates, **40 io**, 4 provides; 877 `pure`
+  questions left. The count before was not kept by the bench, so 126 is the note's, not a run of mine.
+- Not done: the count over the ~4,000 packages (170 rows) was not run again; a whole result written in parentheses
+  (`(() => number)`) is not marked.

@@ -388,7 +388,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   proven by the code, as `instantiates` is (the call makes what its owner keeps on every path that returns). Nothing in a checker knows where a word came from.
   What proves each is in DECLARATIONS.md and compiler/words/DESIGN.md.
   A `pure` fn's answer may hold functions: each is proven to only compute, or
-  the row is an instantiation and the part is one MO-10b refuses in a view. A row TypeScript does
+  the row is an instantiation and the part is one MO-10b refuses in a view, or
+  the row writes the part a function type and the draft marks it `io` (MO-10b,
+  2026-11-26). A row TypeScript does
   not hold (13 TY-6) is left out of a draft.
   Another name of the object is the object (2026-11-24): `t = toast`,
   `{ success } = t` and a field of a record written here call the same
@@ -489,12 +491,24 @@ export component Search(props: { start: boolean, q: string }) {
     equation of `T`, read without a call. Passed to a `ref` parameter, the
     accessor is passed as it is. `.rx` has no accessor type: `ref` is the one
     word for an accessor at the boundary, in either direction.
-  - A function type **bound by a name** is io (R-io-3): callable only in
-    imperative scope. A function field **read off a result where it is
-    called** is told apart by what its type answers: nothing, or any promise,
-    is io, `IO_IN_REACTIVE` in reactive scope and as a handler attribute's
-    value (a promise *awaited* is a question asked, and allowed; a promise of
-    nothing is not); a value is a read, called anywhere.
+  - A function part is told apart by what the row says of it (revised
+    2026-11-26), read off the result where it is called or bound by a name,
+    the same: one that answers nothing, or any promise, is io,
+    `IO_IN_REACTIVE` in reactive scope and as a handler attribute's value (a
+    promise *awaited* is a question asked, and allowed; a promise of nothing
+    is not); one the row marks **`io`** — the word before its type, `write:
+    io (text: string) => boolean`, at the whole result, an item of its tuple
+    or a field of its record — is io whatever it answers; one that answers a
+    value and is not marked is a read, called anywhere: the row's promise is
+    that it only computes. So a fn that makes a thing with a function that
+    does something keeps its `pure` (calling the fn only computes): `pure fn
+    makeClipboard(): { read: () => string; write: io (t: string) => boolean
+    }`. The word is the `.d.rx`'s, as `ref` is: TypeScript reads the type
+    without it. It was: a function bound by a name is io, and a field is
+    told apart by its type — so `{ read } = make(); read()` was refused where
+    `c.read()` was not, a void field of a fn that is no instantiation was
+    called in a view, and a function that answers a value and does something
+    could only be said by taking `pure` off the whole row. S-module-49.
   - *The same evidence wherever a type is declared:* a component's props type,
     a context's type (02 SC-4), a declared value's (MO-8t). The code is
     `IO_IN_REACTIVE`, except where every provision the module writes gives

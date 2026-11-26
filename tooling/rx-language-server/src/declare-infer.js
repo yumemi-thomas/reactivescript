@@ -107,6 +107,30 @@ function acts(result, path) {
   return false;
 }
 
+/** MO-10b (2026-11-26): where in `result` the function type of the part at `path` begins — the whole result, an item of
+ *  its tuple or a field of its record — or -1: no function type is written there for a word to stand before. */
+function fnPartAt(result, path) {
+  const lead = result.length - result.trimStart().length, t = result.trim(), ro = /^readonly\s+/.exec(t)?.[0].length ?? 0, body = t.slice(ro);
+  const at = (text, from) => fnTypeAt(text, 0, text.length) ? from : -1;
+  if (!path.length) return ro ? -1 : at(t, lead);
+  if (path.length > 1) return -1;
+  if (body[0] === "[" && body.endsWith("]")) { const x = split(body, 1, body.length - 1, ",")[Number(path[0])]; if (!x) return -1; const l = /^[\w$]+\??:\s*/.exec(x.text)?.[0].length ?? 0; return at(x.text.slice(l), lead + ro + x.from + l); }
+  if (body[0] === "{" && body.endsWith("}")) { const x = split(body, 1, body.length - 1, ";").find(y => new RegExp(`^(?:readonly\\s+)?${path[0].replace(/\$/g, "\\$")}\\??:`).test(y.text)); if (!x) return -1; const l = /^(?:readonly\s+)?[\w$]+\??:\s*/.exec(x.text)[0].length; return at(x.text.slice(l), lead + ro + x.from + l); }
+  return -1;
+}
+
+/** MO-10b: whether a row's line marks the part of its result at `path` `io`. */
+function ioMarked(line, path) {
+  const row = parseRow(line); if (!row) return false;
+  const t = (/^\s*:\s*(.*)$/s.exec(line.slice(row.close + 1))?.[1] ?? "").trim().replace(/^readonly\s+/, "");
+  const io = x => /^io\s+\(/.test(x);
+  if (!path.length) return io(t);
+  if (path.length > 1) return false;
+  if (t[0] === "[") { const end = t.lastIndexOf("]"); const x = split(t, 1, end, ",")[Number(path[0])]; return !!x && io(x.text.replace(/^[\w$]+\??:\s*/, "")); }
+  if (t[0] === "{") { const end = t.lastIndexOf("}"); const x = split(t, 1, end, ";").find(y => new RegExp(`^(?:readonly\\s+)?${path[0].replace(/\$/g, "\\$")}\\??:`).test(y.text)); return !!x && io(x.text.replace(/^(?:readonly\s+)?[\w$]+\??:\s*/, "")); }
+  return false;
+}
+
 /** @param {string[]} lines the draft's lines (rows, and the questions above them)
  *  @param {object[]} [why] filled with what was proven and what was refused, word by word (`rx-declare --why`)
  *  @param {{ unshaped?, contexts?, written? }} more `unshaped(line, name, reads)`: the row with each part only shaped as an
@@ -171,8 +195,13 @@ function apply(spec, from, lines, why, more = {}) {
     if (row.kind === "fn" && !/\bpure\b/.test(row.words)) {
       // a function of what it answers that is not shown to only compute: the row says it is one that does something, where a
       // call of it in a view is refused (MO-10b: bound by a name, or of a record's field that answers nothing), or the fn is not pure
-      const left = (f.pure?.parts ?? []).find(p => !(instantiating(line, row, f) && p.callable && acts(result, p.path)));
+      // …or, where the row writes that part a function type, the row marks it `io` and stays pure: calling the fn only
+      // computes, and the function it answers is called from a handler or an action (MO-10b, 2026-11-26)
+      const acting = p => instantiating(line, row, f) && p.callable && acts(result, p.path);
+      const marks = (f.pure?.parts ?? []).filter(p => !acting(p) && p.callable && fnPartAt(result, p.path) >= 0);
+      const left = (f.pure?.parts ?? []).find(p => !acting(p) && !marks.includes(p));
       const pure = f.pure?.ok && !left;
+      if (pure) for (const at of [...new Set(marks.map(p => line.length - result.length + fnPartAt(result, p.path)))]) { ins.push([at, "io "]); took.push("io"); count.io = (count.io ?? 0) + 1; }
       note(row.name, "pure", !!pure, left ? `a function it answers (${left.path.join(".") || "itself"}) is not shown to only compute: ${left.why}${placed(left)}` : `${f.pure?.why?.why ?? "not read"}${placed(f.pure?.why)}`);
       if (pure) { took.push("pure"); count.pure++; }
     }
@@ -208,4 +237,4 @@ function apply(spec, from, lines, why, more = {}) {
   return { lines: out, head, count, words, unread: total ? undefined : unread, facts, provided, at };
 }
 
-module.exports = { apply, parseRow, named, fnTypeAt, records };
+module.exports = { apply, parseRow, named, fnTypeAt, records, ioMarked };

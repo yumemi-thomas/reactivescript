@@ -25,7 +25,7 @@ function wordsOf(x) {
 }
 
 /** @param {object[]} rowsIn the declaration's rows (src/rows.js)  @returns {{ rows: { name, line, words: { word, verdict, why }[] }[], unread?: string }} */
-function audit(spec, from, rowsIn, text) {
+function audit(spec, from, rowsIn, text, raw = "") {
   const { words } = require("./words.js");
   const rel = f => path.relative(from, f).split(path.sep).join("/").replace(/^(?:\.\.\/)+node_modules\//, "").replace(/^node_modules\//, "");
   const at = w => w?.file ? ` [${rel(w.file)}:${w.line}]` : "";
@@ -50,7 +50,9 @@ function audit(spec, from, rowsIn, text) {
     if (f.unread) { for (const n of w.all) say(n, "unproven", `not read: ${f.unread}`); continue; }
     const why = f.pure?.why;
     // (a row that is an instantiation says which functions it answers do something, MO-10b: rx-declare reads that off the row it writes)
-    const left = f.pure?.ok ? f.pure.parts?.[0] : undefined;
+    // (…and a part the row marks `io` is said to do something: it is no part of what `pure` claims, 2026-11-26)
+    const rowLine = raw.split("\n")[row.line - 1] ?? "";
+    const left = f.pure?.ok ? f.pure.parts?.find(p => !require("./declare-infer.js").ioMarked(rowLine, p.path)) : undefined;
     if (w.pure) say("pure", f.pure?.ok && !left ? "proven" : "unproven", left ? `a function it answers (${left.path.join(".") || "itself"}) is not shown to only compute: ${left.why}${at(left)}` : `${why?.why ?? "not read"}${at(why)}`);
     for (const h of w.handlers) { const v = f.handlers?.[h.field === undefined ? String(h.index) : `${h.index}.${h.field}`]; say(`handler(${h.label})`, v?.ok ? "proven" : "unproven", `${v?.why ?? f.unplaced ?? "not read"}${at(v)}`); }
     for (const d of w.drafts) say(`draft(${d.name})`, "unproven", "whether the code changes what it is given in place, and keeps nothing of it, is not read");
@@ -84,7 +86,7 @@ function auditFile(file) {
   if (/^\s*export\s+default\s+component\b/m.test(raw) || /^\s*\/\/@\s*signature\b/m.test(raw)) return undefined;
   const d = declares(file); if (!d) return undefined;
   let rows; try { rows = require("./rows.js").rowsOf(file); } catch { return undefined; }
-  return { ...audit(d.spec, d.from, rows, () => require("./rxc.js").declaration(file).code), spec: d.spec, from: d.from };
+  return { ...audit(d.spec, d.from, rows, () => require("./rxc.js").declaration(file).code, raw), spec: d.spec, from: d.from };
 }
 
 module.exports = { audit, auditFile };

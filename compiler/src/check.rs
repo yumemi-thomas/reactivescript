@@ -339,6 +339,8 @@ struct Sym<'a> {
     /// MO-10k: a declared JS fn's result type as written (rows and `ref` taken out), and on a binding of its result or
     /// of a part of it, that part's: the closed set of what the value answers (`ty_step`)
     ret_ty: Option<String>,
+    /// MO-10b (2026-11-26): a declared fn's result type where it marks a function part `io`
+    ret_io: Option<String>,
     /// MO-8t: a declared JS value's type (`export const client: { … }`), read a step at a time as a declared result's is
     const_ty: Option<String>,
     /// MO-8k: a JS import with no declaration in any of the four places: its specifier
@@ -446,6 +448,7 @@ impl<'a> Sym<'a> {
             updater: None,
             disposer: None,
             ret_ty: None,
+            ret_io: None,
             const_ty: None,
             undeclared: None,
             pure_fn: false,
@@ -3640,7 +3643,7 @@ impl<'a> Checker<'a> {
                     bind_comp(self, x, alias);
                     continue;
                 }
-                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, makes: xmakes, uses: xuses, provides: xprovides, nests: xnests, held: xheld, waits: xwaits, cbs: xcbs, drafts: xdrafts, part_drafts: xpart_drafts, ret: xret, draft_args: xdraft_args, renders: xrenders, .. } => {
+                JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, makes: xmakes, uses: xuses, provides: xprovides, nests: xnests, held: xheld, waits: xwaits, cbs: xcbs, drafts: xdrafts, part_drafts: xpart_drafts, ret: xret, ret_io: xret_io, draft_args: xdraft_args, renders: xrenders, .. } => {
                     // MO-11u: `renders(H)` — H is a component of the same declaration; what H itself uses and provides is
                     // above everything it renders
                     let renders_in = |c: &mut Self| -> Option<(String, String, Vec<String>)> {
@@ -3674,7 +3677,7 @@ impl<'a> Checker<'a> {
                         s.held = xheld.clone();
                         s.waits = xwaits.clone();
                         s.cbs = xcbs.clone();
-                        s.ret_ty = xret.clone();
+                        s.ret_ty = xret_io.clone().or_else(|| xret.clone());
                         s.renders_in = renders_in(self);
                         self.bind(env, alias, s);
                         continue;
@@ -3694,6 +3697,7 @@ impl<'a> Checker<'a> {
                     }
                     let mut s = Sym::new(SymKind::Import, alias, region, line);
                     s.io = !xpure;
+                    s.ret_io = xret_io.clone().or_else(|| xret.clone());
                     // (EF-5a reads it off a type alone, which a draft may hold of any fn that answers a fn)
                     s.disposer = xret.as_deref().filter(|_| generated.is_none()).and_then(|t| ty_undoes(t, &|n| decls.iter().find_map(|y| match y { JsDecl::Type { name, text, .. } if name == n => alias_text(text), _ => None })));
                     s.rejects = Some(fails.clone().or_else(|| rejects.clone()).unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
@@ -5670,12 +5674,22 @@ impl<'a> Checker<'a> {
             ExprKind::Member { o, p, .. } => ty_step(&self.decl_ty(o, env, depth + 1)?, &TStep::Field(p.clone())),
             ExprKind::Index { o, i, .. } => {
                 let t = self.decl_ty(o, env, depth + 1)?;
+                if let ExprKind::Lit(Lit::Num(n)) = &i.k {
+                    if let Some(item) = ty_item(&t, *n) {
+                        return Some(item);
+                    }
+                }
                 match (&i.k, lit_key(i)) {
                     (ExprKind::Lit(Lit::Num(_)), _) | (_, None) => ty_step(&t, &TStep::Elem),
                     (_, Some(k)) => ty_step(&t, &TStep::Field(k)),
                 }
             }
             ExprKind::Call { f, .. } if matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) => ty_step(&self.decl_ty(f, env, depth + 1)?, &TStep::Call),
+            // MO-10b: what a declared fn answers, where its row marks a part `io`
+            ExprKind::Call { f, .. } => match &f.k {
+                ExprKind::Id(n) => self.lookup(env, n).and_then(|s| self.syms[s].ret_io.clone()),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -6163,14 +6177,24 @@ impl<'a> Checker<'a> {
             _ => None,
         }
     }
-    fn void_method(&self, f: &Expr, env: EId) -> bool {
-        matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| matches!(ty_clean(&r), "void" | "Promise<void>"))
+    /// MO-10b (2026-11-26): what is called is a field or an item — or a name bound to one (`{ write } = makeClipboard()`),
+    /// not one that is io by its own binding already.
+    fn declared_callee(&self, f: &Expr, env: EId) -> bool {
+        match &f.k {
+            ExprKind::Member { .. } | ExprKind::Index { .. } => true,
+            ExprKind::Id(n) => self.lookup(env, n).is_some_and(|s| !self.syms[s].io && matches!(self.syms[s].kind, SymKind::Eq | SymKind::Value)),
+            _ => false,
+        }
     }
-    /// MO-10b (2026-11-22): a function field whose declared type answers a promise (`mutate: (v) => Promise<T>`,
-    /// `refetch`): calling it starts work. Not awaited in reactive scope, nothing waits for that work and the view is
-    /// handed a promise.
+    fn void_method(&self, f: &Expr, env: EId) -> bool {
+        if !self.declared_callee(f, env) {
+            return false;
+        }
+        let Some(t) = self.decl_ty(f, env, 0) else { return false };
+        ty_io(&t) || ty_step(&t, &TStep::Call).is_some_and(|r| matches!(ty_clean(&r), "void" | "Promise<void>"))
+    }
     fn promise_method(&self, f: &Expr, env: EId) -> bool {
-        matches!(f.k, ExprKind::Member { .. } | ExprKind::Index { .. }) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| ty_clean(&r).starts_with("Promise<"))
+        self.declared_callee(f, env) && self.decl_ty(f, env, 0).and_then(|t| ty_step(&t, &TStep::Call)).is_some_and(|r| ty_clean(&r).starts_with("Promise<"))
     }
     /// R-io-3, CN-1b: whether what a void function field names is an action, as far as this module says: the field of a
     /// context every provision of which, in this module, gives it a name declared by `action`. Solid's runtime names
@@ -6487,7 +6511,7 @@ impl<'a> Checker<'a> {
                 let code = match &f.k {
                     ExprKind::Id(n) => match self.lookup(env, n) {
                         Some(s) if self.syms[s].kind == SymKind::Action => Some("ACTION_CALLED_IN_OWNED_SCOPE"),
-                        Some(s) if self.syms[s].io || self.io_member(f, env, 0).is_some() => Some("IO_IN_REACTIVE"),
+                        Some(s) if self.syms[s].io || self.io_member(f, env, 0).is_some() || self.void_method(f, env) || self.promise_method(f, env) => Some("IO_IN_REACTIVE"),
                         None if self.lang(env, n) == Some(Lang::Log) => Some("IO_IN_REACTIVE"),
                         _ => None,
                     },
@@ -6754,7 +6778,8 @@ impl<'a> Checker<'a> {
                             ExprKind::Id(n) => self.lookup(env, n),
                             _ => None,
                         };
-                        let named = s.is_some_and(|s| self.syms[s].io || self.syms[s].kind == SymKind::Action);
+                        // …a part of a declared result that is io (MO-10b)
+                        let named = s.is_some_and(|s| self.syms[s].io || self.syms[s].kind == SymKind::Action) || self.void_method(a, env);
                         // …or carried: a part of a record, a handler the component is given (SC-4b)
                         if !named && !matches!(a.k, ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. }) {
                             continue;
@@ -6819,7 +6844,7 @@ impl<'a> Checker<'a> {
                     } else if self.provided_action(f, env) {
                         self.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", format!("{}(…) is an action (what the context provides there), called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action", show(f)));
                     } else {
-                        self.err("IO_IN_REACTIVE", "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers nothing (`() => void`), so it is called for what it does — from a handler or an action", show(f)));
+                        self.err("IO_IN_REACTIVE", "IO-2", format!("{}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers nothing (`() => void`, or marks it `io`), so it is called for what it does — from a handler or an action", show(f)));
                     }
                 }
                 // …and one that answers a promise starts work: not awaited, nothing waits for it and the view reads a promise
@@ -11440,11 +11465,37 @@ pub fn ty_answers_value(t: Option<&str>) -> bool {
     let Some(r) = t.and_then(|t| ty_step(t, &TStep::Call)) else { return false };
     !["void", "Promise<void>", "any", "unknown", "undefined", "never"].contains(&ty_clean(&r))
 }
+/// MO-10b: a function type its row marks `io`.
+fn ty_io(t: &str) -> bool {
+    js_trim(t).strip_prefix("io").is_some_and(|r| r.starts_with(|c: char| c.is_whitespace()) && r.trim_start().starts_with('('))
+}
+/// MO-10b: an item of a tuple type, as written: `[A, b: B]` at 1 is `B`.
+fn ty_item(t: &str, k: f64) -> Option<String> {
+    if k < 0.0 || k.fract() != 0.0 {
+        return None;
+    }
+    let ms = ty_members(t, true);
+    let [x] = &ms[..] else { return None };
+    let x = x.strip_prefix("readonly").map(js_trim).filter(|r| r.starts_with('[')).unwrap_or(x);
+    if !(x.starts_with('[') && x.ends_with(']')) || x.len() < 2 {
+        return None;
+    }
+    let items = split_top(&x[1..x.len() - 1], ",");
+    let it = items.get(k as usize)?;
+    if it.starts_with("...") {
+        return None;
+    }
+    Some(js_trim(&TUPLE_LABEL.replace(it, "")).to_string())
+}
+static TUPLE_LABEL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z_$][\w$]*\??\s*:\s*").unwrap());
 /// The type text without what does not change what it answers: outer parentheses, `readonly`, the function words.
 fn ty_clean(t: &str) -> &str {
     let mut t = js_trim(t);
     loop {
         let before = t;
+        if ty_io(t) {
+            t = js_trim(&t[2..]);
+        }
         for w in ["readonly ", "handler "] {
             if let Some(r) = t.strip_prefix(w) {
                 t = js_trim(r);

@@ -147,6 +147,7 @@ type Sym = {
   eqDecl?: Extract<Decl, { k: "eq" }>;  // a declared equation: a guess may sit over it (AC-3, ST-5c)
   lit?: { ids: Extract<Expr, { k: "id" }>[]; env: Env; line: number; sites: Set<Expr>; exported: boolean };   // MO-11c: bound to a literal of components, read as the literal where it is given to a prop that holds components
   io?: boolean;                        // calling it is io (R-io)
+  retIo?: string;                      // MO-10b (2026-11-26): a declared fn's result type, each `io` before a function part left where it stood
   constTy?: string;                    // MO-8t: a declared JS value's type (`export const client: { … }`), read a step at a time as a declared result's is
   param?: boolean;                     // a fn's parameter: never a write target (O-4)
   instantiating?: boolean;             // fn with ref params or declarations (E-9)
@@ -1146,8 +1147,8 @@ class Checker {
       const pure = x.pure || stated;
       if (base && d.pure && !pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (base && d.side && !generated && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (instance(x, d.declared!, !!d.pure)) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, ...(generated ? { generated } : {}), ...(x.makes ? { makes: true } : {}), foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.waits ? { waits: x.waits } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.ret ? { retTy: x.ret } : {}), ...rendersIn() }); return; }   // MO-10a: a primitive is an instantiation (RG-6)
-      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !pure, ...(x.kind === "fn" && pure ? { pureFn: true } : {}), ...(x.kind === "fn" && !generated && x.ret !== undefined && undoes(x.ret) !== undefined ? { disposer: undoes(x.ret) } : {}), rejects: new Set(d.fails ?? x.rejects ?? ["Error"]), side: x.side ?? (generated && (base || d.side === "server") ? d.side : undefined), ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...rendersIn(),  ...(x.makes ? { makes: true } : {}), ...(generated ? { generated } : {}) });
+      if (instance(x, d.declared!, !!d.pure)) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, ...(generated ? { generated } : {}), ...(x.makes ? { makes: true } : {}), foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), ...(x.uses ? { needs: jsKeys(x.uses) } : {}), ...(x.provides ? { gives: jsKeys(x.provides) } : {}), ...(x.nests ? { nests: x.nests } : {}), ...(x.held ? { held: x.held } : {}), ...(x.waits ? { waits: x.waits } : {}), ...(x.cbs ? { cbs: x.cbs } : {}), ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.ret ? { retTy: x.retIo ?? x.ret } : {}), ...rendersIn() }); return; }   // MO-10a: a primitive is an instantiation (RG-6)
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !pure, ...(x.kind === "fn" && pure ? { pureFn: true } : {}), ...(x.kind === "fn" && !generated && x.ret !== undefined && undoes(x.ret) !== undefined ? { disposer: undoes(x.ret) } : {}), rejects: new Set(d.fails ?? x.rejects ?? ["Error"]), side: x.side ?? (generated && (base || d.side === "server") ? d.side : undefined), ...(x.kind === "fn" && x.cbs ? { cbs: x.cbs } : {}), ...(x.kind === "fn" && x.drafts ? { drafts: x.drafts } : {}), ...(x.kind === "fn" && x.draftArgs ? { draftArgs: x.draftArgs } : {}), ...(x.kind === "fn" && x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...rendersIn(),  ...(x.makes ? { makes: true } : {}), ...(x.kind === "fn" && (x.retIo ?? x.ret) !== undefined ? { retIo: x.retIo ?? x.ret } : {}), ...(generated ? { generated } : {}) });
     };
     for (const { name, alias } of d.names) {
       const x = decls.find(y => y.name === name);
@@ -2019,8 +2020,8 @@ class Checker {
       }
       case "use": return env.lookup(e.name)?.ctx?.ty;                                          // what a context provides is what its declaration types it (2026-11-22)
       case "member": return step(this.declTy(e.o, env, depth + 1), { field: e.p });
-      case "index": { const t = this.declTy(e.o, env, depth + 1); const k = litKey(e.i); return (e.i.k === "lit" && typeof e.i.v === "number") || k === undefined ? step(t, "elem") : step(t, { field: k }); }
-      case "call": return e.f.k === "member" || e.f.k === "index" ? step(this.declTy(e.f, env, depth + 1), "call") : undefined;
+      case "index": { const t = this.declTy(e.o, env, depth + 1); const k = litKey(e.i); const item = t !== undefined && e.i.k === "lit" && typeof e.i.v === "number" ? tyItem(t, e.i.v) : undefined; return item ?? ((e.i.k === "lit" && typeof e.i.v === "number") || k === undefined ? step(t, "elem") : step(t, { field: k })); }
+      case "call": return e.f.k === "member" || e.f.k === "index" ? step(this.declTy(e.f, env, depth + 1), "call") : e.f.k === "id" ? env.lookup(e.f.name)?.retIo : undefined;   // MO-10b: what a declared fn answers, where its row marks a part `io`
       default: return undefined;
     }
   }
@@ -2275,16 +2276,23 @@ class Checker {
     const f = s.val.e.fields.findLast(f => "spread" in f || f.key === e.p);
     return f && !("spread" in f) ? this.importOf(f.v, s.val.env, depth + 1) : undefined;
   }
+  /** MO-10b (2026-11-26): what is called is a field or an item — or a name bound to one (`{ write } = makeClipboard()`),
+   *  not one that is io by its own binding already. */
+  private declaredCallee(f: Expr, env: Env): boolean {
+    if (f.k === "member" || f.k === "index") return true; if (f.k !== "id") return false;
+    const s = env.lookup(f.name); return !!s && !s.io && (s.kind === "eq" || s.kind === "value");
+  }
   private voidMethod(f: Expr, env: Env): boolean {
-    if (f.k !== "member" && f.k !== "index") return false;
-    const t = this.declTy(f, env); const r = t === undefined ? undefined : tyStep(t, "call");
+    if (!this.declaredCallee(f, env)) return false;
+    const t = this.declTy(f, env); if (t !== undefined && tyIo(t)) return true;
+    const r = t === undefined ? undefined : tyStep(t, "call");
     return r !== undefined && (tyClean(r) === "void" || tyClean(r) === "Promise<void>");
   }
   /** MO-10b (2026-11-22): a function field whose declared type answers a promise (`mutate: (v) => Promise<T>`, `refetch`):
    *  calling it starts work. Not awaited in reactive scope, nothing waits for that work and the view is handed a promise. */
   private awaited = new WeakSet<Expr>();
   private promiseMethod(f: Expr, env: Env): boolean {
-    if (f.k !== "member" && f.k !== "index") return false;
+    if (!this.declaredCallee(f, env)) return false;
     const t = this.declTy(f, env); const r = t === undefined ? undefined : tyStep(t, "call");
     return r !== undefined && tyClean(r).startsWith("Promise<");
   }
@@ -2411,7 +2419,7 @@ class Checker {
   private handlerCalled(e: Expr, env: Env, attr: string) {
     if (e.k === "call") {
       let code: string | undefined;
-      if (e.f.k === "id") { const s = env.lookup(e.f.name); code = s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : s?.io || this.ioMember(e.f, env) !== undefined ? "IO_IN_REACTIVE" : lang(env, e.f.name) === "log" ? "IO_IN_REACTIVE" : undefined; }
+      if (e.f.k === "id") { const s = env.lookup(e.f.name); code = s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : s?.io || this.ioMember(e.f, env) !== undefined || this.voidMethod(e.f, env) || this.promiseMethod(e.f, env) ? "IO_IN_REACTIVE" : lang(env, e.f.name) === "log" ? "IO_IN_REACTIVE" : undefined; }
       else if (this.voidMethod(e.f, env)) code = this.providedAction(e.f, env) ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE";
       else if (this.promiseMethod(e.f, env)) code = "IO_IN_REACTIVE";
       else if (this.ioMember(e.f, env) !== undefined) code = "IO_IN_REACTIVE";
@@ -2498,14 +2506,14 @@ class Checker {
         // as its closure `(x) => name(x)` is: the language's own methods and functions that call what they are given, and a
         // fn of the module whose body calls that parameter. What may keep it (a JavaScript import, a prop) is as it was.
         if (ctx.scope === "reactive") e.args.forEach((a, i) => {
-          const s = a.k === "id" ? env.lookup(a.name) : undefined; const named = !!s?.io || s?.kind === "action";
+          const s = a.k === "id" ? env.lookup(a.name) : undefined; const named = !!s?.io || s?.kind === "action" || this.voidMethod(a, env);   // …a part of a declared result that is io (MO-10b)
           if (!named && a.k !== "id" && a.k !== "member" && a.k !== "index") return;                       // …or carried: a part of a record, a handler the component is given (SC-4b)
           const f = e.f.k === "id" ? env.lookup(e.f.name) : undefined;
           const now = e.f.k === "member" ? CALLS_NOW.has(e.f.p) : e.f.k === "id" && (f ? f.kind === "fn" && !!f.fnDecl && paramCalledNow(f.fnDecl, i) : lang(env, e.f.name) === "fn" && CALLS_NOW.has(e.f.name));
           if (!now) return;
           const n = show(a);
           const say = () => { if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${n} is io, and ${show(e.f)}(…) calls it; a fn is pure by definition`);
-            else this.err(named && s!.kind !== "action" ? "IO_IN_REACTIVE" : "ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${n} is io, and ${show(e.f)}(…) calls it while the call runs: it is called in reactive scope (R-io-3), as \`(x) => ${n}(x)\` would be — call it from a handler or an action`); };
+            else this.err(named && s?.kind !== "action" ? "IO_IN_REACTIVE" : "ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${n} is io, and ${show(e.f)}(…) calls it while the call runs: it is called in reactive scope (R-io-3), as \`(x) => ${n}(x)\` would be — call it from a handler or an action`); };
           if (named) say(); else { const line = this.line; this.later.push(() => { if (this.actionParts(a, env).has("")) { const at = this.line; this.line = line; say(); this.line = at; } }); }
         });
         // W-1a (2026-11-22): the value of a source, an equation or a prop is changed by a write, never in place:
@@ -2531,7 +2539,7 @@ class Checker {
         if (ctx.scope !== "imperative" && this.voidMethod(e.f, env)) {
           if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (its declaration says it answers nothing: it is called for what it does); a fn is pure by definition`);
           else if (this.providedAction(e.f, env)) this.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${show(e.f)}(…) is an action (what the context provides there), called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action`);
-          else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers nothing (\`() => void\`), so it is called for what it does — from a handler or an action`);
+          else this.err("IO_IN_REACTIVE", "IO-2", `${show(e.f)}(…) is io and is called in reactive scope (R-io-3): its declaration says it answers nothing (\`() => void\`, or marks it \`io\`), so it is called for what it does — from a handler or an action`);
         }
         // …and one that answers a promise starts work: not awaited, nothing waits for it and the view reads a promise
         if (ctx.scope !== "imperative" && !this.awaited.has(e) && !this.voidMethod(e.f, env) && this.promiseMethod(e.f, env)) {
@@ -3743,11 +3751,14 @@ class Checker {
 /** One step down a declared type: a field, what a call of it answers, an element of it. */
 export type TStep = { field: string } | "call" | "elem";
 /** The type text without what does not change what it answers: outer parentheses, `readonly`, the function words. */
+/** MO-10b: a function type its row marks `io`. */
+function tyIo(t: string): boolean { return /^io\s+\(/.test(t.trim()); }
 function tyClean(t: string): string {
   t = t.trim();
   for (;;) {
     const before = t;
     for (const w of ["readonly ", "handler "]) if (t.startsWith(w)) t = t.slice(w.length).trim();
+    if (tyIo(t)) t = t.slice(2).trim();
     if (t.startsWith("(") && t.endsWith(")") && closes(t, 0) === t.length) t = t.slice(1, -1).trim();
     if (t === before) return t;
   }
@@ -3790,6 +3801,12 @@ export function tyStep(t: string, s: TStep): string | undefined {
 export function tyAnswersValue(t: string | undefined): boolean {
   const r = t === undefined ? undefined : tyStep(t, "call"); if (r === undefined) return false;
   return !["void", "Promise<void>", "any", "unknown", "undefined", "never"].includes(tyClean(r));
+}
+/** MO-10b: an item of a tuple type, as written: `[A, b: B]` at 1 is `B`. */
+function tyItem(t: string, k: number): string | undefined {
+  const ms = tyMembers(t, true); if (ms.length !== 1) return undefined; let x = ms[0].replace(/^readonly\s+/, "");
+  if (!(x.startsWith("[") && x.endsWith("]"))) return undefined;
+  const it = splitTop(x.slice(1, -1), ",")[k]; return it === undefined || it.startsWith("...") ? undefined : it.replace(/^[A-Za-z_$][\w$]*\??\s*:\s*/, "").trim();
 }
 /** Whether a type, as written, is an array's: `T[]`, `Array<T>`, a tuple. */
 function tyList(t: string): boolean { const ms = tyMembers(t, true); return ms.length === 1 && (ms[0].endsWith("[]") || /^(Readonly)?Array</.test(ms[0]) || (ms[0].startsWith("[") && ms[0].endsWith("]"))); }

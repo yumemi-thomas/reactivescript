@@ -617,6 +617,9 @@ re!(INSTANTIATES, r"(^|[^A-Za-z0-9_$])instantiates([^A-Za-z0-9_$]|$)");
 re!(ROW_WORD, r#"^(?:(pending)\s+|fails\(([^)]*)\)\s*)[A-Za-z_$({\["']"#);
 re!(READONLY_TUPLE, r"^readonly\s+\[");
 re!(REF_AT, r"^ref\s+");
+re!(IO_PART, r"^io\s+\(");
+re!(IO_AT, r"^io\s+");
+re!(ACTS, r"^(void|Promise<[\s\S]*>)$");
 // MO-10f: a row word written before a type where no record field took it (a tuple's part, a member of a union, a type argument)
 re!(STRAY_ROW_WORD, r#"\bpending\s+[A-Za-z_$({\["']|\bfails\([^)]*\)\s*[A-Za-z_$({\["']"#);
 re!(OLD_HOLDS, r#"(^|[:,\[{]\s*)holds\s+[A-Za-z_$({\["']"#);
@@ -628,11 +631,24 @@ re!(DRAFT_WORD, r"\bdraft\s+([A-Za-z_$][\w$]*\s*[?:,)])");
 re!(CTX_WORD, r"(^|[^A-Za-z0-9_$])(uses\(|provides\(|nests\(|under\(|joins\(|methods\()");
 // a word that can be a type's name is a row word after a type alone
 re!(GONE_WORD, r#"[\w$)\]}>"'`]\s+((?:renders|carries|trusted|forwards)\b)"#);
+/// MO-10b: a part of a declared result. `Fn`: a function called for what it does — one the row marks `io`, or one whose
+/// type answers nothing or a promise; it is io, called from imperative scope. A function that answers a value and is not
+/// marked is a value like any other: the row's promise is that it only computes (2026-11-26: it was `Fn`, io by a name
+/// it was bound to and not as a field — `{ read } = make(); read()` refused where `c.read()` was not).
+/// A function type, as written (a prop's, a parameter's): what a part of a result is called for is `part_of`'s.
+fn is_fn_type(t: &str) -> bool {
+    t.starts_with('(') && FN_PART.is_match(t)
+}
 fn part_of(t: &str) -> Part {
     if REF_PART.is_match(t) {
         Part::Ref
-    } else if t.starts_with('(') && FN_PART.is_match(t) {
+    } else if IO_PART.is_match(t) {
         Part::Fn
+    } else if t.starts_with('(') && FN_PART.is_match(t) {
+        match closes(t, 0).map(|end| js_trim(&t[end..])).and_then(|r| r.strip_prefix("=>")).map(js_trim) {
+            Some(r) if !ACTS.is_match(r) => Part::Value,
+            _ => Part::Fn,
+        }
     } else {
         Part::Value
     }
@@ -679,7 +695,7 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, /** MO-8l: the row says so itself — the word, or a context read — and not its types alone */ makes: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, waits: Option<(bool, Vec<String>)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, draft_args: Vec<usize>, /** MO-11u: `renders(H)` — the components the fn is given are rendered beneath an application of H, a component this file declares */ renders: Option<String> },
+    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, /** MO-10b: `ret` with each `io` before a function part left where it stood */ ret_io: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, /** MO-8l: the row says so itself — the word, or a context read — and not its types alone */ makes: bool, uses: Vec<String>, provides: Vec<String>, tparams: Option<String>, nests: Option<(String, String)>, held: Vec<(String, bool, Vec<String>)>, cbs: Vec<Option<(bool, Vec<String>)>>, opts: Vec<bool>, waits: Option<(bool, Vec<String>)>, drafts: Vec<(usize, Vec<usize>)>, part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>, draft_args: Vec<usize>, /** MO-11u: `renders(H)` — the components the fn is given are rendered beneath an application of H, a component this file declares */ renders: Option<String> },
     /// SV-5a: `fields`, what of an instance is sent to the client (`export error HttpError(status, code)`); none, name and message only
     Error { name: String, line: usize, fields: Vec<String> },
     Type { name: String, line: usize, text: String },
@@ -1640,7 +1656,7 @@ pub fn holds_component(t: &str, inside: bool, depth: usize) -> bool {
     if parts.len() > 1 {
         return parts.iter().any(|a| holds_component(a, inside, depth + 1));
     }
-    if part_of(t) == Part::Fn {
+    if is_fn_type(t) {
         return false;
     }
     if is_component_type(t) {
@@ -1792,7 +1808,7 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
                 if let Some(rest) = t.strip_prefix("handler ") {
                     handler = true;
                     let rest = js_trim(rest);
-                    if part_of(rest) != Part::Fn {
+                    if !is_fn_type(rest) {
                         return c.fail(&format!("`handler` on prop {}: it goes before a function type, one the library calls later, outside any computation (MO-10g)", fname));
                     }
                     ty = Some(rest.to_string());
@@ -1800,8 +1816,8 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
             }
             let component = ty.as_deref().is_some_and(is_component_type);
             let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
-            let callback = handler && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
-            let pure = !callback && !render && !component && ty.as_deref().is_some_and(|t| part_of(t) == Part::Fn);
+            let callback = handler && !render && !component && ty.as_deref().is_some_and(is_fn_type);
+            let pure = !callback && !render && !component && ty.as_deref().is_some_and(is_fn_type);
             let view = fname != "children" && ty.as_deref().is_some_and(is_view_type);
             let components = ty.as_deref().is_some_and(|t| holds_component(t, false, 0));
             props.push(JsProp { name: fname, optional, ty, catches, component, components, render, callback, pure, view });
@@ -2213,6 +2229,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         let save = c.i;
         c.ws(false);
         let mut ret = None;
+        let mut ret_io: Option<String> = None;
         let mut shape = None;
         let mut held = vec![];
         let mut waits = None;
@@ -2243,6 +2260,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             if !w.parts.is_empty() {
                 shape = Some(shape_of(&w.parts)); // MO-10b: `ref T` is an accessor, read as T
             }
+            ret_io = w.marked;
             ret = if w.text.is_empty() { None } else { Some(w.text) };
             c.i += r.unwrap_or(line0.len());
         } else {
@@ -2387,7 +2405,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
         let ptypes: Vec<Option<String>> = ptypes.into_iter().map(|t| t.map(|t| strip_handler(&strip_draft(&t)))).collect();
         let ret = ret.map(|t| strip_handler(&strip_draft(&t)));
         let makes = written || !uses.is_empty();
-        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates, makes, uses, provides, tparams, nests, held, cbs, opts, waits, drafts, part_drafts, draft_args, renders };
+        let row = JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, ret_io, refs, shape, instantiates, makes, uses, provides, tparams, nests, held, cbs, opts, waits, drafts, part_drafts, draft_args, renders };
         // one row an export: a fn with several signatures (TypeScript's overloads) is declared by one of them, and the
         // library's own types say the rest (13 TY-4b)
         if !fns.insert(row.name().to_string()) {
@@ -2522,6 +2540,8 @@ pub(crate) enum Words {
 pub(crate) struct TypeWords {
     pub text: String,
     pub parts: String,
+    /// MO-10b: `text` with each `io` left where it stood, where one is written
+    pub marked: Option<String>,
     pub held: Vec<(String, bool, Vec<String>)>,
     pub whole: Option<(bool, Vec<String>)>,
 }
@@ -2535,6 +2555,7 @@ pub(crate) fn type_words(t: &str, at: Words) -> Option<TypeWords> {
         at: Words,
         rows: Vec<(usize, usize)>,
         refs: Vec<(usize, usize)>,
+        ios: Vec<(usize, usize)>,
         held: Vec<(String, bool, Vec<String>)>,
         whole: Option<(bool, Vec<String>)>,
         bad: bool,
@@ -2577,7 +2598,14 @@ pub(crate) fn type_words(t: &str, at: Words) -> Option<TypeWords> {
                     }
                 }
                 Words::Result => {
-                    if let Some(m) = REF_AT.find(rest) {
+                    // MO-10b (2026-11-26): `io` before a function type — a function of the result that does something,
+                    // whatever it answers
+                    if let Some(m) = IO_AT.find(rest).filter(|m| rest[m.end()..].starts_with('(')) {
+                        if any {
+                            self.bad = true;
+                        }
+                        self.ios.push((i, i + m.end()));
+                    } else if let Some(m) = REF_AT.find(rest) {
                         self.refs.push((i, i + m.end()));
                         match path {
                             _ if !any => {}
@@ -2612,13 +2640,14 @@ pub(crate) fn type_words(t: &str, at: Words) -> Option<TypeWords> {
         }
     }
     let t = js_trim(t);
-    let mut w = W { t, at, rows: vec![], refs: vec![], held: vec![], whole: None, bad: false };
+    let mut w = W { t, at, rows: vec![], refs: vec![], ios: vec![], held: vec![], whole: None, bad: false };
     w.part(0, t.len(), None, 0);
     let parts = w.without(&[&w.rows]);
     if at == Words::Result && (w.bad || STRAY_ROW_WORD.is_match(&masked_strings(&parts))) {
         return None;
     }
-    Some(TypeWords { text: w.without(&[&w.rows, &w.refs]), parts, held: w.held, whole: w.whole })
+    let marked = (!w.ios.is_empty()).then(|| w.without(&[&w.rows, &w.refs]));
+    Some(TypeWords { text: w.without(&[&w.rows, &w.refs, &w.ios]), parts, marked, held: w.held, whole: w.whole })
 }
 /// MO-8d: a declaration's type parameters, `<const S extends string>`, as text (TypeScript's: the checker reads none of it).
 fn type_params(c: &mut Cursor) -> Option<String> {
