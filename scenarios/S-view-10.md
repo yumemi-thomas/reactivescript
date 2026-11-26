@@ -13,8 +13,8 @@ whose type, as written, answers a value is no handler (below).
 Solid calls an element's `ref` in the pass that makes the element, so what it writes is in the frame that shows the
 element. A server makes no element: the server's frame is the one before the `ref`s (`## Server frames`), and the
 browser shows the mount's once it has taken the page over. Each `ref` here writes by a function of the value (W-6): what
-one `ref` reads of a source another wrote in the same pass is the browser's alone to say (rendering there, it reads the
-write; taking a served page over, it reads the value before it).
+one `ref` reads of a source another wrote in the same pass is not the same rendered and hydrated, and is refused (SC-4c,
+S-server-8).
 
 ## Program
 

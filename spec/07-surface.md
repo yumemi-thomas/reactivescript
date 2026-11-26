@@ -281,9 +281,9 @@ attributes are equations, children are readers, components are applied as
   reads the write in both; the interpreter reads the write in all three). No
   runtime change makes them agree: Solid shows no write before its flush,
   and a flush inside a hydrating pass rebuilds what it should adopt. So the
-  reading is to be refused (decided, not yet built: DECISION, "Roadmap,
-  track 2", c); a `ref` that counts writes by a function of the value
-  (`n := v => v + 1`, W-6), which composes whatever the order.
+  reading is refused (02 SC-4c, `REF_READS_REF_WRITE`, S-server-8); a `ref`
+  that counts writes by a function of the value (`n := v => v + 1`, W-6),
+  which composes whatever the order.
 
 *Words that are names too (2026-11-26).* `on` (after `loading`) and `from` (in an `import`) are words only where the
 grammar reads them: anywhere else they are names — `on = !off`, `{ from, to } = props`. They were reserved, and a

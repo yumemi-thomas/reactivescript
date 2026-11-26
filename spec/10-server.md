@@ -315,6 +315,16 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   program is ordinary, and nothing is refused. Found by the third review
   (`p3-err-aw-ifinner-app`); reduced to plain Solid by track 2, step c.
 
+- **DV-27 (a store a `ref` writes while hydrating) — Solid's, 2026-11-26**
+  (`ref/oracle/repros/dv27-hydrate`, plain Solid compiled by its own
+  compiler; at the pin, 2.0.4 not run; S-server-9). A `ref` writes in the
+  pass that makes its element (07 §4); taking a served page over, a write
+  of a signal is shown, a write of a store (a source whose value is an
+  array or a record, ST-1) is made but its reader does not run again for
+  it: the page keeps the server's text until the next change of the store.
+  Recorded as a `hydrated` divergence; the program is ordinary, and nothing
+  is refused. Found by track 3 beside SC-4c's programs.
+
 Ruled 2026-10-26 (Ryan): DV-9, DV-14 and DV-15 are Solid bugs, not intended
 behaviour — the server draws a failed boundary's fallback and the client
 adopts it; each replayed event is its own instant; a hydrated fallback is

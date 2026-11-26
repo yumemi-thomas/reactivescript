@@ -278,7 +278,8 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
       else if (issues.length) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}`); }
       shown.push(norm(await textOf()));
       const lastRow = chains[at - 1][chains[at - 1].length - 1]; const got = shown[shown.length - 1];
-      if (at - 1 >= checkFrom && !matches(lastRow, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrated after instant ${lastRow.instant}: expected '${framesOf(lastRow).join("' or '")}', got '${got}'`); }
+      if (at - 1 >= checkFrom && !matches(lastRow, got) && rec && norm(rec.frame) === got) lines.push(`  ≠ ${t.title} [${label}] hydrated after instant ${lastRow.instant}: '${got}' — recorded (hydrated)`);   // DV-27: what the page shows once it is taken over
+      else if (at - 1 >= checkFrom && !matches(lastRow, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrated after instant ${lastRow.instant}: expected '${framesOf(lastRow).join("' or '")}', got '${got}'`); }
     }
     if (i === chains.length) break;
     if (i === 0) continue;   // the mount is the request

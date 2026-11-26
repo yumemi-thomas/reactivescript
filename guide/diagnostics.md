@@ -313,6 +313,30 @@ export default component App() {
 }
 ```
 
+### REF_READS_REF_WRITE
+
+Solid calls the `ref`s of one pass in an order that is not the same when the page is rendered and when a served page is
+taken over: a row's `ref` runs after the others in the browser alone, among them while hydrating. So a `ref` that reads
+what another `ref` writes — or what it writes itself in each row of a `for` — sees a different value on a served page
+(SC-4c). Write by a function of the value, which composes in any order, or read the writes once the view is made, in an
+equation.
+
+```rx before
+export default component App() {
+  source made := 0
+  <ul>{for i in ["a", "b", "c"] { <li ref={(e: Element) => { made := made + 1 }}>{i}</li> }}</ul>
+  <p>{made}</p>
+}
+```
+
+```rx after
+export default component App() {
+  source made := 0
+  <ul>{for i in ["a", "b", "c"] { <li ref={(e: Element) => { made := m => m + 1 }}>{i}</li> }}</ul>
+  <p>{made}</p>
+}
+```
+
 ### STALE_WRITE_BACK
 
 A write after an `await` that is computed from a read before it overwrites whatever changed the source in between
