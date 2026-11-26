@@ -42,7 +42,7 @@ export type Panic = Error;
 /** CP-4a: an entry's default export, a function of the app (`createApp`'s, either build) giving the view `app.mount` takes. */
 export type Main = (app: object) => () => View;
 export interface Ctx<T> { readonly __ctx: T }
-export declare function ctx<T>(d?: T): Ctx<T>;
+export declare function ctx<T>(d?: () => T): Ctx<T>;   // the default is read where a part asks for it (it may name what the module declares after the context)
 export declare function use<T>(c: Ctx<T>): T;
 export declare function provide<T>(c: Ctx<T>, v: NoInfer<T>): void;
 export declare function provideOr<T>(c: Ctx<T>, v: NoInfer<T> | undefined): void;

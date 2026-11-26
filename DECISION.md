@@ -975,7 +975,9 @@ Fixed:
 - **A context's default that names what the module declares after it** (`source d := "x"` below `context c = d`): both
   emitters threw `Cannot access v$d before initialization`; the runtimes made the default's memo when the context was
   declared. Made lazy (Solid's `lazy` memo), as the oracle and the interpreter read it. Accepted and wrong, in
-  production too.
+  production too. The type projection had the same order (`__.ctx<T>(d)`, TS2448 "used before its declaration" on
+  the same program, so `rx-tsc` refused it): both projections now give the default as a thunk (`__.ctx<T>(() => d)`,
+  the prelude's `ctx` takes one); 667 of 667 in the type pass, the crate's projection the reference's on 1,438.
 - **An error's text**: the interpreter named a flight `"k"` where the others say `k` (32 "differ" of the review's p3
   and v1 sets, and 2 here, were that alone).
 - The oracle's keyed lists (`p0_lst`, `p1_list`, `pr_list-comp`): fixed by a.
