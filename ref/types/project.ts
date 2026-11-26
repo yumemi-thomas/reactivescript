@@ -209,7 +209,19 @@ class Proj {
   private rel(f: string) { const depth = this.path.split("/").length - 1 - (this.set.entry.split("/").length - 1); return depth > 0 ? "../".repeat(depth) + f : "./" + f; }
 
   // ---- declarations, in dependency order (functions are hoisted; values are not) ----
+  /** A write is typed by what its source was declared to hold, not by what an `if` around it narrowed a read of it to
+   *  (`if (a) { a := undefined }`): a source the module writes has an alias of its type beside it, `type __w_a = typeof
+   *  a`, which a type query at the write would not be (it narrows as a read does). `written`: the names so written;
+   *  `scopes`: per block being projected, the sources and the other names it declares — a write names the alias when
+   *  the nearest block that declares its name declares a source. */
+  private written = new Set<string>(); private scopes: { src: Set<string>; other: Set<string> }[] = [];
+  private aliased(name: string): boolean { for (let i = this.scopes.length - 1; i >= 0; i--) { if (this.scopes[i].src.has(name)) return true; if (this.scopes[i].other.has(name)) return false; } return false; }
   decls(ds: Decl[], ind: string, top = false) {
+    if (top) { const walk = (x: unknown): void => { if (Array.isArray(x)) { x.forEach(walk); return; } if (!x || typeof x !== "object") return; const o = x as { k?: string; target?: { name: string; path: unknown[]; ctx?: boolean } }; if ((o.k === "write" || o.k === "optimistic") && o.target && !o.target.path.length && !o.target.ctx) this.written.add(o.target.name); for (const v of Object.values(o)) walk(v); }; walk(ds); }
+    this.scopes.push({ src: new Set(ds.flatMap(d => d.k === "source" && this.written.has(d.name) ? [d.name] : [])), other: new Set(ds.flatMap(d => d.k === "import" ? d.names.map(n => n.alias) : d.k !== "source" && "name" in d ? [d.name as string] : [])) });
+    this.declsIn(ds, ind, top);   // (the block's: its view and its tail are in it too — who calls this ends it, `this.scopes.pop()`)
+  }
+  private declsIn(ds: Decl[], ind: string, top = false) {
     const ex = (d: Decl) => top && (d as { exported?: boolean }).exported ? "export " : "";
     if (top) for (const d of ds) if (d.k === "import") for (const n of d.names) this.declared.add(n.alias); else if ("name" in d) this.declared.add(d.name);   // what the module binds at its top; a nested name shadows the prelude's where it stands
     for (const d of ds) {
@@ -226,7 +238,7 @@ class Proj {
       if (d.k === "fn") {
         const ps = d.params.map(p => `${p.name}${p.opt ? "?" : ""}${ann(p.type)}`).join(", ");
         if (!d.decls.length) { this.w.emit(`${ind}${ex(d)}function ${d.name}${d.tparams ?? ""}(${ps})${ann(d.ret)} { return ${this.expr(d.tail, false)}; }`, d.line); continue; }
-        this.w.emit(`${ind}${ex(d)}function ${d.name}${d.tparams ?? ""}(${ps})${ann(d.ret)} {`, d.line); this.decls(d.decls, ind + "  "); this.w.emit(`${ind}  return ${this.expr(d.tail, false)};\n${ind}}`, d.line);
+        this.w.emit(`${ind}${ex(d)}function ${d.name}${d.tparams ?? ""}(${ps})${ann(d.ret)} {`, d.line); this.decls(d.decls, ind + "  "); this.w.emit(`${ind}  return ${this.expr(d.tail, false)};\n${ind}}`, d.line); this.scopes.pop();
       }
       if (d.k === "component") {
         // TY-3d (2026-11-24): `component C()` declares no props, and takes none — a function of nothing, which TypeScript holds
@@ -236,7 +248,7 @@ class Proj {
         const was = this.loose; this.loose = new Set([...shown(d, typesOf(this.set, this.path))].flatMap(([f, v]) => v.mixed || v.optional ? [`${d.props}.${f}`] : []));
         const wasProps = this.propsOf; this.propsOf = d.noProps || d.propsType === undefined ? undefined : { name: d.props, type: d.propsType, tparams: d.tparams };
         this.decls(d.decls, ind + "  ");
-        this.w.emit(`${ind}  return (`, d.line); this.markup(d.view.length ? d.view : [], ind + "    "); this.w.emit(`${ind}  );\n${ind}}`, d.line);
+        this.w.emit(`${ind}  return (`, d.line); this.markup(d.view.length ? d.view : [], ind + "    "); this.w.emit(`${ind}  );\n${ind}}`, d.line); this.scopes.pop();
         this.loose = was; this.propsOf = wasProps;
       }
       if (d.k === "action" || d.k === "server") {
@@ -246,7 +258,7 @@ class Proj {
       }
     }
     for (const d of this.order(ds)) {
-      if (d.k === "source") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = ${typeText(d.type) ? `__.typed<${typeText(d.type)}>(${this.expr(d.init, false)})` : `__.src(${this.expr(d.init, false)})`};`, d.line);
+      if (d.k === "source") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = ${typeText(d.type) ? `__.typed<${typeText(d.type)}>(${this.expr(d.init, false)})` : `__.src(${this.expr(d.init, false)})`};${this.written.has(d.name) ? ` type __w_${d.name} = typeof ${d.name};` : ""}`, d.line);
       if (d.k === "eq") {
         const x = d.e.k === "call" && d.e.f.k === "id" ? this.refFns.get(d.e.f.name) : undefined;   // MO-10b: a `ref` result is read as its value
         if (x && typeof x.shape === "object") this.refParts.set(d.name, x.shape);
@@ -303,7 +315,7 @@ class Proj {
         case "expr": this.w.emit(`${ind}${e(s.e)};`, 0); break;
         case "return": this.w.emit(`${ind}return${s.e ? " " + e(s.e) : ""};`, 0); break;
         case "throw": this.w.emit(`${ind}throw ${e(s.e)};`, 0); break;
-        case "write": case "optimistic": this.w.emit(`${ind}__.set${s.target.path.length ? "At" : ""}(${this.target(s.target)})(${e(s.e)});`, 0); break;
+        case "write": case "optimistic": this.w.emit(`${ind}__.set${s.target.path.length ? "At" : !s.target.ctx && this.aliased(s.target.name) ? `<__w_${s.target.name}>` : ""}(${this.target(s.target)})(${e(s.e)});`, 0); break;
         case "refresh": case "affects": this.w.emit(`${ind}void ${s.name};`, 0); break;
         case "action": this.w.emit(`${ind}void (async () => {`, 0); this.stmts(s.body, ind + "  "); this.w.emit(`${ind}})();`, 0); break;
         case "for": this.w.emit(`${ind}for (const ${s.name} of ${e(s.e)}) {`, 0); this.stmts(s.body, ind + "  "); this.w.emit(`${ind}}`, 0); break;
@@ -379,7 +391,7 @@ class Proj {
   }
   private region(decls: Decl[], view: Markup[], ind: string, line: number) {
     if (!decls.length) { this.markup(view, ind); return; }
-    this.w.emit(`${ind}(() => {`, line); this.decls(decls, ind + "  "); this.w.emit(`${ind}  return (`, line); this.markup(view, ind + "    "); this.w.emit(`${ind}  );\n${ind}})()`, line);
+    this.w.emit(`${ind}(() => {`, line); this.decls(decls, ind + "  "); this.w.emit(`${ind}  return (`, line); this.markup(view, ind + "    "); this.w.emit(`${ind}  );\n${ind}})()`, line); this.scopes.pop();
   }
   private child(m: Markup, ind: string) {
     const line = m.line ?? 0;

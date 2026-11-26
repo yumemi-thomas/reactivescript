@@ -42,3 +42,20 @@ results are outside the repository (`../work/gen-*.mjs`, `../work/*.json`); the 
 - On the way: `crate.ts --text` draws its mutations from one seed over all scenarios, so two new scenarios moved every
   draw; one found the reference accepting a view kept in a list when a next-line character (U+0085) follows the props
   type (the crate refused). Both now read it as space.
+
+## 3. Bug 2 — a write under an `if` that narrows its source (done)
+
+- `if (a) { a := undefined }`, `if (a == "x") { a := "y" }`: `TS2345`, on main too. Both projections wrote
+  `__.set(a)(v)` and TypeScript inferred the write's type from the narrowed read.
+- Fix (ref/types/project.ts and compiler/src/project.rs, the same text): a source the module writes has
+  `type __w_a = typeof a` beside its declaration and the write is `__.set<__w_a>(a)(v)`. `set<typeof a>` at the write
+  does not work: TypeScript narrows a type query too (tried with tsrs). The alias is named where the nearest block that
+  declares the name declares a source, so a `guess` of an equation of the same name keeps the old form.
+- 213 generated programs (9 kinds of source × 7 places × 8 forms of narrowing, thinned), each with a good write and a
+  wrongly typed one: types 213/213 (the good one checks, the bad one is TS2345), both projections alike 213/213.
+  S-types-3 in every runner.
+- **A trap found**: `tooling/rx-language-server/src/rxc.wasm` (and `words.wasm`), the copies `npm pack` makes, were left
+  from the earlier packing, and `rx-tsc` prefers them to the crate's build: every `rx-tsc` run after a compiler change
+  read the old compiler. Removed (ignored files); `examples/rx-packages/check.mjs` reads the built one again.
+- Found: `a := p => { k: "off" }` (an arrow whose body is a record) parses, and the editor's recovering parse reports
+  an error in it (`crate.ts`: "the editor's parse recovered from 1 error(s) in a program that parses"). Not fixed.

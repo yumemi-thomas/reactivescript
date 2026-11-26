@@ -178,7 +178,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), views: crate::modules::ViewProps::of(set, &set.programs[path].decls), loose: HashSet::new(), props_of: None, types: crate::modules::types_of(set, path), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), ref_fns: HashMap::new(), ref_parts: HashMap::new(), views: crate::modules::ViewProps::of(set, &set.programs[path].decls), loose: HashSet::new(), props_of: None, types: crate::modules::types_of(set, path), prelude, written: HashSet::new(), scopes: vec![] };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -381,6 +381,9 @@ struct Proj<'a> {
     props_of: Option<(String, String)>,
     types: crate::modules::Types,
     prelude: Option<&'a str>,
+    /// the sources the module writes, and per block being projected the sources and the other names it declares
+    written: HashSet<String>,
+    scopes: Vec<(HashSet<String>, HashSet<String>)>,
 }
 
 impl Proj<'_> {
@@ -472,7 +475,56 @@ impl Proj<'_> {
     }
 
     // ---- declarations, in dependency order (functions are hoisted; values are not) ----
+    /// A write names the alias of its source's type when the nearest block that declares its name declares a source.
+    fn aliased(&self, name: &str) -> bool {
+        for (src, other) in self.scopes.iter().rev() {
+            if src.contains(name) {
+                return true;
+            }
+            if other.contains(name) {
+                return false;
+            }
+        }
+        false
+    }
+    /// A write is typed by what its source was declared to hold, not by what an `if` around it narrowed a read of it to
+    /// (`if (a) { a := undefined }`): a source the module writes has an alias of its type beside it, `type __w_a = typeof
+    /// a`, which a type query at the write would not be (it narrows as a read does).
     fn decls(&mut self, ds: &[Decl], ind: &str, top: bool) {
+        if top {
+            fn walk(v: &Value, out: &mut HashSet<String>) {
+                match v {
+                    Value::Array(xs) => xs.iter().for_each(|x| walk(x, out)),
+                    Value::Object(o) => {
+                        if matches!(o.get("k").and_then(|k| k.as_str()), Some("write" | "optimistic")) {
+                            if let Some(t) = o.get("target") {
+                                let plain = t.get("path").and_then(|p| p.as_array()).is_some_and(|p| p.is_empty()) && t.get("ctx").and_then(|c| c.as_bool()) != Some(true);
+                                if let (true, Some(n)) = (plain, t.get("name").and_then(|n| n.as_str())) {
+                                    out.insert(n.to_string());
+                                }
+                            }
+                        }
+                        o.values().for_each(|x| walk(x, out));
+                    }
+                    _ => {}
+                }
+            }
+            walk(&crate::ast::decls_json(ds), &mut self.written);
+        }
+        let src = ds.iter().filter_map(|d| match d {
+            Decl::Source { name, .. } if self.written.contains(name) => Some(name.clone()),
+            _ => None,
+        });
+        let other = ds.iter().flat_map(|d| match d {
+            Decl::Source { .. } => vec![],
+            Decl::Import { names, .. } => names.iter().map(|n| n.alias.clone()).collect(),
+            _ => d.name().map(|n| vec![n.to_string()]).unwrap_or_default(),
+        });
+        // (the block's: its view and its tail are in it too — who calls this ends it, `self.scopes.pop()`)
+        self.scopes.push((src.collect(), other.collect()));
+        self.decls_in(ds, ind, top);
+    }
+    fn decls_in(&mut self, ds: &[Decl], ind: &str, top: bool) {
         let ex = |d: &Decl| if top && d.exported() { "export " } else { "" };
         // what the module binds at its top; a nested name shadows the prelude's where it stands
         for d in ds.iter().filter(|_| top) {
@@ -553,6 +605,7 @@ impl Proj<'_> {
                     self.decls(decls, &format!("{ind}  "), false);
                     let t = self.expr(tail, false, None);
                     self.w.emit(Code::of(&format!("{ind}  return ")).c(t).t(&format!(";\n{ind}}}")), *line);
+                    self.scopes.pop();
                 }
                 Decl::Component { name, props, decls, view, line, props_type, no_props, tparams, .. } => {
                     let nm = self.name(name, sp, &mut at);
@@ -567,6 +620,7 @@ impl Proj<'_> {
                         self.w.emit(Code::of(&format!("{ind}  return (")), *line);
                         self.markup(view, &format!("{ind}    "));
                         self.w.emit(Code::of(&format!("{ind}  );\n{ind}}}")), *line);
+                        self.scopes.pop();
                         continue;
                     }
                     let pn = self.name(props, sp, &mut at);
@@ -593,6 +647,7 @@ impl Proj<'_> {
                     self.w.emit(Code::of(&format!("{ind}  return (")), *line);
                     self.markup(view, &format!("{ind}    "));
                     self.w.emit(Code::of(&format!("{ind}  );\n{ind}}}")), *line);
+                    self.scopes.pop();
                     self.loose = was;
                     self.props_of = was_props;
                 }
@@ -625,7 +680,8 @@ impl Proj<'_> {
                         Some(t) => Code::of(&format!("__.typed<{t}>(")).c(self.expr(init, false, None)).t(")"),
                         None => Code::of("__.src(").c(self.expr(init, false, None)).t(")"),
                     };
-                    self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";").from(sp), *line);
+                    let alias = if self.written.contains(name) { format!(" type __w_{name} = typeof {name};") } else { String::new() };
+                    self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";").from(sp).t(&alias), *line);
                 }
                 Decl::Eq { name, e, line, ty, .. } => {
                     let nm = self.name(name, sp, &mut at);
@@ -820,7 +876,13 @@ impl Proj<'_> {
                 StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
                     let t = self.target(target, sp, &mut at);
                     let v = self.expr(e, true, None);
-                    let set = if target.path.is_empty() { "set" } else { "setAt" };
+                    let set = if !target.path.is_empty() {
+                        "setAt".to_string()
+                    } else if !target.is_ctx() && self.aliased(&target.name) {
+                        format!("set<__w_{}>", target.name)
+                    } else {
+                        "set".to_string()
+                    };
                     self.w.emit(Code::of(&format!("{ind}__.{set}(")).c(t).t(")(").c(v).t(");").from(sp), 0);
                 }
                 StmtKind::Refresh(n) | StmtKind::Affects(n) => {
@@ -1065,6 +1127,7 @@ impl Proj<'_> {
         self.w.emit(Code::of(&format!("{ind}  return (")), line);
         self.markup(view, &format!("{ind}    "));
         self.w.emit(Code::of(&format!("{ind}  );\n{ind}}})()")), line);
+        self.scopes.pop();
     }
     fn child(&mut self, m: &Markup, ind: &str) {
         let line = m.line.unwrap_or(0);

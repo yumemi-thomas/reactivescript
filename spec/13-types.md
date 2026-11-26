@@ -368,6 +368,13 @@ while types were text:
    is always checked.
 3. **A source without a type is widened** (TY-2; ruled 2026-10-26): a source is written
    later, so its initializer's literal type would refuse every other write.
+   **A write is typed by the source's own type, not by a narrowing around
+   it** (2026-11-26): `if (a) { a := undefined }` on a source declared `T |
+   undefined` writes `undefined` — an `if` narrows what a read is, and a
+   write is no read. The projection names the source's type beside its
+   declaration (`type __w_a = typeof a`) and the write is of that type
+   (`__.set<__w_a>(a)(…)`): a type query at the write itself would be
+   narrowed as the read is. S-types-3.
 4. **What a reader inserts is Solid's `JSX.Element`** (TY-3b; ruled 2026-10-26), not a
    narrower type of our own. Where more could be done: a narrower
    insertable type would refuse `<p>{record}</p>` statically at no run-time
