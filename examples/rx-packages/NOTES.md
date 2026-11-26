@@ -187,3 +187,16 @@ Left out, each with what is written instead:
 - Lines: `.rx` 2,029 → 2,030, JavaScript 457 → 446, declarations 495 → 491, facade 87.
 - A slip of mine: I removed `test/*/.hydration-harness-*` folders taking them for a run's leftovers; 32 files in them
   are tracked (the first pass committed them). Restored from git; only this pass's untracked ones were then removed.
+
+## The one `scripts/ci` (--jobs 5), and what it found
+
+- 47 steps, 1,019 s: 42 passed, 3 failed, 2 not run here (`t-vite-hosts`, `t-vite-watch`: `SOLID_VITE_PLUGIN` is not set).
+- **generated** (8 newly refused): 4b read every declared fn's result type at its calls — a generated draft's too, and
+  a draft's types are no claim (MO-8l): `x = on(…); x()` and `makes().go(1)` over a draft were refused by the type
+  alone. Fixed: of a draft only a part it marks `io` is read (both checkers).
+- **editor-ls** (7 of the generator's adversarial cases, `n7-*`): each says "this fn is not `pure`, a view could call
+  `run`"; the fn is now `pure` with `run` marked `io`, which a view may not call. The cases accept either.
+- **tree-sitter**: `x is string` in `std/src/is.d.rx`; a row's result may be TypeScript's type predicate in the grammar
+  now (`fn_signature`), parser regenerated.
+- The three steps were run again alone after the fixes (`scripts/ci --only tree-sitter,generated,editor-ls`), and
+  `scripts/quick`; the full run was not repeated.

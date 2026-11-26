@@ -2847,6 +2847,10 @@
           {
             "type": "type_annotation",
             "named": true
+          },
+          {
+            "type": "type_predicate_annotation",
+            "named": true
           }
         ]
       },

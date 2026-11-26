@@ -40,7 +40,9 @@ cases.forEach((c, i) => {
   for (const [f, text] of Object.entries({ "index.js": c.js, "index.d.ts": c.d, ...c.files })) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), text); }
   let rows; try { rows = declare(name, ws, {}, { infer: true, written: true }).split("\n").filter(l => l.startsWith("export ")).join("\n"); } catch (e) { rows = `error: ${e.message}`; }
   if (c.has) ok(`${c.id}: /${c.has}/`, new RegExp(c.has, "m").test(rows) && !rows.startsWith("error:"), rows);   // an honest one: its word is written
-  else ok(`${c.id}: not /${c.not}/ (${c.fact})`, !new RegExp(c.not, "m").test(rows) && !rows.startsWith("error:"), rows);
+  // (MO-10b, 2026-11-26: a fn whose answer holds a function that does something is not `pure` — or it is, calling it only
+  // computing, and that function is marked `io` in the row, which a view may not call: the whole result, or the part named)
+  else ok(`${c.id}: not /${c.not}/ (${c.fact})`, (!new RegExp(c.not, "m").test(rows) || /\): io \(|[[,] ?io \(/.test(rows) || new RegExp(`\\b${c.fact}\\??: io \\(`).test(rows)) && !rows.startsWith("error:"), rows);
 });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -327,7 +327,7 @@ module.exports = grammar(tsx, {
       field('name', choice($._binding_name, $.method_name)),   // MO-8t: `fn toaster.show(…)`, a method of a value the file declares
       optional(field('type_parameters', $.type_parameters)),
       field('parameters', $.formal_parameters),
-      optional(field('return_type', $.type_annotation)),
+      optional(field('return_type', choice($.type_annotation, $.type_predicate_annotation))),   // `: x is string`, TypeScript's: a row that narrows
       repeat($._signature_row),
       choice($._semicolon, $._function_signature_automatic_semicolon),
     ),

@@ -3700,7 +3700,8 @@ impl<'a> Checker<'a> {
                     }
                     let mut s = Sym::new(SymKind::Import, alias, region, line);
                     s.io = !xpure;
-                    s.ret_io = xret_io.clone().or_else(|| xret.clone());
+                    // (MO-8l: a draft's types are no claim — of a draft only a part it marks `io` is read)
+                    s.ret_io = xret_io.clone().or_else(|| if generated.is_none() { xret.clone() } else { None });
                     // (EF-5a reads it off a type alone, which a draft may hold of any fn that answers a fn)
                     s.disposer = xret.as_deref().filter(|_| generated.is_none()).and_then(|t| ty_undoes(t, &|n| decls.iter().find_map(|y| match y { JsDecl::Type { name, text, .. } if name == n => alias_text(text), _ => None })));
                     s.rejects = Some(fails.clone().or_else(|| rejects.clone()).unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());

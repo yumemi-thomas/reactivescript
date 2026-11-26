@@ -13816,8 +13816,17 @@
               "type": "FIELD",
               "name": "return_type",
               "content": {
-                "type": "SYMBOL",
-                "name": "type_annotation"
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "type_annotation"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "type_predicate_annotation"
+                  }
+                ]
               }
             },
             {
