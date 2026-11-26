@@ -354,6 +354,25 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   2 counters that 2 Opus probe apps bump to restart a page or a retry,
   where a second click before the first settles does nothing. It fires on
   no reference, no example and no declared action (S-infer-8, S-infer-9).
+- **AC-1i (An action that answers at the call; B10, a prototype
+  2026-11-26, not merged).** `action show(t: string): number { … return id
+  }` declares what it answers: the call answers that value, not a promise
+  (a `.tsx` caller gets a number). Such an action never waits: an `await`,
+  `refresh`, `affects`, a guess or an inline `action { … }` in its own
+  statements (a branch, a `try` and a loop count; a closure's do not) is
+  `ACTION_ANSWER_HELD`, since its change would outlive the call and the
+  answer would come before its writes settle. Its body is checked as a
+  handler's run (it is one, named): its writes land as a handler's do, in
+  the caller's instant, and AC-1h's form for a run applies — a counter it
+  writes before calling an action that waits is `STALE_NEXT_READ`. It is
+  still an action: called while a view computes it is
+  `ACTION_CALLED_IN_OWNED_SCOPE`, and its body lets no failure out (R-f-6).
+  The difference from Solid's `action()`: an action that never waits gives
+  `action()` nothing to hold — AC-1 already calls such a body an ordinary
+  instant, AC-1g has no answer to guard and AC-1h no held write of its own —,
+  so the only thing lost is the promise, and with it a caller's way to wait
+  for a change that has already settled when the call returns. Lowers to a
+  plain function (`__rt.now`), not to `action`.
 - **AC-2 (Not special).** An action is only a way to tie writes to async
   work; the hold is the thing (H-2). `refresh`, `affects` and probes behave
   the same inside and outside one.

@@ -89,6 +89,17 @@ export function guessFacts(stmts: Stmt[], hook: (n: string) => boolean): GuessFa
  *  in a branch, a `try` or a loop's body (a loop's was missed until 2026-11-26: an action that waits in a `for` was taken as
  *  one that settles as it returns, and a handler beside it could mint one id twice, AC-1h's fault). */
 export const actionWaits = (ss: Stmt[]): boolean => ss.some(s => stmtAwait(s) || s.k === "refresh" || s.k === "affects" || (s.k === "sif" && (actionWaits(s.t) || actionWaits(s.f))) || (s.k === "for" && actionWaits(s.body)) || (s.k === "try" && (actionWaits(s.body) || actionWaits(s.handler ?? []) || actionWaits(s.fin ?? []))));
+/** AC-1i (B10, a prototype): the first word of a body (not a closure's) that makes a change outlive the call — an \`await\`,
+ *  \`refresh\`, \`affects\`, a guess, an inline \`action { … }\` — in a branch, a \`try\` or a loop too. */
+export const heldWord = (ss: Stmt[]): { word: string; line?: number } | undefined => {
+  for (const s of ss) {
+    const w = stmtAwait(s) ? "await" : s.k === "refresh" ? "refresh" : s.k === "affects" ? "affects" : s.k === "optimistic" ? "guess" : s.k === "action" ? "action { … }" : undefined;
+    if (w) return { word: w, line: (s as { line?: number }).line };
+    const inner = s.k === "sif" ? [s.t, s.f] : s.k === "for" ? [s.body] : s.k === "try" ? [s.body, s.handler ?? [], s.fin ?? []] : [];
+    for (const b of inner) { const r = heldWord(b); if (r) return r; }
+  }
+  return undefined;
+};
 export const triggerText = (t: Trigger): string => t === "write+await" ? "it writes and awaits" : `it has \`${t === "optimistic" ? "guess" : t}\``;
 
 export type Finding = { code: "HELD_WRITE" | "STALE_OWN_READ" | "STALE_WRITE_BACK" | "STALE_CAPTURE" | "STALE_NEXT_READ"; name: string; via?: string };

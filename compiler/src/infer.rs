@@ -290,6 +290,38 @@ pub struct RunOpts<'o> {
     pub is_action: Option<&'o dyn Fn(&str) -> bool>,
 }
 
+/// AC-1i (B10, a prototype): the first word of a body (not a closure's) that makes a change outlive the call — an `await`,
+/// `refresh`, `affects`, a guess, an inline `action { … }` — in a branch, a `try` or a loop too; with its statement's line.
+pub fn held_word(ss: &[Stmt]) -> Option<(&'static str, u32)> {
+    for s in ss {
+        let w = if stmt_await(s) {
+            Some("await")
+        } else {
+            match &s.k {
+                StmtKind::Refresh(_) => Some("refresh"),
+                StmtKind::Affects(_) => Some("affects"),
+                StmtKind::Optimistic { .. } => Some("guess"),
+                StmtKind::Action(_) => Some("action { … }"),
+                _ => None,
+            }
+        };
+        if let Some(w) = w {
+            return Some((w, s.line));
+        }
+        let inner: Vec<&[Stmt]> = match &s.k {
+            StmtKind::Sif { t, f, .. } => vec![t, f],
+            StmtKind::For { body, .. } => vec![body],
+            StmtKind::Try { body, handler, fin, .. } => vec![body, handler.as_deref().unwrap_or(&[]), fin.as_deref().unwrap_or(&[])],
+            _ => vec![],
+        };
+        for b in inner {
+            if let Some(r) = held_word(b) {
+                return Some(r);
+            }
+        }
+    }
+    None
+}
 /// AC-1h: whether an action's change can outlast its call — its body (not a closure's) awaits, re-asks, or declares `affects`,
 /// in a branch, a `try` or a loop's body (a loop's was missed until 2026-11-26).
 pub fn action_waits(ss: &[Stmt]) -> bool {
