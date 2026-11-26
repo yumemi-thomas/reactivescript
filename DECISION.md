@@ -1503,7 +1503,7 @@ Solid's, which the language follows (`proposals/32`). *Ours*: a rule or a harnes
 | 16 | a reader reading `latest` first publishes an empty slot | bug | fixed 2026-10-26 | #4275, #4281 | both orders `off` ✓ |
 | 17 | two mounts under one boundary merge their holds | bug | fixed 2026-10-26 | #4283, #4302 | ✓ |
 | 18 | a keyed projection's rows miss later landings (regression of #4280) | bug | fixed 2026-10-27 | #4305 | ✓ |
-| 19 | `latest` of a shown guess answers the truth after a re-ask | bug against ruling #4695 decision 3 | fixed in rc.22 | #4689 | signal mode ✓; the store mode, which nothing displays, answers `3` — outside the ruling (a *displayed* slot), not a DV; noted in 05 and the README |
+| 19 | `latest` of a shown guess answers the truth after a re-ask | bug against ruling #4695 decision 3 | fixed in rc.22 (the signal form; the same in rc.23 and 2.0.4) | #4689 | signal mode ✓; the store mode, which nothing displays, answers `3` — outside the ruling (a *displayed* slot), not a DV; noted in 05 and the README |
 | 20 | a guess read by effects alone reverts under the action's refresh | bug | fixed in rc.22 | #4690 | ✓ |
 | 21 | posture is per read | ruling, not built | open (Solid's `it.fails`) | #4695 decision 1 | recorded in S-solid-27, 49, 50 |
 | 22 | `pending?` under a new question under a guess | ruling, not built | open | #4695, S-44 | recorded in S-solid-44 |
@@ -1512,7 +1512,7 @@ Solid's, which the language follows (`proposals/32`). *Ours*: a rule or a harnes
 | 25 | a write beside a shown error fallback shows at once | ruling F-3 | followed 2026-11-26 | #4908 (rc.23), `lean.test.ts` E1 | `#2 nobody` (F-3's) |
 | 26 | a failure caught above a part's `loading` streams an empty fragment | bug | **open** | remainder of #4287 (a stated limit of #4303); the before-shell case's fix is PR #5225 (open); draft 2 unfiled | before and after the shell, `part` and `prop` blank |
 | 27 | a store a `ref` writes while hydrating keeps the server's text | bug | **fixed at 50a4bfdde** (open in 2.0.4) | fixed by #4906 (2026-11-26); draft 6 being written | hydrated `2/2/5` ✓ (`1/2/5` at 30e7805) |
-| 28 | a `ref` in a `<For>` row or a `<Show>` reads an earlier `ref`'s write; a `<Show>` rebuilt on hydration | bug: a regression in rc.22 (#4768) against the maintainer's ruling in #5110 ("refs are like event handlers") | **open** | draft 5 unfiled; related #5098, #5110 | see "On the new pin" below |
+| 28 | a `ref` in a `<For>` row or a `<Show>` reads an earlier `ref`'s write; a `<Show>` rebuilt on hydration | bug: a regression in rc.22 (#4768) against the maintainer's ruling in #5110 ("refs are like event handlers") | **open** | draft 5 unfiled; related #5098, #5110 | open (the pin's run); recorded in S-server-8 |
 | (X1) | `reconcile(v, key)` gives an unsubscribed kept row a new proxy | Solid's code (the #2902 prune, pinned) against its documentation | **open** | #5220, fix PR #5222 (both open) | draft 1: reproduced at 50a4bfd |
 | (—) | a server projection over a pending store throws; then it stops following its source when hydrated | bug | fixed at both pins and in 2.0.4; live in 2.0.3 | #5097 (fix fc0dac0cd), #5146 (fix #5150) | `rendered: A`; `Y,B` ✓ |
 
@@ -1559,10 +1559,6 @@ still standing; the one that was (X6's refusal) was withdrawn yesterday. Both ch
   to `^2.0.4`) removes the #5097 workaround. It changes what every example installs, so it is a step of its own, not
   this audit's.
 
-### On the new pin
-
-FILL
-
 ### Census of what the two removals change
 
 Neither checker changed, so no verdict can move; what can move is output. The census asks whether it does.
@@ -1575,6 +1571,9 @@ Neither checker changed, so no verdict can move; what can move is output. The ce
 | `examples/rx-packages` `build.mjs`, `check.mjs` | 65 built; `check.json` unchanged byte for byte |
 | `examples/rx-ui-sdk` `build.mjs`, `check/run.mjs` | builds (its source maps differ only by the worktree's path); the rewrite's column accepts the good program and the correct lines, as before |
 | `std/test/browser.mjs` | 39 of 39 |
-| the full `scripts/ci` | below, on the new pin |
+| the full `scripts/ci`, uncached, with the Vite plugin fork, on 30e7805 (`bench --check --strict`, `proposals/check.mjs`, every runner and suite) | 47 of 47 passed, nothing kept from before (731 s) |
 
 Nothing stricter dropped, nothing correct refused, nothing accepted that a runner shows differently.
+
+The DV status on Solid main 50a4bfdde, the pin the user is moving to, is the pin's own step to write (its #4906 replaced
+the store engine). Its repros: DV-27 fixed; X1, DV-19's store form, DV-26 and DV-28 open; the rest as above.
