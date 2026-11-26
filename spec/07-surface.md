@@ -274,9 +274,16 @@ attributes are equations, children are readers, components are applied as
   element goes; what it writes is in the frame that shows the element. A
   server makes no element and calls no `ref` (10 SV-2): its frame is the
   one before. What a `ref` reads of a source another `ref` wrote in the same
-  pass is not ruled (a browser that renders reads the write; one that takes
-  a served page over reads the value before it): a `ref` that counts writes
-  by a function of the value (`n := v => v + 1`, W-6).
+  pass depends on how Solid makes the pass, and is not the same rendered and
+  hydrated (measured 2026-11-26, track 2 step c: two sibling elements read
+  the value before, rendered and hydrated; a `ref` in a `for` row reads the
+  write when rendered and the value before when hydrated; one in an `if`
+  reads the write in both; the interpreter reads the write in all three). No
+  runtime change makes them agree: Solid shows no write before its flush,
+  and a flush inside a hydrating pass rebuilds what it should adopt. So the
+  reading is to be refused (decided, not yet built: DECISION, "Roadmap,
+  track 2", c); a `ref` that counts writes by a function of the value
+  (`n := v => v + 1`, W-6), which composes whatever the order.
 
 *Words that are names too (2026-11-26).* `on` (after `loading`) and `from` (in an `import`) are words only where the
 grammar reads them: anywhere else they are names — `on = !off`, `{ from, to } = props`. They were reserved, and a

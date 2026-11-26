@@ -164,7 +164,7 @@ The crate, the plugin, the runtime and the tooling, from the repository's root:
 
 ```sh
 (cd compiler && cargo test --release)
-for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confined leaks js-host lib runtime-resolve; do node compiler/test/$t.mjs; done   # SOLID_NEXT=<checkout> for vite.mjs when Solid is not at ../solid-next (a nested worktree); vite.mjs installs TanStack Router's Vite plugin once into compiler/test/.out (examples/tanstack is built with it); `node compiler/test/vite.mjs context` is the dev server after an edit (11 CP-4b)
+for t in vite wardic formisch ssr-router start vite-types vite-gate drafts confined leaks js-host rows lib runtime-resolve; do node compiler/test/$t.mjs; done   # SOLID_NEXT=<checkout> for vite.mjs when Solid is not at ../solid-next (a nested worktree); vite.mjs installs TanStack Router's Vite plugin once into compiler/test/.out (examples/tanstack is built with it); `node compiler/test/vite.mjs context` is the dev server after an edit (11 CP-4b)
 # with a Solid plugin that has context.resolve and Frontend.buildStart (compiler/README.md):
 for t in vite-hosts vite-watch; do SOLID_VITE_PLUGIN=<checkout> node compiler/test/$t.mjs; done   # git clone -b frontend-resolve https://github.com/yumemi-thomas/solid-vite-plugin && pnpm install && npx rolldown -c
 (cd tooling/tree-sitter-rx && pnpm install && pnpm run generate && pnpm test && pnpm run parse:repo)   # a new form in .rx or .d.rx needs its grammar

@@ -12,7 +12,7 @@ import { Show, For, Loading, Errored } from "solid-js";
 import { getObserver, runRefCallback } from "@solidjs/signals";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
-  createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, isDisposed, createOwner, runWithOwner, $TARGET, createErrorBoundary, omit, merge
+  createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, isDisposed, createOwner, runWithOwner, $TARGET, createErrorBoundary, omit, merge, reconcile
 } from "@solidjs/signals";
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
@@ -21,6 +21,7 @@ import { singleModule, given, defaulted, bindGiven, viewsAll, viewCtxAll, shownA
 import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { unwrapServer } from "../src/check.ts";
 import { primsSolid, isPrims } from "../src/prims.ts";
+import { keyedWrite } from "../compile/keyed.ts";
 import type { Shape } from "../src/parse.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
@@ -405,7 +406,8 @@ export class Oracle {
             const init = untrack(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
               const [store, setStore] = createStore(init as any); rooted(store as object); if (d.key === undefined) byPosition.add(store as object); const [get, set] = createSignal<unknown>(store);
-              const w = { set: rootSet(store, set as never, v => setStore(() => v as any), f => setStore(f as any)), setPath: setStore };   // ST-2a: a root write is reconciled per path; W-6: a function is the updater
+              const key = d.key, w = { set: rootSet(store, set as never, v => setStore(key !== undefined ? keyedWrite(reconcile as never, $TARGET, v, key) as any : () => v as any),   // ST-2a: a root write is reconciled per path; ST-4a: a keyed one by its key (compile/keyed.ts); W-6: a function is the updater
+                f => setStore((key !== undefined ? (dr: unknown) => { const r = f(dr); if (r === undefined || r === dr || typeof r !== "object" || r === null) return r; keyedWrite(reconcile as never, $TARGET, r, key)(dr); } : f) as any)), setPath: setStore };
               if (this.optimisticTargets.has(d.name)) {                     // AC-3 over a := store: createOptimisticStore(() => truth) over createStore(v); writes go to the truth, guesses to the layer
                 const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); rooted(view); if (d.key === undefined) byPosition.add(view);
                 scope.vars.set(d.name, { k: "store", get: () => view, ...w, question: false, setGuess: setView });

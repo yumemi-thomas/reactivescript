@@ -65,7 +65,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   region only where it kept its index) — is **reconciled** by
   `k`: rows with the same key keep their object identity and receive
   per-key path updates (their readers run only for changed keys); new keys
-  create, missing keys remove; a reorder moves rows (S-store-3). `pending?`
+  create, missing keys remove; a reorder moves rows (S-store-3). A kept
+  row is kept whatever its body reads of it, and what an updater answers
+  is reconciled as a written value is (S-store-kept-row, 2026-11-26: Solid's
+  `reconcile` alone remakes a row nothing has read; the runtime keeps it). `pending?`
   and `latest` on an element follow the key.
   The key applies at any depth, as Solid's: on a record (`x key k = { a: …,
   b: … }`) every list inside it is reconciled by `k` (taken by default,

@@ -5,6 +5,7 @@
 // for tests. Views are JSX that Solid's compiler lowers onto that renderer (compile/jsx.ts); the browser and the server
 // runtimes are rt-web.ts and rt-server.ts.
 import { primsSolid } from "./prims-solid.ts";
+import { keyedWrite } from "./keyed.ts";
 import { getObserver } from "@solidjs/signals";
 import { Show, For, Loading, Errored, DEV } from "solid-js";
 import {
@@ -296,7 +297,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       if (typeof init === "object" && init !== null) {
         const [store, setStore] = createStore(init as any); rooted(store as object); if (key === undefined) byPosition.add(store as object); const [get, set] = createSignal<unknown>(store);
         const w: Writer = {
-          set: rootSet(store, set as never, v => setStore(key !== undefined ? reconcile(v as any, key) as any : () => v as any), f => setStore(f as any)),
+          set: rootSet(store, set as never, v => setStore(key !== undefined ? keyedWrite(reconcile as never, $TARGET, v, key) as any : () => v as any),
+            f => setStore((key !== undefined ? (d: unknown) => { const r = f(d); if (r === undefined || r === d || typeof r !== "object" || r === null) return r; keyedWrite(reconcile as never, $TARGET, r, key)(d); } : f) as any)),   // ST-4a: what an updater answers is reconciled by the key, as a written value is (keyed.ts)
           path: pathWrite(setStore),
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
