@@ -2361,6 +2361,8 @@ pub struct Checker<'a> {
     /// the calls of fns that instantiate, each in its region (RG-6a)
     hook_calls: Vec<(RId, SId, i64, String)>,
     parts_memo: HashMap<SId, IndexSet<String>>,
+    /// B3: what `parts_of` answered of a name, in its closure mode
+    closure_memo: HashMap<SId, IndexSet<String>>,
     /// W2: the closures a calling method hands an item of a list: the parameter, what it runs over
     item_of: HashMap<*const Expr, (usize, &'a Expr, EId)>,
     /// W2: `called_of`'s cycle, and what it answered at the top
@@ -2862,6 +2864,7 @@ impl<'a> Checker<'a> {
             own_ctx: vec![],
             hook_calls: vec![],
             parts_memo: HashMap::new(),
+            closure_memo: HashMap::new(),
             item_of: HashMap::new(),
             called_stack: IndexSet::new(),
             called_memo: HashMap::new(),
@@ -4478,6 +4481,8 @@ impl<'a> Checker<'a> {
                     if let Some(h) = self.envs[env].vars.get(name.as_str()).and_then(|&t| self.syms[t].held.first().cloned()) {
                         self.err("RESULT_AS_VALUE", "MO-10f", format!("{name} is a JS result whose fields hold or fail where each is read ({name}.{}), and a module's signature says nothing of a value's fields: export the field, `export {} = {name}.{}`, which carries its rows", h.0, h.0.rsplit('.').next().unwrap_or(""), h.0));
                     }
+                    // B3
+                    self.closure_given(e, env, &|_| false, &format!("as {name}, an export of the module, which what imports it (JavaScript too, a router's `route`) may call while it computes — export an action"));
                 }
                 // MO-11c: a literal of components bound to a name
                 if matches!(e.k, ExprKind::Rec(_) | ExprKind::Arr(_)) {
@@ -4513,6 +4518,7 @@ impl<'a> Checker<'a> {
                             if self.syms[fs].kind == SymKind::Fn && self.syms[fs].instantiating {
                                 self.call_marks(f, args, env);
                                 self.io_given(f, args, env, false); // W2: an instantiation runs where it is written, in reactive scope
+                                self.js_given(f, args, Some(fs), env); // B3
                                 self.mark_callbacks(args, fs);
                                 if self.unplaced_fn(fs) {
                                     self.unplaced(args, env, Some(fs)); // MO-11s, MO-11u
@@ -6139,6 +6145,35 @@ impl<'a> Checker<'a> {
             }
         }
     }
+    /// B3 (2026-11-26): a statement closure written as an item or a field is carried freely, and ends only where a handler
+    /// goes. Given anywhere else — a plain attribute or prop, a spread's field that is none, a JavaScript argument its
+    /// declaration does not mark `handler` — it is the closure of reactive scope SC-3 refuses. `ok`: the paths that may hold
+    /// one. A closure written there itself is SC-3's own. `ref/src/check.ts` `closureGiven`.
+    fn closure_given(&mut self, e: &'a Expr, env: EId, ok: &dyn Fn(&str) -> bool, place: &str) {
+        if matches!(e.k, ExprKind::Fn { .. }) {
+            return;
+        }
+        let Some(p) = self.parts_of(e, env, true).into_iter().find(|p| !ok(p)) else { return };
+        let at = if p.is_empty() { String::new() } else { format!(" (`{p}`)") };
+        self.err("REACTIVE_WRITE_IN_OWNED_SCOPE", "W-2", format!("{} holds a statement closure{at}, given {place}: a closure made in reactive scope is a pure function (SC-3) unless it goes where a handler is taken — an `on…` attribute or prop, `ref`, a parameter declared `handler`", show(e)));
+    }
+    /// B3: a call of JavaScript in reactive scope, given a statement closure where its declaration does not say `handler`.
+    fn js_given(&mut self, f: &'a Expr, args: &'a [Expr], s: Option<SId>, env: EId) {
+        let (Some(s), ExprKind::Id(name)) = (s, &f.k) else { return };
+        if !(self.syms[s].kind == SymKind::Import || (self.syms[s].kind == SymKind::Fn && self.syms[s].foreign.is_some())) {
+            return;
+        }
+        let cbs = self.syms[s].cbs.clone();
+        for (i, a) in args.iter().enumerate() {
+            let c = cbs.get(i).cloned().flatten();
+            if c.as_ref().is_some_and(|c| c.0) {
+                continue;
+            }
+            let fields: Vec<String> = c.map(|c| c.1).unwrap_or_default();
+            let ok = |p: &str| !p.is_empty() && fields.iter().any(|k| k == p.split('.').next().unwrap_or(""));
+            self.closure_given(a, env, &ok, &format!("to {name}(…), JavaScript that may call it while it computes"));
+        }
+    }
     fn say_given(&mut self, n: &str, at: &str, f: &Expr, in_fn: bool, named: bool, action: bool) {
         let what = if at.is_empty() { format!("{n} is io") } else { format!("{n} holds io at `{at}`") };
         if in_fn {
@@ -6568,6 +6603,10 @@ impl<'a> Checker<'a> {
         }
     }
     fn action_parts(&mut self, e: &'a Expr, env: EId) -> IndexSet<String> {
+        self.parts_of(e, env, false)
+    }
+    /// …`cl`: the parts that are a statement closure written as an item or a field (B3), and nothing else (step 4).
+    fn parts_of(&mut self, e: &'a Expr, env: EId, cl: bool) -> IndexSet<String> {
         fn at(o: IndexSet<String>, k: Option<&str>) -> IndexSet<String> {
             let Some(k) = k else { return IndexSet::new() };
             o.iter().filter_map(|p| if p == k { Some(String::new()) } else { p.strip_prefix(k).and_then(|r| r.strip_prefix('.')).map(String::from) }).collect()
@@ -6580,22 +6619,22 @@ impl<'a> Checker<'a> {
         }
         match &e.k {
             ExprKind::Id(n) => match self.lookup(env, n) {
-                Some(s) if self.syms[s].kind == SymKind::Action => [String::new()].into_iter().collect(),
-                Some(s) if !self.syms[s].action_parts.is_empty() => self.syms[s].action_parts.iter().cloned().collect(),
-                Some(s) if matches!(self.syms[s].kind, SymKind::Eq | SymKind::Value) => self.named_parts(s, self.syms[s].val),
+                Some(s) if !cl && self.syms[s].kind == SymKind::Action => [String::new()].into_iter().collect(),
+                Some(s) if !cl && !self.syms[s].action_parts.is_empty() => self.syms[s].action_parts.iter().cloned().collect(),
+                Some(s) if matches!(self.syms[s].kind, SymKind::Eq | SymKind::Value) => self.named_parts_cl(s, self.syms[s].val, cl),
                 _ => IndexSet::new(),
             },
             // SC-4b: a handler the component is given is io, as an action is
-            ExprKind::Member { .. } | ExprKind::Index { .. } if self.handler_prop(e, env) => [String::new()].into_iter().collect(),
-            ExprKind::Member { o, p, .. } => at(self.action_parts(o, env), Some(p)),
-            ExprKind::Index { o, i, .. } => at(self.action_parts(o, env), lit_key(i).as_deref()),
+            ExprKind::Member { .. } | ExprKind::Index { .. } if !cl && self.handler_prop(e, env) => [String::new()].into_iter().collect(),
+            ExprKind::Member { o, p, .. } => at(self.parts_of(o, env, cl), Some(p)),
+            ExprKind::Index { o, i, .. } => at(self.parts_of(o, env, cl), lit_key(i).as_deref()),
             ExprKind::Rec(fields) => {
                 let mut out = IndexSet::new();
                 for f in fields {
                     match f {
-                        Field::Spread(x) => out = self.action_parts(x, env),
+                        Field::Spread(x) => out = self.parts_of(x, env, cl),
                         Field::Kv { key, v } => {
-                            let v = self.action_parts(v, env);
+                            let v = self.parts_of(v, env, cl);
                             put(&mut out, key, v);
                         }
                     }
@@ -6608,28 +6647,30 @@ impl<'a> Checker<'a> {
                     if matches!(x.k, ExprKind::Spread(_)) {
                         break;
                     }
-                    let v = self.action_parts(x, env);
+                    let v = self.parts_of(x, env, cl);
                     put(&mut out, &i.to_string(), v);
                 }
                 out
             }
             ExprKind::If { t, f, .. } => {
-                let mut out = self.action_parts(t, env);
-                out.extend(self.action_parts(f, env));
+                let mut out = self.parts_of(t, env, cl);
+                out.extend(self.parts_of(f, env, cl));
                 out
             }
             // `h = props.onPick ?? other`
             ExprKind::Bin { op, l, r } if matches!(op.as_str(), "??" | "||" | "&&") => {
-                let mut out = if op == "&&" { IndexSet::new() } else { self.action_parts(l, env) };
-                out.extend(self.action_parts(r, env));
+                let mut out = if op == "&&" { IndexSet::new() } else { self.parts_of(l, env, cl) };
+                out.extend(self.parts_of(r, env, cl));
                 out
             }
-            ExprKind::Peek(x) => self.action_parts(x, env),
+            ExprKind::Peek(x) => self.parts_of(x, env, cl),
+            // B3: a statement closure is io, as an action is
+            ExprKind::Fn { stmts: Some(_), .. } => [String::new()].into_iter().collect(),
             ExprKind::Call { f, .. } => {
                 let ExprKind::Id(n) = &f.k else { return IndexSet::new() };
                 match self.lookup(env, n) {
-                    Some(s) if self.syms[s].kind == SymKind::Fn && !self.syms[s].action_parts.is_empty() => self.syms[s].action_parts.iter().cloned().collect(),
-                    Some(s) if self.syms[s].kind == SymKind::Fn => self.named_parts(s, self.syms[s].fn_tail),
+                    Some(s) if !cl && self.syms[s].kind == SymKind::Fn && !self.syms[s].action_parts.is_empty() => self.syms[s].action_parts.iter().cloned().collect(),
+                    Some(s) if self.syms[s].kind == SymKind::Fn => self.named_parts_cl(s, self.syms[s].fn_tail, cl),
                     _ => IndexSet::new(),
                 }
             }
@@ -6734,13 +6775,17 @@ impl<'a> Checker<'a> {
         r
     }
     fn named_parts(&mut self, s: SId, v: Option<(&'a Expr, EId)>) -> IndexSet<String> {
-        if let Some(m) = self.parts_memo.get(&s) {
+        self.named_parts_cl(s, v, false)
+    }
+    fn named_parts_cl(&mut self, s: SId, v: Option<(&'a Expr, EId)>, cl: bool) -> IndexSet<String> {
+        let memo = if cl { &mut self.closure_memo } else { &mut self.parts_memo };
+        if let Some(m) = memo.get(&s) {
             return m.clone();
         }
-        self.parts_memo.insert(s, IndexSet::new());
+        memo.insert(s, IndexSet::new());
         let Some((e, env)) = v else { return IndexSet::new() };
-        let r = self.action_parts(e, env);
-        self.parts_memo.insert(s, r.clone());
+        let r = self.parts_of(e, env, cl);
+        if cl { &mut self.closure_memo } else { &mut self.parts_memo }.insert(s, r.clone());
         r
     }
     /// MO-13i: the parts of what an instantiating fn answers, as far as the names its own body declares and the fns it calls
@@ -7156,12 +7201,27 @@ impl<'a> Checker<'a> {
                 self.expr(o, env, ctx, None);
                 self.expr(i, env, ctx, None);
             }
+            // B3 (2026-11-26): a statement closure written as an item of a list or a field of a record is an io value, as an
+            // action named there is: carried freely, its body an io scope, and refused where it is called while the view
+            // computes (R-io-3)
             ExprKind::Arr(items) => {
+                for x in items {
+                    if matches!(x.k, ExprKind::Fn { stmts: Some(_), .. }) {
+                        self.callback_fns.insert(x as *const Expr);
+                    }
+                }
                 for x in items {
                     self.expr(x, env, ctx, None);
                 }
             }
             ExprKind::Rec(fields) => {
+                for f in fields {
+                    if let Field::Kv { v, .. } = f {
+                        if matches!(v.k, ExprKind::Fn { stmts: Some(_), .. }) {
+                            self.callback_fns.insert(v as *const Expr);
+                        }
+                    }
+                }
                 for f in fields {
                     match f {
                         Field::Kv { v, .. } => self.expr(v, env, ctx, None),
@@ -7323,6 +7383,9 @@ impl<'a> Checker<'a> {
                     }
                     if let Some(s) = s {
                         self.mark_callbacks(args, s);
+                    }
+                    if !ctx.imperative {
+                        self.js_given(f, args, s, env); // B3
                     }
                     if let (Some(SymKind::Action), Some(n)) = (kind, arity) {
                         if args.len() > n || args.len() < arity_min.unwrap_or(n) {
@@ -8303,6 +8366,13 @@ impl<'a> Checker<'a> {
                         let handles = |n: &str| cbs.contains(n) || (!pures.contains(n) && !answers(n) && is_handler(n) && (n != "ref" || rx));
                         for a in &args {
                             let h = handles(&a.name);
+                            if !h {
+                                // B3: a statement closure ends where a handler goes
+                                let spread = a.name == "...";
+                                let ok = |p: &str| !p.is_empty() && (!spread || handles(p.split('.').next().unwrap_or("")));
+                                let place = if spread { format!("in a spread on <{}>", tag) } else { format!("to <{} {}>", tag, a.name) };
+                                self.closure_given(&a.e, env, &ok, &place);
+                            }
                             if h {
                                 self.handler_called(&a.e, env, &a.name);
                             }
@@ -8432,6 +8502,13 @@ impl<'a> Checker<'a> {
                     }
                     for a in attrs {
                         let h = is_handler(&a.name);
+                        if !h {
+                            // B3: a statement closure ends where a handler goes
+                            let spread = a.name == "...";
+                            let ok = |p: &str| !p.is_empty() && (!spread || is_handler(p.split('.').next().unwrap_or("")));
+                            let place = if spread { format!("in a spread on <{}>", tag) } else { format!("to <{} {}>", tag, a.name) };
+                            self.closure_given(&a.e, env, &ok, &place);
+                        }
                         if h && a.name != "ref" {
                             self.handler_called(&a.e, env, &a.name);
                         }

@@ -76,6 +76,21 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **SC-3 Lexical inheritance.** A closure created in a scope is in that scope.
   A `fn` value created in reactive scope is a pure function; a closure created
   in an apply block or handler is imperative and may write.
+  *A statement closure in a record or a list (2026-11-26, B3).* One written as
+  a field of a record literal or an item of a list literal, in reactive
+  scope, is imperative and an `io` value, as an action written beside and
+  named there is (`attrs = { onKeyDown: (e) => { … } }` for `action down(e)
+  { … }` and `{ onKeyDown: down }`): it is carried freely — through names,
+  spreads, a context, a view's argument, a fn's result — and called where an
+  `io` value may be (04 R-io-3; called while the view computes it is
+  `ACTION_CALLED_IN_OWNED_SCOPE`, through what holds it too). It ends only
+  where a handler is taken: an `on…` attribute or `ref` of an element, by
+  name or by a spread's field; a handler prop of a component (SC-4b); a
+  parameter, or a record's field, a JavaScript declaration says `handler`
+  (09 MO-10g). Given anywhere else — a plain attribute or prop, a spread's
+  field that is none, an argument of JavaScript not marked `handler`, which
+  may call it while it computes — it is `REACTIVE_WRITE_IN_OWNED_SCOPE`, as
+  one written there is. S-check-7.
 - **SC-4 Handler positions.** An event attribute in a view (`on*={…}`) takes an
   imperative function. An arrow literal written there is imperative scope
   regardless of the enclosing view; a named function there must be `io` or

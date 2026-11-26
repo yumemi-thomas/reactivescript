@@ -168,7 +168,7 @@ module.exports = grammar(tsx, {
     signature_renders: $ => seq('renders', field('host', $.context_key), 'from', field('fn', $.identifier), ':', field('line', $.number), optional($.fails_row), optional($.signature_uses), optional($.signature_hosts)),
     // `shape(roots p div; closes-p; children-at div)`: SV-7d's words
     signature_shape: $ => seq('shape', '(', optional($.shape_words), ')'),
-    shape_words: _ => token(/[a-z0-9;\- \t]+/),
+    shape_words: _ => token(/[a-z0-9#;\- \t]+/),   // `roots #text span`: a value shown at the root is text (SV-7d)
     // (a member component's key keeps its dots: `./kit.d.rx#Toast.List`, MO-11u)
     context_key: _ => token(/[.\/@A-Za-z0-9_$-]+#[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*/),
 

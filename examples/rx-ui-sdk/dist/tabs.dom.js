@@ -12,7 +12,7 @@ var _tmpl$2 = /* @__PURE__ */ _$template(`<button>`);
 var _tmpl$3 = /* @__PURE__ */ _$template(`<span>`);
 import __m0 from "./part.dom.js";
 import { fire as w$fire, give as w$give, setOptions as w$setOptions } from "./bridge.js";
-import { create as w$create, uniqueId as w$uniqueId, own as w$own, binder as w$binder, elementProps as w$elementProps } from "./bridge.js";
+import { create as w$create, uniqueId as w$uniqueId, binder as w$binder, elementProps as w$elementProps } from "./bridge.js";
 import { presentOf as w$presentOf } from "./bridge.js";
 import { classOf as w$classOf, styleOf as w$styleOf, viewOf as w$viewOf } from "./bridge.js";
 import { tabs as w$primitive } from "./core.js";
@@ -26,7 +26,6 @@ export default function module(__rt) {
 	const v$setOptions = w$setOptions;
 	const v$create = w$create;
 	const v$uniqueId = w$uniqueId;
-	const v$own = w$own;
 	const v$binder = w$binder;
 	const v$elementProps = w$elementProps;
 	const v$presentOf = w$presentOf;
@@ -69,11 +68,10 @@ export default function module(__rt) {
 			const v$now = __rt.memo("now", (__prev) => v$$$1()?.now, undefined);
 			const r$bind = __rt.inst(() => v$binder(v$part));
 			const v$bind = () => r$bind;
-			const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+			const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 				__rt.snapshot(v$bind)(v$e);
 				v$give(__rt.snapshot(v$user), v$e);
-			} }))));
-			const v$on_ = () => r$on_;
+			} }), undefined);
 			__rt.provide(v$tabs, { get: __rt.memo(null, () => ({
 				"it": v$it(),
 				"options": v$options()
@@ -137,7 +135,7 @@ export default function module(__rt) {
 		const v$now = __rt.memo("now", (__prev) => v$$$2()?.now, undefined);
 		const r$bind = __rt.inst(() => v$binder(v$part));
 		const v$bind = () => r$bind;
-		const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({
+		const v$on_ = __rt.memo("on_", (__prev) => ({
 			"ref": (v$e) => {
 				__rt.snapshot(v$bind)(v$e);
 				v$give(__rt.snapshot(v$user), v$e);
@@ -145,8 +143,7 @@ export default function module(__rt) {
 			"onKeyDown": (v$e) => {
 				v$fire(__rt.snapshot(v$part), "keydown", v$e, v$props?.onKeyDown);
 			}
-		}))));
-		const v$on_ = () => r$on_;
+		}), undefined);
 		return _$createComponent(_$Show, {
 			get when() {
 				return !__rt.eq(v$render(), undefined);
@@ -207,7 +204,7 @@ export default function module(__rt) {
 		const v$now = __rt.memo("now", (__prev) => v$$$3()?.now, undefined);
 		const r$bind = __rt.inst(() => v$binder(v$part));
 		const v$bind = () => r$bind;
-		const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({
+		const v$on_ = __rt.memo("on_", (__prev) => ({
 			"ref": (v$e) => {
 				__rt.snapshot(v$bind)(v$e);
 				v$give(__rt.snapshot(v$user), v$e);
@@ -215,8 +212,7 @@ export default function module(__rt) {
 			"onClick": (v$e) => {
 				v$fire(__rt.snapshot(v$part), "click", v$e, v$props?.onClick);
 			}
-		}))));
-		const v$on_ = () => r$on_;
+		}), undefined);
 		return _$createComponent(_$Show, {
 			get when() {
 				return !__rt.eq(v$render(), undefined);
@@ -278,11 +274,10 @@ export default function module(__rt) {
 		const v$now = __rt.memo("now", (__prev) => v$$$4()?.now, undefined);
 		const r$bind = __rt.inst(() => v$binder(v$part));
 		const v$bind = () => r$bind;
-		const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+		const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 			__rt.snapshot(v$bind)(v$e);
 			v$give(__rt.snapshot(v$user), v$e);
-		} }))));
-		const v$on_ = () => r$on_;
+		} }), undefined);
 		return _$createComponent(_$Show, {
 			get when() {
 				return !__rt.eq(v$render(), undefined);
@@ -338,11 +333,10 @@ export default function module(__rt) {
 		const v$now = __rt.memo("now", (__prev) => v$$$5()?.now, undefined);
 		const r$bind = __rt.inst(() => v$binder(v$part));
 		const v$bind = () => r$bind;
-		const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+		const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 			__rt.snapshot(v$bind)(v$e);
 			v$give(__rt.snapshot(v$user), v$e);
-		} }))));
-		const v$on_ = () => r$on_;
+		} }), undefined);
 		return _$createComponent(_$Show, {
 			get when() {
 				return !__rt.eq(v$render(), undefined);
@@ -419,11 +413,10 @@ export default function module(__rt) {
 				const __o = __rt.owner();
 				const r$bind = __rt.inst(() => v$binder(v$part));
 				const v$bind = () => r$bind;
-				const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+				const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 					__rt.snapshot(v$bind)(v$e);
 					v$give(__rt.snapshot(v$user), v$e);
-				} }))));
-				const v$on_ = () => r$on_;
+				} }), undefined);
 				return _$createComponent(_$Show, {
 					get when() {
 						return !__rt.eq(v$render(), undefined);

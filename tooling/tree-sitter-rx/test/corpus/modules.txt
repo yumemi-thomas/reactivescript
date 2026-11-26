@@ -2085,3 +2085,22 @@ export pure fn one(f) instantiates calls(f)
       (row_word)
       (signature_calls
         (part_path)))))
+
+================================================================================
+A printed signature: a shape whose root is text
+================================================================================
+
+//@ signature t.rx
+export component T(props: { n }) shape(roots #text span; closes-p)
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier))
+      (signature_shape
+        (shape_words)))))

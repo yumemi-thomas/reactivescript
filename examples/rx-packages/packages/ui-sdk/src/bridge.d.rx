@@ -16,7 +16,6 @@ export fn listen(part: Part, changed: handler (live: boolean) => void): () => vo
 export pure fn binder(ref part: Part): (el: Element) => void instantiates
 export fn fire(part: Part, type: string, event: Event, user: any): void
 export fn give(user: any, el: Element): void
-export pure fn own(on: { ref: handler (el: any) => void; onClick?: handler (e: any) => void; onPointerEnter?: handler (e: any) => void; onPointerLeave?: handler (e: any) => void; onFocusIn?: handler (e: any) => void; onFocusOut?: handler (e: any) => void; onKeyDown?: handler (e: any) => void; onKeyUp?: handler (e: any) => void }): Attrs instantiates
 export pure fn classOf(value: any, state: any): any
 export pure fn styleOf(value: any, state: any, own: any): any
 export pure fn viewOf(value: any, state?: any): View

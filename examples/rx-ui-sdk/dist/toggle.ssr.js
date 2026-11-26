@@ -193,7 +193,7 @@ function _P$4(_p26, _p27, _p28, _p29, _p30, _p31, _p32, _p33, _p34, _p35, _p36) 
 _P$4.prototype = Object.prototype;
 import __m0 from "./part.ssr.js";
 import { fire as w$fire, give as w$give, setOptions as w$setOptions } from "./bridge.js";
-import { create as w$create, uniqueId as w$uniqueId, own as w$own, binder as w$binder, elementProps as w$elementProps } from "./bridge.js";
+import { create as w$create, uniqueId as w$uniqueId, binder as w$binder, elementProps as w$elementProps } from "./bridge.js";
 import { apiOf as w$apiOf, classOf as w$classOf, styleOf as w$styleOf, viewOf as w$viewOf } from "./bridge.js";
 import { toggle as w$toggle, toggleGroup as w$toggleGroup } from "./core.js";
 export default function module(__rt) {
@@ -206,7 +206,6 @@ export default function module(__rt) {
 	const v$setOptions = w$setOptions;
 	const v$create = w$create;
 	const v$uniqueId = w$uniqueId;
-	const v$own = w$own;
 	const v$binder = w$binder;
 	const v$elementProps = w$elementProps;
 	const v$apiOf = w$apiOf;
@@ -252,7 +251,7 @@ export default function module(__rt) {
 			const v$now = __rt.memo("now", (__prev) => v$$$1()?.now, undefined);
 			const r$bind = __rt.inst(() => v$binder(v$part));
 			const v$bind = () => r$bind;
-			const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({
+			const v$on_ = __rt.memo("on_", (__prev) => ({
 				"ref": (v$e) => {
 					__rt.snapshot(v$bind)(v$e);
 					v$give(__rt.snapshot(v$user), v$e);
@@ -266,8 +265,7 @@ export default function module(__rt) {
 				"onKeyUp": (v$e) => {
 					v$fire(__rt.snapshot(v$part), "keyup", v$e, v$props?.onKeyUp);
 				}
-			}))));
-			const v$on_ = () => r$on_;
+			}), undefined);
 			__rt.provide(v$root, { get: __rt.memo(null, () => ({
 				"it": v$it(),
 				"options": v$options()
@@ -301,11 +299,10 @@ export default function module(__rt) {
 		const v$now = __rt.memo("now", (__prev) => v$$$2()?.now, undefined);
 		const r$bind = __rt.inst(() => v$binder(v$part));
 		const v$bind = () => r$bind;
-		const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+		const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 			__rt.snapshot(v$bind)(v$e);
 			v$give(__rt.snapshot(v$user), v$e);
-		} }))));
-		const v$on_ = () => r$on_;
+		} }), undefined);
 		return _$Show(new _P$3(__rt, v$render, v$rest, v$attrs, v$on_, v$viewOf, v$props, v$now, v$classOf, v$styleOf, (__item) => {
 			const __o = __rt.owner();
 			const r$all = __rt.inst(() => v$elementProps(v$rest, __rt.memo(null, () => ({
@@ -356,11 +353,10 @@ export default function module(__rt) {
 			const v$now = __rt.memo("now", (__prev) => v$$$3()?.now, undefined);
 			const r$bind = __rt.inst(() => v$binder(v$part));
 			const v$bind = () => r$bind;
-			const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+			const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 				__rt.snapshot(v$bind)(v$e);
 				v$give(__rt.snapshot(v$user), v$e);
-			} }))));
-			const v$on_ = () => r$on_;
+			} }), undefined);
 			__rt.provide(v$group, { get: __rt.memo(null, () => v$it()) });
 			__rt.effect(2, () => [v$it(), v$options()], ($p) => __rt.untrack(() => {
 				return v$setOptions($p[0], $p[1]);

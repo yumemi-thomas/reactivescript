@@ -1,17 +1,17 @@
 // A part of a core instance on an element of each tag it takes: core's attributes and handlers, the caller's over them.
 // Derived from use-primitive.jsx of @ui-sdk/solid 0.1.0-beta.17 (Apache-2.0, see ../NOTICE).
-import { fire, give, own, binder } from "./bridge.js"
+import { fire, give, binder } from "./bridge.js"
 import { classOf, styleOf, viewOf, presentOf } from "./bridge.js"
 import { Instance, Named } from "./bridge.js"
 import { usePart } from "./part.rx"
 
 export type Of = { it: Instance; slot: string; named: Named; options: object; user: any; keep?: boolean }
 fn on_(ref part: any, ref user: any, ref bind: (e: Element) => void) {
-  hs = own({
+  hs = {
   ref: (e: Element) => { bind(e); give(user.ref, e) },
   onClick: (e: Event) => { fire(part, "click", e, user.onClick) }, onKeyDown: (e: Event) => { fire(part, "keydown", e, user.onKeyDown) }, onKeyUp: (e: Event) => { fire(part, "keyup", e, user.onKeyUp) },
   onPointerEnter: (e: Event) => { fire(part, "pointerenter", e, user.onPointerEnter) }, onPointerLeave: (e: Event) => { fire(part, "pointerleave", e, user.onPointerLeave) },
-  onFocusIn: (e: Event) => { fire(part, "focusin", e, user.onFocusIn) }, onFocusOut: (e: Event) => { fire(part, "focusout", e, user.onFocusOut) } })
+  onFocusIn: (e: Event) => { fire(part, "focusin", e, user.onFocusIn) }, onFocusOut: (e: Event) => { fire(part, "focusout", e, user.onFocusOut) } }
   hs
 }
 export component ButtonPart(props: { of: Of; children?: View | ((s: any) => View) }) {

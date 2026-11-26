@@ -16,11 +16,11 @@ export fn listen(part: Part, changed: handler (live: boolean) => void): () => vo
 export pure fn binder(ref part: Part): (el: Element) => void instantiates
 export fn fire(part: Part, type: string, event: Event, user: any): void
 export fn give(user: any, el: Element): void
-export pure fn own(on: { ref: handler (el: any) => void; onClick?: handler (e: any) => void; onPointerEnter?: handler (e: any) => void; onPointerLeave?: handler (e: any) => void; onFocusIn?: handler (e: any) => void; onFocusOut?: handler (e: any) => void; onKeyDown?: handler (e: any) => void; onKeyUp?: handler (e: any) => void }): Attrs instantiates
 export pure fn classOf(value: any, state: any): any
 export pure fn styleOf(value: any, state: any, own: any): any
 export pure fn viewOf(value: any, state?: any): View
-export pure fn elementProps(ref rest: any, ref element: Attrs, props: any, state: any, other?: any): Attrs instantiates
+// `element` is merged into the props an element is rendered with: its `ref` and `on…` are that element's handlers
+export pure fn elementProps(ref rest: any, ref element: { ref?: handler (el: any) => void; onClick?: handler (e: any) => void; onPointerEnter?: handler (e: any) => void; onPointerLeave?: handler (e: any) => void; onFocusIn?: handler (e: any) => void; onFocusOut?: handler (e: any) => void; onKeyDown?: handler (e: any) => void; onKeyUp?: handler (e: any) => void; [k: string]: any }, props: any, state: any, other?: any): Attrs instantiates
 export pure fn register(ref controller: object | null | undefined, ref scope: Scope): boolean instantiates
 export pure fn entryOf(ref controller: object | null | undefined): ref Scope | undefined
 export pure fn portalTarget(container: Element | DocumentFragment | null | undefined): Element | DocumentFragment | null

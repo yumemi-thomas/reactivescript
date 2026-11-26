@@ -160,6 +160,8 @@ export class Runtime {
   private groupOpen(c: number) { return this.openChanges.has(this.find(c)); }
   private tracking: Node | null = null;
   private demandMode = true;
+  /** B3 (2026-11-26): statement closures written as items of a list or fields of a record: io values, made in reactive scope */
+  private heldClosures = new WeakSet<Expr>();
   private probing = 0;                                  // inside `latest`: reads σ′, never served
   private committedView = false;                        // D-25: evaluate a lane reader against the committed world
   private probeReads: Set<Node> | null = null;          // `pending?` over a composite: nodes read inside
@@ -964,10 +966,10 @@ export class Runtime {
         if (isAbsent(l)) return l; if (isAbsent(r)) return r;
         return BIN[e.op](l, r);
       }
-      case "arr": { const items: unknown[] = []; let bad: unknown; for (const i of e.items) { if (i.k === "spread") { const v = this.ev(i.e, region, env); if (isAbsent(v)) bad ??= v; else items.push(...(v as unknown[])); } else { const v = this.ev(i, region, env); if (isAbsent(v)) bad ??= v; items.push(v); } } return bad ?? items; }
+      case "arr": { const items: unknown[] = []; let bad: unknown; for (const i of e.items) { if (i.k === "fn" && i.stmts) this.heldClosures.add(i); if (i.k === "spread") { const v = this.ev(i.e, region, env); if (isAbsent(v)) bad ??= v; else items.push(...(v as unknown[])); } else { const v = this.ev(i, region, env); if (isAbsent(v)) bad ??= v; items.push(v); } } return bad ?? items; }
       case "spread": throw new RuleError("SYNTAX", "spread outside an array literal");
       case "omit": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; const o: Record<string, unknown> = {}; if (isObj(v)) for (const k of Object.keys(v)) if (!e.keys.includes(k)) { this.track(v, k); o[k] = v[k]; } return o; }   // RG-4b: an object rest
-      case "rec": { const o: Record<string, unknown> = {}; let bad: unknown; for (const f of e.fields) { if ("spread" in f) { const v = this.ev(f.spread, region, env); if (isAbsent(v)) bad ??= v; else if (isObj(v)) { for (const k of Object.keys(v)) { this.track(v, k); o[k] = v[k]; } } continue; } const v = this.ev(f.v, region, env); if (isAbsent(v)) bad ??= v; o[f.key] = v; } return bad ?? o; }
+      case "rec": { const o: Record<string, unknown> = {}; let bad: unknown; for (const f of e.fields) { if (!("spread" in f) && f.v.k === "fn" && f.v.stmts) this.heldClosures.add(f.v); if ("spread" in f) { const v = this.ev(f.spread, region, env); if (isAbsent(v)) bad ??= v; else if (isObj(v)) { for (const k of Object.keys(v)) { this.track(v, k); o[k] = v[k]; } } continue; } const v = this.ev(f.v, region, env); if (isAbsent(v)) bad ??= v; o[f.key] = v; } return bad ?? o; }
       case "draft": {                                                  // ST-3: a copy of the seed, written only along `d`, is the value
         const seed = this.ev(e.seed, region, env); if (isAbsent(seed)) return seed;
         const copied = new Set<object>();
@@ -989,7 +991,7 @@ export class Runtime {
       }
       case "fn": {
         const imperative = !this.demandMode;                           // SC-3
-        if (e.stmts) { if (!imperative) throw new RuleError("W-2", "a statement-bodied arrow in reactive scope"); const act = !!inferredAction(e.stmts); return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.runStmts(e.stmts!, region, en, [], act); }; }   // AC-1b: an inferred action
+        if (e.stmts) { if (!imperative && !this.heldClosures.has(e)) throw new RuleError("W-2", "a statement-bodied arrow in reactive scope"); const act = !!inferredAction(e.stmts); return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.runStmts(e.stmts!, region, en, [], act); }; }   // AC-1b: an inferred action
         return (...args: unknown[]) => {
           const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i]));
           if (!imperative) return this.ev(e.body, region, en);
