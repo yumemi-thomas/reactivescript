@@ -192,13 +192,12 @@ var _d$9 = {
 		const __rt = this[_m$];
 		const v$disabled = this[_m$3];
 		const v$focusableWhenDisabled = this[_m$4];
-		const v$own = this[_m$5];
-		const v$give = this[_m$6];
-		const v$user = this[_m$7];
-		const v$props = this[_m$8];
-		const v$rest = this[_m$9];
-		const v$classOf = this[_m$10];
-		const v$styleOf = this[_m$11];
+		const v$give = this[_m$5];
+		const v$user = this[_m$6];
+		const v$props = this[_m$7];
+		const v$rest = this[_m$8];
+		const v$classOf = this[_m$9];
+		const v$styleOf = this[_m$10];
 		const __o = __rt.owner();
 		const v$now = __rt.memo("now", (__prev) => ({
 			"open": false,
@@ -209,10 +208,9 @@ var _d$9 = {
 			"disabled": v$disabled() && !v$focusableWhenDisabled(),
 			"aria-disabled": v$disabled() && v$focusableWhenDisabled() || undefined
 		}), undefined);
-		const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+		const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 			v$give(__rt.snapshot(v$user), v$e);
-		} }))));
-		const v$on_ = () => r$on_;
+		} }), undefined);
 		return _$Show(new _P$2(v$props, __rt, v$rest, v$attrs, v$on_, v$now, v$classOf, v$styleOf, (__item) => {
 			const __o = __rt.owner();
 			return _$memo(() => {
@@ -223,7 +221,7 @@ var _d$9 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$5(_p31, _p32, _p33, _p34, _p35, _p36, _p37, _p38, _p39, _p40, _p41, _p42) {
+function _P$5(_p31, _p32, _p33, _p34, _p35, _p36, _p37, _p38, _p39, _p40, _p41) {
 	this[_m$] = _p31;
 	this[_m$2] = _p32;
 	this[_m$3] = _p33;
@@ -234,10 +232,9 @@ function _P$5(_p31, _p32, _p33, _p34, _p35, _p36, _p37, _p38, _p39, _p40, _p41, 
 	this[_m$8] = _p38;
 	this[_m$9] = _p39;
 	this[_m$10] = _p40;
-	this[_m$11] = _p41;
 	Object.defineProperty(this, "when", _d$9);
 	Object.defineProperty(this, "fallback", _d$10);
-	this.children = _p42;
+	this.children = _p41;
 }
 _P$5.prototype = Object.prototype;
 var _d$11 = {
@@ -256,10 +253,10 @@ var _d$11 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$6(_p43, _p44, _p45) {
-	this[_m$] = _p43;
-	this[_m$2] = _p44;
-	this[_m$3] = _p45;
+function _P$6(_p42, _p43, _p44) {
+	this[_m$] = _p42;
+	this[_m$2] = _p43;
+	this[_m$3] = _p44;
 	Object.defineProperty(this, "mount", _d$11);
 	Object.defineProperty(this, "children", _d$12);
 }
@@ -284,13 +281,13 @@ var _d$13 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$7(_p46, _p47, _p48, _p49) {
-	this[_m$] = _p46;
-	this[_m$2] = _p47;
-	this[_m$3] = _p48;
+function _P$7(_p45, _p46, _p47, _p48) {
+	this[_m$] = _p45;
+	this[_m$2] = _p46;
+	this[_m$3] = _p47;
 	Object.defineProperty(this, "when", _d$13);
 	Object.defineProperty(this, "fallback", _d$14);
-	this.children = _p49;
+	this.children = _p48;
 }
 _P$7.prototype = Object.prototype;
 var _d$15 = {
@@ -312,13 +309,13 @@ var _d$15 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$8(_p50, _p51, _p52, _p53) {
-	this[_m$] = _p50;
-	this[_m$2] = _p51;
-	this[_m$3] = _p52;
+function _P$8(_p49, _p50, _p51, _p52) {
+	this[_m$] = _p49;
+	this[_m$2] = _p50;
+	this[_m$3] = _p51;
 	Object.defineProperty(this, "when", _d$15);
 	Object.defineProperty(this, "fallback", _d$16);
-	this.children = _p53;
+	this.children = _p52;
 }
 _P$8.prototype = Object.prototype;
 var _d$17 = {
@@ -354,20 +351,20 @@ var _d$17 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$9(_p54, _p55, _p56, _p57, _p58, _p59, _p60, _p61, _p62, _p63, _p64) {
-	this[_m$] = _p54;
-	this[_m$2] = _p55;
-	this[_m$3] = _p56;
-	this[_m$4] = _p57;
-	this[_m$5] = _p58;
-	this[_m$6] = _p59;
-	this[_m$7] = _p60;
-	this[_m$8] = _p61;
-	this[_m$9] = _p62;
-	this[_m$10] = _p63;
+function _P$9(_p53, _p54, _p55, _p56, _p57, _p58, _p59, _p60, _p61, _p62, _p63) {
+	this[_m$] = _p53;
+	this[_m$2] = _p54;
+	this[_m$3] = _p55;
+	this[_m$4] = _p56;
+	this[_m$5] = _p57;
+	this[_m$6] = _p58;
+	this[_m$7] = _p59;
+	this[_m$8] = _p60;
+	this[_m$9] = _p61;
+	this[_m$10] = _p62;
 	Object.defineProperty(this, "when", _d$17);
 	Object.defineProperty(this, "fallback", _d$18);
-	this.children = _p64;
+	this.children = _p63;
 }
 _P$9.prototype = Object.prototype;
 var _d$19 = {
@@ -411,20 +408,20 @@ var _d$19 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$10(_p65, _p66, _p67, _p68, _p69, _p70, _p71, _p72, _p73, _p74, _p75, _p76, _p77) {
-	this[_m$] = _p65;
-	this[_m$2] = _p66;
-	this[_m$3] = _p67;
-	this[_m$4] = _p68;
-	this[_m$5] = _p69;
-	this[_m$6] = _p70;
-	this[_m$7] = _p71;
-	this[_m$8] = _p72;
-	this[_m$9] = _p73;
-	this[_m$10] = _p74;
-	this[_m$11] = _p75;
-	this[_m$12] = _p76;
-	this[_m$13] = _p77;
+function _P$10(_p64, _p65, _p66, _p67, _p68, _p69, _p70, _p71, _p72, _p73, _p74, _p75, _p76) {
+	this[_m$] = _p64;
+	this[_m$2] = _p65;
+	this[_m$3] = _p66;
+	this[_m$4] = _p67;
+	this[_m$5] = _p68;
+	this[_m$6] = _p69;
+	this[_m$7] = _p70;
+	this[_m$8] = _p71;
+	this[_m$9] = _p72;
+	this[_m$10] = _p73;
+	this[_m$11] = _p74;
+	this[_m$12] = _p75;
+	this[_m$13] = _p76;
 	Object.defineProperty(this, "inside", _d$19);
 	Object.defineProperty(this, "children", _d$20);
 }
@@ -445,12 +442,12 @@ var _d$21 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$11(_p78, _p79, _p80) {
-	this[_m$] = _p78;
-	this[_m$2] = _p79;
+function _P$11(_p77, _p78, _p79) {
+	this[_m$] = _p77;
+	this[_m$2] = _p78;
 	Object.defineProperty(this, "when", _d$21);
 	Object.defineProperty(this, "fallback", _d$22);
-	this.children = _p80;
+	this.children = _p79;
 }
 _P$11.prototype = Object.prototype;
 var _d$23 = {
@@ -486,20 +483,20 @@ var _d$23 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$12(_p81, _p82, _p83, _p84, _p85, _p86, _p87, _p88, _p89, _p90, _p91) {
-	this[_m$] = _p81;
-	this[_m$2] = _p82;
-	this[_m$3] = _p83;
-	this[_m$4] = _p84;
-	this[_m$5] = _p85;
-	this[_m$6] = _p86;
-	this[_m$7] = _p87;
-	this[_m$8] = _p88;
-	this[_m$9] = _p89;
-	this[_m$10] = _p90;
+function _P$12(_p80, _p81, _p82, _p83, _p84, _p85, _p86, _p87, _p88, _p89, _p90) {
+	this[_m$] = _p80;
+	this[_m$2] = _p81;
+	this[_m$3] = _p82;
+	this[_m$4] = _p83;
+	this[_m$5] = _p84;
+	this[_m$6] = _p85;
+	this[_m$7] = _p86;
+	this[_m$8] = _p87;
+	this[_m$9] = _p88;
+	this[_m$10] = _p89;
 	Object.defineProperty(this, "when", _d$23);
 	Object.defineProperty(this, "fallback", _d$24);
-	this.children = _p91;
+	this.children = _p90;
 }
 _P$12.prototype = Object.prototype;
 var _d$25 = {
@@ -535,18 +532,18 @@ var _d$25 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$13(_p92, _p93, _p94, _p95, _p96, _p97, _p98, _p99, _p100, _p101, _p102) {
-	this[_m$] = _p92;
-	this[_m$2] = _p93;
-	this[_m$3] = _p94;
-	this[_m$4] = _p95;
-	this[_m$5] = _p96;
-	this[_m$6] = _p97;
-	this[_m$7] = _p98;
-	this[_m$8] = _p99;
-	this[_m$9] = _p100;
-	this[_m$10] = _p101;
-	this[_m$11] = _p102;
+function _P$13(_p91, _p92, _p93, _p94, _p95, _p96, _p97, _p98, _p99, _p100, _p101) {
+	this[_m$] = _p91;
+	this[_m$2] = _p92;
+	this[_m$3] = _p93;
+	this[_m$4] = _p94;
+	this[_m$5] = _p95;
+	this[_m$6] = _p96;
+	this[_m$7] = _p97;
+	this[_m$8] = _p98;
+	this[_m$9] = _p99;
+	this[_m$10] = _p100;
+	this[_m$11] = _p101;
 	Object.defineProperty(this, "children", _d$25);
 }
 _P$13.prototype = Object.prototype;
@@ -588,23 +585,23 @@ var _d$26 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$14(_p103, _p104, _p105, _p106, _p107, _p108, _p109, _p110, _p111, _p112, _p113, _p114, _p115, _p116, _p117, _p118) {
-	this[_m$] = _p103;
-	this[_m$2] = _p104;
-	this[_m$3] = _p105;
-	this[_m$4] = _p106;
-	this[_m$5] = _p107;
-	this[_m$6] = _p108;
-	this[_m$7] = _p109;
-	this[_m$8] = _p110;
-	this[_m$9] = _p111;
-	this[_m$10] = _p112;
-	this[_m$11] = _p113;
-	this[_m$12] = _p114;
-	this[_m$13] = _p115;
-	this[_m$14] = _p116;
-	this[_m$15] = _p117;
-	this[_m$16] = _p118;
+function _P$14(_p102, _p103, _p104, _p105, _p106, _p107, _p108, _p109, _p110, _p111, _p112, _p113, _p114, _p115, _p116, _p117) {
+	this[_m$] = _p102;
+	this[_m$2] = _p103;
+	this[_m$3] = _p104;
+	this[_m$4] = _p105;
+	this[_m$5] = _p106;
+	this[_m$6] = _p107;
+	this[_m$7] = _p108;
+	this[_m$8] = _p109;
+	this[_m$9] = _p110;
+	this[_m$10] = _p111;
+	this[_m$11] = _p112;
+	this[_m$12] = _p113;
+	this[_m$13] = _p114;
+	this[_m$14] = _p115;
+	this[_m$15] = _p116;
+	this[_m$16] = _p117;
 	Object.defineProperty(this, "inside", _d$26);
 	Object.defineProperty(this, "inline", _d$27);
 	Object.defineProperty(this, "children", _d$28);
@@ -626,12 +623,12 @@ var _d$29 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$15(_p119, _p120, _p121) {
-	this[_m$] = _p119;
-	this[_m$2] = _p120;
+function _P$15(_p118, _p119, _p120) {
+	this[_m$] = _p118;
+	this[_m$2] = _p119;
 	Object.defineProperty(this, "when", _d$29);
 	Object.defineProperty(this, "fallback", _d$30);
-	this.children = _p121;
+	this.children = _p120;
 }
 _P$15.prototype = Object.prototype;
 var _d$31 = {
@@ -667,20 +664,20 @@ var _d$31 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$16(_p122, _p123, _p124, _p125, _p126, _p127, _p128, _p129, _p130, _p131, _p132) {
-	this[_m$] = _p122;
-	this[_m$2] = _p123;
-	this[_m$3] = _p124;
-	this[_m$4] = _p125;
-	this[_m$5] = _p126;
-	this[_m$6] = _p127;
-	this[_m$7] = _p128;
-	this[_m$8] = _p129;
-	this[_m$9] = _p130;
-	this[_m$10] = _p131;
+function _P$16(_p121, _p122, _p123, _p124, _p125, _p126, _p127, _p128, _p129, _p130, _p131) {
+	this[_m$] = _p121;
+	this[_m$2] = _p122;
+	this[_m$3] = _p123;
+	this[_m$4] = _p124;
+	this[_m$5] = _p125;
+	this[_m$6] = _p126;
+	this[_m$7] = _p127;
+	this[_m$8] = _p128;
+	this[_m$9] = _p129;
+	this[_m$10] = _p130;
 	Object.defineProperty(this, "when", _d$31);
 	Object.defineProperty(this, "fallback", _d$32);
-	this.children = _p132;
+	this.children = _p131;
 }
 _P$16.prototype = Object.prototype;
 var _d$33 = {
@@ -716,20 +713,20 @@ var _d$33 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$17(_p133, _p134, _p135, _p136, _p137, _p138, _p139, _p140, _p141, _p142, _p143) {
-	this[_m$] = _p133;
-	this[_m$2] = _p134;
-	this[_m$3] = _p135;
-	this[_m$4] = _p136;
-	this[_m$5] = _p137;
-	this[_m$6] = _p138;
-	this[_m$7] = _p139;
-	this[_m$8] = _p140;
-	this[_m$9] = _p141;
-	this[_m$10] = _p142;
+function _P$17(_p132, _p133, _p134, _p135, _p136, _p137, _p138, _p139, _p140, _p141, _p142) {
+	this[_m$] = _p132;
+	this[_m$2] = _p133;
+	this[_m$3] = _p134;
+	this[_m$4] = _p135;
+	this[_m$5] = _p136;
+	this[_m$6] = _p137;
+	this[_m$7] = _p138;
+	this[_m$8] = _p139;
+	this[_m$9] = _p140;
+	this[_m$10] = _p141;
 	Object.defineProperty(this, "when", _d$33);
 	Object.defineProperty(this, "fallback", _d$34);
-	this.children = _p143;
+	this.children = _p142;
 }
 _P$17.prototype = Object.prototype;
 var _d$35 = {
@@ -765,20 +762,20 @@ var _d$35 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$18(_p144, _p145, _p146, _p147, _p148, _p149, _p150, _p151, _p152, _p153, _p154) {
-	this[_m$] = _p144;
-	this[_m$2] = _p145;
-	this[_m$3] = _p146;
-	this[_m$4] = _p147;
-	this[_m$5] = _p148;
-	this[_m$6] = _p149;
-	this[_m$7] = _p150;
-	this[_m$8] = _p151;
-	this[_m$9] = _p152;
-	this[_m$10] = _p153;
+function _P$18(_p143, _p144, _p145, _p146, _p147, _p148, _p149, _p150, _p151, _p152, _p153) {
+	this[_m$] = _p143;
+	this[_m$2] = _p144;
+	this[_m$3] = _p145;
+	this[_m$4] = _p146;
+	this[_m$5] = _p147;
+	this[_m$6] = _p148;
+	this[_m$7] = _p149;
+	this[_m$8] = _p150;
+	this[_m$9] = _p151;
+	this[_m$10] = _p152;
 	Object.defineProperty(this, "when", _d$35);
 	Object.defineProperty(this, "fallback", _d$36);
-	this.children = _p154;
+	this.children = _p153;
 }
 _P$18.prototype = Object.prototype;
 var _d$37 = {
@@ -815,21 +812,21 @@ var _d$37 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$19(_p155, _p156, _p157, _p158, _p159, _p160, _p161, _p162, _p163, _p164, _p165, _p166) {
-	this[_m$] = _p155;
-	this[_m$2] = _p156;
-	this[_m$3] = _p157;
-	this[_m$4] = _p158;
-	this[_m$5] = _p159;
-	this[_m$6] = _p160;
-	this[_m$7] = _p161;
-	this[_m$8] = _p162;
-	this[_m$9] = _p163;
-	this[_m$10] = _p164;
-	this[_m$11] = _p165;
+function _P$19(_p154, _p155, _p156, _p157, _p158, _p159, _p160, _p161, _p162, _p163, _p164, _p165) {
+	this[_m$] = _p154;
+	this[_m$2] = _p155;
+	this[_m$3] = _p156;
+	this[_m$4] = _p157;
+	this[_m$5] = _p158;
+	this[_m$6] = _p159;
+	this[_m$7] = _p160;
+	this[_m$8] = _p161;
+	this[_m$9] = _p162;
+	this[_m$10] = _p163;
+	this[_m$11] = _p164;
 	Object.defineProperty(this, "when", _d$37);
 	Object.defineProperty(this, "fallback", _d$38);
-	this.children = _p166;
+	this.children = _p165;
 }
 _P$19.prototype = Object.prototype;
 var _d$39 = {
@@ -849,17 +846,17 @@ var _d$39 = {
 	enumerable: true,
 	configurable: true
 };
-function _P$20(_p167, _p168, _p169) {
-	this[_m$] = _p167;
-	this[_m$2] = _p168;
+function _P$20(_p166, _p167, _p168) {
+	this[_m$] = _p166;
+	this[_m$2] = _p167;
 	Object.defineProperty(this, "when", _d$39);
 	Object.defineProperty(this, "fallback", _d$40);
-	this.children = _p169;
+	this.children = _p168;
 }
 _P$20.prototype = Object.prototype;
 import __m0 from "./part.ssr.js";
 import { fire as w$fire, give as w$give, setOptions as w$setOptions } from "./bridge.js";
-import { create as w$create, uniqueId as w$uniqueId, own as w$own, binder as w$binder, elementProps as w$elementProps, register as w$register, entryOf as w$entryOf } from "./bridge.js";
+import { create as w$create, uniqueId as w$uniqueId, binder as w$binder, elementProps as w$elementProps, register as w$register, entryOf as w$entryOf } from "./bridge.js";
 import { presentOf as w$presentOf } from "./bridge.js";
 import { classOf as w$classOf, styleOf as w$styleOf, viewOf as w$viewOf, portalTarget as w$portalTarget } from "./bridge.js";
 import { dialog as w$primitive } from "./core.js";
@@ -874,7 +871,6 @@ export default function module(__rt) {
 	const v$setOptions = w$setOptions;
 	const v$create = w$create;
 	const v$uniqueId = w$uniqueId;
-	const v$own = w$own;
 	const v$binder = w$binder;
 	const v$elementProps = w$elementProps;
 	const v$register = w$register;
@@ -964,7 +960,7 @@ export default function module(__rt) {
 				"shortcut": v$shortcut(),
 				"target": v$target()
 			})) });
-			return _$Show(new _P$5(__rt, v$target, v$disabled, v$focusableWhenDisabled, v$own, v$give, v$user, v$props, v$rest, v$classOf, v$styleOf, (__item) => {
+			return _$Show(new _P$5(__rt, v$target, v$disabled, v$focusableWhenDisabled, v$give, v$user, v$props, v$rest, v$classOf, v$styleOf, (__item) => {
 				const __o = __rt.owner();
 				const r$id = __rt.inst(() => v$uniqueId());
 				const v$id = () => r$id;
@@ -980,7 +976,7 @@ export default function module(__rt) {
 				const v$now = __rt.memo("now", (__prev) => v$$$1()?.now, undefined);
 				const r$bind = __rt.inst(() => v$binder(v$part));
 				const v$bind = () => r$bind;
-				const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({
+				const v$on_ = __rt.memo("on_", (__prev) => ({
 					"ref": (v$e) => {
 						__rt.snapshot(v$bind)(v$e);
 						v$give(__rt.snapshot(v$user), v$e);
@@ -1003,8 +999,7 @@ export default function module(__rt) {
 					"onClick": (v$e) => {
 						v$fire(__rt.snapshot(v$part), "click", v$e, v$props?.onClick);
 					}
-				}))));
-				const v$on_ = () => r$on_;
+				}), undefined);
 				return _$Show(new _P$4(v$props, __rt, v$rest, v$attrs, v$on_, v$now, v$classOf, v$styleOf, (__item) => {
 					const __o = __rt.owner();
 					return _$memo(() => {
@@ -1039,10 +1034,9 @@ export default function module(__rt) {
 			const __o = __rt.owner();
 			const r$bind = __rt.inst(() => v$binder(v$part));
 			const v$bind = () => r$bind;
-			const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+			const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 				__rt.snapshot(v$bind)(v$e);
-			} }))));
-			const v$on_ = () => r$on_;
+			} }), undefined);
 			return _$ssrElement("div", [v$attrs, v$on_], () => {
 				return _$scope(() => {
 					return _$escape(__rt.kids(v$props?.children));
@@ -1070,11 +1064,10 @@ export default function module(__rt) {
 			const __o = __rt.owner();
 			const r$bind = __rt.inst(() => v$binder(v$part));
 			const v$bind = () => r$bind;
-			const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+			const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 				__rt.snapshot(v$bind)(v$e);
 				v$give(__rt.snapshot(v$user), v$e);
-			} }))));
-			const v$on_ = () => r$on_;
+			} }), undefined);
 			return V$Popup(new _P$10(v$own_, v$outer, __rt, v$render, v$rest, v$attrs, v$on_, v$viewOf, v$props, v$now, v$classOf, v$styleOf, v$elementProps));
 		}));
 	}
@@ -1108,7 +1101,7 @@ export default function module(__rt) {
 			const __o = __rt.owner();
 			const r$bind = __rt.inst(() => v$binder(v$part));
 			const v$bind = () => r$bind;
-			const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({
+			const v$on_ = __rt.memo("on_", (__prev) => ({
 				"ref": (v$e) => {
 					__rt.snapshot(v$bind)(v$e);
 					v$give(__rt.snapshot(v$user), v$e);
@@ -1116,8 +1109,7 @@ export default function module(__rt) {
 				"onKeyDown": (v$e) => {
 					v$fire(__rt.snapshot(v$part), "keydown", v$e, v$props?.onKeyDown);
 				}
-			}))));
-			const v$on_ = () => r$on_;
+			}), undefined);
 			return V$Popup(new _P$14(v$container, v$fromRoot, v$outer, v$inline, __rt, V$Viewport, v$render, v$rest, v$attrs, v$on_, v$viewOf, v$props, v$now, v$classOf, v$styleOf, v$elementProps));
 		}));
 	}
@@ -1133,11 +1125,10 @@ export default function module(__rt) {
 		const v$now = __rt.memo("now", (__prev) => v$$$5()?.now, undefined);
 		const r$bind = __rt.inst(() => v$binder(v$part));
 		const v$bind = () => r$bind;
-		const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+		const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 			__rt.snapshot(v$bind)(v$e);
 			v$give(__rt.snapshot(v$user), v$e);
-		} }))));
-		const v$on_ = () => r$on_;
+		} }), undefined);
 		return _$Show(new _P$16(__rt, v$render, v$rest, v$attrs, v$on_, v$viewOf, v$props, v$now, v$classOf, v$styleOf, (__item) => {
 			const __o = __rt.owner();
 			const r$all = __rt.inst(() => v$elementProps(v$rest, __rt.memo(null, () => ({
@@ -1164,11 +1155,10 @@ export default function module(__rt) {
 		const v$now = __rt.memo("now", (__prev) => v$$$6()?.now, undefined);
 		const r$bind = __rt.inst(() => v$binder(v$part));
 		const v$bind = () => r$bind;
-		const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+		const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 			__rt.snapshot(v$bind)(v$e);
 			v$give(__rt.snapshot(v$user), v$e);
-		} }))));
-		const v$on_ = () => r$on_;
+		} }), undefined);
 		return _$Show(new _P$17(__rt, v$render, v$rest, v$attrs, v$on_, v$viewOf, v$props, v$now, v$classOf, v$styleOf, (__item) => {
 			const __o = __rt.owner();
 			const r$all = __rt.inst(() => v$elementProps(v$rest, __rt.memo(null, () => ({
@@ -1203,7 +1193,7 @@ export default function module(__rt) {
 		const v$now = __rt.memo("now", (__prev) => v$$$7()?.now, undefined);
 		const r$bind = __rt.inst(() => v$binder(v$part));
 		const v$bind = () => r$bind;
-		const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({
+		const v$on_ = __rt.memo("on_", (__prev) => ({
 			"ref": (v$e) => {
 				__rt.snapshot(v$bind)(v$e);
 				v$give(__rt.snapshot(v$user), v$e);
@@ -1211,8 +1201,7 @@ export default function module(__rt) {
 			"onClick": (v$e) => {
 				v$fire(__rt.snapshot(v$part), "click", v$e, v$props?.onClick);
 			}
-		}))));
-		const v$on_ = () => r$on_;
+		}), undefined);
 		return _$Show(new _P$18(__rt, v$render, v$rest, v$attrs, v$on_, v$viewOf, v$props, v$now, v$classOf, v$styleOf, (__item) => {
 			const __o = __rt.owner();
 			const r$all = __rt.inst(() => v$elementProps(v$rest, __rt.memo(null, () => ({
@@ -1244,11 +1233,10 @@ export default function module(__rt) {
 			const v$now = __rt.memo("now", (__prev) => v$$$8()?.now, undefined);
 			const r$bind = __rt.inst(() => v$binder(v$part));
 			const v$bind = () => r$bind;
-			const r$on_ = __rt.inst(() => v$own(__rt.untrack(() => ({ "ref": (v$e) => {
+			const v$on_ = __rt.memo("on_", (__prev) => ({ "ref": (v$e) => {
 				__rt.snapshot(v$bind)(v$e);
 				v$give(__rt.snapshot(v$user), v$e);
-			} }))));
-			const v$on_ = () => r$on_;
+			} }), undefined);
 			const v$text = __rt.memo("text", (__prev) => (v$s) => v$s?.text, undefined);
 			return _$Show(new _P$19(__rt, v$render, v$rest, v$attrs, v$on_, v$viewOf, v$props, v$text, v$now, v$classOf, v$styleOf, (__item) => {
 				const __o = __rt.owner();

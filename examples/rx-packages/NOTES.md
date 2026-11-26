@@ -126,7 +126,7 @@ checkers agree 318/318, lowering alike 318/318, every runner alike on the accept
 
 Left out, each with what is written instead:
 
-- **A statement closure in a record that goes where handlers go** (B3, `attrs = { onKeyDown: (e) => { … } }`): a
+- *(Taken 2026-11-26, the roadmap's B3: spec 02 SC-3, S-check-7 — the record is written as it reads; what follows is why it was left.)* **A statement closure in a record that goes where handlers go** (B3, `attrs = { onKeyDown: (e) => { … } }`): a
   closure made in reactive scope is a pure function (SC-3) unless it stands where a handler is taken. To take it in a
   record the checker must know every place the record goes (a spread on an element, a view's argument, and nowhere it
   is called now): the same use-analysis as a draft callback's (MO-10i), not built. Written today: `action down(e) { … }`

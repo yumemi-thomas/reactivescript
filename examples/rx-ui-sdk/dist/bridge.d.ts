@@ -29,7 +29,6 @@ export declare function listen(part: Part, changed: (live: boolean) => void): ()
 export declare function binder(part: () => Part): (el: Element) => void;
 export declare function fire(part: Part, type: string, event: Event, user: any): void;
 export declare function give(user: any, el: Element): void;
-export declare function own(on: { ref: (el: any) => void; onClick?: (e: any) => void; onPointerEnter?: (e: any) => void; onPointerLeave?: (e: any) => void; onFocusIn?: (e: any) => void; onFocusOut?: (e: any) => void; onKeyDown?: (e: any) => void; onKeyUp?: (e: any) => void }): Attrs;
 export declare function classOf(value: any, state: any): any;
 export declare function styleOf(value: any, state: any, own: any): any;
 export declare function viewOf(value: any, state?: any): JSX.Element;

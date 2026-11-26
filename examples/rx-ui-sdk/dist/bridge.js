@@ -131,8 +131,6 @@ export const styleOf = (value, state, own) => {
   return own === undefined ? style : { ...(typeof style === "string" ? styleObject(style) : style), ...own };
 };
 const childrenOf = (value, state) => typeof value === "function" && value.length > 0 ? value(state) : value;
-/** What the parts put on their element themselves. */
-export const own = (on) => on;
 // What a .tsx app gives as a view, as `.rx` shows one: there a value in a hole is data, so `undefined` is text and a list
 // of strings is printed (REPORT.md, bug 3).
 const shown = (value) => {

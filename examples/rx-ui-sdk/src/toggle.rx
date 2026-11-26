@@ -1,7 +1,7 @@
 // Toggle, ToggleGroup and ToggleIcon over @ui-sdk/core's `toggle`.
 // Derived from toggle.jsx of @ui-sdk/solid 0.1.0-beta.13 (Apache-2.0, see ../NOTICE).
 import { fire, give, setOptions } from "./bridge.js"
-import { create, uniqueId, own, binder, elementProps } from "./bridge.js"
+import { create, uniqueId, binder, elementProps } from "./bridge.js"
 import { apiOf, classOf, styleOf, viewOf } from "./bridge.js"
 import { toggle, toggleGroup } from "./core.js"
 import { Scope } from "./bridge.js"
@@ -20,12 +20,12 @@ export component Toggle(props: Omit<ToggleProps, "children" | "render"> & { chil
   effect (it, options) { setOptions($0, $1) }
   { part, attrs, now } = usePart(it, "root", {}, rest, options)
   bind = binder(part)
-  on_ = own({
+  on_ = {
     ref: (e: Element) => { bind(e); give(user, e) },
     onClick: (e: Event) => { fire(part, "click", e, props.onClick) },
     onKeyDown: (e: Event) => { fire(part, "keydown", e, props.onKeyDown) },
     onKeyUp: (e: Event) => { fire(part, "keyup", e, props.onKeyUp) }
-  })
+  }
   provide root = { it: it, options: options }
   {if props.element {
     <props.element attrs={{ ...rest, ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }} state={now} />
@@ -40,7 +40,7 @@ export component ToggleIcon(props: ToggleIconProps) {
   id = uniqueId()
   { part, attrs, now } = usePart(scope.it, "icon", { mirror: mirror, id: props.id ?? id }, rest, scope.options)
   bind = binder(part)
-  on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+  on_ = { ref: (e: Element) => { bind(e); give(user, e) } }
   {if render != undefined {
     all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
     {viewOf(render(all, now))}
@@ -56,7 +56,7 @@ export component ToggleGroup(props: ToggleGroupProps) {
   effect (it, options) { setOptions($0, $1) }
   { part, attrs, now } = usePart(it, "group", {}, rest, options)
   bind = binder(part)
-  on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+  on_ = { ref: (e: Element) => { bind(e); give(user, e) } }
   provide group = it
   {if render != undefined {
     all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)

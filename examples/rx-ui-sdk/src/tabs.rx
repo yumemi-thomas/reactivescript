@@ -1,7 +1,7 @@
 // Tabs and its parts over @ui-sdk/core's `tabs`.
 // Derived from tabs.jsx of @ui-sdk/solid 0.1.0-beta.17 (Apache-2.0, see ../NOTICE).
 import { fire, give, setOptions } from "./bridge.js"
-import { create, uniqueId, own, binder, elementProps } from "./bridge.js"
+import { create, uniqueId, binder, elementProps } from "./bridge.js"
 import { presentOf } from "./bridge.js"
 import { classOf, styleOf, viewOf } from "./bridge.js"
 import { tabs as primitive } from "./core.js"
@@ -18,7 +18,7 @@ export component Tabs(props: TabsProps) {
   effect (it, options) { setOptions($0, $1) }
   { part, attrs, now } = usePart(it, "root", {}, rest, options)
   bind = binder(part)
-  on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+  on_ = { ref: (e: Element) => { bind(e); give(user, e) } }
   provide tabs = { it: it, options: options }
   {if render != undefined {
     all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
@@ -33,10 +33,10 @@ export component TabsList(props: TabsListProps) {
   scope = use tabs
   { part, attrs, now } = usePart(scope.it, "list", {}, rest, scope.options)
   bind = binder(part)
-  on_ = own({
+  on_ = {
     ref: (e: Element) => { bind(e); give(user, e) },
     onKeyDown: (e: Event) => { fire(part, "keydown", e, props.onKeyDown) }
-  })
+  }
   {if render != undefined {
     all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
     {viewOf(render(all, now))}
@@ -50,10 +50,10 @@ export component TabsTab(props: TabsTabProps) {
   scope = use tabs
   { part, attrs, now } = usePart(scope.it, "tab", { value: value, disabled: disabled }, rest, scope.options)
   bind = binder(part)
-  on_ = own({
+  on_ = {
     ref: (e: Element) => { bind(e); give(user, e) },
     onClick: (e: Event) => { fire(part, "click", e, props.onClick) }
-  })
+  }
   {if render != undefined {
     all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
     {viewOf(render(all, now))}
@@ -68,7 +68,7 @@ export component TabsTabIcon(props: TabsTabIconProps) {
   id = uniqueId()
   { part, attrs, now } = usePart(scope.it, "tab-icon", { mirror: mirror, id: props.id ?? id }, rest, scope.options)
   bind = binder(part)
-  on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+  on_ = { ref: (e: Element) => { bind(e); give(user, e) } }
   {if render != undefined {
     all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
     {viewOf(render(all, now))}
@@ -82,7 +82,7 @@ export component TabsIndicator(props: TabsIndicatorProps) {
   scope = use tabs
   { part, attrs, now } = usePart(scope.it, "indicator", {}, rest, scope.options)
   bind = binder(part)
-  on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+  on_ = { ref: (e: Element) => { bind(e); give(user, e) } }
   {if render != undefined {
     all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
     {viewOf(render(all, now))}
@@ -99,7 +99,7 @@ export component TabsPanel(props: TabsPanelProps) {
   present = presentOf(part, named, scope.options, tick)
   {if present {
     bind = binder(part)
-    on_ = own({ ref: (e: Element) => { bind(e); give(user, e) } })
+    on_ = { ref: (e: Element) => { bind(e); give(user, e) } }
     {if render != undefined {
       all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
       {viewOf(render(all, now))}

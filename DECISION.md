@@ -863,6 +863,41 @@ step 5, W4), and one given to JavaScript that calls it at once (bugs/05).
 proposals/31's 456 programs were not found on disk (their generator is not kept); its five leftovers are written again
 here: the two that are W2's are refused (S-check-6), the three of a prop or a context typed `any` are step 5's.
 
+### Step 4: B3 — a statement closure in a record or a list
+
+*Taken* (spec 02 SC-3, both checkers and the interpreter's run-time check alike): a statement closure written as a field
+of a record literal or an item of a list literal, in reactive scope, is imperative and an io value, as the action that
+stood in for it was (`{ onKeyDown: down }`). It is carried freely — names, spreads, a context, a view's argument, a fn's
+result — and step 3's mechanism refuses it where it is called while the view computes.
+
+*Decided: it ends only where a handler goes.* The roadmap argued it has the action form's reach. That reach includes
+holes the action form has today (an io value given to JavaScript that calls it at once, bugs/05), and the closure form
+was refused there; so taking B3 as stated would have accepted programs that were refused and are wrong: the census found
+them — S-module-12's `useQuery({ queryFn: () => { … } })` and `useMutation({ retry: … })`, and the benchmark's
+`export route = { loader: () => { asked := … } }`, which the router calls while it computes. So: it may end at an
+element's `on…`/`ref` (by name or a spread's field), a component's handler prop (SC-4b), a parameter or a record's field
+a JavaScript declaration says `handler` (MO-10g). Given anywhere else — a plain attribute or prop, a spread's field that
+is none, a JavaScript argument not marked `handler`, an export of the module — it is `REACTIVE_WRITE_IN_OWNED_SCOPE`,
+the verdict a closure written there has. Through a name too (`opts = { queryFn: … }; useQuery(opts)`): the fact is
+`actionParts` in a closure mode, beside step 3's. *Open, as for an action*: a record given to a component's
+non-handler prop (or a view's argument across modules) whose receiver calls a field of it while it computes (step 5's
+subject).
+
+*Rewritten.* The UI SDK's `own()` (a JavaScript identity whose declaration marked each field `handler`) is gone: its 18
+uses are the record itself, in `examples/rx-ui-sdk` and `examples/rx-packages/packages/ui-sdk`; `elementProps`'s
+declaration says that the `ref` and `on…` it merges into an element's props are handlers. Terracotta's Button writes
+its three handlers in its `attrs` record instead of three actions.
+
+| | |
+| --- | --- |
+| programs (`mk4.py`: 4 bodies × 6 holders — a record, a nested one, a list, a record in a list, a choice, a spread — × where it goes — an attribute, a handler prop, carried, an element's spread, a component's spread — × called from a handler; an effect's apply; called in an equation, in content, in a closure given to `map`, by a fn; a `for` of handlers; a view's argument; a context; a fn's result; another module's; where no handler goes eight ways; exports) | 241: 114 refused by both checkers, 127 accepted, each as named (one accepted by the checkers alone: a JavaScript module the runners do not have) |
+| both checkers, lowered, projected; the type pass | 241 of 241 alike |
+| the 126 accepted with frames: interpreter, oracle, both emitters, served and hydrated in both | 126 of 126 alike |
+| census: the scenarios, `bench/run.mjs --check --strict` | nothing newly refused; the three found above are refused again |
+| `examples/rx-packages`: `check.mjs`; the originals' tests both ways (`run.mjs`, `SSR=1`) | `check.json` byte for byte; every file's numbers as before the rewrite |
+| `examples/rx-ui-sdk`: build, `check/run.mjs`, `app/test.mjs` | builds; check identical; 44 tests, original 44, rewrite 44, the `.rx` app served and hydrated ok (the suite's harness imports esbuild, which the tree does not install: run with the copy an earlier setup had) |
+| `examples/rx-std` | 13 of 13 build |
+
 ## Roadmap, track 2: every runner agrees (2026-11-26)
 
 The second track of `ROADMAP-fable.md` (X1, W5, W3 + X6, X2, X7), beside track 1 on the same PR. The sets and logs are

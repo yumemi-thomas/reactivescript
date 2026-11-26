@@ -7,10 +7,10 @@ export type Attrs = { "tc-button": ""; tabindex: number; role: "button"; "tc-dis
 /** `render` shows the caller's element with the button's attributes: it is pressed by Enter and Space, as a button is. */
 export component Button(props: ButtonProps & { render?: (p: { attrs: Attrs }) => View }) {
   { disabled, render: none, onKeyDown, onKeyUp, onClick, children, ...rest } = props
-  action down(e: KeyboardEvent) { call(e, onKeyDown); pressKey(e, disabled) }
-  action up(e: KeyboardEvent) { call(e, onKeyUp); pressKey(e, disabled) }
-  action press(e: MouseEvent) { if (disabled) { e.preventDefault() } else { call(e, onClick) } }
-  attrs: Attrs = { "tc-button": "", tabindex: disabled ? 0 - 1 : 0, role: "button", "tc-disabled": flag(disabled), disabled: disabled, "aria-disabled": disabled == undefined ? undefined : disabled ? "true" : "false", onKeyDown: down, onKeyUp: up, onClick: press }
+  attrs: Attrs = { "tc-button": "", tabindex: disabled ? 0 - 1 : 0, role: "button", "tc-disabled": flag(disabled), disabled: disabled, "aria-disabled": disabled == undefined ? undefined : disabled ? "true" : "false",
+    onKeyDown: (e: KeyboardEvent) => { call(e, onKeyDown); pressKey(e, disabled) },
+    onKeyUp: (e: KeyboardEvent) => { call(e, onKeyUp); pressKey(e, disabled) },
+    onClick: (e: MouseEvent) => { if (disabled) { e.preventDefault() } else { call(e, onClick) } } }
   {if props.render { <props.render attrs={attrs} /> } else { <button {...attrs} {...rest}>{children}</button> }}
 }
 export type SwitchState = { checked: boolean; disabled: boolean; toggle: () => void }

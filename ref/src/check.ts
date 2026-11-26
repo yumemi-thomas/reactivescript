@@ -1547,12 +1547,13 @@ class Checker {
           // MO-10f: a signature carries an equation's rows, not its fields': an importer's `x.data` would be unseen
           const h = made?.held?.[0];
           if (h) this.err("RESULT_AS_VALUE", "MO-10f", `${d.name} is a JS result whose fields hold or fail where each is read (${d.name}.${h[0]}), and a module's signature says nothing of a value's fields: export the field, \`export ${h[0].split(".").pop()} = ${d.name}.${h[0]}\`, which carries its rows`);
+          this.closureGiven(d.e, env, () => false, `as ${d.name}, an export of the module, which what imports it (JavaScript too, a router's \`route\`) may call while it computes — export an action`);   // B3
         }
         if (made && !made.factory && (d.e.k === "rec" || d.e.k === "arr")) this.litBinding(made, d, env);   // MO-11c: a literal of components bound to a name
         if (d.e.k === "id" || d.e.k === "member" || d.e.k === "index") this.wholeOk.add(d.e);   // MO-10f, MO-10i: an equation may give a result another name (`q = orig`, `r = q.result`)
         { const ps = this.updaterPositions(d.name, d.line, d.e, env);                               // MO-10i (2026-11-22): a closure bound here and given only to what hands it a draft is that callback
           if (ps) { if (made) made.updater = ps; if (d.exported) this.err("DRAFT_ESCAPES", "MO-10i", `${d.name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter`); } }
-        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.ioGiven(call, env, false);   /* W2: an instantiation runs where it is written, in reactive scope */ this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && f.foreign !== "comp") this.unplaced(call.args, env, f);   /* MO-11s, MO-11u */ this.snapshotArgs(call, f, env); this.hookCalls.push({ region: env.region, fn: f, line: this.line, display: `${d.e.f.name}()` });   /* RG-7b, MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
+        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.ioGiven(call, env, false); this.jsGiven(call, f, env);   /* W2: an instantiation runs where it is written, in reactive scope */ this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && f.foreign !== "comp") this.unplaced(call.args, env, f);   /* MO-11s, MO-11u */ this.snapshotArgs(call, f, env); this.hookCalls.push({ region: env.region, fn: f, line: this.line, display: `${d.e.f.name}()` });   /* RG-7b, MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
       }
       case "provide": {
@@ -2444,7 +2445,7 @@ class Checker {
   }
   /** R-io-3 (2026-11-24): the parts of a value that are actions, as paths ("": the value itself) — carrying an action is not
    *  a call, and the value's type carries the row: through the names and the fns it goes by, as far as their literals say. */
-  private partsMemo = new Map<Sym, Set<string>>();
+  private partsMemo = new Map<Sym, Set<string>>(); private closureMemo = new Map<Sym, Set<string>>();
   /** SC-4b (2026-11-26): a handler the component is given — `props.onPick`, `props.ref`, the same read off a rest or a copy
    *  of its props. Its closure was written in imperative scope where the component is applied (SC-4), so inside the
    *  component it is io: given on to what takes a handler, or called from imperative scope. */
@@ -2465,22 +2466,24 @@ class Checker {
     };
     return of((e as { o: Expr }).o, env, 0);
   }
-  private actionParts(e: Expr, env: Env): Set<string> {
+  /** …`cl`: the parts that are a statement closure written as an item or a field (B3), and nothing else (step 4). */
+  private actionParts(e: Expr, env: Env, cl = false): Set<string> {
     const out = new Set<string>();
-    const go = (x: Expr) => this.actionParts(x, env);
-    const named = (s: Sym, v: { e?: Expr; env?: Env }): Set<string> => { const m = this.partsMemo.get(s); if (m) return new Set(m); this.partsMemo.set(s, out); if (!v.e || !v.env) return out; const r = this.actionParts(v.e, v.env); this.partsMemo.set(s, r); return new Set(r); };   // one being read by itself adds nothing
+    const go = (x: Expr) => this.actionParts(x, env, cl); const memo = cl ? this.closureMemo : this.partsMemo;
+    const named = (s: Sym, v: { e?: Expr; env?: Env }): Set<string> => { const m = memo.get(s); if (m) return new Set(m); memo.set(s, out); if (!v.e || !v.env) return out; const r = this.actionParts(v.e, v.env, cl); memo.set(s, r); return new Set(r); };   // one being read by itself adds nothing
     const at = (o: Set<string>, k: string | undefined) => { if (k !== undefined) for (const p of o) if (p === k) out.add(""); else if (p.startsWith(`${k}.`)) out.add(p.slice(k.length + 1)); return out; };
     const put = (k: string, v: Expr) => { for (const p of [...out]) if (p === k || p.startsWith(`${k}.`)) out.delete(p); if (!k.includes(".")) for (const p of go(v)) out.add(p === "" ? k : `${k}.${p}`); };
     switch (e.k) {
-      case "id": { const s = env.lookup(e.name); if (!s) return out; if (s.kind === "action") return out.add(""); if (s.actionParts) return new Set(s.actionParts); return (s.kind === "eq" || s.kind === "value") && s.val ? named(s, s.val) : out; }
-      case "member": return this.handlerProp(e, env) ? out.add("") : at(go(e.o), e.p);   // SC-4b: a handler the component is given is io, as an action is
-      case "index": return this.handlerProp(e, env) ? out.add("") : at(go(e.o), litKey(e.i));
+      case "id": { const s = env.lookup(e.name); if (!s) return out; if (!cl && s.kind === "action") return out.add(""); if (!cl && s.actionParts) return new Set(s.actionParts); return (s.kind === "eq" || s.kind === "value") && s.val ? named(s, s.val) : out; }
+      case "member": return !cl && this.handlerProp(e, env) ? out.add("") : at(go(e.o), e.p);   // SC-4b: a handler the component is given is io, as an action is
+      case "index": return !cl && this.handlerProp(e, env) ? out.add("") : at(go(e.o), litKey(e.i));
       case "rec": for (const f of e.fields) if ("spread" in f) { out.clear(); for (const p of go(f.spread)) out.add(p); } else put(f.key, f.v); return out;
       case "arr": for (const [i, x] of e.items.entries()) { if (x.k === "spread") break; put(String(i), x); } return out;
       case "if": for (const x of [e.t, e.f]) for (const p of go(x)) out.add(p); return out;
       case "bin": if (e.op === "??" || e.op === "||" || e.op === "&&") for (const x of e.op === "&&" ? [e.r] : [e.l, e.r]) for (const p of go(x)) out.add(p); return out;   // `h = props.onPick ?? other`
       case "peek": return go(e.e);
-      case "call": { const f = e.f.k === "id" ? env.lookup(e.f.name) : undefined; return f?.kind !== "fn" ? out : f.actionParts ? new Set(f.actionParts) : named(f, { e: f.fnTail, env: f.fnEnv }); }
+      case "fn": return e.stmts ? out.add("") : out;   // B3: a statement closure is io, as an action is
+      case "call": { const f = e.f.k === "id" ? env.lookup(e.f.name) : undefined; return f?.kind !== "fn" ? out : f.actionParts && !cl ? new Set(f.actionParts) : named(f, { e: f.fnTail, env: f.fnEnv }); }
       default: return out;
     }
   }
@@ -2594,6 +2597,21 @@ class Checker {
       if (named && !byName && called.has("")) say(""); else { const line = this.line; this.later.push(() => { const at = callsHeld(held(), called); if (at !== undefined) { const was = this.line; this.line = line; say(at); this.line = was; } }); }
     });
   }
+  /** B3 (2026-11-26): a statement closure written as an item or a field is carried freely, and ends only where a handler
+   *  goes. Given anywhere else — a plain attribute or prop, a spread's field that is none, a JavaScript argument its
+   *  declaration does not mark `handler` — it is the closure of reactive scope SC-3 refuses, as one written there is. `ok`:
+   *  the paths of the value that may hold one. A closure written there itself is SC-3's own. */
+  private closureGiven(e: Expr, env: Env, ok: (path: string) => boolean, where: string) {
+    if (e.k === "fn") return;
+    const p = [...this.actionParts(e, env, true)].find(p => !ok(p)); if (p === undefined) return;
+    this.err("REACTIVE_WRITE_IN_OWNED_SCOPE", "W-2", `${show(e)} holds a statement closure${p === "" ? "" : ` (\`${p}\`)`}, given ${where}: a closure made in reactive scope is a pure function (SC-3) unless it goes where a handler is taken — an \`on…\` attribute or prop, \`ref\`, a parameter declared \`handler\``);
+  }
+  /** B3: a call of JavaScript in reactive scope, given a statement closure where its declaration does not say `handler`. */
+  private jsGiven(e: Extract<Expr, { k: "call" }>, s: Sym | undefined, env: Env) {
+    if (!s || e.f.k !== "id" || !(s.kind === "import" || (s.kind === "fn" && s.foreign !== undefined))) return;
+    const name = e.f.name;
+    e.args.forEach((a, i) => { const c = s.cbs?.[i]; if (!c?.[0]) this.closureGiven(a, env, p => p !== "" && !!c?.[1].includes(p.split(".")[0]), `to ${name}(…), JavaScript that may call it while it computes`); });
+  }
   private carriedAction(e: Extract<Expr, { k: "call" }>, env: Env, say: () => void) {
     if (e.f.k === "id" ? env.lookup(e.f.name)?.kind === "action" || env.lookup(e.f.name)?.io : e.f.k !== "member" && e.f.k !== "index") return;
     const line = this.line; this.later.push(() => { if (this.actionParts(e.f, env).has("")) { this.line = line; say(); } });
@@ -2686,8 +2704,10 @@ class Checker {
       case "member":
         this.wholeOk.add(e.o); this.heldMember(e, env); this.wholeUse(e, env); this.partUse(e, env); if (e.o.k === "id") this.expr(e.o, env, ctx, e.p); else go(e.o); return;
       case "index": this.wholeOk.add(e.o); this.heldMember(e, env); this.wholeUse(e, env); this.partUse(e, env); go(e.o); go(e.i); return;
-      case "arr": e.items.forEach(go); return;
-      case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
+      // B3 (2026-11-26): a statement closure written as an item of a list or a field of a record is an io value, as an action
+      // named there is: carried freely, its body an io scope, and refused where it is called while the view computes (R-io-3)
+      case "arr": for (const x of e.items) if (x.k === "fn" && x.stmts) this.callbackFns.add(x); e.items.forEach(go); return;
+      case "rec": for (const f of e.fields) if (!("spread" in f) && f.v.k === "fn" && f.v.stmts) this.callbackFns.add(f.v); for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
       case "call": {
         this.callMarks(e.f, e.args, env);
         // MO-8j (2026-11-26): an action or an io value given by name to what calls it while the call runs is called here,
@@ -2764,6 +2784,7 @@ class Checker {
           if (s?.generated && ctx.scope === "imperative" ? s.makes && !this.refCalls.has(e) : s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) ${s?.kind === "fn" && s.fnDecl ? instantiatesWhy(s.fnDecl) : "declares state or reads a context"}: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
           if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.f.name} called as a function: apply it in a view`);
           this.markCallbacks(e.args, s?.cbs);
+          if (ctx.scope === "reactive") this.jsGiven(e, s, env);   // B3
           if (s?.kind === "action" && s.arity !== undefined && (e.args.length > s.arity || e.args.length < (s.arityMin ?? s.arity))) this.err("ARGUMENT_COUNT", "AC-1f", `${e.f.name} takes ${s.arityMin !== undefined ? `${s.arityMin} to ${s.arity} arguments` : s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
           this.model.call(s);
           if (s && (s.kind === "import" || (s.kind === "fn" && s.foreign !== undefined)) && s.foreign !== "comp") this.unplaced(e.args, env, s);   // MO-11s, MO-11u
@@ -3107,7 +3128,7 @@ class Checker {
             const args = m.attrs.filter(a => !values.has(a));
             const handles = (n: string) => { const d = s?.compRegion?.sig?.props[n]; const own = s?.compRegion && !s.compRegion.sig && s.comp?.propsType !== undefined ? tyStep(fieldRows(s.comp.propsType).text, { field: n }) : undefined;
               return !!d?.callback || (!d?.pure && !tyAnswersValue(own) && isHandler(n) && (n !== "ref" || (!!s?.compRegion && !s.compRegion.sig?.js))); };   // SC-4b: `ref`, on a component written in .rx; a prop typed to answer a value is no handler   // MO-10g: a JS component's prop typed as a function is what its declaration says (`handler`, or pure), whatever its name; an untyped `on…` prop keeps SC-4. `ref` is a handler on an element only (07 §4): on a component, a handler only when declared one
-            for (const a of args) { if (handles(a.name)) this.handlerCalled(a.e, env, a.name); this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" })); if (!handles(a.name)) this.keep(a.e, env); }   // R-2: an argument is read where the component reads it
+            for (const a of args) { if (!handles(a.name)) this.closureGiven(a.e, env, a.name === "..." ? (p => p !== "" && handles(p.split(".")[0])) : (p => p !== ""), a.name === "..." ? `in a spread on <${m.tag}>` : `to <${m.tag} ${a.name}>`);   /* B3 */ if (handles(a.name)) this.handlerCalled(a.e, env, a.name); this.comp(handles(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: handles(a.name) ? "imperative" : "reactive" })); if (!handles(a.name)) this.keep(a.e, env); }   // R-2: an argument is read where the component reads it
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
               this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: args.filter(a => !handles(a.name)).map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })), passed: args.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })) });   // a spread is every field: "*"   // R-2: passing is not reading — checked where the component reads it
@@ -3154,7 +3175,7 @@ class Checker {
           { const c = this.shows(m.tag, env); if (c) { this.showView(m, c.comp, c.view, env); break; } }
           { const u = usedIn(m.tag); if (u !== undefined) { this.showCarried(m, u, env); break; } }
           { const dot = m.tag.indexOf("."); if (dot > 0) { const head = m.tag.slice(0, dot); const bound = !!env.lookup(head); if (bound) this.err("UNKNOWN_COMPONENT", "MO-11q", memberTagLowercase(m.tag)); } }
-          for (const a of m.attrs) { if (isHandler(a.name) && a.name !== "ref") this.handlerCalled(a.e, env, a.name); this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.keep(a.e, env); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
+          for (const a of m.attrs) { if (!isHandler(a.name)) this.closureGiven(a.e, env, a.name === "..." ? (p => p !== "" && isHandler(p.split(".")[0])) : (p => p !== ""), a.name === "..." ? `in a spread on <${m.tag}>` : `to <${m.tag} ${a.name}>`);   /* B3 */ if (isHandler(a.name) && a.name !== "ref") this.handlerCalled(a.e, env, a.name); this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.keep(a.e, env); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
           this.markup(m.children, env);
           break;
         }
