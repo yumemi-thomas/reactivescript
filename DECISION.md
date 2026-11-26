@@ -984,6 +984,32 @@ an importer reading `index.d.rx` would make a second context), the ES re-export 
 | census | nothing newly refused: scenarios, `bench/run.mjs --check --strict`, rx-packages (check.json byte for byte, every package builds), rx-std 13 of 13, UI SDK (build, check identical) |
 | grammar | 100 corpus tests; 1,023 of 1,023 files of the repository |
 
+### Step 8: L2 + B4 — a view with a parameter given on is the view block it stands for; L7
+
+*Taken* (spec 03 RG-4c; both loaders, so every runner and both checkers read the result): at a component's
+application, `renderItem={use item}` (a context of the module that holds a view with a parameter), `row={props.row}` (a
+required view with a parameter of the enclosing component) and `{...props}` (each such view its props type declares
+required, and the rest of the spread without them, Solid's `omit`) are read when the module is loaded as
+`{view renderItem (view$) { <use.item {...view$} /> }}` and so on. Neither side's types are needed: a context that holds
+a view is the module's own, and a props type is in its component's text; what the receiving prop is, is held by the rules
+that exist, on the block. *Decided:* an optional view is left as written — given on, a block would be "given" where
+nothing was — and refused as before; the second, misleading line of that refusal (`<Mid> declares no render prop row`,
+when it declares one) is left out where the props type declares the view, in both checkers. The generated block has no
+place in the text (as the parser's own made items, CP-8) and is read at its element's line.
+
+*L7, taken:* a call of a JavaScript fn whose declaration says it answers `View` is no text for the content model (as a
+JavaScript component in the same place is not); a result not said, or a value's, is still `CONTENT_MODEL`; a generated
+draft's result is no claim and stays so.
+
+| | |
+| --- | --- |
+| programs (`mk8.py`: three forms — a context's view as an argument, a prop as an argument, the props spread — × four receivers — shown with arguments, with a spread, asked then shown, shown twice — × one module or two, each beside its long form; optional views through an argument and a spread; an optional receiver; values and views given on as before) | 56: 4 refused (the optional ones), 52 accepted, each as named; both checkers, lowered, projected, the type pass alike |
+| the short form against its long form | 25 pairs, the same frames in the interpreter, the oracle and both emitters |
+| the 52 with frames, served and hydrated in both | 52 of 52 alike |
+| the presence set (1,642, `w/p6f`), since "was it given" is the risk | 1,642 of 1,642 alike, as before |
+| S-module-48 (`renderItem={use item}` moved from refused to a variant with its frame), S-server-6 (L7: a declared `View` accepted, an `any` refused) | every runner, served and hydrated, the type pass, crate parity |
+| census | nothing newly refused (it only accepts more): scenarios, `bench/run.mjs --check --strict`, rx-packages (check.json, builds; its B4 repro `view-spread.rx` is accepted), rx-std, UI SDK |
+
 ### Read again under the user's rule of 2026-11-26: no rule bent around a Solid bug
 
 The rule: a Solid bug is never a reason to refuse correct code or to shape a language rule; it is recorded as a DV

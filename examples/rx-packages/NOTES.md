@@ -131,7 +131,7 @@ Left out, each with what is written instead:
   record the checker must know every place the record goes (a spread on an element, a view's argument, and nowhere it
   is called now): the same use-analysis as a draft callback's (MO-10i), not built. Written today: `action down(e) { … }`
   and `{ onKeyDown: down }` — an action is a value, and SC-4b now holds for where it goes.
-- **A view with a parameter through a spread** (B4, `<List {...props} />` where `props.row` is a view): item 2 carries
+- *(Taken 2026-11-26, the roadmap's B4: spec 03 RG-4c — read at load as the view block; what follows is why it was left.)* **A view with a parameter through a spread** (B4, `<List {...props} />` where `props.row` is a view): item 2 carries
   what a provider gives to the *children* through such a spread; a view with a parameter also needs its places (what
   each shows it with, what stands between) carried from `List` to `Wrap`'s caller, which is RG-4c's whole summary a
   second time. Written today, one line: `<List {...rest}>{view row (s) { <props.row {...s} /> }}</List>`.

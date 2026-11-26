@@ -8427,7 +8427,12 @@ impl<'a> Checker<'a> {
                             for x in children.iter() {
                                 // MO-11k: a named render prop
                                 if let MarkupKind::Mview { prop: Some(p), .. } = &x.kind {
-                                    if !renders.contains(p) && !self.shown_by(s.unwrap()).contains_key(p) {
+                                    // (one its props type declares, and does not show, is refused where it is given on: said there)
+                                    let declared = s.and_then(|s| self.syms[s].comp).is_some_and(|c| match c {
+                                        Decl::Component { props_type, tparams, .. } => crate::modules::declares_view_fn(props_type.as_deref(), &self.opts.types, p, tparams.as_deref()),
+                                        _ => false,
+                                    });
+                                    if !renders.contains(p) && !self.shown_by(s.unwrap()).contains_key(p) && !declared {
                                         self.err("VIEW_FN_MISPLACED", "MO-11k", format!("<{}> declares no render prop {} (a prop typed as a function giving a View)", tag, p));
                                     }
                                     // reported once; its body is still checked
@@ -8820,6 +8825,16 @@ impl<'a> Checker<'a> {
         self.ensure_places(env);
         if self.view_places.contains_key(&(m as *const Markup as usize)) || self.reads_children(e, env) || self.view_shown(e, env).is_some() {
             return false;
+        }
+        // L7 (2026-11-26): a call of JavaScript its declaration says answers a view is no text, as a JS component is not
+        if let ExprKind::Call { f, .. } = &e.k {
+            if let ExprKind::Id(n) = &f.k {
+                if let Some(s) = self.lookup(env, n) {
+                    if self.syms[s].kind == SymKind::Import && self.syms[s].ret_io.as_deref().is_some_and(|t| crate::parse::is_view_type(t.js_trim())) {
+                        return false;
+                    }
+                }
+            }
         }
         let (root, field) = match &e.k {
             ExprKind::Member { o, p, .. } => match &o.k {

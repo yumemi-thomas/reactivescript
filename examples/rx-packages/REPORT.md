@@ -40,7 +40,7 @@ were written; the table is the new one.
   `@reactivescript/std/is` narrows; it has `cast<T>(x)`; `std/math` has `num`; `std/object` has `setOf`, `mapOf`, and
   `fromEntries([[k, v]])` is a computed key. Four packages' own one-line helpers went (`setOf`, `num`, `one`, `attr`).
 - **B1** (a listener starts after mount): decided, mount-time is the rule; the tests that look in the same task still
-  fail, by design. **B4, B9, B10, B12, B13**: left (B3 taken since, 2026-11-26), each with what is written instead (`NOTES.md`).
+  fail, by design. **B9, B10, B12, B13**: left (B3 and B4 taken since, 2026-11-26), each with what is written instead (`NOTES.md`).
 - **A kit with one entry** (a re-export, an exported context that holds a view): not built; `NOTES.md` 4a says why.
 - **Not redone in the packages:** Kobalte's Trigger is still written as a `<button>` and the UI SDK bridge still has
   `own()` in JavaScript, though B2 no longer forces either; the scroll, mouse and pointer facades still pass
@@ -190,7 +190,7 @@ Over 25 good programs × 12 mistakes:
 | B1 | **A listener or a resource starts in an `effect`, after mount**; the original starts it when it is called (render effect, `onCleanup`). In a test's `createRoot` without a flush nothing listens | `export fn createWSMessage(ws: any) { source m: any := undefined` / `effect () { return watchMessage(ws, (d) => { m := () => d }) }` / `m }` | none; it is a timing difference the tests see (scroll 5/16, spring 10/25, websocket, styles, mouse, event-listener, intersection-observer, raf, date, devices, geolocation, connectivity) | **12** (all primitives with a listener) |
 | B2 | **A `ref` closure that writes, given to a component** (`REACTIVE_WRITE_IN_OWNED_SCOPE`) | `<Part ref={(e: Element) => { el := e }} />` with `component Part(p: { ref?: (e: Element) => void })` | Kobalte's Trigger written as a `<button>` instead of its `Button`; UI SDK's `own()` (JS) | **5** (Kobalte, terracotta, UI SDK, cmdk, every check program's C7) |
 | B3 | **A statement-bodied closure in a record** (`{ onKeyDown: (e) => { … } }`) was refused; actions stood in. **Taken 2026-11-26** (spec 02 SC-3, S-check-7): an io value, carried freely, ending where a handler goes | `attrs = { onClick: (e: any) => { call(e, h) } }` | UI SDK `own()` (JS) and terracotta's actions, both written as the record now; their tests as before | 2 |
-| B4 | **A view with a parameter through a spread** to another component (`VIEW_FN_EXPECTED`) | `repros/view-spread.rx` | none: written out as `{view row (s) { <props.row {...s} /> }}` | 2 (Kobalte Select, terracotta Switch/Button) |
+| B4 | **A view with a parameter through a spread** to another component (`VIEW_FN_EXPECTED`). **Taken 2026-11-26** (spec 03 RG-4c): each required view the props type declares is the view block it stands for | `repros/view-spread.rx` | none: it reads as written | 2 (Kobalte) |
 | B5 | **Optional `ref` parameter** (value-or-accessor that may be left out): `PARSE [E-9a]` | `export fn createScrollPosition(ref target?: any)` | facade passes `undefined` | 3 (scroll, mouse, pointer) |
 | B6 | **Optional parameters on an action** | `repros/action-optional.rx` | facade / required `| undefined` | 2 (toast kit, Kobalte Toast) |
 | B7 | **No destructuring of a quoted key** (`{ "aria-label": label } = props`) | `{ "aria-label": l, ...rest } = props` → `PARSE` | none; `props["aria-label"]` (which then hit bug 1) | 2 (Kobalte form parts, cmdk) |

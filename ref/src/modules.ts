@@ -242,7 +242,9 @@ function loadProgram(entry: string, read: (path: string) => string | undefined, 
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
-  return { entry, conformance, programs, order, diags, declarations, signatures, declarationIds, printed };
+  const set: ModuleSet = { entry, conformance, programs, order, diags, declarations, signatures, declarationIds, printed };
+  givenOn(set);   // L2/B4
+  return set;
 }
 
 /** A module's path from another's, as an import writes it (`./kit/root.rx`, `../a.rx`); undefined where it does not read back. */
@@ -275,6 +277,63 @@ function reexported(p: Program, path: string, programs: Map<string, Program>): v
     out.push(...moved.values());
   }
   p.decls.splice(0, p.decls.length, ...out);
+}
+/** RG-4c: whether a component's props type, read, declares a field a view with a parameter (required or not). */
+export function declaresViewFn(propsType: string | undefined, types: Types, field: string, tparams?: string): boolean {
+  if (propsType === undefined) return false;
+  const t = fieldType(expandType(propsType, without(types, tparams)), field);
+  return !!t && viewType(t.type.trim()) !== undefined;
+}
+/** RG-4c, L2/B4 (2026-11-26): a view with a parameter given on is the view that shows it with everything it is passed.
+ *  At a component's application, `renderItem={use item}` (a context of the module that holds a view with a parameter),
+ *  `row={props.row}` (a view with a parameter the enclosing component is given, required) and `{...props}` (each such
+ *  view the enclosing component's props type declares required) are written as the view blocks they stand for —
+ *  `{view renderItem (view$) { <use.item {...view$} /> }}` — and the rest of a spread without them. Read when the
+ *  program is loaded, so every runner and both checkers read the block; an optional view is left as it was written
+ *  (given on, it would be given where it was not: refused, with the long form in the message). */
+export function givenOn(set: ModuleSet): void {
+  for (const [path, p] of set.programs) {
+    const types = typesOf(set, path);
+    const ctxs = new Set(p.decls.flatMap(d => d.k === "context" && viewCtx(d.type, types)?.fn ? [d.name] : []));
+    const fnViews = (c: Extract<Decl, { k: "component" }>): string[] => {
+      if (c.propsType === undefined) return [];
+      const t = expandType(c.propsType, without(types, c.tparams)), out: string[] = [];
+      for (const part of splitTop(t, "&").map(x => x.trim())) if (part.startsWith("{") && part.endsWith("}"))
+        for (const f of splitTop(part.slice(1, -1), ",;\n")) { const i = f.indexOf(":"); if (i <= 0) continue; const n = fieldName(f.slice(0, i)); const x = fieldType(t, n); if (x && !x.optional && viewType(x.type.trim())?.mixed === false && !out.includes(n)) out.push(n); }
+      return out.sort();
+    };
+    const view = (prop: string, tag: string): Markup => ({ k: "mview", prop, params: ["view$"], decls: [], body: [{ k: "el", tag, attrs: [{ name: "...", e: { k: "id", name: "view$" } }], children: [] }] });   // made by the loader: read at the element's line
+    const decls = (ds: Decl[], comp: Extract<Decl, { k: "component" }> | undefined) => { for (const d of ds) if (d.k === "component") { decls(d.decls, d); markups(d.view, d); } };
+    const markups = (ms: Markup[], comp: Extract<Decl, { k: "component" }> | undefined) => {
+      for (const m of ms) {
+        switch (m.k) {
+          case "el": {
+            if (comp && /^[A-Z]/.test(m.tag)) {
+              const props = comp.props, own = /^[a-z_$][\w$]*$/i.test(props) ? fnViews(comp) : [];
+              const has = new Set(m.children.flatMap(x => x.k === "mview" && x.prop ? [x.prop] : []));
+              const added: Markup[] = [];
+              m.attrs = m.attrs.flatMap(a => {
+                if (a.name !== "..." && a.e.k === "use" && ctxs.has(a.e.name) && !has.has(a.name)) { added.push(view(a.name, `use.${a.e.name}`)); has.add(a.name); return []; }
+                if (a.name !== "..." && a.e.k === "member" && a.e.o.k === "id" && a.e.o.name === props && own.includes(a.e.p) && !has.has(a.name)) { added.push(view(a.name, `${props}.${a.e.p}`)); has.add(a.name); return []; }
+                if (a.name === "..." && a.e.k === "id" && a.e.name === props) {
+                  const fs = own.filter(f => !has.has(f) && !m.attrs.some(b => b.name === f)); if (!fs.length) return [a];
+                  for (const f of fs) { added.push(view(f, `${props}.${f}`)); has.add(f); }
+                  return [{ ...a, e: { k: "omit", e: a.e, keys: fs } }];
+                }
+                return [a];
+              });
+              m.children.push(...added);
+            }
+            markups(m.children, comp); break;
+          }
+          case "mif": decls(m.tDecls, comp); decls(m.fDecls, comp); markups(m.t, comp); markups(m.f, comp); break;
+          case "mfor": case "mview": case "portal": decls(m.decls, comp); markups(m.body, comp); break;
+          case "loading": case "errored": decls(m.decls, comp); markups(m.fallback, comp); markups(m.body, comp); break;
+        }
+      }
+    };
+    decls(p.decls, undefined); markups(p.view, undefined);
+  }
 }
 /** Whether an import's name is one whose call instantiates: an `.rx` fn (its source, or its signature), a declared primitive. */
 function instantiatingExport(d: Extract<Decl, { k: "import" }>, name: string, programs: Map<string, Program>, signatures: Map<string, ModSig>, declarations: Map<string, JsDecl[]>): boolean {

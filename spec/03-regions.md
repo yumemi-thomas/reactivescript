@@ -226,6 +226,20 @@ A component is a function from a props value to a region whose tail is a view.
     read through the names the module declares or imports from `.rx`. A component
     so typed that never shows them this way is as it was: it reads and calls
     them. (`VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED`; S-view-3 to S-view-7.)
+    *Given on (2026-11-26, L2/B4).* A view with a parameter given on is the
+    view that shows it with everything it is passed: at a component's
+    application, `renderItem={use item}` (a context of the module that holds
+    a view with a parameter), `row={props.row}` (a view with a parameter the
+    enclosing component declares required) and `{...props}` (each such view
+    its props type declares required, and the rest of the spread without
+    them) are read when the module is loaded as `{view renderItem (r) {
+    <use.item {...r} /> }}`, `{view row (r) { <props.row {...r} /> }}` — so
+    every runner and both checkers read the block, and the rules that hold
+    it are the ones above. A context that holds a view is declared in the
+    module that names it, and a component's props type is in its own text, so
+    nothing else is read. An optional view is left as written (given on, a
+    view block would be given where none was): refused, with the long form
+    and its question. S-module-48.
 - **RG-4d (No return channel).** A component body evaluates to its view and
   nothing else. To expose a value upward, the caller passes a handler (or an
   action) the child calls: a source passed as a prop is read-only in the child

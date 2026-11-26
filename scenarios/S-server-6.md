@@ -10,7 +10,17 @@ explicit view in a `<tbody>`; the same on upstream for `<tbody>{n}</tbody>`). It
 
 What is shown there and is no value stays: a view the component was given (its children, a prop declared `View`, under
 whatever name; a field of a view's parameter declared `View`), a view a context holds, a loop, a choice of the
-component's views. A field of the props whose type is not read is as it was.
+component's views. A field of the props whose type is not read is as it was. A JavaScript fn its declaration says
+answers a view (`rows(n): View`) is no text either, as a JavaScript component in the same place is not (2026-11-26, the
+roadmap's L7: it was refused); one whose result is a value, or not said, still is.
+
+## Modules
+
+```rx
+-- module: ./cells.d.rx
+export pure fn rows(n: number): View
+export pure fn cells(n: number): any
+```
 
 ## Program
 
@@ -85,6 +95,17 @@ export default component App() { <table><tbody><tr><td><Cell v={1} /></td></tr><
 | instant | action | frame |
 | ------- | ------ | ----- |
 | 0 | mount | `1` |
+
+## Accepted variants
+
+A JavaScript fn declared to answer a view, in a `<tbody>`.
+
+```rx
+-- accept
+import { rows } from "./cells.js"
+export default component App() { source n := 1
+  <table><tbody>{rows(n)}</tbody></table> }
+```
 
 ## Rejected variants
 
@@ -188,4 +209,13 @@ export default component App() { source on := true
 -- reject: CONTENT_MODEL
 export default component App() { source xs := [1, 2]
   <table><tbody>{for x in xs { {x} }}</tbody></table> }
+```
+
+One declared to answer a value of a type that is not read is text.
+
+```rx
+-- reject: CONTENT_MODEL
+import { cells } from "./cells.js"
+export default component App() { source n := 1
+  <table><tbody>{cells(n)}</tbody></table> }
 ```

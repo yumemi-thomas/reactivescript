@@ -729,10 +729,144 @@ fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool, confo
     set.placed = placed;
     Ok(set)
 }
+/// RG-4c: whether a component's props type, read, declares a field a view with a parameter (required or not).
+pub fn declares_view_fn(props_type: Option<&str>, types: &Types, field: &str, tparams: Option<&str>) -> bool {
+    let Some(pt) = props_type else { return false };
+    field_type(&expand_type(pt, &without(types, tparams), 0), field).is_some_and(|(t, _)| view_type(t.js_trim()).is_some())
+}
+/// RG-4c, L2/B4 (2026-11-26): a view with a parameter given on is the view that shows it with everything it is passed. At
+/// a component's application, `renderItem={use item}` (a context of the module that holds a view with a parameter),
+/// `row={props.row}` (a required view with a parameter of the enclosing component) and `{...props}` (each such view its
+/// props type declares required) are written as the view blocks they stand for — `{view renderItem (view$) { <use.item
+/// {...view$} /> }}` — and the rest of a spread without them. Read when the program is loaded; an optional view is left as
+/// it was written. `ref/src/modules.ts` `givenOn`.
+pub fn given_on(set: &mut ModuleSet) {
+    let paths: Vec<String> = set.programs.keys().cloned().collect();
+    for path in paths {
+        let types = types_of(set, &path);
+        let Some(p) = set.programs.get_mut(&path) else { continue };
+        let ctxs: HashSet<String> = p.decls.iter().filter_map(|d| match d {
+            Decl::Context { name, ty, .. } if view_ctx(ty.as_deref(), &types).is_some_and(|v| v.0) => Some(name.clone()),
+            _ => None,
+        }).collect();
+        let fn_views = |props_type: Option<&str>, tparams: Option<&str>| -> Vec<String> {
+            let Some(pt) = props_type else { return vec![] };
+            let t = expand_type(pt, &without(&types, tparams), 0);
+            let mut out: Vec<String> = vec![];
+            for part in split_top(&t, "&") {
+                let part = part.js_trim();
+                if !(part.starts_with('{') && part.ends_with('}')) {
+                    continue;
+                }
+                for f in split_top(&part[1..part.len() - 1], ",;\n") {
+                    let Some(i) = f.find(':').filter(|&i| i > 0) else { continue };
+                    let n = field_name(&f[..i]);
+                    if let Some((ty, optional)) = field_type(&t, &n) {
+                        if !optional && view_type(ty.js_trim()).is_some_and(|v| !v.0) && !out.contains(&n) {
+                            out.push(n);
+                        }
+                    }
+                }
+            }
+            out.sort();
+            out
+        };
+        // made by the loader, as the parser makes some: no place of its own in the text (CP-8), read at the element's
+        fn view(prop: &str, tag: String) -> Markup {
+            let none = crate::ast::Span::NONE;
+            let el = Markup { kind: MarkupKind::El { tag, attrs: vec![crate::ast::Attr { name: "...".into(), e: Expr::new(ExprKind::Id("view$".into()), none), span: none }], children: vec![] }, line: None, span: none };
+            Markup { kind: MarkupKind::Mview { prop: Some(prop.to_string()), params: vec!["view$".into()], decls: vec![], body: vec![el] }, line: None, span: none }
+        }
+        struct W<'w> {
+            ctxs: &'w HashSet<String>,
+            fn_views: &'w dyn Fn(Option<&str>, Option<&str>) -> Vec<String>,
+        }
+        impl W<'_> {
+            fn decls(&self, ds: &mut [Decl]) {
+                for d in ds {
+                    if let Decl::Component { props, props_type, tparams, decls, view: v, .. } = d {
+                        let own = if props.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && props.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') { (self.fn_views)(props_type.as_deref(), tparams.as_deref()) } else { vec![] };
+                        let props = props.clone();
+                        self.decls(decls);
+                        self.markups(v, Some((&props, &own)));
+                    }
+                }
+            }
+            fn markups(&self, ms: &mut [Markup], comp: Option<(&String, &Vec<String>)>) {
+                for m in ms {
+                    match &mut m.kind {
+                        MarkupKind::El { tag, attrs, children } => {
+                            if let Some((props, own)) = comp.filter(|_| tag.starts_with(|c: char| c.is_ascii_uppercase())) {
+                                let mut has: HashSet<String> = children.iter().filter_map(|x| match &x.kind { MarkupKind::Mview { prop: Some(p), .. } => Some(p.clone()), _ => None }).collect();
+                                let names: Vec<String> = attrs.iter().map(|a| a.name.clone()).collect();
+                                let mut added = vec![];
+                                let mut out = vec![];
+                                for a in std::mem::take(attrs) {
+                                    if a.name != "..." && !has.contains(&a.name) {
+                                        if let ExprKind::Use(c) = &a.e.k {
+                                            if self.ctxs.contains(c) {
+                                                added.push(view(&a.name, format!("use.{c}")));
+                                                has.insert(a.name.clone());
+                                                continue;
+                                            }
+                                        }
+                                        if let ExprKind::Member { o, p, .. } = &a.e.k {
+                                            if matches!(&o.k, ExprKind::Id(n) if n == props) && own.contains(p) {
+                                                added.push(view(&a.name, format!("{props}.{p}")));
+                                                has.insert(a.name.clone());
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    if a.name == "..." && matches!(&a.e.k, ExprKind::Id(n) if n == props) {
+                                        let fs: Vec<String> = own.iter().filter(|f| !has.contains(*f) && !names.contains(f)).cloned().collect();
+                                        if !fs.is_empty() {
+                                            for f in &fs {
+                                                added.push(view(f, format!("{props}.{f}")));
+                                                has.insert(f.clone());
+                                            }
+                                            out.push(crate::ast::Attr { name: a.name, e: Expr::new(ExprKind::Omit { e: Box::new(a.e), keys: fs }, crate::ast::Span::NONE), span: a.span });
+                                            continue;
+                                        }
+                                    }
+                                    out.push(a);
+                                }
+                                *attrs = out;
+                                children.extend(added);
+                            }
+                            self.markups(children, comp);
+                        }
+                        MarkupKind::Mif { t, t_decls, f, f_decls, .. } => {
+                            self.decls(t_decls);
+                            self.decls(f_decls);
+                            self.markups(t, comp);
+                            self.markups(f, comp);
+                        }
+                        MarkupKind::Mfor { decls, body, .. } | MarkupKind::Mview { decls, body, .. } | MarkupKind::Portal { decls, body, .. } => {
+                            self.decls(decls);
+                            self.markups(body, comp);
+                        }
+                        MarkupKind::Loading { decls, fallback, body, .. } | MarkupKind::Errored { decls, fallback, body, .. } => {
+                            self.decls(decls);
+                            self.markups(fallback, comp);
+                            self.markups(body, comp);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        let w = W { ctxs: &ctxs, fn_views: &fn_views };
+        w.decls(&mut p.decls);
+        w.markups(&mut p.view, None);
+    }
+}
 fn load_program(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool, conformance: bool) -> Result<ModuleSet, ParseError> {
     let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), declaration_uses: vec![], declaration_ids: HashMap::new(), wire_ids: HashMap::new(), signatures: IndexMap::new(), printed: Default::default(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
-    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors, host: None, through: HashSet::new(), under: HashSet::new(), hosted: HashSet::new(), placed: HashSet::new(), conformance })
+    let mut set = ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, declaration_uses: l.declaration_uses, declaration_ids: l.declaration_ids, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors, host: None, through: HashSet::new(), under: HashSet::new(), hosted: HashSet::new(), placed: HashSet::new(), conformance };
+    given_on(&mut set); // L2/B4
+    Ok(set)
 }
 
 /// E-5a: the module keys that name the hosts (`?rx-lib` imports, CP-4d). A key is the path the program reached the module

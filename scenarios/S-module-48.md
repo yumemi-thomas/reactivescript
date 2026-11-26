@@ -140,6 +140,26 @@ export default component App() { source opts: Opt[] := [{ value: "a", label: "Ap
 | ------- | ------ | ----- |
 | 0 | mount | `Apple` |
 
+## Variant: `renderItem={use item}`, the view block it stands for (L2, 2026-11-26)
+
+A view with a parameter given on is the view that shows it with everything it is passed: read when the module is
+loaded as `{view renderItem (r) { <use.item {...r} /> }}` (RG-4c). Refused before 2026-11-26.
+
+```rx
+type Opt = { value: string; label: string }
+context item: (r: { item: Opt }) => View
+component Rows(p: { rows: Opt[]; renderItem: (r: { item: Opt }) => View }) { <ul>{for o in p.rows { <li><p.renderItem item={o} /></li> }}</ul> }
+component Listbox(p: { options: Opt[] }) { <Rows rows={p.options} renderItem={use item} /> }
+component Root(p: { options: Opt[]; item: (r: { item: Opt }) => View; children: View }) { provide item = p.item
+  <div>{p.children}</div> }
+export default component App() { source opts: Opt[] := [{ value: "a", label: "Apple" }]
+  <Root options={opts}>{view item (r) { <b>{r.item.label}</b> }}<Listbox options={opts} /></Root> }
+```
+
+| instant | action | frame |
+| ------- | ------ | ----- |
+| 0 | mount | `Apple` |
+
 ## Rejected variants
 
 The part that shows the view needs the root above it.
@@ -153,20 +173,6 @@ export default component App() {
   source on := true
   <Select.Listbox />
 }
-```
-
-`renderItem={use item}`: a view a context holds is shown, not given on.
-
-```rx
--- reject: VIEW_NOT_SHOWN
-type Opt = { value: string; label: string }
-context item: (r: { item: Opt }) => View
-component Rows(p: { rows: Opt[]; renderItem: (r: { item: Opt }) => View }) { <ul>{for o in p.rows { <li><p.renderItem item={o} /></li> }}</ul> }
-component Listbox(p: { options: Opt[] }) { <Rows rows={p.options} renderItem={use item} /> }
-component Root(p: { options: Opt[]; item: (r: { item: Opt }) => View; children: View }) { provide item = p.item
-  <div>{p.children}</div> }
-export default component App() { source opts: Opt[] := [{ value: "a", label: "Apple" }]
-  <Root options={opts}>{view item (r) { <b>{r.item.label}</b> }}<Listbox options={opts} /></Root> }
 ```
 
 ```rx

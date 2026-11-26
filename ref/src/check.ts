@@ -6,8 +6,8 @@ import { HARNESS, language, scalar, listOf } from "./names.ts";
 import type { Decl, Expr, Markup, Param, Program, Stmt } from "./ast.ts";
 import { hasRegion, instantiates, instantiatesWhy, ownUses, usesNow } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
-import { childrenParam, fnText, expandType, otherMention, shown, shownIn, usedIn, typesOf, viewUses, viewNotShown, takesView, viewCtx, genericCtx, type ViewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
-import { closes, splitTop, fieldRows, instance, isGenerated, type JsDecl, type Shape } from "./parse.ts";
+import { childrenParam, fnText, expandType, otherMention, shown, shownIn, usedIn, typesOf, viewUses, viewNotShown, takesView, viewCtx, genericCtx, declaresViewFn, type ViewUses, type ModuleSet, type Shown, type Types } from "./modules.ts";
+import { closes, splitTop, fieldRows, instance, isGenerated, isViewType, type JsDecl, type Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, USE, carriedBy, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
 import { scopeFacts, scoped } from "./scope.ts";
@@ -3141,7 +3141,7 @@ class Checker {
               if (s.compRegion!.hostKey) this.hostSites.push({ key: s.compRegion!.hostKey, comp: s.compRegion!, region: kids });   // MO-11u
               const sigProps = s.compRegion!.sig?.props;
               for (const x of m.children) if (x.k === "mview" && x.prop) {                     // MO-11k: a named render prop
-                if (!sigProps?.[x.prop]?.render && !this.shownBy(s)?.has(x.prop)) this.err("VIEW_FN_MISPLACED", "MO-11k", `<${m.tag}> declares no render prop ${x.prop} (a prop typed as a function giving a View)`);
+                if (!sigProps?.[x.prop]?.render && !this.shownBy(s)?.has(x.prop) && !(s?.comp && declaresViewFn(s.comp.propsType, this.types, x.prop, s.comp.tparams))) this.err("VIEW_FN_MISPLACED", "MO-11k", `<${m.tag}> declares no render prop ${x.prop} (a prop typed as a function giving a View)`);
                 this.viewFns.add(x);                                                           // reported once; its body is still checked
               }
               if (sigProps?.children?.render) {                                               // MO-11k: children are one view lambda
@@ -3621,6 +3621,8 @@ class Checker {
     env = this.readEnv.get(m) ?? env;
     if (this.placesOf(env)?.get(m) || this.readsChildren(m.e, env) || this.viewShown(m.e, env)) return false;
     const e = m.e, p = e.k === "member" && e.o.k === "id" ? env.lookup(e.o.name) : e.k === "id" ? env.lookup(e.name) : undefined;
+    // L7 (2026-11-26): a call of JavaScript its declaration says answers a view is no text, as a JS component is not
+    if (e.k === "call" && e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.kind === "import" && f.retIo !== undefined && isViewType(f.retIo.trim())) return false; }
     if (p?.kind !== "props") return true;
     if (e.k !== "member") return false;
     const c = p.viewOf ? undefined : this.compSyms.get(p.region)?.comp;
