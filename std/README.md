@@ -6,10 +6,10 @@ import" (spec/10 SV-7a). Upstream names no such module: it says an import is the
 
 | module | what | surveyed packages (of 98) that use it |
 | --- | --- | --- |
-| `math` | `max` `min` `round` `floor` `abs` `ceil` `sqrt` `sin` `cos` `PI` `isInteger` `isFinite` | 12 10 8 6 6 4 3 2 2 4 4 3 |
+| `math` | `max` `min` `round` `floor` `abs` `ceil` `sqrt` `sin` `cos` `PI` `isInteger` `isFinite`; `num` (unary `+`) | 12 10 8 6 6 4 3 2 2 4 4 3 |
 | `json` | `parse` `stringify` | 5 4 |
-| `object` | `entries` `keys` `fromEntries` `from` (Array's) | 19 14 3 7 |
-| `is` | `isFunction` `isArray` `isString` `isObject` `isNumber` | 43 19 17 16 8 |
+| `object` | `entries` `keys` `fromEntries` (a computed key: `fromEntries([[k, v]])`) `from` (Array's); `setOf` `mapOf` (`new Set`, `new Map`) | 19 14 3 7 |
+| `is` | `isFunction` `isArray` `isString` `isObject` `isNumber` `isBoolean`, each a type predicate (`x is string`: TypeScript narrows); `cast<T>(x)`, JavaScript's `as` | 43 19 17 16 8 |
 | `time` | `after` (setTimeout) `every` (setInterval) `soon` (queueMicrotask) `now` (Date.now) `elapsed` (performance.now) | 16 6 5 4 3 |
 | `browser` | `on` `onWindow` `onDocument` (listeners), `onFrame`, `onResize`, `onMutation`, `onMedia`, `onVisible`, `onIntersect` | 42, 7 4 4 3 3 2 |
 | `now` | `first` (the first value, hydration) `boxOf` `windowSize` `matches` `isVisible` | 8 7 4 3 3 |
