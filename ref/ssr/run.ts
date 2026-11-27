@@ -20,6 +20,7 @@ import { createRequire } from "node:module";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseStmts } from "../src/parse.ts";
 import { checkModules } from "../src/check.ts";
+import { Runtime } from "../src/runtime.ts";
 import { compileDynamic, compileDynamicExpr, CompileError } from "../compile/emit.ts";
 import { build, type Built } from "../compile/lowered.ts";
 import { createApp, generateHydrationScript } from "../compile/rt-server.ts";
@@ -268,6 +269,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
         return { fresh, dropped, asked: [...c.app.flights.keys()], left: c.sharedConfig.registry ? c.sharedConfig.registry.size : 0 };
       });
       const cf = clientFns(sc, src); d.asked = d.asked.filter((k: string) => !cf.has(k.split(":")[0]));   // a client question is the browser's to ask (SV-7b)
+      d.asked = d.asked.filter((k: string) => [app, ...rpcApps].some(a => a.flights.has(k)));   // SV-3b: "again" is a question the server asked; one the browser is the first to ask — under a portal, which the server does not render (PT-3) — is its own
       // SV-3a: where hydration leaves the frame as the server drew it, every element is the server's (adopted, none rebuilt);
       // where the client draws a later frame at once (a landing the stream could not carry, DV-26), it builds what changed
       const same = before === norm(await textOf());
@@ -284,7 +286,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
     if (i === chains.length) break;
     if (i === 0) continue;   // the mount is the request
     if (i < at && !csr) {   // still the server's: a landing streams
-      if (!(await land(r, true))) { if (!ended) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: the server has no flight for ${r.action}`); } break; }
+      if (!(await land(r, true))) { if (!ended) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: the server has no flight for ${r.action}`); break; } at = i; i--; continue; }   // the stream is over and the question is not the server's (under a portal, PT-3): the browser takes the page over here and asks it
       await wait(60); continue;
     }
     try {
@@ -331,7 +333,17 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   // (07 §4, SV-2: nor does the server call a `ref` — it makes no element. Where a `ref` writes as the view is made, the
   // server's mount is the frame before it, which the scenario's `## Server frames` gives; the browser shows the mount's)
   const refMount = t === base && sc.server[0]?.action === "mount" && /\bref=/.test(JSON.stringify(src)) ? sc.server[0] : undefined;
-  const frameOf = (r: Row) => { if (refMount && r.action === "mount") return norm(served1(refMount.frame)); const sv = !scope && sc.divergences.find(d => d.runner === "server" && d.table === t.title && d.instant === r.instant); if (sv) return norm(sv.frame); const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return norm(served1(div ? div.frame : r.frame)); };
+  // PT-3: …and waits for nothing under it, shows no fallback for it and no failure of it: the shell is the mount of the
+  // program with nothing in its portals (Solid's server skips a `<Portal>`'s subtree), which the client's mount frame
+  // does not say where what is under the portal reached a boundary outside it (`tw`, `tbad`, a held mount)
+  let shell: string | undefined;
+  if (t === base && !refMount && /\bportal\b/.test(src)) try {
+    const set = moduleSet(sc, src); let any = false;
+    const empty = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string; body?: unknown[]; decls?: unknown[] }; if (o.k === "portal" && Array.isArray(o.body)) { o.body = []; o.decls = []; any = true; return; } Object.values(x).forEach(empty); };
+    for (const p of set.programs.values()) empty(p);
+    if (any) shell = norm(served1(new Runtime(set).step([])[0]?.frame ?? ""));
+  } catch { /* the client's frame stands */ }
+  const frameOf = (r: Row) => { if (refMount && r.action === "mount") return norm(served1(refMount.frame)); if (shell !== undefined && r.action === "mount" && !sc.divergences.some(d => (d.runner === "server" || d.runner === "oracle") && d.table === t.title && d.instant === r.instant)) return shell; const sv = !scope && sc.divergences.find(d => d.runner === "server" && d.table === t.title && d.instant === r.instant); if (sv) return norm(sv.frame); const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return norm(served1(div ? div.frame : r.frame)); };
   const want = served.slice(from).flatMap(c => c.map(frameOf));
   const res = await serve(sc, src, served.map(c => c[0]), t.title, lines);
   if (!res) return res !== false;

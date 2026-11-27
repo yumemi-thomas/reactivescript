@@ -815,6 +815,7 @@ impl<'p> Gen<'p> {
         let mut out: Vec<S> = vec![konst("__o", rtc("owner", vec![]))];
         // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
         let mut instantiated: HashSet<String> = HashSet::new();
+        let mut bound: HashSet<String> = HashSet::new();
         for d in decls {
             let Decl::Import { resolved: Some(r), names, from, through, .. } = d else { continue };
             let n0 = out.len();
@@ -830,6 +831,10 @@ impl<'p> Gen<'p> {
             for n in names {
                 if self.is_type(r, &n.name) {
                     continue; // a type binds nothing
+                }
+                // MO-6e: a name used here and given on (`import { A }` beside `export { A }`, one export of one module) is one binding
+                if !bound.insert(n.alias.clone()) {
+                    continue;
                 }
                 let mut ib = self.import_bind(r, &n.name, &n.alias);
                 if ib.kind == Kind::Acc && self.u.prev_of.contains(&n.alias) {
@@ -1886,11 +1891,11 @@ impl<'p> Gen<'p> {
         self.types.borrow_mut().entry(path.to_string()).or_insert_with(|| std::rc::Rc::new(types_of(self.set, path))).clone()
     }
     fn component(&mut self, d: &Decl, env: Env) -> R<S> {
-        let Decl::Component { name, props, decls, view, props_type, tparams, .. } = d else { unreachable!() };
+        let Decl::Component { name, props, decls, view, props_type, tparams, kids_value, .. } = d else { unreachable!() };
         let inner = self.new_env(Some(env));
         let mut pb = val(mg(props));
         let types = self.types(&self.file);
-        pb.given = Some(Given::Props { less: vec![], views: views_of(props_type.as_deref(), &types, self.mod_decls, tparams.as_deref()).into() });
+        pb.given = Some(Given::Props { less: vec![], views: views_of(props_type.as_deref(), &types, self.mod_decls, tparams.as_deref(), *kids_value).into() });
         pb.shows = shown(props, props_type.as_deref(), decls, view, &types, tparams.as_deref()).into_iter().map(|(f, v)| (f, v.mixed)).collect();
         let was = std::mem::replace(&mut self.shown, pb.shows.iter().map(|f| format!("{props}.{}", f.0)).collect());
         self.set(inner, props, pb);

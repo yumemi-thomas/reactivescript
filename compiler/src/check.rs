@@ -2677,6 +2677,8 @@ pub struct Checker<'a> {
     closure_memo: HashMap<SId, IndexSet<String>>,
     /// W2: the closures a calling method hands an item of a list: the parameter, what it runs over
     item_of: HashMap<*const Expr, (usize, &'a Expr, EId)>,
+    /// MO-6e: what each imported name of a block is, and whether it is given on
+    imported_as: HashMap<(EId, String), (String, bool)>,
     /// R-io-3d: a closure among a call's arguments: the one parameter (or all) that may be handed the others
     handed_of: HashMap<*const Expr, (Option<usize>, Vec<(&'a Expr, EId)>)>,
     gives_memo: HashMap<*const Decl, Vec<usize>>,
@@ -3181,6 +3183,7 @@ impl<'a> Checker<'a> {
             parts_memo: HashMap::new(),
             closure_memo: HashMap::new(),
             item_of: HashMap::new(),
+            imported_as: HashMap::new(),
             handed_of: HashMap::new(),
             gives_memo: HashMap::new(),
             called_stack: IndexSet::new(),
@@ -3665,11 +3668,23 @@ impl<'a> Checker<'a> {
         // 1. names (E-7: one declaration per name in a block)
         for d in decls {
             self.line = d.line() as i64;
-            if let Decl::Import { names, .. } = d {
+            if let Decl::Import { names, from, resolved, reexport, .. } = d {
+                // MO-6e (2026-11-27): a module may use a name and give it on — `import { A } from "./a.rx"` beside
+                // `export { A } from "./a.rx"` — where both name one export of one module, under one name: one binding
                 // 2026-11-26: the second was taken in silence
                 for n in names {
-                    if self.envs[env].vars.contains_key(n.alias.as_str()) {
-                        self.err("DUPLICATE_DECLARATION", "E-7", format!("{} is imported twice in one module: one name, one import (`import {{ … as other }}`)", n.alias));
+                    let key = format!("{}#{}", resolved.as_deref().unwrap_or(from.as_str()), n.name);
+                    let was = self.imported_as.get(&(env, n.alias.clone())).cloned();
+                    let other = was.as_ref().is_some_and(|w| w.1 != *reexport);
+                    if self.envs[env].vars.contains_key(n.alias.as_str()) && !(other && was.as_ref().is_some_and(|w| w.0 == key)) {
+                        let msg = match &was {
+                            Some(w) if other => format!("{} is imported and re-exported from two places in one module ({} and {}): one name, one binding — a name used here and given on is the same export of the same module in both (`import {{ {} }} from \"{from}\"` beside `export {{ {} }} from \"{from}\"`), or one of them takes another name (`as other`)", n.alias, w.0.replacen('#', ": ", 1), key.replacen('#', ": ", 1), n.name, n.name),
+                            _ => format!("{} is imported twice in one module: one name, one import (`import {{ … as other }}`)", n.alias),
+                        };
+                        self.err("DUPLICATE_DECLARATION", "E-7", msg);
+                    }
+                    if was.is_none() {
+                        self.imported_as.insert((env, n.alias.clone()), (key, *reexport));
                     }
                 }
                 if matches!(d, Decl::Import { resolved: Some(_), .. }) {
@@ -5046,7 +5061,7 @@ impl<'a> Checker<'a> {
                 sym.fails_t = Some(FailsT::Expr { e: tail, env: inner, cache: None, busy: false });
                 sym.rows = Some(RowsT::Expr { e: tail, env: inner, cache: None, busy: false });
             }
-            Decl::Component { name, props, decls, view, line, no_props, props_type, tparams, .. } => {
+            Decl::Component { name, props, decls, view, line, no_props, props_type, tparams, kids_value, .. } => {
                 let s = self.lookup(env, name).unwrap();
                 let r = self.syms[s].comp_region.unwrap();
                 let inner = self.env(Some(env), r);
@@ -5081,7 +5096,7 @@ impl<'a> Checker<'a> {
                     let s = self.lookup(inner, tag)?;
                     let Some(Decl::Component { props_type, tparams, .. }) = self.syms[s].comp else { return None };
                     takes_view(props_type.as_deref(), &self.opts.types, attr, tparams.as_deref())
-                }, &|n| self.lookup(inner, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
+                }, &|n| self.lookup(inner, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()), *kids_value);
                 if let Some((f, at, how, of)) = uses.bad.into_iter().next() {
                     let was = std::mem::replace(&mut self.line, if at == 0 { *line as i64 } else { at as i64 });
                     self.err("VIEW_NOT_SHOWN", "RG-4c", crate::modules::view_not_shown(name, props, &f, &how, &of));
@@ -9374,11 +9389,11 @@ impl<'a> Checker<'a> {
             return sh;
         }
         let (Some(d), Some(cenv)) = (self.syms[c].comp, self.syms[c].comp_env) else { return Shape::default() };
-        let Decl::Component { view, props, props_type, decls, tparams, .. } = d else { return Shape::default() };
+        let Decl::Component { view, props, props_type, decls, tparams, kids_value, .. } = d else { return Shape::default() };
         if self.view_placed.insert(c) {
             // RG-4c: a view is placed where it is shown, under whatever name, and where the component it is given on to shows it
             let skip: Vec<String> = self.shown_by(c).keys().cloned().collect();
-            let vu = view_uses(props, props_type.as_deref(), tparams.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
+            let vu = view_uses(props, props_type.as_deref(), tparams.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()), *kids_value);
             self.view_places.extend(vu.at);
             self.view_only.extend(vu.only);
             self.view_carried.insert(c, vu.carried);
@@ -10224,10 +10239,10 @@ impl<'a> Checker<'a> {
     /// The places of the views of the component a scope is in (`view_places`), computed.
     fn ensure_places(&mut self, env: EId) {
         let Some(c) = self.regions[self.reg(env)].component.and_then(|r| self.comp_syms.get(&r).copied()) else { return };
-        let (Some(Decl::Component { view, props, props_type, decls, tparams, .. }), Some(cenv)) = (self.syms[c].comp, self.syms[c].comp_env) else { return };
+        let (Some(Decl::Component { view, props, props_type, decls, tparams, kids_value, .. }), Some(cenv)) = (self.syms[c].comp, self.syms[c].comp_env) else { return };
         if self.view_placed.insert(c) {
             let skip: Vec<String> = self.shown_by(c).keys().cloned().collect();
-            let vu = view_uses(props, props_type.as_deref(), tparams.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()));
+            let vu = view_uses(props, props_type.as_deref(), tparams.as_deref(), decls, view, &self.opts.types, &skip, &|_, _| None, &|n| self.lookup(cenv, n).and_then(|s| self.syms[s].ctx.as_ref()).is_some_and(|i| i.view.is_some()), *kids_value);
             self.view_places.extend(vu.at);
             self.view_only.extend(vu.only);
             self.view_carried.insert(c, vu.carried);

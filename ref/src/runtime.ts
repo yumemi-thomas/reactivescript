@@ -12,7 +12,7 @@ import { RuleError, CheckError } from "./errors.ts";
 import { checkModules, unwrapServer } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
-import { singleModule, shownAll, shownIn, usedIn, heldReads, viewCtxAll, type ModuleSet, type Shown } from "./modules.ts";
+import { singleModule, shownAll, shownIn, usedIn, heldReads, viewCtxAll, viewsAll, type ModuleSet, type Shown } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
@@ -148,7 +148,7 @@ export class Runtime {
   effects: EffectRec[] = [];
   view!: ViewInst;
   pendingWrites: Write[] = [];
-  private refCalls: (() => void)[] = [];                // 07 §4: the `ref`s of the elements made, not yet called
+  private refCalls: { made: number; region: Region; call: () => void }[] = [];                // 07 §4: the `ref`s of the elements made, not yet called
   pendingCleanups: (() => void)[] = [];
   subs = new Map<Target, Map<string, Set<Node>>>();
   flights = new Map<string, Flight>();
@@ -185,6 +185,7 @@ export class Runtime {
   modules = new Map<string, Region>();
   private shown: Map<unknown, Map<string, Shown>>;   // RG-4c
   above = new WeakMap<object, object>();               // RG-7b: a `use c` written in what `provide c` is given, and that provision: it reads what is above it
+  private views: Map<unknown, Set<string>> = new Map();   // RG-4c: each component's props that are views
   private held: Set<unknown>;                          // RG-4c: the readers that show a component's children
   private viewCtxs = new Set<unknown>();                // RG-4c: the contexts that hold a view
   /** RG-4c: what answers when a view is asked whether it was given. A view is a value that is not made until it is
@@ -203,7 +204,7 @@ export class Runtime {
   constructor(input: Program | ModuleSet) {
     const set = "programs" in input ? input : singleModule(input);
     const program = set.programs.get(set.entry)!;
-    this.program = program; this.shown = shownAll(set); this.held = heldReads(set); this.viewCtxs = viewCtxAll(set);
+    this.program = program; this.shown = shownAll(set); this.held = heldReads(set); this.viewCtxs = viewCtxAll(set); this.views = viewsAll(set);
     this.root = new Region(null, this, null);
     const { diags } = checkModules(set); if (diags.length) throw new CheckError(diags);   // 08: the checker runs first; every static diagnostic is an error
     for (const path of set.order) { if (path === set.entry) continue; const r = new Region(this.root, this, null); this.modules.set(path, r); this.declare(set.programs.get(path)!.decls, r); }
@@ -267,6 +268,15 @@ export class Runtime {
     if (tb instanceof Node) return tb;
     return this.mkNode("eq", `${f.name}()`, r, rt => rt.evalExpr(f.tail, r));
   }
+  /** 07 §4: a spread on an element is Solid's — the `children` it carries are the element's content, where the element
+   *  writes none of its own (`<div {...props} />`). */
+  private spreadKidsOf = new WeakMap<Markup, Markup[]>();
+  private spreadKids(m: Extract<Markup, { k: "el" }>): Markup[] {
+    if (!m.attrs.some(a => a.name === "...") || m.children.some(c => c.k !== "text" || c.s.trim())) return m.children;
+    let ks = this.spreadKidsOf.get(m);
+    if (!ks) { ks = [...m.children, ...m.attrs.filter(a => a.name === "...").map((a): Markup => { const r: Markup = { k: "read", e: { k: "member", o: a.e, p: "children" } }; this.held.add(r as never); return r; })]; this.spreadKidsOf.set(m, ks); }
+    return ks;
+  }
   mkNode(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) { const n = new Node(kind, name, region, compute); region.nodes.add(n); return n; }
 
   // ---- instants (02 §4, 05 H-2/H-3) ----
@@ -282,7 +292,23 @@ export class Runtime {
       do {
         this.instant++; const f = this.runInstant(w); if (fold && out.length) { f.effects.unshift(...out[out.length - 1].effects); out[out.length - 1] = f; } else out.push(f);
         w = this.pendingWrites; this.pendingWrites = []; fold = false;
-        while (!w.some(x => this.effective(x)) && this.refCalls.length) { const calls = this.refCalls; this.refCalls = []; for (const c of calls) c(); w = this.pendingWrites; this.pendingWrites = []; fold = w.some(x => this.effective(x)); }
+        // …an effect's writes of the same instant are the next one, after it. An element made under a hold is made with
+        // the hold's values and shows with it (Solid #4767, kept by #5110): its `ref` reads those values, and what it
+        // writes is the hold's — it shows when the element does. One whose region is gone is never called.
+        for (;;) {
+          const live = this.refCalls.filter(c => c.region.alive); this.refCalls = [];
+          if (!live.length) break;
+          const fold = (rw: Write[], hold?: number) => {
+            if (!rw.some(x => this.effective(x))) return;
+            if (hold !== undefined) this.union(this.instant + 1, hold);
+            this.instant++; const f2 = this.runInstant(rw); f2.effects.unshift(...out[out.length - 1].effects); out[out.length - 1] = f2;
+            w = [...w, ...this.pendingWrites]; this.pendingWrites = [];
+          };
+          const held = live.filter(c => this.openChanges.has(this.find(c.made)));
+          for (const c of live) if (!held.includes(c)) c.call();
+          { const rw = this.pendingWrites; this.pendingWrites = []; fold(rw); }
+          for (const c of held) { this.probing++; try { c.call(); } finally { this.probing--; } const rw = this.pendingWrites; this.pendingWrites = []; fold(rw, c.made); }
+        }
       } while (w.length && w.some(x => this.effective(x)));   // W-3: an apply's writes that are all equal open no instant
       const logBefore = this.log.length;
       const stray = this.pendingSettled.filter(s => s.change === null); this.pendingSettled = this.pendingSettled.filter(s => s.change !== null);
@@ -827,6 +853,7 @@ export class Runtime {
   /** A node's flights: its own, or those of the awaits lifted out of its expression. */
   private flightsOf(n: Node): Flight[] { return [...(n.flight ? [n.flight] : []), ...n.lifted.flatMap(l => this.flightsOf(l))]; }
   private withLifted(n: Node): Node[] { return [n, ...n.lifted.flatMap(l => this.withLifted(l))]; }
+  private latestOver = 0;                               // R-9: evaluating `latest (e)` of an expression
   private latestOfGuess = 0;                            // DV-10: evaluating `latest g` of a guess: its reads join g's lane without being held by it
   private addLane(l: Node, held = true) { const t = this.tracking!; t.lanes.add(l); if (held && !this.latestOfGuess) t.inLanes.add(l); }
   /** H-6, R-11 (Solid D-17, decision 1 of #4695): a re-arm shows its fallback now iff every held value its `on` pass read, it read
@@ -858,6 +885,7 @@ export class Runtime {
         }
         if (!this.probing) { this.tracking.taintFrom.add(b); for (const t of (b.lane ? b.plainTaint : b.taint)) { this.tracking.taint.add(t); this.tracking.plainTaint.add(t); } }   // probes and lane work are the lane's, not the instant's (F-6); a lane value carries the holds of its plain reads (R-11, Solid D-25)
       }
+      if (this.latestOver && v instanceof PendingVal && b.hasCommitted) return b.committed;
       return v;
   }
   /** E-9b: a call of a fn that names values. A name is evaluated when it is read (E-3), in whatever order (E-7), and once
@@ -957,7 +985,8 @@ export class Runtime {
         if (this.tracking) { this.tracking.lane = true; if (ln) { this.addLane(ln, !ahead); this.tracking.probed.add(ln); } }
         if (this.committedView && ln && ln.hasCommitted) { this.track(ln, ""); return ln.committed; }   // D-25: an outsider shows what is on screen
         if (ln && e.e.k === "id" && ln.hasGuess && ln.answerCorrected && ln.guessShown && this.frozen(ln)) { this.track(ln, ""); return ln.shownGuess; }   // D-22, D-34 (Solid decision 3; DV-19): an answer corrected the graph, but the slot still displays the guess: `latest` keeps it until the hold commits
-        this.probing++; if (ahead) this.latestOfGuess++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; if (ahead) this.latestOfGuess--; }
+        const whole = e.e.k !== "id" && !ln;                              // R-9: `latest` of an expression is the expression over the latest value of each thing it reads — one still asked reads what it last answered
+        this.probing++; if (ahead) this.latestOfGuess++; if (whole) this.latestOver++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; if (ahead) this.latestOfGuess--; if (whole) this.latestOver--; }
         if (v instanceof PendingVal && ln && ln.hasCommitted && e.e.k === "id") return ln.committed;
         if (v instanceof PendingVal && !this.demandMode) throw new Error("NotReadyError: latest of a value that has never had one");   // R-12: in imperative scope as anywhere, `latest` of a first load throws (Solid S-28, A7)
         return v;
@@ -1366,6 +1395,12 @@ export class Runtime {
             const view = m.children.find(c => c.k === "mview" && !c.prop) ?? (content.some(c => c.k !== "text" || c.s.trim()) ? { k: "mview" as const, params: [], decls: [], body: content } : undefined);
             Object.defineProperty(props, "children", { enumerable: true, value: view?.k === "mview" ? new ViewFn(view, region) : undefined });
           }
+          // RG-4c: children the component declares a value's type (`children: number[]`), or uses as a value where every
+          // caller gives one (`kidsValue`), are what is written between the tags as a value: the one `{…}`, or the text
+          const shownKids = content.filter(c => c.k !== "text" || c.s.trim()), asValue = !takes && written && this.views.has(comp) && !this.views.get(comp)!.has("children");
+          if (asValue && shownKids.length && shownKids.every(c => c.k === "text")) Object.defineProperty(props, "children", { enumerable: true, value: shownKids.map(c => (c as { s: string }).s).join("").trim() });
+          else if (asValue && shownKids.length === 1 && shownKids[0].k === "read") { const one = shownKids[0].e, kn = this.mkNode("eq", `${m.tag}.children`, region, rt => rt.evalExpr(one, region)); Object.defineProperty(props, "children", { enumerable: true, get: () => this.readNode(kn) }); }
+          else
           if (!takes && written) Object.defineProperty(props, "children", { enumerable: true, value: new ViewFn({ k: "mview", params: [], decls: [], body: content }, region, true) });   // RG-4c: content is a view that asks nothing, made at each place it is shown
           r.scope.set(comp.props, { constant: props });
           this.declare(comp.decls, r);
@@ -1375,9 +1410,9 @@ export class Runtime {
         // creating pass, where a write is a handler's); what it is given stands for the element
         for (const a of m.attrs) if (a.name === "ref" || a.name === "...") {
           const v = this.untracked(() => this.evalExpr(a.e, region)), f = a.name === "ref" ? v : isObj(v) ? this.untracked(() => v.ref) : undefined;
-          for (const g of [f].flat(Infinity as 1)) if (typeof g === "function") this.refCalls.push(() => { this.untracked(() => g({ tagName: m.tag })); });
+          for (const g of [f].flat(Infinity as 1)) if (typeof g === "function") this.refCalls.push({ made: this.instant, region, call: () => { this.untracked(() => g({ tagName: m.tag })); } });
         }
-        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, (/^on[A-Z:]/.test(a.name) || a.name === "ref") ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
+        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, (/^on[A-Z:]/.test(a.name) || a.name === "ref") ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: this.spreadKids(m).map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
       }
       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.askedAt(rt.evalExpr(m.c, region)); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
       case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };

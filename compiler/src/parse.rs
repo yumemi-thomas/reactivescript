@@ -3329,7 +3329,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             let pre: Vec<Decl> = names.into_iter().map(|(name, e, line, span)| Decl::Eq { name, e, line, span, deferred: false, key: None, ty: None, exported: false }).collect();
             decls.splice(0..0, pre);
         }
-        return Ok(Decl::Component { name, props, decls, view, line, span: Span::NONE, props_type, no_props, exported: false, is_default: false, tparams });
+        return Ok(Decl::Component { name, props, decls, view, line, span: Span::NONE, props_type, no_props, exported: false, is_default: false, tparams, kids_value: false });
     }
     let save = c.i;
     let name = c.ident();

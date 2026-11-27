@@ -573,6 +573,7 @@ impl Loader<'_> {
         self.sig_reexported(&mut p, path)?;
         name_methods(&mut p, &self.declarations);
         name_locals(&mut p, &|d, name| self.instantiating_export(d, name));
+        kids_values(&mut p);
         self.programs.insert(path.to_string(), p);
         self.sources.insert(path.to_string(), src);
         self.state.insert(path.to_string(), State::Done);
@@ -650,6 +651,57 @@ fn reexported(p: &mut Program, path: &str, programs: &HashMap<String, Program>) 
         }
     }
     p.decls = out;
+}
+/// RG-4c (2026-11-27): children nobody declares are a view (W4) — but for a component the module does not export, with no
+/// props type, that uses them as a value (it calls them, gives them to an attribute, computes with them) where every
+/// application of it, all in this module, gives a value between the tags: one `{…}`, text alone, or nothing. Then they
+/// are the value they were before W4, for the checkers and every runner alike. `ref/src/modules.ts` `kidsValues`.
+pub fn kids_values(p: &mut Program) {
+    use serde_json::Value;
+    let is = |d: &Decl| matches!(d, Decl::Component { exported: false, props_type: None, no_props: false, .. });
+    if !p.decls.iter().any(is) {
+        return;
+    }
+    let mut applied: HashMap<String, bool> = HashMap::new();
+    let mut named: HashSet<String> = HashSet::new();
+    fn walk(x: &Value, applied: &mut HashMap<String, bool>, named: &mut HashSet<String>) {
+        match x {
+            Value::Object(o) => {
+                let k = o.get("k").and_then(|k| k.as_str());
+                if let (Some("id"), Some(n)) = (k, o.get("name").and_then(|n| n.as_str())) {
+                    named.insert(n.to_string());
+                }
+                if let (Some("el"), Some(tag), Some(Value::Array(cs))) = (k, o.get("tag").and_then(|t| t.as_str()), o.get("children")) {
+                    let kind = |c: &Value| c.get("k").and_then(|k| k.as_str()).unwrap_or("").to_string();
+                    let cs: Vec<&Value> = cs.iter().filter(|c| !(kind(c) == "text" && c.get("s").and_then(|s| s.as_str()).unwrap_or("").js_trim().is_empty())).collect();
+                    let ok = cs.iter().all(|c| kind(c) == "text") || (cs.len() == 1 && kind(cs[0]) == "read");
+                    let e = applied.entry(tag.to_string()).or_insert(true);
+                    *e = *e && ok;
+                }
+                for v in o.values() {
+                    walk(v, applied, named);
+                }
+            }
+            Value::Array(a) => {
+                for v in a {
+                    walk(v, applied, named);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(&decls_json(&p.decls), &mut applied, &mut named);
+    walk(&markups_json(&p.view), &mut applied, &mut named);
+    let types = Types::new();
+    for d in p.decls.iter_mut() {
+        if !is(d) {
+            continue;
+        }
+        let Decl::Component { name, props, props_type, tparams, decls, view, kids_value, .. } = d else { continue };
+        if applied.get(name.as_str()) == Some(&true) && !named.contains(name.as_str()) && view_uses(props, props_type.as_deref(), tparams.as_deref(), decls, view, &types, &[], &|_, _| None, &|_| false, false).bad.iter().any(|b| b.0 == "children") {
+            *kids_value = true;
+        }
+    }
 }
 pub fn name_locals(p: &mut Program, imported: &dyn Fn(&Decl, &str) -> bool) {
     let mut can = false;
@@ -1078,7 +1130,7 @@ pub fn defaulted(e: &Expr, look: &dyn Fn(&str) -> Option<Given>) -> Option<Given
 }
 /// The fields declared `View` of a component's props, where its type is read: written out, a type of the module, one
 /// imported from `.rx`. One classification for the checker and the compiled module. `ref/src/modules.ts` `viewsOf`.
-pub fn views_of(props_type: Option<&str>, types: &Types, decls: &[Decl], tparams: Option<&str>) -> HashSet<String> {
+pub fn views_of(props_type: Option<&str>, types: &Types, decls: &[Decl], tparams: Option<&str>, kids_value: bool) -> HashSet<String> {
     let mut out = HashSet::new();
     if let Some(t) = props_type {
         let ps = tparams.map(type_param_names).unwrap_or_default();
@@ -1086,7 +1138,7 @@ pub fn views_of(props_type: Option<&str>, types: &Types, decls: &[Decl], tparams
         view_fields(&expand_type(t, &without(types, tparams), 0), &[], 0, &mut out, &[]);
     }
     // W4 (2026-11-26): content between the tags is a view
-    if children_say_nothing(props_type, types, tparams) {
+    if !kids_value && children_say_nothing(props_type, types, tparams) {
         out.insert("children".to_string());
     }
     out
@@ -1248,6 +1300,51 @@ pub fn apply_alias(body: &str, tparams: &str, args: &[String]) -> Option<String>
 }
 /// A type that is read and is a value's, with no view in it: `number`, `string | undefined`, `"a" | "b"`.
 pub fn value_type(t: &str) -> bool {
+    if value_union(t) {
+        return true;
+    }
+    // RG-4c (2026-11-27): …or one built of those — a list, a record, a function — with no name in it that is not read
+    // (`number[]`, `{ a: number }`, `(x: number) => string`): every word of it is a field's or a parameter's name, or one of these
+    const VALUE_WORDS: [&str; 18] = ["string", "number", "boolean", "bigint", "null", "undefined", "true", "false", "void", "never", "readonly", "Array", "ReadonlyArray", "Readonly", "Record", "Partial", "Required", "Date"];
+    let cs: Vec<char> = t.chars().collect();
+    let n = cs.len();
+    let mut i = 0;
+    while i < n {
+        let c = cs[i];
+        if c == '"' || c == '\'' || c == '`' {
+            match (i + 1..n).find(|&j| cs[j] == c) {
+                Some(j) => i = j + 1,
+                None => return false,
+            }
+            continue;
+        }
+        if c.is_ascii_alphabetic() || c == '_' || c == '$' {
+            let mut j = i + 1;
+            while j < n && (cs[j].is_ascii_alphanumeric() || cs[j] == '_' || cs[j] == '$') {
+                j += 1;
+            }
+            let mut k = j;
+            while k < n && cs[k] == ' ' {
+                k += 1;
+            }
+            if k < n && cs[k] == '?' {
+                k += 1;
+                while k < n && cs[k] == ' ' {
+                    k += 1;
+                }
+            }
+            let word: String = cs[i..j].iter().collect();
+            if !(k < n && cs[k] == ':') && !VALUE_WORDS.contains(&word.as_str()) {
+                return false;
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    true
+}
+fn value_union(t: &str) -> bool {
     split_top(t, "|").iter().all(|a| {
         let a = a.trim();
         let n = a.strip_prefix('-').unwrap_or(a);
@@ -1726,7 +1823,7 @@ pub struct ViewUses {
     /// the provisions of a context that holds a view whose every arm is a view of the component, or nothing: no text
     pub only: HashSet<usize>,
 }
-pub fn view_uses(props: &str, props_type: Option<&str>, tparams: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String], dest: &dyn Fn(&str, &str) -> Option<bool>, ctx: &dyn Fn(&str) -> bool) -> ViewUses {
+pub fn view_uses(props: &str, props_type: Option<&str>, tparams: Option<&str>, decls: &[Decl], view: &[Markup], types: &Types, skip: &[String], dest: &dyn Fn(&str, &str) -> Option<bool>, ctx: &dyn Fn(&str) -> bool, kids_value: bool) -> ViewUses {
     use crate::ast::{Attr, Field, MarkupKind, PathSeg, Stmt, StmtKind, TplPart};
     #[derive(Default)]
     struct Sc {
@@ -2287,9 +2384,9 @@ pub fn view_uses(props: &str, props_type: Option<&str>, tparams: Option<&str>, d
             }
         }
     }
-    let mut views = views_of(props_type, types, &[], tparams);
+    let mut views = views_of(props_type, types, &[], tparams, kids_value);
     views.retain(|f| !skip.contains(f));
-    let loose = !skip.iter().any(|f| f == "children") && children_say_nothing(props_type, types, tparams);
+    let loose = !skip.iter().any(|f| f == "children") && !kids_value && children_say_nothing(props_type, types, tparams);
     let views: std::rc::Rc<HashSet<String>> = views.into();
     let mut root = Sc::default();
     root.names.insert(props.to_string(), Some(Given::Props { less: vec![], views: views.clone() }));

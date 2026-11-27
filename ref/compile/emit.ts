@@ -32,7 +32,7 @@ class Env {
   /** The declaring frame of `n` (for companion `pre` memos). */
   frame(n: string): Env | undefined { return this.vars.has(n) ? this : this.parent?.frame(n); }
 }
-type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean; ref?: boolean };
+type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean; ref?: boolean; callee?: boolean };
 
 const isHandler = (a: string) => /^on[A-Z:]/.test(a) || a === "ref";   // `ref`: called once with the element
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
@@ -259,12 +259,14 @@ class Gen {
     const pad = " ".repeat(ind * 2);
     const out: string[] = [`${pad}const __o = __rt.owner();`];
     // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
+    const bound = new Set<string>();
     for (const d of decls) if (d.k === "import" && d.resolved) {
       const via = d.through?.resolved ?? d.resolved;   // MO-6e: the module the code reaches the names through
       const iv = `__i${this.modIndex(via)}`;
       if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${isRx(d.from) ? J(this.mods!.out(via)) : this.depVar(via) /* MO-13c: keyed by its factory, as a bundler's build keys a module */}, ${this.depVar(via)});`);
       for (const { name, alias } of d.names) {
         if (this.isType(d.resolved, name)) continue;   // a type binds nothing
+        if (bound.has(alias)) continue; bound.add(alias);   // MO-6e: a name used here and given on (`import { A }` beside `export { A }`, one export of one module) is one binding
         const ib = this.importBind(d.resolved, name, alias); if (ib.kind === "acc" && this.u.prevOf.has(alias)) ib.prev = `p$${alias}`; env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(d.through?.names[alias] ?? name)}];${ib.prev ? `\n${pad}const ${ib.prev} = __rt.pre(${ib.js});` : ""}`);
       }
     }
@@ -548,7 +550,7 @@ class Gen {
   private component(d: Extract<Decl, { k: "component" }>, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
     const shows = new Map([...shown(d, typesOf(this.mods?.set, this.file))].map(([f, v]) => [f, v.mixed] as const));
-    const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props), shows, given: { props: { less: [], views: viewsOf(d.propsType, typesOf(this.mods?.set, this.file), this.modDecls, d.tparams) } } });
+    const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props), shows, given: { props: { less: [], views: viewsOf(d.propsType, typesOf(this.mods?.set, this.file), this.modDecls, d.tparams, d.kidsValue) } } });
     const was = this.shown; this.shown = new Set([...shows.keys()].map(f => `${d.props}.${f}`));
     try { return `${pad}function ${cm(d.name)}(${mg(d.props)}) {\n${this.owned(d.decls, d.view, inner, ind + 1, true)}\n${pad}}`; } finally { this.shown = was; }
   }
@@ -668,7 +670,7 @@ class Gen {
         if (e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.jsFn) e.args.forEach((a, i) => { if (f.draftArgs?.includes(i)) this.raw.add(a); else this.lent.set(a, (e.f as { name: string }).name); }); }
         this.raw.add(e.f);
         if (e.f.k === "member") return `${rawGo(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
-        return `${go(e.f)}(${e.args.map(go).join(", ")})`;
+        return `${e.f.k === "id" ? this.expr(e.f, env, { ...sub, callee: true }) : go(e.f)}(${e.args.map(go).join(", ")})`;
       }
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
@@ -706,7 +708,7 @@ class Gen {
       if (own) return own;
       throw new CompileError(`unbound ${name}`);
     }
-    if (b.sub) return `(${this.expr(b.sub, env, { imp: false })})`;
+    if (b.sub) return b.sub.k === "fn" && !ctx.callee ? this.expr(b.sub, env, { imp: false }) : `(${this.expr(b.sub, env, { imp: false })})`;   // a closure that stands where its name was: parenthesised only where it is called (as the crate prints it)
     if (b.kind === "acc" || b.kind === "src") return ctx.imp ? `__rt.snapshot(${b.js})` : `${b.js}()`;
     return b.js;                                                                                // a component value is the compiled component (MO-11c)
   }

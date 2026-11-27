@@ -275,7 +275,7 @@ function loadProgram(entry: string, read: (path: string) => string | undefined, 
     }
     reexported(p, path, new Map([...programs].filter(([k]) => state.get(k) === "done")));
     sigReexported(p, path);
-    nameMethods(p, declarations); nameLocals(p, (from, name) => instantiatingExport(from, name, programs, signatures, declarations));
+    nameMethods(p, declarations); nameLocals(p, (from, name) => instantiatingExport(from, name, programs, signatures, declarations)); kidsValues(p);
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
@@ -383,6 +383,26 @@ function instantiatingExport(d: Extract<Decl, { k: "import" }>, name: string, pr
 /** E-9b: the fns of a module that only name values are marked, where none of those values is a call that instantiates (each
  *  is marked, and a mark is taken off until none has to be: one such fn may name a call of another). By name, whatever block a fn is in: a name that is
  *  some fn's that instantiates is read as that fn. */
+/** RG-4c (2026-11-27): children nobody declares are a view (W4) — but for a component the module does not export, with no
+ *  props type, that uses them as a value (it calls them, gives them to an attribute, computes with them) where every
+ *  application of it, all in this module, gives a value between the tags: one `{…}`, text alone, or nothing. Then they are
+ *  the value they were before W4, for the checkers and every runner alike. Anywhere a caller is not seen, the component
+ *  says what its children are (`props: { children: (x: number) => number }`). */
+export function kidsValues(p: Program): void {
+  type Comp = Extract<Decl, { k: "component" }>;
+  const comps = p.decls.filter((d): d is Comp => d.k === "component" && !d.exported && d.propsType === undefined && !d.noProps);
+  if (!comps.length) return;
+  const applied = new Map<string, boolean>(), named = new Set<string>();
+  const walk = (x: unknown): void => {
+    if (!x || typeof x !== "object") return;
+    const o = x as { k?: string; tag?: string; name?: string; children?: { k: string; s?: string }[] };
+    if (o.k === "id" && typeof o.name === "string") named.add(o.name);
+    if (o.k === "el" && typeof o.tag === "string" && Array.isArray(o.children)) { const cs = o.children.filter(c => !(c.k === "text" && !(c.s ?? "").trim())); applied.set(o.tag, (applied.get(o.tag) ?? true) && (cs.every(c => c.k === "text") || (cs.length === 1 && cs[0].k === "read"))); }
+    for (const v of Object.values(x)) walk(v);
+  };
+  walk(p.decls); walk(p.view);
+  for (const c of comps) if (applied.get(c.name) === true && !named.has(c.name) && viewUses(c, new Map()).bad.some(b => b.field === "children")) c.kidsValue = true;
+}
 export function nameLocals(p: Program, imported: (d: Extract<Decl, { k: "import" }>, name: string) => boolean): void {
   type Fn = Extract<Decl, { k: "fn" }>;
   const fns: Fn[] = []; scoped(p, (o: unknown) => { const d = o as Fn; if (d.k === "fn" && d.decls !== undefined) fns.push(d); });
@@ -531,8 +551,8 @@ export function viewFields(t: string | undefined, decls: Decl[], depth = 0): Set
 
 /** The fields declared `View` of a component's props, where its type is read: written out, a type of the module, one
  *  imported from `.rx`. One classification for the checkers, the interpreter, the oracle and the compiled module. */
-export function viewsOf(propsType: string | undefined, types: Types, decls: Decl[] = [], tparams?: string): Set<string> {
-  const say = childrenSayNothing(propsType, types, tparams) ? ["children"] : [];   // W4 (2026-11-26): content between the tags is a view
+export function viewsOf(propsType: string | undefined, types: Types, decls: Decl[] = [], tparams?: string, kidsValue = false): Set<string> {
+  const say = !kidsValue && childrenSayNothing(propsType, types, tparams) ? ["children"] : [];   // W4 (2026-11-26): content between the tags is a view
   if (propsType === undefined) return new Set(say);
   const ps = tparams ? typeParamNames(tparams) : [];
   const out = viewFields(propsType, ps.length ? decls.filter(d => !(d.k === "typedecl" && ps.includes(d.name))) : decls);
@@ -545,13 +565,31 @@ export function viewsAll(set: ModuleSet): Map<unknown, Set<string>> {
   const out = new Map<unknown, Set<string>>();
   for (const [path, p] of set.programs) {
     const mine = p.decls.filter(d => d.k === "typedecl");
-    const walk = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string; propsType?: string }; if (o.k === "component" && "props" in o) out.set(o, viewsOf(o.propsType, typesOf(set, path), mine, (o as { tparams?: string }).tparams)); Object.values(x).forEach(walk); };
+    const walk = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string; propsType?: string }; if (o.k === "component" && "props" in o) out.set(o, viewsOf(o.propsType, typesOf(set, path), mine, (o as { tparams?: string }).tparams, (o as { kidsValue?: boolean }).kidsValue)); Object.values(x).forEach(walk); };
     walk(p.decls); walk(p.view);
   }
   return out;
 }
 /** A type that is read and is a value's, with no view in it: `number`, `string | undefined`, `"a" | "b"`. */
-export function valueType(t: string): boolean { return splitTop(t, "|").every(a => /^(string|number|boolean|bigint|null|undefined|true|false|-?\d[\d.]*|"[^"]*"|'[^']*')$/.test(a.trim())); }
+export function valueType(t: string): boolean {
+  if (splitTop(t, "|").every(a => /^(string|number|boolean|bigint|null|undefined|true|false|-?\d[\d.]*|"[^"]*"|'[^']*')$/.test(a.trim()))) return true;
+  // RG-4c (2026-11-27): …or one built of those — a list, a record, a function — with no name in it that is not read
+  // (`number[]`, `{ a: number }`, `(x: number) => string`): every word of it is a field's or a parameter's name, or one of these
+  let i = 0; const n = t.length;
+  while (i < n) {
+    const c = t[i];
+    if (c === '"' || c === "'" || c === "`") { const j = t.indexOf(c, i + 1); if (j < 0) return false; i = j + 1; continue; }
+    if (/[A-Za-z_$]/.test(c)) {
+      let j = i + 1; while (j < n && /[\w$]/.test(t[j])) j++;
+      let k = j; while (k < n && t[k] === " ") k++; if (t[k] === "?") { k++; while (k < n && t[k] === " ") k++; }
+      if (t[k] !== ":" && !VALUE_WORDS.has(t.slice(i, j))) return false;
+      i = j; continue;
+    }
+    i++;
+  }
+  return true;
+}
+const VALUE_WORDS = new Set(["string", "number", "boolean", "bigint", "null", "undefined", "true", "false", "void", "never", "readonly", "Array", "ReadonlyArray", "Readonly", "Record", "Partial", "Required", "Date"]);
 /** What a component's prop is declared: a view (`true`), a value's type that is read (`false`), or not known. */
 export function takesView(propsType: string | undefined, types: Types, field: string, tparams?: string): boolean | undefined {
   if (propsType === undefined) return undefined;
@@ -837,16 +875,16 @@ export function viewNotShown(comp: string, props: string, field: string, how: st
   };
   return `${comp} is given a view, ${field === "view" ? "a prop typed View" : field}, and a view is only shown: ${tail[how] ?? tail.value}`;
 }
-export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[]; tparams?: string }, types: Types, skip: Set<string> = new Set(), dest?: (tag: string, attr: string) => boolean | undefined, ctx?: (name: string) => boolean): ViewUses {   // ctx: whether a context of that name holds a view (`context item: View`)
+export function viewUses(d: { props: string; propsType?: string; decls: Decl[]; view: Markup[]; tparams?: string; kidsValue?: boolean }, types: Types, skip: Set<string> = new Set(), dest?: (tag: string, attr: string) => boolean | undefined, ctx?: (name: string) => boolean): ViewUses {   // ctx: whether a context of that name holds a view (`context item: View`)
   const kids = new Set<unknown>(), bad: ViewUses["bad"] = [], places = new Map<unknown, string[]>();
-  const views = new Set([...viewsOf(d.propsType, types, [], d.tparams)].filter(f => !skip.has(f)));
+  const views = new Set([...viewsOf(d.propsType, types, [], d.tparams, d.kidsValue)].filter(f => !skip.has(f)));
   type Sc = { names: Map<string, Given | null>; up: Sc | null; fields?: Map<string, string[]> };   // fields: the props a name of this block stands for   // null: a name of this block that is no view
   const sub = (up: Sc, ...ns: (string | undefined)[]): Sc => { const s: Sc = { names: new Map(), up }; for (const n of ns) if (n) s.names.set(n, null); return s; };
   const look = (sc: Sc) => (n: string): Given | undefined => { for (let s: Sc | null = sc; s; s = s.up) if (s.names.has(n)) return s.names.get(n) ?? undefined; return undefined; };
   const view = (e: Expr, sc: Sc): Given | undefined => { const g = given(e, look(sc)); return g?.held && g.view ? g : undefined; };
   const form = (e: Expr, sc: Sc): boolean => (e.k === "id" || e.k === "member") && !!view(e, sc);
   // W4: children nobody declares are a view where they are read, and no view a spread of the whole props hands on
-  const loose = !skip.has("children") && childrenSayNothing(d.propsType, types, d.tparams);
+  const loose = !skip.has("children") && !d.kidsValue && childrenSayNothing(d.propsType, types, d.tparams);
   const left = (e: Expr, sc: Sc): string[] => { const p = given(e, look(sc))?.props; return p ? [...p.views].filter(v => !p.less.includes(v) && !(loose && v === "children" && p.views === views)).sort() : []; };
   const nothing = (e: Expr): boolean => e.k === "lit" && e.v == null;
   const near = (how: string, k: string): string => how === "handler" || how === "effect" ? how : k;   // what reads it: the nearest, but a handler's or an effect's body whatever is in it

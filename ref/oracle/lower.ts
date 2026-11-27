@@ -283,6 +283,15 @@ export class Oracle {
   /** 07 §3 / R-1: each `await` that is not the equation's result becomes its own async memo, asked only while the conditions
    *  that reach it hold (E-11); the equation reads it where the `await` was (ref/src/awaits.ts). */
   hoistedByName = new WeakMap<Scope, Map<string, (() => unknown)[]>>();
+  /** 07 §4: a spread on an element is Solid's — the `children` it carries are the element's content, where the element
+   *  writes none of its own (`<div {...props} />`). */
+  private spreadKidsOf = new WeakMap<Markup, Markup[]>();
+  private spreadKids(m: Extract<Markup, { k: "el" }>): Markup[] {
+    if (!m.attrs.some(a => a.name === "...") || m.children.some(c => c.k !== "text" || c.s.trim())) return m.children;
+    let ks = this.spreadKidsOf.get(m);
+    if (!ks) { ks = [...m.children, ...m.attrs.filter(a => a.name === "...").map((a): Markup => ({ k: "read", e: { k: "member", o: a.e, p: "children" } }))]; this.spreadKidsOf.set(m, ks); }
+    return ks;
+  }
   /** R-f-4: `await e catch (x: C) => alt` — a rejection of `C` is the await's answer, as the compiled `settle`: the failure,
    *  marked. The catch's own answer is computed by the reader of the await, outside it (R-f-4a): it reads its sources there. */
   private settled(r: unknown, c: Extract<Expr, { k: "catch" }>, scope: Scope): unknown {
@@ -707,7 +716,7 @@ export class Oracle {
             return;
           }
           if (path.length === 0) b.set(v);
-          else b.setPath((d: any) => { let o = d; for (const k of path.slice(0, -1)) o = o[k]; o[path[path.length - 1]] = v; });
+          else b.setPath((d: any) => { let o = d; for (const k of path.slice(0, -1)) o = o[k]; const last = path[path.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; });   // W-6: a functional write to a path applies its function to the path's value (it stored the function)
           return;
         }
         throw new Error(`W-1: write to non-source ${s.target.name}`);
@@ -823,7 +832,7 @@ export class Oracle {
           const fn = (params: string[], decls: Decl[], body: Markup[]) => (p: unknown) => { const s2 = new Scope(scope); for (const x of params) s2.vars.set(x, { k: "const", value: p }); return this.region(decls, body, s2); };
           for (const c of m.children) if (c.k === "mview" && c.prop) kids[c.prop] = fn(c.params, c.decls, c.body);
           const view = m.children.find(c => c.k === "mview" && !c.prop);
-          if (takes || content.some(c => c.k !== "text" || c.s.trim())) Object.defineProperty(kids, "children", takes ? { enumerable: true, value: view?.k === "mview" ? fn(view.params, view.decls, view.body) : content.some(c => c.k !== "text" || c.s.trim()) ? fn([], [], content) : undefined } : !content.some(c => c.k !== "text" || c.s.trim()) ? { enumerable: true, value: undefined } : { enumerable: true, get: () => content.length === 1 && content[0].k === "read" && (content[0].e.k === "fn" || !placed(content[0].e)) ? (this.node(content[0], scope, true) as () => unknown)()   /* the value it is, read where it is read (the compiled module's getter): what it gives on is asked there, and `??` sees what was not given */ : slot(() => this.region([], content, new Scope(scope))) });   // RG-4c: content is a block of the caller's names, made and owned where it is shown; one `{e}` that asks nothing of its place is the value it is   // plain content, where a view is taken, is one that asks nothing
+          if (takes || content.some(c => c.k !== "text" || c.s.trim())) Object.defineProperty(kids, "children", takes ? { enumerable: true, value: view?.k === "mview" ? fn(view.params, view.decls, view.body) : content.some(c => c.k !== "text" || c.s.trim()) ? fn([], [], content) : undefined } : !content.some(c => c.k !== "text" || c.s.trim()) ? { enumerable: true, value: undefined } : this.views.has(comp) && !this.views.get(comp)!.has("children") && content.every(c => c.k === "text") ? { enumerable: true, value: content.map(c => (c as { s: string }).s).join("").trim() }   /* RG-4c: children that are a value, given text: the text */ : { enumerable: true, get: () => content.length === 1 && content[0].k === "read" && (content[0].e.k === "fn" || !placed(content[0].e)) ? (this.node(content[0], scope, true) as () => unknown)()   /* the value it is, read where it is read (the compiled module's getter): what it gives on is asked there, and `??` sees what was not given */ : slot(() => this.region([], content, new Scope(scope))) });   // RG-4c: content is a block of the caller's names, made and owned where it is shown; one `{e}` that asks nothing of its place is the value it is   // plain content, where a view is taken, is one that asks nothing
           const props = this.props(m, scope, kids);
           return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); s2.givens.set(comp.props, { props: { less: [], views: this.views.get(comp) ?? new Set() } }); return this.region(comp.decls, comp.view, s2); }, props);
         }
@@ -832,7 +841,7 @@ export class Oracle {
             { const h = untrack(() => { this.imperative++; try { return (this.ev(a.e, scope) as any)?.ref; } finally { this.imperative--; } }); runRefCallback(() => { for (const g of [h].flat(Infinity as 1)) if (typeof g === "function") g(el); }); }   // a `ref` a spread gives, as Solid's spread()
             continue; } if (a.name === "ref") { const h = untrack(() => { this.imperative++; try { return this.ev(a.e, scope); } finally { this.imperative--; } }); runRefCallback(() => { for (const g of [h].flat(Infinity as 1)) if (typeof g === "function") g(el); }); continue; }   // 07 §4: Solid's ref(), called once as the element is made
           if (/^on[A-Z:]/.test(a.name)) { const h = untrack(() => { this.imperative++; try { return this.ev(a.e, scope); } finally { this.imperative--; } }); R.setProp(el, a.name, h); } else R.effect(() => this.ev(a.e, scope), v => { R.setProp(el, a.name, v); }); }   // 07 §5: a handler is an imperative closure
-        for (const item of (untrack(() => this.fragment(m.children, scope, true)) as unknown[]).flat(Infinity)) { const marker = R.createTextNode(""); R.insertNode(el, marker); R.insert(el, item as never, marker); }
+        for (const item of (untrack(() => this.fragment(this.spreadKids(m), scope, true)) as unknown[]).flat(Infinity)) { const marker = R.createTextNode(""); R.insertNode(el, marker); R.insert(el, item as never, marker); }
         return el;
       }
       case "mif": {

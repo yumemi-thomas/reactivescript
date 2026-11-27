@@ -898,6 +898,7 @@ class Checker {
   private shownUse: Expr | null = null;                                                    // RG-4c: the `use` of a context that holds a view that a reader shows
   private importSyms = new Set<Sym>();                                                     // MO-1d: what imports bound; a nested block may not shadow it
   private later: (() => void)[] = [];
+  private importedAs = new Map<Env, Map<string, { key: string; reexport: boolean }>>();   // MO-6e: what each imported name of a block is, and whether it is given on
   private compSyms = new Map<Region, Sym>();
   private rowsBusy = new Set<string>();
   private retains = new Map<Region, Map<string, Set<string>>>();   // O-3: per component, the props it stores where they outlive it — "d:<depth>" (a source), "p:<key>" (a provision above)
@@ -1142,7 +1143,14 @@ class Checker {
     for (const d of decls) {
       this.line = d.line;
       if (d.k === "import") {
-        for (const { alias } of d.names) if (env.vars.has(alias)) this.err("DUPLICATE_DECLARATION", "E-7", `${alias} is imported twice in one module: one name, one import (\`import { … as other }\`)`);   // 2026-11-26: the second was taken in silence
+        // MO-6e (2026-11-27): a module may use a name and give it on — `import { A } from "./a.rx"` beside `export { A } from
+        // "./a.rx"` — where both name one export of one module, under one name: they are one binding
+        { let seen = this.importedAs.get(env); if (!seen) this.importedAs.set(env, (seen = new Map()));
+          for (const { name, alias } of d.names) {
+            const key = `${d.resolved ?? d.from}#${name}`, was = seen.get(alias);
+            if (env.vars.has(alias) && !(was && was.key === key && was.reexport !== !!d.reexport)) this.err("DUPLICATE_DECLARATION", "E-7", was && was.reexport !== !!d.reexport ? `${alias} is imported and re-exported from two places in one module (${was.key.replace("#", ": ")} and ${key.replace("#", ": ")}): one name, one binding — a name used here and given on is the same export of the same module in both (\`import { ${name} } from "${d.from}"\` beside \`export { ${name} } from "${d.from}"\`), or one of them takes another name (\`as other\`)` : `${alias} is imported twice in one module: one name, one import (\`import { … as other }\`)`);   // 2026-11-26: the second was taken in silence
+            if (!was) seen.set(alias, { key, reexport: !!d.reexport });
+          } }
         if (d.resolved) this.importRx(d, env);                                                                    // MO-1/MO-3: an .rx module's signature
         else if (d.declared) this.importDeclared(d, env);                                                         // MO-8: a JS module's declaration file
         else for (const { alias } of d.names) this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, ...(d.pure ? { pureFn: true } : {}), rejects: new Set(d.fails ?? ["Error"]), side: d.side, undeclared: d.from });   // R-io-4, R-f-8, SF-5

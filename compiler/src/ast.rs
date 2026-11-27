@@ -247,7 +247,7 @@ pub enum Decl {
     /// `tparams`: `<T>`, as text (07 §2); `named`: it declares only names for values (E-9b, set by the loader)
     Fn { name: String, params: Vec<Param>, decls: Vec<Decl>, tail: Expr, line: usize, span: Span, ret: Option<String>, exported: bool, tparams: Option<String>, named: bool },
     /// `tparams`: `<T>`, as text (07 §2)
-    Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, no_props: bool, exported: bool, is_default: bool, tparams: Option<String> },
+    Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, no_props: bool, exported: bool, is_default: bool, tparams: Option<String>, /** RG-4c: children nobody declares, used as a value and given one by every caller (set by the loader) */ kids_value: bool },
     Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, /** AC-1f: how many of them a call must pass, where the last ones may be left out (`by?`) */ required: Option<usize>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Server { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Provide { name: String, e: Expr, line: usize, span: Span },
@@ -997,7 +997,8 @@ impl Decl {
                 ("tparams", os(tparams)),
                 ("named", flag(*named)),
             ]),
-            Decl::Component { name, props, decls, view, line, props_type, no_props, exported, is_default, tparams, .. } => obj(vec![
+            Decl::Component { name, props, decls, view, line, props_type, no_props, exported, is_default, tparams, kids_value, .. } => obj(vec![
+                ("kidsValue", flag(*kids_value)),
                 ("k", s("component")),
                 ("name", s(name)),
                 ("props", s(props)),
