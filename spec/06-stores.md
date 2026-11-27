@@ -321,7 +321,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   the run: in a declared action, a write that some path of the body
   carries to an `await`; in a plain run (a handler), a write in a stretch
   that calls, by name, an action whose body awaits, re-asks or declares
-  `affects` (the run joins that action's change, AC-1). Until the change
+  `affects` (the run joins that action's change, AC-1) — and in a declared
+  action that calls such an action too (2026-11-27: `action note() { let n
+  = seq + 1; seq := n; save(n) }` with `save` waiting held `seq` through
+  two calls and minted one id twice, unrefused). Until the change
   settles, every other run reads the committed `x` (W-4, H-10), so the
   next click computes the same value again: a counter mints one id twice,
   a toggle flips back, a page goes forward once for two clicks. The check

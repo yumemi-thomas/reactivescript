@@ -190,6 +190,17 @@ and where they may not go.
     is inside the regions it is applied in, at every place the module
     applies it. (Found by the desk9 reference's fuzz seed 11, eval/results/desk9-reference-2026-11-13:
     `add-label` sat in a region of its own reading only `pending? shown`.)
+  **R-8a** *What such a read does (ruled 2026-11-27; X15).* The check
+  above is not enforced, so a run can reach the read: a button outside the
+  region that waits, pressed before the first answer. A run's read of a
+  value that has never had one fails there, as `latest` of it does (R-12;
+  Solid's rule: a node with no committed value has nothing to serve): the
+  statement throws, what the run wrote before it stands, what follows does
+  not run, and a `try` in the handler takes it (`n := 1; got := A + "!"`
+  writes `n` and not `got`). `pending? x` is a verdict and reads no value.
+  (The interpreter dropped the whole run, earlier writes too; compiled code
+  handed Solid's pending mark on, and `got` read `#pending!` on the
+  screen.) S-await-3.
 
   **Through components** [taken by default 2026-11-25]. A callback prop
   (`<Column onMove={(c, i) => { … }} />`) is a handler: it runs on the

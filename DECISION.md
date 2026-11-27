@@ -1126,12 +1126,14 @@ inline write's the same). `scenarios/S-answer-1` (new) holds the form, its refus
   := 1; got := A + "!"` writes neither), while the oracle and both emitters write Solid's `NotReadyError` sentinel
   through (`#pending!`). Handler and action that answers alike (`b10/sets/pend`). It needs a ruling on what a run reads
   of a question never answered; until then the runners differ there.
+  *(Ruled and fixed the same day, 04 R-8a: "Outside review of 15db0404", below.)*
 - **A counter beside a direct call of an imported action is `STALE_NEXT_READ` whether or not it waits** (15db0404 and
   now, `b10/sets/pi`): an `.rx` import's signature does not say whether an action outlasts its call. It now reaches an
   imported action that answers too. That refuses correct code; the fix is a word in the module signature (printed in
   `.d.rx`, so `DECLARATION_VERSION`). Left for the user.
 - **A counter inside a declared action that launches a waiting one is not checked** (the walker reads a declared
   action's own `await`s only; its writes join the launched change, D-7). The form's body is a run and is checked.
+  *(Checked now, `STALE_NEXT_READ`: the same section below.)*
 
 *Census* (before = 15db0404, `rx-pin.noindex/head/rs`, built on the same pin; after = this tree):
 
@@ -1438,7 +1440,7 @@ tree. Then once more on this tree after the fixes below (`@now`): only the progr
 | t1 (96), t1f (42) | 70 agree, 14 refused, 12 stopped | the same | all | 42 of 42 | none (the 12 stopped are the review's own frames) |
 | y1 (26), k1 (15), k1f (3) | 23 / 3; 11 / 4; 3 | the same | all | 3 of 3 | none |
 | o1 (167), o1f (129), o2 (13), o3 (8) | 149 / 8 / 5 same error / 5 stopped; 107 + 22 stopped; 7 / 6; 5 / 3 | the same | all but the 22 `o1f` programs whose frames have a `\|` (the harness stops on them) | 107 of 107 readable | none |
-| 505 (`a505`), its 333 filled (`w/c6f`) | 334 agree, 169 refused, 1 differ, 1 stopped | 335 agree, 169 refused, 1 stopped | all | 319 of 333 | 1 differ → agree (the oracle's keyed rows, track 2 b). Served: 12 portal programs whose filled frames have no ` » ` (filled before PT-3's mark: the harness compares a portal's content with a server that never renders it) and 2 (`fn-`/`view-await-C-portal-ok`) "asked again: k" after hydrating early, a question under a portal: X14's class, not reduced |
+| 505 (`a505`), its 333 filled (`w/c6f`) | 334 agree, 169 refused, 1 differ, 1 stopped | 335 agree, 169 refused, 1 stopped | all | 319 of 333 | 1 differ → agree (the oracle's keyed rows, track 2 b). Served: 14 portal programs missed, and both reasons written here on 2026-11-26 were wrong (corrected 2026-11-27, "Outside review of 15db0404", *The added scope*): they are faults of `ref/ssr/run.ts`, not of the tables and not X14 — the expected shell was cut from the client's mount frame, which is not the server's where what is under the portal reaches a boundary outside it (12), and a question the browser is the first to ask was counted as asked again (2) |
 | 1,642 (`a1642`), filled (`w/p6f`) | 1,642 agree | the same | all | 1,642 of 1,642 | none |
 | 1,147 (`w/amb`), filled 800 | 800 agree, 347 refused | the same | all | 800 of 800 | none |
 | 979 (`w/g1`), filled 823 | 822 agree, 157 refused | the same | all | 822 of 822 accepted | none |
@@ -1482,6 +1484,9 @@ difference that was ours is the interpreter's (each `ref` was its own run, and t
 that differs with no Solid bug involved — every difference between the interpreter and compiled code is a `ref` in a
 row, an `if` or a view block reading an earlier `ref`'s write, which rc.21 would not show — so **the refusal is withdrawn
 from both checkers**, as are its 99 row and its guide section. X13 goes with it.
+*(Corrected 2026-11-27, "Outside review of 15db0404": that sentence is false. #4768 is deliberate and #5110 keeps
+#4767 — a `ref` of an element made under a hold reads the hold's values, which the interpreter did not do, with no
+Solid bug involved; and the rendered half of DV-28 is Solid's rule, not a regression. The refusal stays withdrawn.)*
 
 *Recorded.* DV-28 (spec 10), with the draft, rc.22, #4768 and what a user writes that is the same on every Solid (each
 `ref` stores its own element; what needs two reads them in an effect or an equation; a counting `ref` writes by a
@@ -1553,7 +1558,7 @@ alike on every program below). Nothing is refused or accepted differently.
 | census | |
 | --- | --- |
 | the 24 probes, every runner, before → after | 4 differ → agree (`catch-inexpr`, `catch-reader`, `if-behind`, `for-behind`); 17 agree as before; `catch-if` differs before and after, and agrees once the third fix is in (two more probes, `probes/f3b`: an `await` in a condition, with and without an equation); `catch-effect` is my table's (an effect's write is an instant it does not list), and shows an effect's input never holds; `catch-deferred` is not compiled by the emitters (before too). `same` and `lower` 24 of 24 |
-| the review sets, as "Review sets on 3395c64e" ran them (`sets/runf3.mjs`, `out-f3/`): the 3,774 of the 18,798 that hold `errored` or `catch` — the only ones either change can reach (the interpreter's needs a shown error fallback; no program without one has an `await` in a condition) — interpreter, oracle, both emitters, both checkers, both lowerings, before (821fa264) and after; filled sets served and hydrated after | **nothing moved**: every verdict the same, no program both revisions agree on shows anything else, `same` and `lower` alike on all 3,774. Served misses, all as before: DV-26 (`p3-err-aw-ifinner-app`), X14 (`v1-aw-loop-*`, two of the 505), the 505's 12 portal tables; one more in the 635, `p7_y-hidden` (children with an `await` given to a hidden `if` under `loading`, hydrated late: the frame before `w`), never served before, the same on 821fa264 — not this change, not reduced |
+| the review sets, as "Review sets on 3395c64e" ran them (`sets/runf3.mjs`, `out-f3/`): the 3,774 of the 18,798 that hold `errored` or `catch` — the only ones either change can reach (the interpreter's needs a shown error fallback; no program without one has an `await` in a condition) — interpreter, oracle, both emitters, both checkers, both lowerings, before (821fa264) and after; filled sets served and hydrated after | **nothing moved**: every verdict the same, no program both revisions agree on shows anything else, `same` and `lower` alike on all 3,774. Served misses, all as before: DV-26 (`p3-err-aw-ifinner-app`), X14 (`v1-aw-loop-*`); 14 portal programs of the 505, which are the server harness's own faults and not X14 nor their tables' (corrected 2026-11-27, "Outside review of 15db0404"); one more in the 635, `p7_y-hidden` (children with an `await` given to a hidden `if` under `loading`, hydrated late: the frame before `w`), never served before, the same on 821fa264 — not this change, not reduced |
 | scenarios (`scripts/quick`, then the full run below) | S-hold-7 new; S-module-1 and S-fail-2 lose their DV-25 records and keep their frames; nothing else moves (all four runners, served and hydrated, the crate's parity and lowering, the type pass) |
 | `examples/rx-packages`: `build.mjs`, `check.mjs` | all built; `check.json` unchanged byte for byte. No program there has an `await … catch` in reactive scope (the one `catch` is an action's `try`), and the interpreter is not theirs |
 | `examples/rx-std`, `examples/rx-ui-sdk` | build; the UI SDK's `check/run.mjs`: the rewrite's column accepts the good program and all 8 correct lines, as before (its drafts column reads `DECLARATION_VERSION` here, the pin check against this checkout's installed package: no checker or declaration changed) |

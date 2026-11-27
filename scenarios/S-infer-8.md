@@ -68,6 +68,19 @@ an action. A write that is not computed from its own source (a draft
 cleared, a flag set) is not this check's. Either fix is accepted: this
 one (`onFlush`) or reading `latest seq` (S-infer-9).
 
+A declared action that launches one that waits holds its own writes with it (2026-11-27).
+
+```rx
+-- reject: STALE_NEXT_READ
+export default component App() {
+  source seq := 0
+  source out := ""
+  action save(v: number) { try { let r = await fetch("s:" + v); out := v2 => v2 + r } catch (e) { out := "x" } }
+  action note() { let n = seq + 1; seq := n; save(n) }
+  <button onClick={() => { note() }}>{seq} {out}</button>
+}
+```
+
 ```rx
 -- reject: STALE_NEXT_READ
 export default component App() {
