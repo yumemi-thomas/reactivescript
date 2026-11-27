@@ -278,7 +278,7 @@ An action that declares what it answers answers it at the call, and never waits 
 
 ```rx
 action mint(): number {
-  let n = seq + 1
+  let n = latest seq + 1
   seq := n
   return n
 }
@@ -290,7 +290,9 @@ not a promise. Because it never waits, an `await`, `refresh`, `affects` or `gues
 closure it calls by name included) is refused (`ACTION_ANSWER_HELD`): leave the result out to get an ordinary action
 whose promise settles with the change, or launch the waiting part as an action of its own. It may launch an action
 that waits (a call, or an inline `action { … }`); the writes beside that launch then wait with it, as a handler's do,
-and the counter rule above applies to them and to whoever calls it. It is still an action: a view or an equation
+and the counter rule above applies to them and to whoever calls it: `mint`'s write is its caller's, and the handler
+above launches `send`, so with `let n = seq + 1` two quick clicks would both send `a1` (the compiler says so, naming
+`mint`). The rule reads through an equation too: `nextId = seq + 1` read in the handler is `seq` as committed. It is still an action: a view or an equation
 cannot call it while it computes.
 
 ## 6. Effects: acting on a value as it changes

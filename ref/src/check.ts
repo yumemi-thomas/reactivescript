@@ -11,7 +11,7 @@ import { closes, splitTop, fieldRows, instance, isGenerated, isViewType, type Js
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, USE, carriedBy, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
 import { scopeFacts, scoped } from "./scope.ts";
-import { actionJoins, actionWaits, guessFacts, heldWord, inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
+import { actionJoins, actionWaits, exprDeps, guessFacts, heldWord, inferredAction, ownNextWrites, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 /** MO-10i (closed 2026-11-22): what is called on a draft is a method of plain data, by name — an Array's, a Map's, a Set's,
  *  a string's or a number's. `DRAFT_CALLBACKS` are the ones that call a function they are given, now, with parts of the data. */
@@ -318,6 +318,8 @@ type Sym = {
   arity?: number;                      // an action declared here: how many arguments a call passes (AC-1f)
   arityMin?: number;                   // …at least, where its last parameters may be left out (`by?`)
   outlasts?: boolean;                     // an action declared here: whether its change can outlast the call (an `await`, `refresh`, `affects`; AC-1h)
+  staleWrites?: string[];                 // AC-1h (2026-11-27): one that settles as it returns: the sources its run writes computed from their own value
+  eqDeps?: { k: string; path: string[] }[];   // AC-1h, AC-1d (2026-11-27): an equation: the sources it is computed from
   captures?: Sym[];                    // a value holding a closure: the reactive names it captured (O-3)
   retCaptures?: Sym[];                 // what calling that value can return holding (O-3)
   propOf?: { comp: Region; field: string };   // O-3: not a name but a prop's argument, stored — its captures are the caller's ("*": all of props)
@@ -1164,7 +1166,7 @@ class Checker {
               && !(submits.length > 0 && submits.every(at => disabledOn(at, hr.env, t)))
               && !heldBy(hr.region, t)) {
               this.line = hr.line;
-              this.err("GUESS_WHILE_LOADING", "AC-3a", `${hr.what} ${b.via ? `starts \`${b.via}\`, which can run` : "can run"} \`guess ${tn}\` while ${tn} is loading a new question (its question reads what the click reads): the guess composes on the previous answer, and the new answer replaces it, so the change disappears while it is out (D-34) — put the element inside the \`loading\` region whose content reads ${tn}, or test it where the click starts, \`onClick={() => { if (!(pending? ${tn})) { … } }}\` (a handler reads the verdict as it stands, R-12), or keep the pending change in a source of its own until it lands`);
+              this.err("GUESS_WHILE_LOADING", "AC-3a", `${hr.what} ${b.via ? `starts \`${b.via}\`, which can run` : "can run"} \`guess ${tn}\` while ${tn} is loading a new question (its question reads what the click reads): the guess composes on the previous answer, and the new answer replaces it, so the change disappears while it is out (D-34) — put the element inside the \`loading\` region whose content reads ${tn}, or give it \`disabled={pending? ${tn}}\`, or test it where the click starts, \`onClick={() => { if (!(pending? ${tn})) { … } }}\` (a handler reads the verdict as it stands, R-12), or keep the pending change in a source of its own until it lands`);
             }
           }
           st.push(...kidsOf(n));
@@ -1327,6 +1329,18 @@ class Checker {
         if (d.k !== "action") continue;
         const sym = env.vars.get(d.name)!; if (sym.outlasts) continue;
         if (actionJoins(d.body, n => { if (d.params.includes(n)) return false; const t = env.lookup(n); return t?.kind === "action" && t.outlasts === true; }) !== undefined) { sym.outlasts = true; changed = true; }   // only what is known to outlast: an action of another module (MO-3) adds nothing here
+      }
+    }
+    // AC-1h (2026-11-27): an action that settles as it returns writes in its caller's run (AC-1i), so what it writes computed
+    // from its own value is the caller's write: a caller that joins an action that waits holds it, and the next run mints
+    // the same id again (`let id = mint(); send(id)`). Read to a fixpoint, through the actions it calls
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const d of decls) {
+        if (d.k !== "action") continue;
+        const sym = env.vars.get(d.name)!; if (sym.outlasts !== false) continue;
+        const w = ownNextWrites(d.body, d.params, this.runScope(env));
+        if (w.length > (sym.staleWrites?.length ?? 0)) { sym.staleWrites = w; changed = true; }
       }
     }
     // MO-10k: what a fn or an action of this module may give back, by mention (every name of the block is bound now)
@@ -1775,10 +1789,10 @@ class Checker {
           // nothing would hold a change, and its body is checked as a handler's run (AC-1h's form for a run, not an action's)
           const h = heldWord(d.body);
           if (h) { const line0 = this.line; if (h.line) this.line = h.line; this.err("ACTION_ANSWER_HELD", "AC-1i", `action ${d.name} declares what it answers (\`: ${d.ret}\`), so it answers at the call and never waits; \`${h.word}\` would make its change outlive the call, and the answer would come before its writes settle: leave the result out (a caller then gets a promise, which settles with the change), or move the waiting part to an action the caller launches after it`); this.line = line0; }
-          this.runChecks(d.body, inner, false, d.params, false, { isAction: n => { const t = inner.lookup(n); return t?.kind === "action" && t.outlasts !== false; } });
+          this.runChecks(d.body, inner, false, d.params, false, this.runScope(inner));
           return;
         }
-        this.runChecks(d.body, inner, true, d.params, false, { ptypes: (d.ptypes ?? d.params.map(() => undefined)).map(t => t && this.scalarAliases.has(t.trim()) ? "string" : t), answered: n => { const t = inner.lookup(n); return !!t && t.kind === "source" && !!t.question; }, stateful: n => { const t = inner.lookup(n); return !!t && (t.kind === "source" || t.kind === "eq"); }, isAction: n => { const t = inner.lookup(n); return t?.kind === "action" && t.outlasts !== false; } });   // AC-1h (2026-11-27): a declared action that launches one that waits holds its own writes with it
+        this.runChecks(d.body, inner, true, d.params, false, { ptypes: (d.ptypes ?? d.params.map(() => undefined)).map(t => t && this.scalarAliases.has(t.trim()) ? "string" : t), answered: n => { const t = inner.lookup(n); return !!t && t.kind === "source" && !!t.question; }, stateful: n => { const t = inner.lookup(n); return !!t && (t.kind === "source" || t.kind === "eq"); }, ...this.runScope(inner) });   // AC-1h (2026-11-27): a declared action that launches one that waits holds its own writes with it
         return;
       }
       case "server": {                                                                       // 12 SF-1/SF-3/SF-4: a statement block that runs on the server
@@ -3205,7 +3219,7 @@ class Checker {
           const why = ctx.server ? null : inferredAction(e.stmts);                          // AC-1b: an arrow that guesses, or writes and awaits, is an action
           this.stmts(e.stmts, inner, { scope: "imperative", server: ctx.server, inAction: !!why });
           if (why) this.actions.push({ name: `inferred here (AC-1b: ${triggerText(why)})`, body: e.stmts, env: inner, line: this.line });
-          if (!ctx.server) this.runChecks(e.stmts, inner, !!why, e.params, !!why, { isAction: n => { const t = inner.lookup(n); return t?.kind === "action" && t.outlasts !== false; } });
+          if (!ctx.server) this.runChecks(e.stmts, inner, !!why, e.params, !!why, this.runScope(inner));
           return;
         }
         this.expr(e.body, inner, { scope: ctx.scope, inFn: ctx.inFn, server: ctx.server }); return;
@@ -3224,14 +3238,35 @@ class Checker {
     }
   }
 
+  /** AC-1h, AC-1d: what a run of `env` asks of its names — the actions that outlast a call, what one that settles writes, and
+   *  what an equation is computed from. */
+  private runScope(env: Env): RunOpts {
+    return {
+      isAction: n => { const t = env.lookup(n); return t?.kind === "action" && t.outlasts !== false; },
+      staleOf: n => { const t = env.lookup(n); return t?.kind === "action" && t.outlasts === false ? t.staleWrites : undefined; },
+      eqDeps: n => { const t = env.lookup(n); return t?.kind === "eq" ? this.eqDepsOf(t) : undefined; },
+    };
+  }
+  /** AC-1h, AC-1d (2026-11-27): the sources an equation is computed from, at their paths, through the equations it reads. */
+  private eqDepsOf(t: Sym, seen = new Set<Sym>()): { k: string; path: string[] }[] {
+    if (t.eqDeps) return t.eqDeps;
+    if (!t.eqExpr || seen.has(t)) return [];
+    seen.add(t); const out: { k: string; path: string[] }[] = [];
+    for (const d of exprDeps(t.eqExpr.e)) {
+      const u = t.eqExpr.env.lookup(d.k); if (!u) continue;
+      if (u.kind === "source") { if (!out.some(o => o.k === d.k && o.path.join(".") === d.path.join("."))) out.push(d); }
+      else if (u.kind === "eq") for (const o of this.eqDepsOf(u, seen)) if (!out.some(x => x.k === o.k && x.path.join(".") === o.path.join("."))) out.push(o);
+    }
+    return t.eqDeps = out;
+  }
   /** AC-1c, AC-1d, AC-1e over one imperative run (ref/src/infer.ts). */
   private runChecks(stmts: Stmt[], env: Env, action: boolean, bound: string[], inferred = false, opts: RunOpts = {}) {
     for (const f of runFindings(stmts, action, bound, inferred, opts)) {
       if (f.code === "STALE_CAPTURE") { this.err("STALE_CAPTURE", "AC-1g", `${f.name} := … after an \`await\` writes ${f.via}, which is not the server's: ${f.name} is the server's answer, and after the \`await\` it takes only what the server answered, plain arguments (an id, a title, an index) and its own value at the write (\`${f.name} := rs => …\`, finding rows there by id). A row passed in, or read from a source before the \`await\` or after it, is what the screen showed, and may be stale by now (a rename accepted, a reload, an earlier write declined, a write another action holds) — when the answer alone doesn't say where a row is now, re-ask the answers it left and joined (\`refresh\`)`); continue; }
       if (f.code === "HELD_WRITE") this.err("HELD_WRITE", "AC-1c", `${f.name} := … comes before an \`await\` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, \`guess ${f.name} := …\` (a source with a question, ST-5c); for a reset that lands now, \`onFlush(() => { ${f.name} := … })\` (EF-8); to hold it on purpose, declare the action (\`action name() { … }\`); or write it after the \`await\``);
-      else if (f.code === "STALE_NEXT_READ") this.err("STALE_NEXT_READ", "AC-1h", `${f.name} := … is computed from ${f.name}, and it is held: ${f.via ? `this run calls ${f.via}, so its writes join that action's change` : "an action holds its writes"} until the change settles (AC-1). Until then the next run reads the committed ${f.name}, not this write, and computes the same value again (a counter mints one id twice). For the next run to build on the held value while the screen waits, read it with \`latest ${f.name}\` (R-9), or write functionally (\`${f.name} := v => …\`, W-6) when this run doesn't need the value; for the write to show now, give it its own instant, \`onFlush(() => { ${f.name} := … })\` (EF-8)`);
+      else if (f.code === "STALE_NEXT_READ") this.err("STALE_NEXT_READ", "AC-1h", `${f.name} := … ${f.at ? `(${f.at}) ` : ""}is computed from ${f.name}, and it is held: ${f.via ? `this run calls ${f.via}, so its writes join that action's change` : "an action holds its writes"} until the change settles (AC-1). Until then the next run reads the committed ${f.name}, not this write, and computes the same value again (a counter mints one id twice). For the next run to build on the held value while the screen waits, read it with \`latest ${f.name}\` (R-9), or write functionally (\`${f.name} := v => …\`, W-6) when this run doesn't need the value; for the write to show now, give it its own instant, \`onFlush(() => { ${f.name} := … })\` (EF-8)`);
       else if (f.code === "STALE_WRITE_BACK") this.err("STALE_WRITE_BACK", "AC-1e", `${f.name} := … after an \`await\` is computed from ${f.name} as it was read before that \`await\`: whatever changed ${f.name} in between (another action, a reload) is overwritten — write functionally (\`${f.name} := v => …\`, W-6), which applies to ${f.name} as it stands at the write, or guess it (\`guess\`, AC-3) and let the answer replace the guess`);
-      else this.err("STALE_OWN_READ", "AC-1d", `${f.name} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (\`let v = …; ${f.name} := v\`) and read that, or write functionally (\`${f.name} := v => …\`, W-6)`);
+      else this.err("STALE_OWN_READ", "AC-1d", `${f.at ? `${f.at} is computed from ${f.name}, and it` : f.name} is read after this change wrote ${f.at ? f.name : "it"}: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (\`let v = …; ${f.name} := v\`) and read that, or write functionally (\`${f.name} := v => …\`, W-6)`);
     }
     // AC-3 (2026-11-22): a guess lives over the hold of what its action waits for
     if (action) {

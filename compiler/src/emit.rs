@@ -103,6 +103,9 @@ struct Bind {
     /// once, and whether it is read apart
     sub: Option<*const Expr>,
     shared: Option<(usize, bool)>,
+    /// R-11a: its own expression, where it is an equation or a source with a question, and the scope it is read in: what
+    /// reads it reads ahead if it does
+    of: Option<(*const Expr, Env)>,
 }
 /// RG-4c: a component whose children are a view or plain content.
 fn takes_plain(d: &Decl, types: &Types) -> bool {
@@ -114,7 +117,7 @@ fn kids_as_value(d: &Decl, types: &Types) -> bool {
     matches!(d, Decl::Component { props_type, tparams, kids_value, .. } if *kids_value || takes_view(props_type.as_deref(), types, "children", tparams.as_deref()) == Some(false))
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), given: None, view_ctx: false, shows: vec![], plain: false, kids_value: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![], sub: None, shared: None }
+    Bind { kind, js: js.into(), given: None, view_ctx: false, shows: vec![], plain: false, kids_value: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![], sub: None, shared: None, of: None }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -913,8 +916,11 @@ impl<'p> Gen<'p> {
                     b.view_ctx = crate::modules::view_ctx(ty.as_deref(), &self.types(&self.file)).is_some();
                     self.set(env, name, b)
                 }
-                Decl::Source { name, .. } => {
+                Decl::Source { name, question, init, .. } => {
                     let mut b = bind(Kind::Src, mg(name));
+                    if *question {
+                        b.of = Some((init as *const Expr, env));
+                    }
                     b.w = Some(format!("w${name}"));
                     b.prev = self.u.prev_of.contains(name).then(|| format!("p${name}"));
                     self.set(env, name, b);
@@ -923,6 +929,7 @@ impl<'p> Gen<'p> {
                 Decl::Eq { name, e, .. } if unwrap_server(e).is_some() => self.set(env, name, val(mg(name))),
                 Decl::Eq { name, e, deferred, .. } => {
                     let mut b = bind(Kind::Acc, mg(name));
+                    b.of = Some((e as *const Expr, env));
                     if let ExprKind::Call { f, .. } = &e.k {
                         if let ExprKind::Id(fname) = &f.k {
                             // MO-11f: a factory's component is a JSX tag
@@ -2592,6 +2599,46 @@ impl<'p> Gen<'p> {
         let mixed = b.shows.iter().find(|x| x.0 == f)?.1;
         Some((dot(id(b.js), f), mixed))
     }
+    /// R-11a: whether a reader's expression reads ahead where it stands: a probe (`latest`, `pending?`) outside a closure and
+    /// `peek`, or a read of an equation or a source with a question that does, or a call of a fn whose body does (as
+    /// ref/compile/emit.ts `readsAhead`)
+    fn reads_ahead(&self, v: &serde_json::Value, env: Env, seen: &mut HashSet<usize>) -> bool {
+        use serde_json::Value as V;
+        match v {
+            V::Array(xs) => xs.iter().any(|x| self.reads_ahead(x, env, seen)),
+            V::Object(o) => match o.get("k").and_then(|k| k.as_str()) {
+                Some("latest" | "pending") => true,
+                Some("fn" | "serverfn" | "peek") => false,
+                Some("id") => {
+                    let Some(b) = o.get("name").and_then(|n| n.as_str()).and_then(|n| self.lookup(env, n)) else { return false };
+                    if let Some((e, at)) = b.of {
+                        if !seen.insert(e as usize) {
+                            return false;
+                        }
+                        // SAFETY: the declarations outlive the emitter's pass over them
+                        let j = unsafe { &*e }.to_json();
+                        return self.reads_ahead(&j, at, seen);
+                    }
+                    if b.kind == Kind::Fn {
+                        if let Some(d) = b.f.as_ref().and_then(|f| f.decl) {
+                            if !seen.insert(d as usize) {
+                                return false;
+                            }
+                            // SAFETY: as above
+                            if let Decl::Fn { decls, tail, .. } = unsafe { &*d } {
+                                let mut xs: Vec<V> = decls.iter().filter_map(|d| if let Decl::Eq { e, .. } = d { Some(e.to_json()) } else { None }).collect();
+                                xs.push(tail.to_json());
+                                return self.reads_ahead(&V::Array(xs), env, seen);
+                            }
+                        }
+                    }
+                    false
+                }
+                _ => o.iter().any(|(k, x)| k != "k" && self.reads_ahead(x, env, seen)),
+            },
+            _ => false,
+        }
+    }
     fn attr(&mut self, name: &str, e: &Expr, env: Env) -> R<(String, AttrValue)> {
         let x = self.expr(e, env, &Ctx { imp: is_handler(name), is_ref: name == "ref", ..Ctx::default() })?;
         Ok((name.to_string(), AttrValue::Expr(x)))
@@ -2720,7 +2767,29 @@ impl<'p> Gen<'p> {
             }
             MarkupKind::El { tag, attrs, children } => {
                 let mut xs = vec![];
-                for a in attrs {
+                // R-11a: an attribute that reads ahead is a reader of its own — one render effect, made by the element's `ref`
+                // (`__rt.own`); where it was written, the server's value (`__rt.served`). Solid's compiler computes the others
+                // of the template in one effect
+                let apart: Vec<bool> = attrs.iter().map(|a| a.name != "..." && !is_handler(&a.name) && self.reads_ahead(&a.e.to_json(), env, &mut HashSet::new())).collect();
+                let mut own = vec![];
+                let mut user_ref = None;
+                for (i, a) in attrs.iter().enumerate() {
+                    if apart[i] {
+                        let v = match (&self.style_hash, a.name.as_str()) {
+                            (Some(h), "class") => {
+                                let h = h.clone();
+                                rtc("scopedClass", vec![self.expr(&a.e, env, &re)?, str(h)])
+                            }
+                            _ => self.expr(&a.e, env, &re)?,
+                        };
+                        own.push(E::Arr(vec![str(a.name.clone()), thunk(v.clone())]));
+                        xs.push((a.name.clone(), AttrValue::Expr(rtc("served", vec![thunk(v)]))));
+                        continue;
+                    }
+                    if a.name == "ref" && apart.iter().any(|x| *x) {
+                        user_ref = Some(self.expr(&a.e, env, &Ctx { imp: true, is_ref: true, ..Ctx::default() })?);
+                        continue;
+                    }
                     xs.push(match (&self.style_hash, a.name.as_str(), &a.e.k) {
                         (Some(h), "class", ExprKind::Lit(Lit::Str(v))) => ("class".to_string(), AttrValue::Expr(str(format!("{v} {h}")))),
                         (Some(h), "class", _) => {
@@ -2729,6 +2798,11 @@ impl<'p> Gen<'p> {
                         }
                         _ => self.attr(&a.name, &a.e, env)?,
                     });
+                }
+                if !own.is_empty() {
+                    let mut args = vec![user_ref.unwrap_or_else(|| id("undefined"))];
+                    args.extend(own);
+                    xs.push(("ref".into(), AttrValue::Expr(rtc("own", args))));
                 }
                 // CSS-2: every HTML element of the view
                 if let Some(h) = &self.style_hash {

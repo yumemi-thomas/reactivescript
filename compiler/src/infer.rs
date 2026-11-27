@@ -7,7 +7,7 @@
 
 use crate::ast::{Expr, ExprKind, Field, Lit, PathSeg, Stmt, StmtKind, TplPart};
 use indexmap::{IndexMap, IndexSet};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Trigger {
@@ -261,6 +261,8 @@ pub struct Finding {
     pub name: String,
     /// AC-1g: the local or parameter the write takes
     pub via: Option<String>,
+    /// AC-1h, AC-1d (2026-11-27): where the write or the read is — a called action, an equation read
+    pub at: Option<String>,
 }
 
 /// AC-1g: a parameter type that names a plain value (an id, a title, a position), not a row: `number`, `string`,
@@ -288,6 +290,11 @@ pub struct RunOpts<'o> {
     pub stateful: Option<&'o dyn Fn(&str) -> bool>,
     /// AC-1h: names of actions in scope whose change can outlast the call
     pub is_action: Option<&'o dyn Fn(&str) -> bool>,
+    /// AC-1h (2026-11-27): an action of the scope that settles as it returns: the sources its run writes computed from
+    /// their own value (its writes land in the caller's instant)
+    pub stale_of: Option<&'o dyn Fn(&str) -> Option<Vec<String>>>,
+    /// AC-1h, AC-1d (2026-11-27): an equation of the scope: the sources it is computed from, at their paths
+    pub eq_deps: Option<&'o dyn Fn(&str) -> Option<Vec<(String, Vec<String>)>>>,
 }
 
 /// AC-1i: the first word of a body that makes its change outlive the call — an `await`, `refresh`, `affects`, a guess — in
@@ -458,7 +465,8 @@ pub fn action_waits(ss: &[Stmt]) -> bool {
 /// keys from the source; "*" a computed key
 type Path = Vec<String>;
 /// a read of a source: its key, the path read, and how many `await`s the run had passed when it read (AC-1e)
-type Dep = (String, Path, u32);
+/// a source read, the awaits passed when it was read, and the equation it was read through
+type Dep = (String, Path, u32, Option<String>);
 #[derive(Clone)]
 struct State {
     written: IndexMap<String, Vec<Path>>,
@@ -523,26 +531,51 @@ struct Walker<'o> {
     local_actions: HashSet<String>,
     /// AC-1h: sources this change read plainly (a functional write beside one still leaves that read stale)
     seen: HashSet<String>,
+    /// where a write of `next` is, when it is not this run's own statement
+    next_at: HashMap<String, String>,
+    stale_of: Option<&'o dyn Fn(&str) -> Option<Vec<String>>>,
+    eq_deps: Option<&'o dyn Fn(&str) -> Option<Vec<(String, Vec<String>)>>>,
+    /// `own_next_writes`: every write computed from its own source, held or not, collected instead of reported
+    collect: Option<Vec<String>>,
 }
 impl<'o> Walker<'o> {
     /// AC-1h: a declared action's body before an `await`, or a plain run's stretch that calls an action by name, is held;
     /// an inferred action's are HELD_WRITE already.
     fn flush_next(&mut self, held: bool) {
         let next = std::mem::take(&mut self.next);
+        let at = std::mem::take(&mut self.next_at);
         let via = self.joins.take();
         self.seen.clear();
-        if held && !self.inferred {
+        if let Some(c) = &mut self.collect {
             for n in next {
-                self.report_via(Code::StaleNextRead, n, via.clone());
+                if !c.contains(&n) {
+                    c.push(n);
+                }
             }
+        } else if held && !self.inferred {
+            for n in next {
+                let a = at.get(&n).cloned();
+                self.report_at(Code::StaleNextRead, n, via.clone(), a);
+            }
+        }
+    }
+    fn push_next(&mut self, k: String, at: Option<String>) {
+        if !self.next.contains(&k) {
+            if let Some(a) = at {
+                self.next_at.insert(k.clone(), a);
+            }
+            self.next.push(k);
         }
     }
     fn report(&mut self, code: Code, name: String) {
         self.report_via(code, name, None);
     }
     fn report_via(&mut self, code: Code, name: String, via: Option<String>) {
+        self.report_at(code, name, via, None);
+    }
+    fn report_at(&mut self, code: Code, name: String, via: Option<String>, at: Option<String>) {
         if self.said.insert((code, name.clone())) {
-            self.out.push(Finding { code, name, via });
+            self.out.push(Finding { code, name, via, at });
         }
     }
     fn read<'a>(&mut self, e: &'a Expr, st: &mut State, sh: &IndexSet<String>, local: &Closures<'a>, depth: &[*const Expr]) {
@@ -572,6 +605,15 @@ impl<'o> Walker<'o> {
                 self.report(Code::StaleOwnRead, k.clone());
             }
             self.seen.insert(k);
+            // AC-1d (2026-11-27): an equation reads its sources as committed
+            if let ExprKind::Id(n) = &x.k {
+                for (dk, dp) in self.eq_deps.and_then(|f| f(n)).unwrap_or_default() {
+                    if st.written.get(&dk).is_some_and(|ws| ws.iter().any(|w| overlaps(w, &dp))) {
+                        self.report_at(Code::StaleOwnRead, dk.clone(), None, Some(n.clone()));
+                    }
+                    self.seen.insert(dk);
+                }
+            }
             return;
         }
         if !std::ptr::eq(x, e) {
@@ -591,6 +633,16 @@ impl<'o> Walker<'o> {
                 }
                 for a in args {
                     self.read(a, st, sh, local, depth);
+                }
+                // AC-1h (2026-11-27): an action that settles as it returns writes in this run
+                if c.is_none() {
+                    if let ExprKind::Id(n) = &f.k {
+                        if !sh.contains(n) {
+                            for k in self.stale_of.and_then(|g| g(n)).unwrap_or_default() {
+                                self.push_next(k, Some(format!("in {n}, which this run calls")));
+                            }
+                        }
+                    }
                 }
                 if let Some(c) = c {
                     if !depth.contains(&(c as *const Expr)) {
@@ -680,11 +732,14 @@ impl<'o> Walker<'o> {
                 return;
             }
             ExprKind::Id(n) => {
-                out.push((key(n, false), path, st.epoch));
+                out.push((key(n, false), path, st.epoch, None));
+                for (dk, dp) in self.eq_deps.and_then(|f| f(n)).unwrap_or_default() {
+                    out.push((dk, dp, st.epoch, Some(n.clone())));
+                }
                 return;
             }
             ExprKind::Use(n) => {
-                out.push((key(n, true), path, st.epoch));
+                out.push((key(n, true), path, st.epoch, None));
                 return;
             }
             _ => {}
@@ -801,14 +856,15 @@ impl<'o> Walker<'o> {
                     if matches!(s.k, StmtKind::Write { .. }) && !matches!(e.k, ExprKind::Fn { .. }) {
                         let mut d = vec![];
                         self.deps(e, &st, &sh, &mut d);
-                        if d.iter().any(|(dk, dp, ep)| *dk == k && *ep < st.epoch && overlaps(dp, &path)) {
+                        if d.iter().any(|(dk, dp, ep, _)| *dk == k && *ep < st.epoch && overlaps(dp, &path)) {
                             self.report(Code::StaleWriteBack, k.clone());
                             back = true;
-                        } else if d.iter().any(|(dk, dp, ep)| *dk == k && (self.action || *ep == st.epoch) && overlaps(dp, &path)) {
-                            self.next.push(k.clone());
+                        } else if let Some((_, _, _, thru)) = d.iter().find(|(dk, dp, ep, _)| *dk == k && (self.action || *ep == st.epoch) && overlaps(dp, &path)) {
+                            let at = thru.as_ref().map(|t| format!("through {t}"));
+                            self.push_next(k.clone(), at);
                         }
                     } else if matches!(s.k, StmtKind::Write { .. }) && self.seen.contains(&k) {
-                        self.next.push(k.clone()); // AC-1h: a functional write beside a plain read of its source
+                        self.push_next(k.clone(), None); // AC-1h: a functional write beside a plain read of its source
                     }
                     // AC-1g: the answer takes the server's answer, plain arguments and its own value at the write (the closure's
                     // argument): a row parameter, a local read from any source (before the `await` or after it), or a source
@@ -895,13 +951,21 @@ impl<'o> Walker<'o> {
 /// its awaits (AC-1); a plain run's change ends at each `await`. `inferred`: an action by AC-1b, the only kind HELD_WRITE
 /// applies to. `bound`: the run's parameters. Each finding once per name, in source order.
 pub fn run_findings(stmts: &[Stmt], action: bool, bound: &[String], inferred: bool, opts: &RunOpts) -> Vec<Finding> {
-    let mut w = Walker { out: vec![], said: HashSet::new(), action, inferred, answered: opts.answered, stateful: opts.stateful, is_action: opts.is_action, next: vec![], joins: None, local_actions: HashSet::new(), seen: HashSet::new() };
+    run_walk(stmts, action, bound, inferred, opts, None).0
+}
+/// AC-1h (2026-11-27): the sources a run writes computed from their own value — what a caller's run takes on when it calls
+/// an action that settles as it returns (its writes are the caller's); `ownNextWrites` in `ref/src/infer.ts`.
+pub fn own_next_writes(stmts: &[Stmt], bound: &[String], opts: &RunOpts) -> Vec<String> {
+    run_walk(stmts, false, bound, false, opts, Some(vec![])).1.unwrap_or_default()
+}
+fn run_walk(stmts: &[Stmt], action: bool, bound: &[String], inferred: bool, opts: &RunOpts, collect: Option<Vec<String>>) -> (Vec<Finding>, Option<Vec<String>>) {
+    let mut w = Walker { out: vec![], said: HashSet::new(), action, inferred, answered: opts.answered, stateful: opts.stateful, is_action: opts.is_action, next: vec![], joins: None, local_actions: HashSet::new(), seen: HashSet::new(), next_at: HashMap::new(), stale_of: opts.stale_of, eq_deps: opts.eq_deps, collect };
     let sh: IndexSet<String> = bound.iter().cloned().collect();
     let mut taint: IndexMap<String, Vec<Dep>> = IndexMap::new();
     for (i, p) in bound.iter().enumerate() {
         if let Some(Some(t)) = opts.ptypes.get(i) {
             if !scalar_type(t) {
-                taint.insert(p.clone(), vec![(format!("param {}", p), vec![], 0)]);
+                taint.insert(p.clone(), vec![(format!("param {}", p), vec![], 0, None)]);
             }
         }
     }
@@ -912,5 +976,81 @@ pub fn run_findings(stmts: &[Stmt], action: bool, bound: &[String], inferred: bo
     w.flush_next(held);
     let held_writes: HashSet<String> = w.out.iter().filter(|f| f.code == Code::HeldWrite).map(|f| f.name.clone()).collect();
     w.out.retain(|f| f.code != Code::StaleNextRead || !held_writes.contains(&f.name));
-    w.out
+    (w.out, w.collect)
+}
+/// AC-1h, AC-1d (2026-11-27): what an expression is computed from, read where it stands (an equation's: no locals) — the
+/// names it reads, at their paths, as a run's `deps` reads them (`exprDeps` in `ref/src/infer.ts`).
+pub fn expr_deps(e: &Expr, out: &mut Vec<(String, Vec<String>)>) {
+    let mut path: Path = vec![];
+    let mut x = e;
+    loop {
+        match &x.k {
+            ExprKind::Member { o, p, .. } => {
+                path.insert(0, p.clone());
+                x = o;
+            }
+            ExprKind::Index { o, i, .. } => {
+                path.insert(0, lit_key(i));
+                expr_deps(i, out);
+                x = o;
+            }
+            _ => break,
+        }
+    }
+    match &x.k {
+        ExprKind::Id(n) => {
+            out.push((n.clone(), path));
+            return;
+        }
+        ExprKind::Use(_) => return,
+        _ => {}
+    }
+    if !std::ptr::eq(x, e) {
+        expr_deps(x, out);
+        return;
+    }
+    match &x.k {
+        ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Draft { .. } | ExprKind::Pending(_) | ExprKind::Latest(_) | ExprKind::Lit(_) | ExprKind::Pre { .. } | ExprKind::Peek(_) | ExprKind::StyleMap { .. } | ExprKind::Await { .. } => {}
+        ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::Member { .. } | ExprKind::Index { .. } => {}
+        ExprKind::Call { f, args, .. } => {
+            expr_deps(f, out);
+            for a in args {
+                expr_deps(a, out);
+            }
+        }
+        ExprKind::Bin { l, r, .. } => {
+            expr_deps(l, out);
+            expr_deps(r, out);
+        }
+        ExprKind::Un { e, .. } | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => expr_deps(e, out),
+        ExprKind::If { c, t, f } => {
+            expr_deps(c, out);
+            expr_deps(t, out);
+            expr_deps(f, out);
+        }
+        ExprKind::Tpl(parts) => {
+            for p in parts {
+                if let TplPart::Expr(e) = p {
+                    expr_deps(e, out);
+                }
+            }
+        }
+        ExprKind::Arr(items) => {
+            for i in items {
+                expr_deps(i, out);
+            }
+        }
+        ExprKind::Rec(fields) => {
+            for f in fields {
+                match f {
+                    Field::Kv { v, .. } => expr_deps(v, out),
+                    Field::Spread(e) => expr_deps(e, out),
+                }
+            }
+        }
+        ExprKind::Catch { e, alt, .. } => {
+            expr_deps(e, out);
+            expr_deps(alt, out);
+        }
+    }
 }

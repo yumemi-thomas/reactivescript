@@ -6,6 +6,7 @@
 // runtimes are rt-web.ts and rt-server.ts.
 import { primsSolid } from "./prims-solid.ts";
 import { keyedWrite } from "./keyed.ts";
+import { ownAttrs } from "./own.ts";
 import { getObserver } from "@solidjs/signals";
 import { Show, For, Loading, Errored, DEV } from "solid-js";
 import {
@@ -404,6 +405,13 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     caught: (v: unknown, alt: (err: unknown) => unknown) => v !== null && typeof v === "object" && "__rxCaught" in (v as object) ? alt((v as { __rxCaught: unknown }).__rxCaught) : v,
     /** CSS-2: a dynamic class with the view's scope class after it. */
     scopedClass: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
+    /** R-11a: an attribute that reads ahead (`pending? x`, `latest x`, or a name computed from one) is a reader of its own:
+     *  Solid's JSX compiler computes one template's changing attributes in one render effect, and a pass that probes reads
+     *  ahead whole, so its neighbours would read ahead with it. `own` is the element's `ref`: one render effect per such
+     *  attribute (and the author's own `ref`, called first). `served` stands where the attribute was written: the server
+     *  writes its value into the page, the browser leaves it to `own`. */
+    own: (userRef: unknown, ...attrs: [string, () => unknown][]) => ownAttrs(userRef, attrs, (_name, f, set) => (R as any).effect(f, set), (el, name, v, prev) => (R as any).setProp(el, name, v, prev)),
+    served: (_f: () => unknown): unknown => undefined,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
     clientQuestion: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
     /** 12 SF-2: a server fn as the client calls it — every call a flight. Asked in reactive scope it is a question, one

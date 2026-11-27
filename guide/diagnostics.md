@@ -389,6 +389,8 @@ value, not a promise. Such an action never waits, so an `await` (or `refresh`, `
 answer would come before its writes settle. An inline `action { … }` is its own run and is not refused: it is launched,
 as a call of a declared action is. Leave the result out, so a caller gets a
 promise that settles with the change, or keep the part that answers at once and let the caller launch the waiting part.
+Its writes land in the caller's run, so a counter it mints is the caller's: a caller that then launches an action that
+waits holds the write with it, and the counter must read `latest` (`STALE_NEXT_READ`).
 
 ```rx before
 import { post } from "./api.js"
@@ -411,7 +413,7 @@ export default component App() {
   source seq := 0
   source sent := ""
   action mint(): number {
-    let n = seq + 1
+    let n = latest seq + 1
     seq := n
     return n
   }
@@ -1505,12 +1507,11 @@ export default component App() {
 A click can start a guess on a value while that value is loading a new question: its question reads what the click
 reads (a selection, a row), and the element is neither inside the `loading` region that shows the value nor disabled
 while it loads (AC-3a). The guess composes on the previous answer, and the new answer replaces it (D-34), so the
-user's change disappears while its action is out. Put the element inside the value's `loading` region, test the
-verdict where the click starts (`onClick={() => { if (!(pending? x)) { … } }}`: a handler reads it as it stands, R-12),
-or keep the pending change in a source of its own until it lands. `disabled={pending? x}` on the element covers it too,
-but use it only where the element has no other attribute that changes: compiled code computes the changing attributes
-of one piece of markup together, so a probe among them makes the others read ahead with it (R-11), and beside
-`class={sel == it.id ? … }` a new selection then waits with no sign of it. Solid warns
+user's change disappears while its action is out. Put the element inside the value's `loading` region, give it
+`disabled={pending? x}`, test the verdict where the click starts (`onClick={() => { if (!(pending? x)) { … } }}`: a
+handler reads it as it stands, R-12), or keep the pending change in a source of its own until it lands. An attribute
+that probes is a reader of its own (R-11a): beside `class={sel == it.id ? … }` on the same markup, a new selection
+still shows at once. Solid warns
 `OPTIMISTIC_WRITE_WHILE_LOADING` at run time for the same case.
 
 Neither cover holds when the selection changes while a guess on `x` is out. That change joins the guess's hold
@@ -1566,7 +1567,7 @@ export default component App() {
     }
   }
   <button onClick={() => { sel := sel + 1 }}>next</button>
-  <button onClick={() => { if (!(pending? detail)) { rename("Bravo") } }}>rename</button>
+  <button disabled={pending? detail} onClick={() => { rename("Bravo") }}>rename</button>
 }
 ```
 

@@ -312,6 +312,10 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     Portal: WebPortal,
     /** CSS-2: a dynamic class with the view's scope class after it. */
     scopedClass: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
+    /** R-11a: an attribute that reads ahead is a reader of its own in the browser (rt-web.ts `own`, the element's `ref`,
+     *  which the server does not run); the server writes its value where the attribute was written (`served`). */
+    own: (_userRef: unknown, ..._attrs: [string, () => unknown][]) => undefined,
+    served: (f: () => unknown): unknown => f(),
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
     clientQuestion: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
     /** 12 SF-2: a server fn as the client calls it — every call a flight. Asked in reactive scope it is a question, one

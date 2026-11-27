@@ -21,7 +21,7 @@ import { instance } from "../src/parse.ts";
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "jfn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; given?: Given; viewCtx?: boolean; shows?: Map<string, boolean>; plain?: boolean; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[]; /** E-9b: a name of a fn's body that stands where it is read, or is read through the call's names */ sub?: Expr; shared?: number };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Bind = { kind: Kind; js: string; given?: Given; viewCtx?: boolean; shows?: Map<string, boolean>; plain?: boolean; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[]; /** E-9b: a name of a fn's body that stands where it is read, or is read through the call's names */ sub?: Expr; shared?: number; /** R-11a: its own expression, where it is an equation or a source with a question: what reads it reads ahead if it does */ of?: Expr; ofEnv?: Env };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
 /** RG-4c: a view given to an .rx component, a function of one parameter. */
 const viewParam = (v: { params: string[] }) => v.params.map(mg).join(", ") || "__s";
@@ -284,9 +284,9 @@ class Gen {
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
       if (d.k === "server") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
       if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name), ...(d.k === "context" && viewCtx(d.type, typesOf(this.mods?.set, this.file)) ? { viewCtx: true } : {}) });   // RG-4c: a context that holds a view
-      if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
+      if (d.k === "source") env.vars.set(d.name, { kind: "src", ...(d.question ? { of: d.init, ofEnv: env } : {}), js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
       if (d.k === "eq" && unwrapServer(d.e)) { env.vars.set(d.name, { kind: "val", js: mg(d.name) }); continue; }   // SF-1d: a server fn, not an accessor
-      if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; if (jf?.kind === "jfn" && jf.shape === "comp") { env.vars.set(d.name, { kind: "comp", js: cm(d.name), inst: cm(d.name), shape: "comp" }); continue; } env.vars.set(d.name, { kind: "acc", js: mg(d.name), w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}), ...this.draftsOfBinding(d.e, env) }); }
+      if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; if (jf?.kind === "jfn" && jf.shape === "comp") { env.vars.set(d.name, { kind: "comp", js: cm(d.name), inst: cm(d.name), shape: "comp" }); continue; } env.vars.set(d.name, { kind: "acc", of: d.e, ofEnv: env, js: mg(d.name), w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}), ...this.draftsOfBinding(d.e, env) }); }
     }
     bindGiven(decls.filter(d => d.k === "eq" && !this.guessedEq(d) && !unwrapServer(d.e)), n => env.lookup(n)?.given, (n, g) => { env.vars.get(n)!.given = g; });
     for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
@@ -805,6 +805,25 @@ class Gen {
     return `{__rt.slot(${this.regionFn([], kids, env, ind)})}`;   // asked whether it was given, it is not made
   }
   private region(decls: Decl[], view: Markup[], env: Env, ind: number): string { return `{(${this.regionFn(decls, view, env, ind)})()}`; }
+  /** R-11a: whether a reader's expression reads ahead where it stands: a probe (`latest`, `pending?`) outside a closure and `peek`,
+   *  or a read of an equation or a source with a question that does, or a call of a fn whose body does. More than Solid
+   *  would count costs one effect; less would let the template's other attributes read ahead with it. */
+  private readsAhead(e: unknown, env: Env, seen = new Set<unknown>()): boolean {
+    if (e === null || typeof e !== "object") return false;
+    if (Array.isArray(e)) return e.some(x => this.readsAhead(x, env, seen));
+    const o = e as Record<string, unknown>;
+    switch (o.k) {
+      case "latest": case "pending": return true;
+      case "fn": case "serverfn": case "peek": return false;
+      case "id": {
+        const b = env.lookup(o.name as string); if (!b) return false;
+        const of = b.of ?? (b.kind === "fn" && b.fn ? [b.fn.decls.flatMap(d => d.k === "eq" ? [d.e] : []), b.fn.tail] : undefined);
+        if (of === undefined || seen.has(b)) return false;
+        seen.add(b); return this.readsAhead(of, b.ofEnv ?? env, seen);
+      }
+    }
+    return Object.entries(o).some(([k, v]) => k !== "k" && this.readsAhead(v, env, seen));
+  }
   private attr(name: string, e: Expr, env: Env): string { return name === "..." ? `{...${this.expr(e, env, { imp: false })}}` : `${name}={${this.expr(e, env, { imp: isHandler(name), ref: name === "ref" })}}`; }   // 07 §4: a spread is Solid's
   /** RG-4c: the view a tag shows, `<props.f … />` in a component that does. */
   private shownFrom(tag: string, env: Env): { view: string; mixed: boolean } | undefined {
@@ -836,7 +855,17 @@ class Gen {
           return kids.some(c => c.k !== "text" || c.s.trim()) ? `<${b.js}${props}>${this.content(kids, env, ind + 1, !!(b as { kidsValue?: boolean }).kidsValue)}</${b.js}>` :   // RG-4c: content is a block of the caller's names, made and owned where it is shown
             kids.length ? `<${b.js}${props}>${kids.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : `<${b.js}${props} />`;   // MO-11: a JS component gets JSX's own <X />
         }
-        let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");
+        // R-11a: an attribute that reads ahead is a reader of its own — one render effect, made by the element's `ref` (`__rt.own`); where it
+        // was written, the server's value (`__rt.served`). Solid's compiler computes the others of the template in one effect
+        const own: string[] = []; const userRef = m.attrs.find(a => a.name === "ref");
+        const value = (a: { name: string; e: Expr }) => a.name === "class" && this.styleHash ? `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})` : this.expr(a.e, env, { imp: false });
+        const apart = (a: { name: string; e: Expr }) => a.name !== "..." && !isHandler(a.name) && this.readsAhead(a.e, env);
+        let attrs = m.attrs.map(a => {
+          if (apart(a)) { const v = value(a); own.push(`[${J(a.name)}, () => ${v}]`); return ` ${a.name}={__rt.served(() => ${v})}`; }
+          if (a.name === "ref" && m.attrs.some(apart)) return "";
+          return " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : value(a)}}` : this.attr(a.name, a.e, env));
+        }).join("");
+        if (own.length) attrs += ` ref={__rt.own(${userRef ? this.expr(userRef.e, env, { imp: true, ref: true }) : "undefined"}, ${own.join(", ")})}`;
         if (this.styleHash && !m.attrs.some(a => a.name === "class")) attrs += ` class=${J(this.styleHash)}`;   // CSS-2: every HTML element of the view
         { const tag = jsxTag(m.tag); return VOID_TAGS.has(m.tag) ? `<${tag}${attrs} />` : `<${tag}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${tag}>`; }
       }

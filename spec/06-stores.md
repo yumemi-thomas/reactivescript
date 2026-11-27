@@ -248,7 +248,11 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   the value came from (`let n = count + 1; count := n; … n`) or a functional
   write (S-infer-5). The local fixes this run only: when the change is held
   (an action, or a run that calls one), the next run still reads the old
-  value until the change settles, which is AC-1h.
+  value until the change settles, which is AC-1h. A read of an equation is
+  a read of the sources it is computed from, at their paths (2026-11-27,
+  the apps hunt: `count := count + 1; report(doubled)` with `doubled =
+  count * 2` sent the old `doubled`, unrefused); AC-1h reads equations the
+  same way. S-answer-2.
 - **AC-1e (Stale write-back).** [taken by default 2026-10-28] In any
   imperative run, a plain value write `x := e` after an `await`, where `e`
   is computed from a read of `x` taken before that `await` — directly, or
@@ -351,7 +355,22 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   an action of its own and waits, an inline `action { … }` that waits — and
   a plain run's inline `action { … }` that waits is joined as a call is
   (2026-11-27, found re-checking B10: both had been taken to settle as they
-  return; S-infer-8, S-answer-1). Principle:
+  return; S-infer-8, S-answer-1). **The run's writes include those of the
+  actions it calls that settle as they return** (2026-11-27, the claims
+  hunt): their writes land in the caller's instant (AC-1i), so `let id =
+  mint(); send(id)` with `mint` writing `seq := seq + 1` holds that write
+  with `send`'s change and mints one id twice — AC-1i's own suggestion did;
+  each such action carries the sources it writes computed from their own
+  value (read to a fixpoint through the actions it calls), and a call adds
+  them to the run, wherever the call stands (`add(bump())`). **A read of an
+  equation is a read of the sources it is computed from**, as committed, at
+  their paths (`nextId = seq + 1`; `let n = nextId; seq := n; add(n)`, the
+  apps hunt), through the equations it reads; a probe, `peek`, a closure
+  and an `await` in it read nothing now, as in a run. Not checked yet: a
+  prop computed from the source and handed back through a child's call of
+  a handler prop (`<Adder next={seq + 1} onAdd={n => { seq := n; add(n) }}
+  />`): the parent cannot see that the child passes one prop to the other.
+  S-answer-2. Principle:
   a write must not read stale state. Found by the .rx rerun of 2026-11-23
   (eval/results/rerun-2026-11-23): 4 of 6 Haiku board apps minted
   temporary card ids from a counter beside the add action, in the shape

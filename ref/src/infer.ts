@@ -150,12 +150,18 @@ export function actionJoins(stmts: Stmt[], outlasting: (n: string) => boolean): 
 }
 export const triggerText = (t: Trigger): string => t === "write+await" ? "it writes and awaits" : `it has \`${t === "optimistic" ? "guess" : t}\``;
 
-export type Finding = { code: "HELD_WRITE" | "STALE_OWN_READ" | "STALE_WRITE_BACK" | "STALE_CAPTURE" | "STALE_NEXT_READ"; name: string; via?: string };
+export type Finding = { code: "HELD_WRITE" | "STALE_OWN_READ" | "STALE_WRITE_BACK" | "STALE_CAPTURE" | "STALE_NEXT_READ"; name: string; via?: string; /** AC-1h, AC-1d (2026-11-27): where the write or the read is — a called action, an equation read */ at?: string };
 /** A parameter type that names a plain value (an id, a title, a position), not a row: `number`, `string`, `boolean`, literals, `null`. */
 export const scalarType = (t?: string): boolean => !!t && t.split("|").every(m => /^\s*(number|string|boolean|null|undefined|"[^"]*"|'[^']*'|-?\d+(\.\d+)?)\s*$/.test(m));
-export type RunOpts = { ptypes?: (string | undefined)[]; answered?: (name: string) => boolean; stateful?: (name: string) => boolean; isAction?: (name: string) => boolean };
+export type RunOpts = { ptypes?: (string | undefined)[]; answered?: (name: string) => boolean; stateful?: (name: string) => boolean; isAction?: (name: string) => boolean;
+  /** AC-1h (2026-11-27): an action of the scope that settles as it returns: the sources its run writes computed from their own value (its writes land in the caller's instant) */
+  staleOf?: (name: string) => string[] | undefined;
+  /** AC-1h, AC-1d (2026-11-27): an equation of the scope: the sources it is computed from, at their paths (a plain read of it in a run is a read of them as committed) */
+  eqDeps?: (name: string) => { k: string; path: string[] }[] | undefined;
+  /** the summary of `staleOf`: every write computed from its own source, held or not, is collected here instead of reported */
+  collect?: string[] };
 type Path = string[];                                                   // keys from the source; "*" a computed key
-type Dep = { k: string; path: Path; epoch: number };                    // AC-1e: a source read, and the awaits passed when it was read
+type Dep = { k: string; path: Path; epoch: number; thru?: string };     // AC-1e: a source read, and the awaits passed when it was read; thru: the equation it was read through
 // taint: the source reads each local's value was computed from; epoch: the awaits passed on this path (the most, after a merge)
 type State = { written: Map<string, Path[]>; held: Set<string>; dead: boolean; taint: Map<string, Dep[]>; epoch: number };
 const clone = (s: State): State => ({ written: new Map([...s.written].map(([k, v]) => [k, [...v]])), held: new Set(s.held), dead: s.dead, taint: new Map([...s.taint].map(([k, v]) => [k, [...v]])), epoch: s.epoch });
@@ -180,15 +186,38 @@ const overlaps = (a: Path, b: Path): boolean => { for (let i = 0; i < Math.min(a
  *  STALE_CAPTURE (AC-1g): it takes only the `await`'s value, plain arguments, and its own value at the write. A guess is not a held write (it shows now, H-11) but is a write a read does not see (H-10). A
  *  functional write (`x := v => …`, W-6) reads nothing now; a closure's body runs later, unless it is a local closure called
  *  here; `pending?` and `latest` are probes, not snapshots. Each finding once per name. */
+/** AC-1h (2026-11-27): the sources a run writes computed from their own value — what a caller's run takes on when it calls
+ *  an action that settles as it returns (its writes are the caller's). */
+export function ownNextWrites(stmts: Stmt[], bound: string[], opts: RunOpts): string[] { const collect: string[] = []; runFindings(stmts, false, bound, false, { ...opts, collect }); return collect; }
+/** AC-1h, AC-1d (2026-11-27): what an expression is computed from, read where it stands (an equation's: no locals) — the
+ *  names it reads, at their paths, as a run's `deps` reads them (a closure, a probe, `peek`, an `await` read nothing now). */
+export function exprDeps(e: Expr, out: { k: string; path: string[] }[] = []): { k: string; path: string[] }[] {
+  const path: Path = []; let x = e;
+  while (x.k === "member" || x.k === "index") { if (x.k === "member") path.unshift(x.p); else { path.unshift(x.i.k === "lit" && typeof x.i.v === "string" ? x.i.v : "*"); exprDeps(x.i, out); } x = x.o; }
+  if (x.k === "id") { out.push({ k: x.name, path }); return out; }
+  if (x.k === "use") return out;
+  if (x !== e) return exprDeps(x, out);
+  switch (x.k) {
+    case "fn": case "serverfn": case "draft": case "pending": case "latest": case "lit": case "pre": case "peek": case "stylemap": case "await": return out;
+    default:
+      for (const v of Object.values(x as object)) {
+        if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) exprDeps(y as Expr, out); else if ("v" in y) exprDeps((y as { v: Expr }).v, out); else if ("spread" in y) exprDeps((y as { spread: Expr }).spread, out); } });
+        else if (v && typeof v === "object" && "k" in (v as object)) exprDeps(v as Expr, out);
+      }
+      return out;
+  }
+}
 export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = [], inferred = false, opts: RunOpts = {}): Finding[] {
   const out: Finding[] = []; const said = new Set<string>();
-  const report = (code: Finding["code"], name: string, via?: string) => { const k = code + name; if (!said.has(k)) { said.add(k); out.push({ code, name, ...(via ? { via } : {}) }); } };
+  const report = (code: Finding["code"], name: string, via?: string, at?: string) => { const k = code + name; if (!said.has(k)) { said.add(k); out.push({ code, name, ...(via ? { via } : {}), ...(at ? { at } : {}) }); } };
   const key = (name: string, ctx?: boolean) => (ctx ? "use " : "") + name;
   // AC-1h: plain writes computed from their own source, in a change that is held — a declared action's body before an
   // `await`, or a plain run's stretch that calls an action by name (it joins that action's change, AC-1). An inferred
   // action's are HELD_WRITE already.
   let next: string[] = []; let joins: string | null = null; let seen = new Set<string>(); const localActions = new Set<string>();   // seen: sources this change read plainly (a functional write beside one still leaves that read stale)
-  const flushNext = (held: boolean) => { if (held && !inferred) next.forEach(n => report("STALE_NEXT_READ", n, joins ?? undefined)); next = []; joins = null; seen = new Set(); };
+  const nextAt = new Map<string, string>();                                                    // where a write of `next` is, when it is not this run's own statement
+  const flushNext = (held: boolean) => { if (opts.collect) opts.collect.push(...next.filter(n => !opts.collect!.includes(n))); else if (held && !inferred) next.forEach(n => report("STALE_NEXT_READ", n, joins ?? undefined, nextAt.get(n))); next = []; joins = null; seen = new Set(); nextAt.clear(); };
+  const pushNext = (k: string, at?: string) => { if (!next.includes(k)) { next.push(k); if (at) nextAt.set(k, at); } };
   const walk = (ss: Stmt[], st: State, shadow: Set<string>, cl: Closures, depth: Set<Fn>): State => {
     const sh = new Set(shadow); const local = new Map(cl);
     const read = (e: Expr): void => {
@@ -198,6 +227,10 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
         const k = key(x.name, x.k === "use"); const ws = st.written.get(k);
         if (ws?.some(w => overlaps(w, path))) report("STALE_OWN_READ", k);
         seen.add(k);
+        if (x.k === "id") for (const d of opts.eqDeps?.(x.name) ?? []) {                  // AC-1d (2026-11-27): an equation reads its sources as committed
+          if (st.written.get(d.k)?.some(w => overlaps(w, d.path))) report("STALE_OWN_READ", d.k, undefined, x.name);
+          seen.add(d.k);
+        }
         return;
       }
       if (x !== e) { read(x); return; }
@@ -207,6 +240,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
           const c = calledClosure(x, local);
           if (!c && x.f.k === "id" && !joins && ((!sh.has(x.f.name) && opts.isAction?.(x.f.name)) || localActions.has(x.f.name))) joins = x.f.name;
           x.args.forEach(read);
+          if (!c && x.f.k === "id" && !sh.has(x.f.name)) for (const k of opts.staleOf?.(x.f.name) ?? []) pushNext(k, `in ${x.f.name}, which this run calls`);   // AC-1h (2026-11-27): its writes are this run's
           if (c) { if (!depth.has(c)) { const inner = new Set(sh); c.params.forEach(p => inner.add(p)); const after = walk(c.stmts!, { ...clone(st), dead: false }, inner, local, new Set([...depth, c])); st.written = after.written; st.held = after.held; st.epoch = after.epoch; } return; }
           read(x.f); return;
         }
@@ -223,7 +257,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
       const path: Path = []; let x = e;
       while (x.k === "member" || x.k === "index") { if (x.k === "member") path.unshift(x.p); else { path.unshift(x.i.k === "lit" && typeof x.i.v === "string" ? x.i.v : "*"); deps(x.i, out); } x = x.o; }
       if (x.k === "id" && sh.has(x.name)) { out.push(...(st.taint.get(x.name) ?? [])); return out; }
-      if (x.k === "id" || x.k === "use") { out.push({ k: key(x.name, x.k === "use"), path, epoch: st.epoch }); return out; }
+      if (x.k === "id" || x.k === "use") { out.push({ k: key(x.name, x.k === "use"), path, epoch: st.epoch }); if (x.k === "id") for (const d of opts.eqDeps?.(x.name) ?? []) out.push({ k: d.k, path: d.path, epoch: st.epoch, thru: x.name }); return out; }
       if (x !== e) return deps(x, out);
       switch (x.k) {
         case "fn": case "serverfn": case "draft": case "pending": case "latest": case "lit": case "pre": case "peek": case "stylemap": case "await": return out;
@@ -256,7 +290,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
           const wpath = s.target.path.map(p => typeof p === "string" ? p : p.k === "lit" && typeof p.v === "string" ? p.v : "*");
           const back = s.k === "write" && s.e.k !== "fn" && deps(s.e).some(d => d.k === k && d.epoch < st.epoch && overlaps(d.path, wpath));
           if (back) report("STALE_WRITE_BACK", k);
-          else if (s.k === "write" && (s.e.k === "fn" ? seen.has(k) : deps(s.e).some(d => d.k === k && (action || d.epoch === st.epoch) && overlaps(d.path, wpath)))) next.push(k);
+          else if (s.k === "write" && (s.e.k === "fn" ? seen.has(k) : deps(s.e).some(d => d.k === k && (action || d.epoch === st.epoch) && overlaps(d.path, wpath)))) { const d = s.e.k === "fn" ? undefined : deps(s.e).find(d => d.k === k && (action || d.epoch === st.epoch) && overlaps(d.path, wpath)); pushNext(k, d?.thru ? `through ${d.thru}` : undefined); }
           else if (s.k === "write" && st.epoch > 0 && !s.target.ctx && opts.answered?.(s.target.name)) {
             // the answer takes the server's answer, plain arguments and its own value at the write (the closure's argument):
             // a row parameter, a local read from any source (before the `await` or after it), or another source read here is not the server's

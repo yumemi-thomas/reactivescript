@@ -313,6 +313,28 @@ and where they may not go.
   their own postures, they are computations kept apart up to the screen —
   an equation that reads the probe makes its readers read ahead too
   (advice `PROBE_BESIDE_HELD_READ`, 99).
+- **R-11a (An attribute is a reader; one that reads ahead is one in the
+  compiled code too, 2026-11-27).** Each attribute of markup is a reader of
+  its own (V-1): `class={sel == it ? "on" : "off"}` beside
+  `disabled={pending? detail}` reads `sel` plainly, and a new selection
+  shows at once. Solid's JSX compiler computes the changing attributes of
+  one template in one render effect, so in compiled code a probe among them
+  would make the pass of all of them read ahead (R-11). The emitters
+  therefore give an attribute that reads ahead — its expression probes
+  outside a closure and `peek`, or reads an equation or a source with a
+  question whose expression does, or calls a fn whose body does — a render
+  effect of its own: `__rt.own(ref, [name, () => value]…)` as the element's
+  `ref`, whose effects are made while the element is built (the ref itself is
+  an effect's callback in Solid, where no primitive may be made) and set the
+  attribute as a spread sets it; the attribute where it was written is
+  `__rt.served(() => value)`, the value on the server and nothing in the
+  browser, so the served page carries it and hydration keeps it. A handler
+  and a spread are not split (a spread is already an effect of its own). The
+  test counts more than Solid would (a read of an equation that probed only
+  in a branch not taken); more costs one effect, less would be wrong. Not
+  covered: a prop that probes, read by a child's attribute beside another
+  — the child cannot see it (advice is the remedy there; see DECISION.md).
+  S-posture-3.
 - **R-12 (Probes in imperative scope).** `latest x` and `pending? x` are
   readable in imperative scope as snapshots of the verdict / in-flight value
   at that moment. On a first load there is no owner to hold, so `pending?

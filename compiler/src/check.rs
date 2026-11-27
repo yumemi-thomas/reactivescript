@@ -409,6 +409,8 @@ struct Sym<'a> {
     arity_min: Option<usize>,
     /// an action declared here: whether its change can outlast the call (an `await`, `refresh`, `affects`; AC-1h)
     outlasts: Option<bool>,
+    /// AC-1h (2026-11-27): one that settles as it returns: the sources its run writes computed from their own value
+    stale_writes: Vec<String>,
     /// RG-4b: the props of `component C()`, which declares none — C's name: reading them is UNBOUND
     no_props: Option<String>,
 }
@@ -495,6 +497,7 @@ impl<'a> Sym<'a> {
             arity: None,
             arity_min: None,
             outlasts: None,
+            stale_writes: vec![],
             no_props: None,
         }
     }
@@ -4078,6 +4081,30 @@ impl<'a> Checker<'a> {
                 let out = |n: &str| !params.iter().any(|p| p == n) && self.lookup(env, n).is_some_and(|t| self.syms[t].kind == SymKind::Action && self.syms[t].outlasts == Some(true));
                 if action_joins(body, &out).is_some() {
                     self.syms[s].outlasts = Some(true);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        // AC-1h (2026-11-27): an action that settles as it returns writes in its caller's run (AC-1i), so what it writes
+        // computed from its own value is the caller's write: a caller that joins an action that waits holds it, and the next
+        // run mints the same id again (`let id = mint(); send(id)`). Read to a fixpoint, through the actions it calls
+        loop {
+            let mut changed = false;
+            for d in decls {
+                let Decl::Action { name, params, body, .. } = d else { continue };
+                let s = self.envs[env].vars[name.as_str()];
+                if self.syms[s].outlasts != Some(false) {
+                    continue;
+                }
+                let w = {
+                    let (is_action, stale_of, eq_deps) = self.run_scope(env);
+                    crate::infer::own_next_writes(body, params, &RunOpts { is_action: Some(&is_action), stale_of: Some(&stale_of), eq_deps: Some(&eq_deps), ..RunOpts::default() })
+                };
+                if w.len() > self.syms[s].stale_writes.len() {
+                    self.syms[s].stale_writes = w;
                     changed = true;
                 }
             }
@@ -8832,6 +8859,44 @@ impl<'a> Checker<'a> {
     fn run_checks(&mut self, stmts: &[Stmt], env: EId, action: bool, bound: &[String], inferred: bool) {
         self.run_checks_with(stmts, env, action, bound, inferred, vec![], false, None);
     }
+    /// AC-1h, AC-1d: what a run of `env` asks of its names — the actions that outlast a call, what one that settles writes,
+    /// and what an equation is computed from (`runScope` in `ref/src/check.ts`)
+    #[allow(clippy::type_complexity)]
+    fn run_scope(&self, env: EId) -> (impl Fn(&str) -> bool + '_, impl Fn(&str) -> Option<Vec<String>> + '_, impl Fn(&str) -> Option<Vec<(String, Vec<String>)>> + '_) {
+        let is_action = move |n: &str| self.lookup(env, n).map_or(false, |t| self.syms[t].kind == SymKind::Action && self.syms[t].outlasts != Some(false));
+        let stale_of = move |n: &str| self.lookup(env, n).filter(|t| self.syms[*t].kind == SymKind::Action && self.syms[*t].outlasts == Some(false)).map(|t| self.syms[t].stale_writes.clone()).filter(|w| !w.is_empty());
+        let eq_deps = move |n: &str| self.lookup(env, n).filter(|t| self.syms[*t].kind == SymKind::Eq).map(|t| self.eq_deps_of(t, &mut HashSet::new()));
+        (is_action, stale_of, eq_deps)
+    }
+    /// AC-1h, AC-1d (2026-11-27): the sources an equation is computed from, at their paths, through the equations it reads
+    fn eq_deps_of(&self, t: usize, seen: &mut HashSet<usize>) -> Vec<(String, Vec<String>)> {
+        let Some((e, at)) = self.syms[t].eq_expr else { return vec![] };
+        if !seen.insert(t) {
+            return vec![];
+        }
+        let mut ds = vec![];
+        crate::infer::expr_deps(e, &mut ds);
+        let mut out: Vec<(String, Vec<String>)> = vec![];
+        for (k, path) in ds {
+            let Some(u) = self.lookup(at, &k) else { continue };
+            match self.syms[u].kind {
+                SymKind::Source => {
+                    if !out.iter().any(|(ok, op)| *ok == k && *op == path) {
+                        out.push((k, path));
+                    }
+                }
+                SymKind::Eq => {
+                    for o in self.eq_deps_of(u, seen) {
+                        if !out.contains(&o) {
+                            out.push(o);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
     /// `declared`: a declared action, in whose scope AC-1g asks which names are sources with a question.
     /// `actions_in`: an arrow's scope, where AC-1h asks which names are actions whose change can outlast the call.
     #[allow(clippy::too_many_arguments)]
@@ -8839,8 +8904,11 @@ impl<'a> Checker<'a> {
         let answers_in = declared.then_some(env);
         let answered = |n: &str| answers_in.and_then(|env| self.lookup(env, n)).map_or(false, |t| self.syms[t].kind == SymKind::Source && self.syms[t].question);
         let stateful = |n: &str| answers_in.and_then(|env| self.lookup(env, n)).map_or(false, |t| self.syms[t].kind == SymKind::Source || self.syms[t].kind == SymKind::Eq);
-        let is_action = |n: &str| actions_in.and_then(|env| self.lookup(env, n)).map_or(false, |t| self.syms[t].kind == SymKind::Action && self.syms[t].outlasts != Some(false));
-        let found = run_findings(stmts, action, bound, inferred, &RunOpts { ptypes, answered: if answers_in.is_some() { Some(&answered) } else { None }, stateful: if answers_in.is_some() { Some(&stateful) } else { None }, is_action: if actions_in.is_some() { Some(&is_action) } else { None } });
+        let found = {
+            let (is_action, stale_of, eq_deps) = self.run_scope(actions_in.unwrap_or(env));
+            let scoped = actions_in.is_some();
+            run_findings(stmts, action, bound, inferred, &RunOpts { ptypes, answered: if answers_in.is_some() { Some(&answered) } else { None }, stateful: if answers_in.is_some() { Some(&stateful) } else { None }, is_action: if scoped { Some(&is_action) } else { None }, stale_of: if scoped { Some(&stale_of) } else { None }, eq_deps: if scoped { Some(&eq_deps) } else { None } })
+        };
         for f in found {
             let n = &f.name;
             match f.code {
@@ -8849,13 +8917,14 @@ impl<'a> Checker<'a> {
                     self.err("STALE_CAPTURE", "AC-1g", format!("{n} := … after an `await` writes {v}, which is not the server's: {n} is the server's answer, and after the `await` it takes only what the server answered, plain arguments (an id, a title, an index) and its own value at the write (`{n} := rs => …`, finding rows there by id). A row passed in, or read from a source before the `await` or after it, is what the screen showed, and may be stale by now (a rename accepted, a reload, an earlier write declined, a write another action holds) — when the answer alone doesn't say where a row is now, re-ask the answers it left and joined (`refresh`)"))
                 }
                 Code::HeldWrite => self.err("HELD_WRITE", "AC-1c", format!("{n} := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `guess {n} := …` (a source with a question, ST-5c); for a reset that lands now, `onFlush(() => {{ {n} := … }})` (EF-8); to hold it on purpose, declare the action (`action name() {{ … }}`); or write it after the `await`")),
-                Code::StaleOwnRead => self.err("STALE_OWN_READ", "AC-1d", format!("{n} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; {n} := v`) and read that, or write functionally (`{n} := v => …`, W-6)")),
+                Code::StaleOwnRead => self.err("STALE_OWN_READ", "AC-1d", format!("{} is read after this change wrote {}: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; {n} := v`) and read that, or write functionally (`{n} := v => …`, W-6)", match &f.at { Some(a) => format!("{a} is computed from {n}, and it"), None => n.clone() }, if f.at.is_some() { n.as_str() } else { "it" })),
                 Code::StaleNextRead => {
                     let held = match &f.via {
                         Some(v) => format!("this run calls {v}, so its writes join that action's change"),
                         None => "an action holds its writes".into(),
                     };
-                    self.err("STALE_NEXT_READ", "AC-1h", format!("{n} := … is computed from {n}, and it is held: {held} until the change settles (AC-1). Until then the next run reads the committed {n}, not this write, and computes the same value again (a counter mints one id twice). For the next run to build on the held value while the screen waits, read it with `latest {n}` (R-9), or write functionally (`{n} := v => …`, W-6) when this run doesn't need the value; for the write to show now, give it its own instant, `onFlush(() => {{ {n} := … }})` (EF-8)"))
+                    let at = f.at.as_ref().map(|a| format!("({a}) ")).unwrap_or_default();
+                    self.err("STALE_NEXT_READ", "AC-1h", format!("{n} := … {at}is computed from {n}, and it is held: {held} until the change settles (AC-1). Until then the next run reads the committed {n}, not this write, and computes the same value again (a counter mints one id twice). For the next run to build on the held value while the screen waits, read it with `latest {n}` (R-9), or write functionally (`{n} := v => …`, W-6) when this run doesn't need the value; for the write to show now, give it its own instant, `onFlush(() => {{ {n} := … }})` (EF-8)"))
                 }
                 Code::StaleWriteBack => self.err("STALE_WRITE_BACK", "AC-1e", format!("{n} := … after an `await` is computed from {n} as it was read before that `await`: whatever changed {n} in between (another action, a reload) is overwritten — write functionally (`{n} := v => …`, W-6), which applies to {n} as it stands at the write, or guess it (`guess`, AC-3) and let the answer replace the guess")),
             }
@@ -11282,7 +11351,7 @@ impl<'a> Checker<'a> {
                                         "GUESS_WHILE_LOADING",
                                         "AC-3a",
                                         format!(
-                                            "{what} {} `guess {n}` while {n} is loading a new question (its question reads what the click reads): the guess composes on the previous answer, and the new answer replaces it, so the change disappears while it is out (D-34) — put the element inside the `loading` region whose content reads {n}, or test it where the click starts, `onClick={{() => {{ if (!(pending? {n})) {{ … }} }}}}` (a handler reads the verdict as it stands, R-12), or keep the pending change in a source of its own until it lands",
+                                            "{what} {} `guess {n}` while {n} is loading a new question (its question reads what the click reads): the guess composes on the previous answer, and the new answer replaces it, so the change disappears while it is out (D-34) — put the element inside the `loading` region whose content reads {n}, or give it `disabled={{pending? {n}}}`, or test it where the click starts, `onClick={{() => {{ if (!(pending? {n})) {{ … }} }}}}` (a handler reads the verdict as it stands, R-12), or keep the pending change in a source of its own until it lands",
                                             match &via { Some(a) => format!("starts `{a}`, which can run"), None => "can run".into() }
                                         ),
                                     );

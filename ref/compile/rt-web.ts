@@ -3,7 +3,8 @@
 // compiler lowers (compile/jsx.ts, generate "dom", hydratable); what remains here is the reactive lowering, which must
 // create the same owners in the same order as rt-server.ts so each takes the same hydration id on both sides.
 import { primsSolid } from "./prims-solid.ts";
-import { Portal as WebPortal } from "@solidjs/web";
+import { ownAttrs } from "./own.ts";
+import { Portal as WebPortal, assign, effect as webEffect, readShallow } from "@solidjs/web";
 import { getObserver, DEV } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
@@ -441,6 +442,10 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     Portal: WebPortal,
     /** CSS-2: a dynamic class with the view's scope class after it. */
     scopedClass: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
+    /** R-11a: an attribute that reads ahead is a reader of its own (rt.ts `own`): one render effect per such attribute, set as
+     *  Solid's spread sets one (`assign`: a class, a style, a property, an attribute). `served`: the browser leaves it to `own`. */
+    own: (userRef: unknown, ...attrs: [string, () => unknown][]) => ownAttrs<Element>(userRef, attrs, (name, f, set) => webEffect(name === "class" || name === "style" ? () => readShallow(f()) : f, set), (el, name, v, prev) => { assign(el, { [name]: v } as any, true, { [name]: prev } as any); }),
+    served: (_f: () => unknown): unknown => undefined,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
     clientQuestion: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
     /** 12 SF-2: a server fn as the client calls it — every call a flight. Asked in reactive scope it is a question, one
