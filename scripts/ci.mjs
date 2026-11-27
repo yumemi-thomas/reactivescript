@@ -71,6 +71,8 @@ const steps = [
   { id: "node-build", dir: "compiler", run: napi, uses: ["cargo", "binding"], n: jobs, after: ["npm-compiler", "cargo-test"], quick: true },
   { id: "runtime", dir: "runtime", run: "npm run -s build", after: ["npm-runtime"], quick: true },
   { id: "runtime-test", dir: "runtime", run: "npm test && npm pack --silent && rm -f *.tgz && node test.mjs", after: ["runtime", "node-build"], uses: ["binding-read"], quick: true },
+  // the peer range against npm's newest Solid (runtime/npm.mjs): the same test, on a release
+  { id: "runtime-npm", dir: "runtime", run: "node npm.mjs", after: ["runtime-test"], uses: ["binding-read"] },
   { id: "names", dir: ".", run: `${strip} compiler/test/names.mjs`, after: ["crate", "cargo-test"], quick: true },
   { id: "spec-refs", dir: ".", run: "node scripts/spec-refs.mjs", quick: true },
   { id: "tools", dir: ".", run: "node scripts/lock.test.mjs && node scripts/cache.test.mjs" },

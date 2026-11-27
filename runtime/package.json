@@ -55,9 +55,9 @@
     "postpack": "node pack.mjs restore"
   },
   "peerDependencies": {
-    "@solidjs/signals": "^2.0.4",
-    "@solidjs/web": "^2.0.4",
-    "solid-js": "^2.0.4"
+    "@solidjs/signals": ">2.0.4",
+    "@solidjs/web": ">2.0.4",
+    "solid-js": ">2.0.4"
   },
   "devDependencies": {
     "@solidjs/signals": "file:../../solid-next/packages/signals",

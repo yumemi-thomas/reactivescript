@@ -116,6 +116,11 @@ one file (`ref/compile/solid-internals.ts`, which lists the four things read), h
 it never falls back to one app for the process. `node test.mjs` asserts those internals against the installed Solid
 and, where it is built, the pinned one (`SOLID_NEXT`, or `../../solid-next`).
 
+The peer range is `>2.0.4`: the package is built and tested on Solid at the pin, which is ahead of npm's 2.0.4, and
+its test does not pass on 2.0.4 (typed boundaries on the client, a primitive's owner, the order of cleanups). `node
+npm.mjs` runs the same test on npm's newest Solid: every check passes where that release is in the range; where it
+is not, the job holds the range to it — a release the test passes on that the range leaves out fails the job.
+
 Solid is a peer: `solid-js`, `@solidjs/web` and `@solidjs/signals` (the
 runtime reads owner context from `@solidjs/signals`, which `solid-js` runs on;
 with pnpm, add it to the app).

@@ -11,11 +11,16 @@ import path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = path.join(here, ".test"); rmSync(tmp, { recursive: true, force: true }); mkdirSync(path.join(tmp, "node_modules/@reactivescript"), { recursive: true });
-symlinkSync(here, path.join(tmp, "node_modules/@reactivescript/runtime"));
+// RX_SOLID_FROM=<a node_modules folder>: the Solid an app installed from npm — the release the package's peer range
+// starts at (runtime/.npm204, `scripts/ci` runtime-npm) — in place of the pin. The package is then copied in as npm
+// installs it, so that its own imports of Solid resolve to that one and not to this folder's devDependencies.
+const solidFrom = process.env.RX_SOLID_FROM ? path.resolve(process.env.RX_SOLID_FROM) : path.join(here, "node_modules");
+if (process.env.RX_SOLID_FROM) { const to = path.join(tmp, "node_modules/@reactivescript/runtime"); mkdirSync(to); cpSync(path.join(here, "package.json"), path.join(to, "package.json")); cpSync(path.join(here, "dist"), path.join(to, "dist"), { recursive: true }); console.log(`Solid ${JSON.parse(readFileSync(path.join(solidFrom, "solid-js/package.json"), "utf8")).version}, from ${solidFrom}`); }
+else symlinkSync(here, path.join(tmp, "node_modules/@reactivescript/runtime"));
 // Solid is linked from the pin (../../solid-next), as ref/'s is; seroval, which a test reads as Solid's server does, is
 // the one @solidjs/web is installed with
-for (const d of ["solid-js", "@solidjs"]) symlinkSync(path.join(here, "node_modules", d), path.join(tmp, "node_modules", d));
-for (const d of ["seroval", "seroval-plugins"]) symlinkSync(realpathSync(path.join(realpathSync(path.join(here, "node_modules/@solidjs/web")), "node_modules", d)), path.join(tmp, "node_modules", d));
+for (const d of ["solid-js", "@solidjs"]) symlinkSync(path.join(solidFrom, d), path.join(tmp, "node_modules", d));
+for (const d of ["seroval", "seroval-plugins"]) symlinkSync(existsSync(path.join(solidFrom, d)) ? path.join(solidFrom, d) : realpathSync(path.join(realpathSync(path.join(solidFrom, "@solidjs/web")), "node_modules", d)), path.join(tmp, "node_modules", d));
 let fail = 0;
 const check = (name, ok, detail = "") => { if (!ok) fail++; console.log(`${ok ? "✓" : "✗"} ${name}${detail ? `: ${detail}` : ""}`); };
 try {

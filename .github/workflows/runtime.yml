@@ -43,6 +43,9 @@ jobs:
           npm run build
           npm test
           npm pack
+      - name: The peer range against npm's newest Solid (the same test, on a release)
+        working-directory: runtime
+        run: node npm.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: runtime
