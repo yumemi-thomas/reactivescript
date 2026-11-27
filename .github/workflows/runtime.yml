@@ -1,5 +1,6 @@
 # The runtime's npm package, @reactivescript/runtime (runtime/): built from ref/compile/rt-web.ts and rt-server.ts,
-# tested against the Solid release it names, with a program the crate compiles.
+# tested against the Solid ref/ runs on (ref/SOLID_NEXT, built beside the repository: its devDependencies link
+# ../solid-next, and `npm pack` ships none of them, runtime/pack.mjs), with a program the crate compiles.
 #
 # A release is a version bump merged to main, once the repository variable RELEASES is `on`: a version npm does not
 # have is published by trusted publishing (OIDC, no token) and tagged `runtime-v<version>`.
@@ -8,9 +9,9 @@ name: runtime
 on:
   push:
     branches: [main]
-    paths: ["runtime/**", "ref/compile/rt-web.ts", "ref/compile/rt-server.ts", "compiler/**", ".github/workflows/runtime.yml"]
+    paths: ["runtime/**", "ref/compile/rt-web.ts", "ref/compile/rt-server.ts", "ref/compile/keyed.ts", "ref/compile/prims-solid.ts", "ref/compile/solid-internals.ts", "ref/SOLID_NEXT", "ref/scripts/solid-next.sh", "compiler/**", ".github/workflows/runtime.yml", ".github/actions/solid-next/**"]
   pull_request:
-    paths: ["runtime/**", "ref/compile/rt-web.ts", "ref/compile/rt-server.ts", "compiler/**", ".github/workflows/runtime.yml"]
+    paths: ["runtime/**", "ref/compile/rt-web.ts", "ref/compile/rt-server.ts", "ref/compile/keyed.ts", "ref/compile/prims-solid.ts", "ref/compile/solid-internals.ts", "ref/SOLID_NEXT", "ref/scripts/solid-next.sh", "compiler/**", ".github/workflows/runtime.yml", ".github/actions/solid-next/**"]
   workflow_dispatch:
 
 jobs:
@@ -22,9 +23,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: compiler
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1   # solid-next's packageManager
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
+      - name: Solid next, at the pin (the runtime's devDependencies link ../solid-next)
+        uses: ./.github/actions/solid-next
       - name: The compiler's Node-API build (the test compiles a program)
         working-directory: compiler
         run: |

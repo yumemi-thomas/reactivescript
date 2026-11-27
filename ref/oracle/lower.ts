@@ -440,7 +440,7 @@ export class Oracle {
             const seed = untrack(() => this.ev(seedE.init!, scope));
             const body = d.e.body;
             const proj = createProjection((draft: any) => { const s2 = new Scope(scope); s2.vars.set("d", { k: "const", value: draft }); this.runDraft(body, s2); }, seed as any); rooted(proj as object);
-            scope.vars.set(d.name, { k: "memo", get: () => proj });
+            scope.vars.set(d.name, { k: "memo", get: () => proj, proj: true } as any);
             break;
           }
           if (this.optimisticTargets.has(d.name) && !d.deferred) {     // AC-3 over an equation: Solid's createOptimistic(fn) / createOptimisticStore(fn, seed) — derived, its setter only guesses
@@ -460,7 +460,7 @@ export class Oracle {
             const compute = this.computeOf(d.name, d.e, scope);
             const src = createMemo(() => unkeyed(compute(undefined)) as any, this.loadingValue(d.e, scope) as any);   // the answer (sync, or the tail await's) is a memo; the projection reconciles it by key (found by S-ai2-search)
             const proj = createProjection(() => src() as any, [] as any, { key: d.key } as any); rooted(proj as object);
-            scope.vars.set(d.name, { k: "memo", get: () => proj, truth: src } as any);   // AC-4: `refresh` re-asks the memo under the projection (S-keyed-refresh)
+            scope.vars.set(d.name, { k: "memo", get: () => proj, truth: src, proj: true } as any);   // AC-4: `refresh` re-asks the memo under the projection (S-keyed-refresh)
             break;
           }
           const fnDecl = this.fnOf(d.e, scope);
@@ -689,7 +689,7 @@ export class Oracle {
       case "throw": throw untrack(() => this.ev(s.e, scope, env));
       case "action": this.lowerAction([], s.body, scope, env)(); return;
       case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); const d = Scope.all.find(x => x.vars.get(s.name) === b); for (const h of (d && this.hoistedByName.get(d)?.get(s.name)) ?? []) refresh(h as any); refresh((b.k === "store" ? (b.truth ?? b.get)() : ((b.k === "sig" || b.k === "memo") && (b as any).truth) || b.get) as any); return; }
-      case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects((b.k === "store" ? b.get() : boxOf.get(b.get) ?? b.get) as any); return; }   // a store binding's get wraps the store: Solid takes the store (#50)
+      case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects((b.k === "store" || (b as { proj?: true }).proj ? b.get() : boxOf.get(b.get) ?? b.get) as any); return; }   // a store binding's get wraps the store: Solid takes the store (#50); so does a keyed equation's or a draft's, a projection (they threw: found checking #4906's affects() ruling)
       case "optimistic": case "write": {
         const b = s.target.ctx ? this.provision(s.target.name, scope) : scope.lookup(s.target.name);
         const v = untrack(() => this.ev(s.e, scope, env));          // W-6: a function value is Solid's updater form — the setters take it as is

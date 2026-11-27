@@ -1,9 +1,9 @@
 // The built package as an app takes it (after `npm run build`, and the compiler's Node-API build in ../compiler): the
 // browser build (the `browser` condition) and the server build (`node`) export the runtime, and a program compiled
-// for ssr by the crate renders on the server build over the Solid release this package names.
+// for ssr by the crate renders on the server build over the Solid it is installed with (the pin, ../../solid-next, as ref/).
 // Usage: node test.mjs
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -12,7 +12,10 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tmp = path.join(here, ".test"); rmSync(tmp, { recursive: true, force: true }); mkdirSync(path.join(tmp, "node_modules/@reactivescript"), { recursive: true });
 symlinkSync(here, path.join(tmp, "node_modules/@reactivescript/runtime"));
-for (const d of ["solid-js", "@solidjs", "seroval", "seroval-plugins"]) symlinkSync(path.join(here, "node_modules", d), path.join(tmp, "node_modules", d));
+// Solid is linked from the pin (../../solid-next), as ref/'s is; seroval, which a test reads as Solid's server does, is
+// the one @solidjs/web is installed with
+for (const d of ["solid-js", "@solidjs"]) symlinkSync(path.join(here, "node_modules", d), path.join(tmp, "node_modules", d));
+for (const d of ["seroval", "seroval-plugins"]) symlinkSync(realpathSync(path.join(realpathSync(path.join(here, "node_modules/@solidjs/web")), "node_modules", d)), path.join(tmp, "node_modules", d));
 let fail = 0;
 const check = (name, ok, detail = "") => { if (!ok) fail++; console.log(`${ok ? "✓" : "✗"} ${name}${detail ? `: ${detail}` : ""}`); };
 try {
@@ -41,8 +44,8 @@ try {
     const [first, ...rest] = r.stderr.split("--\n"); const once = (first.match(/load\(…\), imported from "\.\/api", will never answer/g) ?? []).length;
     check(`./api with no createApp({ api }), and log (${conds}): ${dev ? "said once, with the two ways out, and printed" : "silent"}`, once === (dev ? 1 : 0) && (!dev || /createApp\(\{ api: \{ load \} \}\)/.test(first) && /"\.\/api\.js" for one/.test(first)) && rest.length === 2 && !rest.join("").trim() && r.stdout === (dev ? "1 two\n".repeat(3) : ""), (r.stdout + r.stderr).slice(0, 400));
   }
-  // AC-3: a guess over a list that is written too, on the release installed here (its server ran a projection over a
-  // pending store at once, solidjs/solid#5097): the page waits and renders the truth
+  // AC-3: a guess over a list that is written too (Solid's server ran a projection over a pending store at once until
+  // 2.0.4, solidjs/solid#5097, and the runtime rendered the truth around it): the page waits and renders the list
   writeFileSync(path.join(tmp, "rows.mjs"), `export const load = async () => { await new Promise(r => setTimeout(r, 5)); return [{ id: 1, t: "A" }, { id: 2, t: "B" }]; };\nexport const save = async t => t;\n`);
   writeFileSync(path.join(tmp, "guess.rx"), `import pure { load } from "./rows.mjs"\nimport { save } from "./rows.mjs"\nexport default component App() {\n  source rows key id = await load()\n  action rename(t: string) {\n    guess rows[0].t := t\n    try { await save(t); rows[0].t := t } catch (e) { refresh rows }\n  }\n  errored fallback(e) { <p>{e.message}</p> } { loading fallback { <p>w</p> } { <ul>{for r in rows { <li>{r.t}</li> }}</ul> } }\n  <button onClick={() => { rename("x") }}>a</button>\n}\n`);
   writeFileSync(path.join(tmp, "guess.mjs"), Object.values(JSON.parse(compile(path.join(tmp, "guess.rx"), "ssr")).modules)[0].code);
@@ -59,7 +62,17 @@ try {
   check("one copy of Solid: the stream is keyed and nothing is warned", one.stdout.trim() === "keyed\nkeyed" && warnings(one) === 0, one.stdout + one.stderr);
   for (const [name, copied, keyed, warned] of [["a second @solidjs/web over the same solid-js still keys: no warning", ["@solidjs/web"], "keyed\nkeyed", 0], ["a second copy of Solid: no keys, and the warning once for the process", ["@solidjs/web", "solid-js"], "unkeyed\nunkeyed", 1]]) {
     const dup = path.join(tmp, "dup"); rmSync(dup, { recursive: true, force: true }); mkdirSync(path.join(dup, "node_modules/@solidjs"), { recursive: true });
-    for (const d of copied) cpSync(path.join(here, "node_modules", d), path.join(dup, "node_modules", d), { recursive: true, dereference: true });
+    // a copy of the package's own files; what it imports, other than the copies, from where the original finds it (the
+    // pin's packages are a pnpm workspace: their node_modules link one another, so they are not copied)
+    for (const d of copied) {
+      const from = realpathSync(path.join(here, "node_modules", d)), to = path.join(dup, "node_modules", d);
+      cpSync(from, to, { recursive: true, filter: src => !path.relative(from, src).split(path.sep).includes("node_modules") });
+      const deps = path.join(from, "node_modules");
+      if (existsSync(deps)) for (const n of readdirSync(deps).flatMap(n => n.startsWith("@") ? readdirSync(path.join(deps, n)).map(m => `${n}/${m}`) : [n])) {
+        if (n.startsWith(".") || copied.includes(n)) continue;
+        mkdirSync(path.dirname(path.join(to, "node_modules", n)), { recursive: true }); symlinkSync(realpathSync(path.join(deps, n)), path.join(to, "node_modules", n));
+      }
+    }
     writeFileSync(path.join(dup, "todo.mjs"), Object.values(out.modules)[0].code); writeFileSync(path.join(dup, "twice.mjs"), twice);
     const r = spawnSync(process.execPath, ["twice.mjs"], { cwd: dup, encoding: "utf8" });
     check(name, r.stdout.trim() === keyed && warnings(r) === warned && (!warned || (/different copies \(solid-js/.test(r.stderr) && /may not be able to hydrate/.test(r.stderr))), (r.stdout + r.stderr).slice(0, 300));

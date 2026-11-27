@@ -57,5 +57,29 @@
   "hydrated": {
    "*": "rewrite, left: as rendered"
   }
+ },
+ "kobalte-popover": {
+  "client": {
+   "*": "solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's Title unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+  },
+  "hydrated": {
+   "*": "as rendered: solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's Title unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+  }
+ },
+ "kobalte-select": {
+  "client": {
+   "*": "solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's item or listbox unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+  },
+  "hydrated": {
+   "*": "as rendered: solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's item or listbox unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+  }
+ },
+ "kobalte-tooltip": {
+  "client": {
+   "*": "solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's content unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+  },
+  "hydrated": {
+   "*": "as rendered: solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's content unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+  }
  }
 }

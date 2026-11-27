@@ -195,11 +195,21 @@
  },
  "kobalte-popover": {
   "steps": 5,
-  "same": 5,
-  "sameSsr": 5,
+  "same": 4,
+  "sameSsr": 4,
   "differ": {
-   "client": [],
-   "hydrated": []
+   "client": [
+    {
+     "step": "click #t-o",
+     "cause": "solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's Title unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+    }
+   ],
+   "hydrated": [
+    {
+     "step": "click #t-o",
+     "cause": "as rendered: solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's Title unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+    }
+   ]
   },
   "errors": {
    "orig": [
@@ -291,11 +301,21 @@
  },
  "kobalte-select": {
   "steps": 6,
-  "same": 6,
-  "sameSsr": 6,
+  "same": 5,
+  "sameSsr": 5,
   "differ": {
-   "client": [],
-   "hydrated": []
+   "client": [
+    {
+     "step": "click #t-o",
+     "cause": "solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's item or listbox unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+    }
+   ],
+   "hydrated": [
+    {
+     "step": "click #t-o",
+     "cause": "as rendered: solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's item or listbox unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+    }
+   ]
   },
   "errors": {
    "orig": [
@@ -374,11 +394,37 @@
  },
  "kobalte-tooltip": {
   "steps": 7,
-  "same": 7,
-  "sameSsr": 7,
+  "same": 4,
+  "sameSsr": 4,
   "differ": {
-   "client": [],
-   "hydrated": []
+   "client": [
+    {
+     "step": "hover #t-o",
+     "cause": "solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's content unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+    },
+    {
+     "step": "wait 250",
+     "cause": "solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's content unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+    },
+    {
+     "step": "hover #t-y",
+     "cause": "solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's content unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+    }
+   ],
+   "hydrated": [
+    {
+     "step": "hover #t-o",
+     "cause": "as rendered: solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's content unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+    },
+    {
+     "step": "wait 250",
+     "cause": "as rendered: solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's content unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+    },
+    {
+     "step": "hover #t-y",
+     "cause": "as rendered: solid: DV-29 (spec/05; ref/oracle/repros/cleanup-action-write.mjs), a Solid regression in 2.0.4, on the pinned main too: the rewrite's content unregisters in its effect's cleanup through an action, and once that has run as the content closed, the trigger's attributes miss the next change (they keep the closed state while the content reopens). 2.0.3 shows the same steps alike"
+    }
+   ]
   },
   "errors": {
    "orig": [
@@ -554,7 +600,7 @@
    "orig": [
     "[REACTIVITY_HALTED] An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.\n  in <App> › <SliderProvider> › <provider",
     "Error: Failed attempt to create new DOM elements during hydration. Check that the libraries you are using support hydration.",
-    "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error.\n  in <App> › <SliderProvider> › <provider> › computed\n  at http://127.0.0.1:53979/cases/slider.tsx:6:12",
+    "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error.\n  in <App> › <SliderProvider> › <provider> › computed\n  at http://127.0.0.1:64765/cases/slider.tsx:6:12",
     "not mounted"
    ],
    "rx": []

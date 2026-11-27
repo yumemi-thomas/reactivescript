@@ -7,10 +7,13 @@
     "@wardic/solid": "2.0.1",
     "@wardic/dom": "1.2.0",
     "effect": "4.1.5",
-    "solid-js": "2.0.3",
-    "@solidjs/web": "2.0.3",
-    "@solidjs/signals": "2.0.3",
+    "solid-js": "file:../../../solid-next/packages/solid",
+    "@solidjs/web": "file:../../../solid-next/packages/web",
+    "@solidjs/signals": "file:../../../solid-next/packages/signals",
     "vite": "8.3.8",
     "@solidjs/vite-plugin": "3.0.1"
+  },
+  "overrides": {
+    "@solidjs/compiler": "file:../../../solid-next/packages/compiler"
   }
 }

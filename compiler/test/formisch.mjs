@@ -11,11 +11,12 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { relinked } from "../../scripts/lib/relink.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
 const ws = path.join(here, ".out/formisch");
-const pkg = readFileSync(path.join(repo, "examples/formisch/package.json"), "utf8");
+const pkg = relinked(readFileSync(path.join(repo, "examples/formisch/package.json"), "utf8"), path.join(repo, "examples/formisch"), ws);   // Solid is the pin's, linked (scripts/lib/relink.mjs)
 mkdirSync(ws, { recursive: true });
 if (!existsSync(path.join(ws, "node_modules/@formisch/solid")) || (existsSync(path.join(ws, "package.json")) && readFileSync(path.join(ws, "package.json"), "utf8") !== pkg)) {
   writeFileSync(path.join(ws, "package.json"), pkg);

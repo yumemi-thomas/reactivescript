@@ -26,6 +26,16 @@ Read the table as: *our first design* → *what Solid ruled* → *where Solid pi
 | **DV-25 / F-3** a write beside a shown error fallback | the change holds until the re-asked question answers (H-4, D-41 read together) | a reader under a boundary on its fallback is off screen and holds nothing; the write shows at once beside the fallback | solidjs/solid#4908 (2.0.0-rc.23), its rules F-3 and F-12, `lean.test.ts` "E1 a write publishes beside a shown error fallback" | 05 H-4, H-12; S-hold-7, S-module-1 (the user's decision, 2026-11-26) |
 | **SC-4c** what a `ref` reads | each `ref` reads the writes of the `ref`s before it in the pass (the interpreter's first model), then a refusal of the reading (`REF_READS_REF_WRITE`, withdrawn) | a `ref` callback is like an event handler or an effect callback: it reads the screen as it stands | solidjs/solid#5110 (fixes #5098), "Ruling (maintainer, 2026-11-20): refs are like event handlers or effect callbacks" | 02 SC-4c (2026-11-26). Solid's remaining difference, a `ref` in a `<For>` row or a `<Show>` reading an earlier `ref`'s write, is a bug of its own (DV-28) |
 
+## Where Solid's ruling came to the language's rule (solidjs/solid#4906, stores on the thin engine, 2026-11-26)
+
+The pin moved to Solid main 50a4bfdde on 2026-11-27 (`DECISION.md`, "Pin moved to Solid main 50a4bfdde"). #4906 states
+two intended changes of store behaviour. Both are rules the language already had; nothing in the spec moved for them.
+
+| | the language | Solid before #4906 | Solid's ruling now | pinned in Solid | checked |
+| --- | --- | --- | --- | --- | --- |
+| **F-10 for stores** a store write is visible at its flush | 02 W-4, 05 H-10: nothing sees a write before its instant settles; a read of the run's own write is `STALE_OWN_READ` (06 AC-1d) | the deep engine let some reads between a setter and its `flush()` see the new value | "a store write becomes visible at the flush that carries it, for every reader (F-10) … how store writes should always have behaved" | #4906's description; `packages/signals/docs/RULES-FUNDAMENTALS.md` F-10 | every scenario and review set, four runners, as before |
+| **`affects` of a derived store** marks the view, not its source | 06 AC-5: `affects x` makes `pending? x` true; what `x` reads is not declared | `affects(view)` made its source store pending too | "`affects()` on a source store is no longer true because a derived view of it has a pending edit": `affects(view)` leaves `isPending` of the source `false` | #4906's description; `tests/store/derived-view-of-store-4906.test.ts` "a marked view is pending at its first untracked read; its source is not" | S-affects-projection (new): a keyed equation and a draft over a source, four runners and the server; it also found the oracle and both emitters threw at `affects` of a projection, on both pins (ours, fixed) |
+
 ## Where the language does not follow Solid, and why
 
 | | Solid | the language | why |

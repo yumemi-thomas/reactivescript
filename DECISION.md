@@ -1577,3 +1577,161 @@ Nothing stricter dropped, nothing correct refused, nothing accepted that a runne
 
 The DV status on Solid main 50a4bfdde, the pin the user is moving to, is the pin's own step to write (its #4906 replaced
 the store engine). Its repros: DV-27 fixed; X1, DV-19's store form, DV-26 and DV-28 open; the rest as above.
+
+## Pin moved to Solid main 50a4bfdde (2026-11-27)
+
+`ref/SOLID_NEXT` moves from 30e7805eb to 50a4bfdde (Solid main, 2026-11-26), whose #4906 runs stores on the thin engine
+and deletes the deep one. On the user's added scope, the runtime and every test that installs Solid for it now run on
+the same pinned main, as `ref/` does: one Solid for every runner.
+
+*The rule applied (the user's):* a real Solid bug is Solid's (a DV with a memo and a plain-Solid repro; the user files
+it, nothing is posted) and never shapes the language; a deliberate Solid rule is followed.
+
+### The first ci on the new pin: 43 of 47, and why
+
+The oracle and the compiled runner failed 8 scenarios each (S-effect-store-1, -3, S-keyed-alias, S-pre-1, -2, S-region-7,
+S-store-7, S-store-kept-row; 234 of 242), the hydrated runner 5 of them, `proposals/check.mjs` 6 verdicts in 4 bug pages.
+Every failure was ours, one cause: our runtimes asked a store proxy for `$TARGET`, the deleted deep engine's record.
+On the thin engine every value answers `$TARGET` with `undefined`, so a store was taken for a plain object everywhere
+the runtime asks "is this a store?". `ref/oracle/repros/pin-4906-target.mjs` shows it on both pins: at 30e7805eb
+`v[$TARGET] !== undefined` is true exactly for store proxies (a store, a row or list inside one, an optimistic store, a
+projection and its rows, a derived store) and false for merge and omit views and plain values; at 50a4bfdde it is false
+for all; `v[$PROXY] === v && v[$RECORD] === undefined` gives the first answers on both. In plain Solid the same effects
+fire on both pins (`pin-effect-store.mjs`: an effect over a store, written by a setter, a guess and a new answer).
+
+| failure (runner) | plain-Solid repro | class | what was done |
+| --- | --- | --- | --- |
+| S-effect-store-1, -3 (oracle, compiled): no effect after the first | `pin-effect-store.mjs` (fires on both pins), `pin-4906-target.mjs` | C | an effect's input that holds a store is copied whole (EF-2): `inputWhole` asked `$TARGET`, so the input was the store itself, the same object every time, and never differed. `isStore` (`$PROXY`, `$RECORD`) in `rt.ts`, `rt-web.ts`, `rt-server.ts`, `oracle/lower.ts` |
+| S-keyed-alias `BBAA` (oracle, compiled, hydrated) | `pin-4906-target.mjs` | C | a keyed equation over a source with no key copies the source's rows (`unkeyed` → `whole`): no copy was made, so the projection's rows aliased the source's |
+| S-pre-1, S-pre-2 (oracle, compiled, hydrated) | the same | C | what `pre` keeps of a store is a copy (`kept`, C-2): none was made, so `pre` was the live store |
+| S-region-7 | the same | C | the same `kept` copy (a registration's list) |
+| S-store-7 `1A` for `1loading` | the same | C | `latest` of a store is a copy read inside `latest` (`latestWhole`, R-12); Solid's `latest(() => store)` still hands back the proxy on both pins (checked), so the copy is what keeps the guess's reads inside `latest` |
+| S-store-kept-row: a kept row made twice | the same; `solid-main.noindex/drafts/1-reconcile-kept-row/repro.mjs` | C (and X1 still open) | `keyedWrite` (X1's workaround) found no row to keep: its proxy check asked `$TARGET`. It takes `isStore` now |
+| proposals/bugs/04, 08, 18, 45 | the scenarios above | C | their branch frames are those programs: they pass again |
+
+`==` through a store (ST-2) compared `x[$TARGET].v`, the deep engine's raw: on the thin engine a store's proxy is its
+record's one identity, so two proxies compare as they are, and a proxy against a plain object compares by Solid's
+`snapshot()` (the record itself while nothing below it was written). Probed on both pins against the interpreter
+(a selection held in a source and compared with a row, through path writes and an append; a seeded record against
+the row it seeded): the four runners agree.
+
+No class A: #4906 introduced no Solid bug that our programs meet. No class B was needed: #4906's two intended changes are
+rules the language already had (recorded in `proposals/32`):
+
+- **F-10 for stores** (a store write is visible at the flush that carries it, for every reader) is 02 W-4 and 05 H-10,
+  with `STALE_OWN_READ` for a read of the run's own write. Nothing in the spec, interpreter or emitters moved.
+- **`affects` of a derived store marks the view, not its source** (#4906's description; Solid's test "a marked view is
+  pending at its first untracked read; its source is not") is 06 AC-5. `S-affects-projection` (new) holds it for a
+  keyed equation and a draft over a source. It found a bug of ours, on both pins: the oracle and both emitters handed
+  Solid's `affects` an equation's accessor rather than its projection, which Solid refuses, so `affects view` threw into
+  the action's `catch` (the interpreter was right). Fixed as `#50` was for a source: the keyed equation's and the draft's
+  accessors are store accessors (`storeAccs`; the oracle's binding says `proj`).
+
+### What #4906 changed in the judgments the audit listed
+
+Each checked on the new pin, in plain Solid where the judgment is about Solid (`ref/oracle/repros/`, the same output at
+30e7805eb and 50a4bfdde unless said):
+
+| judgment | at 50a4bfdde |
+| --- | --- |
+| X1, `ref/compile/keyed.ts` | still needed: the thin engine's reconcile (`store/thin.ts` `merge`: "a keyed diff of a plain store skips a row nothing below ever read through a node") prunes as `descend()` did; draft 1's `repro.mjs`: `none` remakes both rows, `reads` keeps them. `reconcile(n, key)(p)` still adopts `n` into the row's proxy (S-store-kept-row, `compiler/test/rows.mjs`). Its proxy check was `$TARGET`: fixed above. Memo: #5220 and #5222 open |
+| S-server-9 (DV-27) | **fixed**: `dv27-hydrate` shows `2/2/5` hydrated (`1/2/5` at 30e7805eb), probably by #4906. The divergence row is removed, so the hydrated frame is checked as written; spec/10 DV-27 says so |
+| DV-8b, `__rt.isPending` key reads | unchanged: `pending?` of a projection reads its keys (`Reflect.ownKeys` tracks the thin engine's key node); S-ai2-search passes; `dv8b-projection-pending.mjs` the same on both pins |
+| DV-4, DV-8, DV-18 (per-key store and projection nodes) | stay fixed: their repros give the same frames on both pins |
+| S-store-7's lowering (`latest` hands back the proxy) | still so on the thin engine (checked); the copy, now made, keeps the guess |
+| DV-19's store form | unchanged: `latest=3` (expected 2) on both; outside the ruling (a displayed slot), as the audit says |
+| `rt-server.ts`'s optimistic-store line (#5097/#5146) | **removed**: fixed in 2.0.4 and at both pins (`rendered: A` in plain Solid on both). It was kept only because the runtime installed 2.0.3; it installs the pin now and asks for `^2.0.4`. The server renders the client's optimistic layer over the truth, as upstream's line does |
+| ST-4a `landDraft` keyed answers | unchanged: a derive that returns its keyed answer is reconciled by the key, a kept row keeps its proxy (`order Bac`, rows 1 and 2 kept, on both pins) |
+| `pre` of a store at depth (S-pre-2, S-keyed-alias) | the `$TARGET` fault above; pass |
+| raw identity through stores (S-region-7) | the `$TARGET` fault and `==` above; pass |
+| DV-7 (the wrapper removed by the audit), DV-13 (`<></>`) | stay fixed (`dv7-rethrow.mjs`, `dv13-universal-empty.mjs` the same on both pins) |
+
+Other DVs on the new pin: DV-26 and DV-28 open (S-server-8's hydrated records still hold: without them the run fails
+with Solid's frames), DV-19's store form as above; no other repro moved (`logs/repros-{old,new}.txt` differ only in
+DV-27's line).
+
+### The runtime, the examples and the benchmark on the pinned Solid (the user's added scope)
+
+- **`runtime/`**: its devDependencies link `file:../../solid-next/packages/{solid,web,signals}`, as `ref/` does; its
+  lock is updated. Its peers are `^2.0.4`: the server line above relies on the #5097 and #5146 fixes, which 2.0.4 is the
+  first release to have (nothing else we now rely on is newer than 2.0.0). `npm pack` ships no `file:` dependency:
+  `prepack` writes the shipped package.json without its devDependencies (`runtime/pack.mjs`, which also refuses a local
+  path in any other dependency list) and `postpack` puts the file back; checked on the packed tarball. `test.mjs`
+  links seroval from where `@solidjs/web` is installed, and its "a second copy of Solid" case copies a package's own
+  files and links what it imports (the pin's packages are a pnpm workspace whose `node_modules` link one another).
+  `SOLID_TESTED` says 2.0.4 and the pin. `runtime/test.mjs`: 82 checks, the server's AC-3 guess included (it failed on
+  the installed 2.0.3 once the workaround was gone, as it should).
+- **`bench/`**: `bench/package.json` links the pin's `solid-js`, `@solidjs/web`, `@solidjs/signals`,
+  `@solidjs/universal`, and overrides `@solidjs/compiler` (which `@solidjs/vite-plugin` brings) with the pin's. The
+  paths are relative to `bench/.out/ws`, where the harness installs the file (its description says so); the lock is
+  made there. `tasks/start-route` (installed at `bench/.out/ws/deps/start-route`) the same; `tasks/start-mode/src`'s
+  listed `solid-js` and `@solidjs/web` are `^2.0.4` (that file is the app as a project lists it, not installed).
+- **`examples/`**: `rx-packages`, `rx-std`, `formisch`, `start`, `wardic` link the pin's Solid (and its compiler, by
+  override where a plugin brings one); the two with locks are reinstalled. `rx-std` lists `@solidjs/signals` itself now:
+  the runtime's peer had only been there hoisted out of npm's `solid-js`. `compiler/test/{formisch,start,wardic}.mjs`
+  install their example's package.json elsewhere, so they re-base its `file:` paths there (`scripts/lib/relink.mjs`).
+  `rx-ui-sdk` (and `rx-std-ui`, whose README says the same) has no lock: its `node_modules` is the bench workspace's,
+  with Solid linked from the pin. Their esbuild harnesses read no tsconfig (`tsconfigRaw: {}`): bundling the pin's
+  `dist/internal.js`, esbuild had read the checkout's own `tsconfig.build.json`, which maps `solid-js` to `src/`, and
+  put a second copy of Solid in the page (every hydration test timed out, `sharedConfig.getNextContextId` of the copy
+  that hydration never set up); an npm install has no tsconfig. `live.mjs` already bundled with `tsconfig: false`.
+- **Vite builds beside a linked Solid** (found by the first full ci with the installs moved: `runtime-resolve`'s
+  production server, `t-start`, the benchmark's `start-mode` and `start-route` answered 500). Solid's real path is now
+  outside any `node_modules`, and Vite keeps a linked dependency in its server bundle beside what Node loads from
+  `node_modules` (the runtime, a router) on the installed copy: two Solids, so `provide` found no owner. An app installed
+  from npm has Solid inside `node_modules`. The Vite config a test or the benchmark installs gets
+  `resolve.preserveSymlinks` (`scripts/lib/relink.mjs` `linkedSolid`: `compiler/test/runtime-resolve.mjs`, `start.mjs`,
+  and `bench/harness.mjs` `stage()` on the staged copy, so no task's own files change). Where the task's `node_modules`
+  is itself a link (a task with an install of its own, `start-route`), preserved paths gave its router two identities;
+  there Solid's packages are made external to the server build instead. (Not everywhere: under a dev server Solid's
+  plugin keeps the runtime in Vite's graph on purpose, and runtime-resolve's dev cases check exactly that.) The
+  benchmark also lists `@solidjs/compiler` itself: it compiles a package's JSX with the workspace's top-level copy,
+  which had only been there hoisted out of `@solidjs/vite-plugin`'s npm dependency.
+- **Not moved**: `std/` and `declarations/solid-js` install no Solid (peers `^2.0.0`, right for them); `eval/` is the
+  fuzzers' benchmark of record, pinned to rc.23 on purpose, and installs no runtime.
+- **GitHub**: `runtime.yml` and `bench.yml` now build or restore `../solid-next` (`.github/actions/solid-next`, pnpm
+  11.1.1, Node 24) before installing the runtime and the workspace; `suites.yml` and `editor.yml` already did. Every
+  job that installs the runtime (`runtime`, `bench`, `suites` ref, `editor`) has the pin beside it. The runtime's
+  publish job publishes the packed tarball, which names no local path.
+
+### A Solid regression found on the way: DV-29 (class A, not #4906's)
+
+With the examples on the pinned Solid, `examples/rx-packages/live.mjs` showed Kobalte's popover, select and tooltip
+rewrites differing from the originals at the step that reopens them (the trigger keeps its closed attributes while the
+content shows), and one Kobalte select unit test ("controlled clear selection") failing. On npm 2.0.3 all pass; on
+2.0.4 (development and production builds) and on main at 30e7805eb and 50a4bfdde they fail, so it is older than #4906.
+Reduced, through the compiled module, to plain Solid: `ref/oracle/repros/cleanup-action-write.mjs`. A part shown by
+`<Show>` has an effect whose cleanup calls an action. Once that cleanup has run as the part was disposed, a render
+effect over a memo of the root's record misses the next change. A plain write in the cleanup does not do it (`plain`).
+The candidates in 2.0.4 are #5124 ("a removed row's cleanup can call an action during teardown") and #5161 (not
+bisected: Solid is not rebuilt here). The rule stands: `S-effect-cleanup-action` (new) holds the ruled frames in the
+interpreter, the oracle, both emitters and the server (Solid's `Ft` is the recorded `oracle` divergence at instant 4).
+spec/05 DV-29 records it. `causes.json` attributes the live steps to it, and cutting the rewrites' cleanup actions in
+their built modules makes all three cases and the unit test agree again. Nothing is refused. The user's to file.
+
+### Census on the new pin
+
+Before = 9bb604d5 (PR #1's head with the audit, the merge base of this commit) on Solid 30e7805eb
+(`rx-pin.noindex/before`, its own install and crate); after = this tree on 50a4bfdde.
+
+| census | result |
+| --- | --- |
+| scenarios: interpreter, oracle, both emitters, crate parity and lowering, served and hydrated, the type pass | all pass; oracle and compiled 244 of 244 (242 and the two new), 8 recorded divergences (DV-29's added), the server runner 244 of 244; S-server-9 without its record; S-server-8's hydrated records still needed (removed, the run fails with Solid's frames) |
+| the review sets, as "Review sets on 3395c64e" ran them (`rx-pin.noindex/sets`: `run.mjs`, `merge.mjs`, `table.mjs`, the sets read from `rx-t3.noindex/sets`): all 72 folders, 18,798 programs, before and after — interpreter, oracle, both emitters, both checkers alike (`same`), both lowerings (`lower`); the filled sets served and hydrated after | **nothing moved**: every verdict the same in every set, no program both revisions agree on shows anything else ("output changed: 0" in all 72), `same` and `lower` alike on every program as before (o1f's 22 the harness stops on, as before). Served: the same misses as on 3395c64e — `p3-err-aw-ifinner-app` (DV-26), `v1-aw-loop-*` (X14), the 505's 14 portal and X14 tables |
+| `proposals/check.mjs` | 190 verdicts over 78 documents, all as stated (bugs/04, 08, 18, 45 pass again) |
+| bench `--check --strict` | as the scorecard or better: good 44 of 44, types 188 of 188, runtime 282 of 282, bad caught 249 of 249, unrepresentable 13 of 13; coverage as `coverage.json` |
+| `examples/rx-packages`: `build.mjs`, `check.mjs`, `run.mjs` (both ways), `live.mjs` | 65 built; `check.json` unchanged byte for byte; the originals' tests: the same as on npm 2.0.3 file by file (sorted), but Kobalte's select "controlled clear selection" (rx 48 → 47 of 58: DV-29, checked by cutting the cleanup actions); served tests the same; live: Kobalte's popover, select and tooltip differ at the reopening step, attributed to DV-29 in `causes.json`, nothing unattributed |
+| `examples/rx-std`: `build.mjs`, `run.sh` | twelve packages built; `summary.mjs` byte for byte as `rx-t1.noindex`'s run on npm 2.0.3 |
+| `std/test/browser.mjs` | 39 of 39 |
+| `examples/rx-ui-sdk`: `build.mjs`, `check/run.mjs`, `app/test.mjs` | builds; the rewrite's column accepts the good program and the correct lines, as before (its drafts column reads `DECLARATION_VERSION`, as before); `app/test.mjs` 44 of 44, both the original and the rewrite (33 of 44 before the tsconfig fix, 44 on npm 2.0.3) |
+| `runtime/`: `npm test`, `npm pack` | 82 checks; the tarball's package.json has no devDependencies and no local path |
+| the full `scripts/ci`, uncached, with the Vite plugin fork (`bench --check --strict`, `proposals/check.mjs`, every runner and suite, `t-vite-hosts` and `t-vite-watch` run, not skipped) | 47 of 47 passed, nothing kept from before (603 s) |
+
+Nothing stricter dropped, nothing correct refused, nothing accepted that a runner shows differently: neither checker
+changed. Every fix was ours (the store brand, `affects` of a projection, the harnesses for a linked Solid); the
+Solid bug found (DV-29) is recorded, not lowered around.
+
+**For the user to file** (nothing posted): DV-29, `ref/oracle/repros/cleanup-action-write.mjs` — since 2.0.4, after a
+shown part's effect cleanup calls an action while the part is disposed, a render effect over a memo misses the next
+change (2.0.3 and earlier correct; candidates #5124, #5161). No new bug from #4906. Still open from before: #5220
+(X1), DV-26 (draft 2), DV-28 (draft 5).

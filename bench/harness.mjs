@@ -12,6 +12,7 @@ import { published } from "../compiler/scripts/published.mjs";
 import * as cache from "../scripts/lib/cache.mjs";
 import { bundle } from "../scripts/lib/bundle.mjs";
 import * as tools from "../scripts/lib/tools.mjs";
+import { linkedSolid } from "../scripts/lib/relink.mjs";
 
 const require_ = createRequire(import.meta.url);
 const { rowsOf, claimOf } = require_("../tooling/rx-language-server/src/rows.js");   // a declaration's rows, as the crate reads them
@@ -436,6 +437,7 @@ export function stage(id, from) {
   cpSync(from ?? path.join(here, "tasks", id, "src"), dir, { recursive: true });
   shareProbes(dir);
   const own = from ? null : ownInstall(id); if (own) symlinkSync(own, path.join(dir, "node_modules"), "dir");
+  for (const f of ["vite.config.ts", "vite.config.mjs", "vite.config.js"]) if (existsSync(path.join(dir, f))) writeFileSync(path.join(dir, f), linkedSolid(readFileSync(path.join(dir, f), "utf8"), !!own));   // Solid is the pin's, linked (scripts/lib/relink.mjs)
   if (!existsSync(path.join(dir, "tsconfig.json"))) writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: true, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2023", "DOM", "DOM.Iterable"], types: [] }, include: ["**/*.rx", "**/*.d.ts"], exclude: ["node_modules", "dist", ".build"] }, null, 2));
   return dir;
 }

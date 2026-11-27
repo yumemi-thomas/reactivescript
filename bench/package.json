@@ -2,12 +2,13 @@
   "name": "rx-bench-workspace",
   "private": true,
   "type": "module",
-  "description": "The libraries bench/run.mjs runs its tasks against, installed once into bench/.out/ws: Solid 2.0 and the ecosystem's Solid 2 releases (pre-releases included: Kobalte 2 is an alpha, TanStack's adapters release candidates). (@tanstack/virtual-core has no Solid 2 adapter yet: tasks/primitives-virtual/src/virtual.js is a small one, as tasks/table-pagination/src/table.js is for table-core. @happy-dom/global-registrator is what `rx-declare --run --dom` runs a package's hooks in, and @solidjs/universal what rx-verify mounts a row with to read its result.)",
+  "description": "The libraries bench/run.mjs runs its tasks against, installed once into bench/.out/ws: Solid at ref/SOLID_NEXT (linked from ../solid-next beside the repository, as ref/ and the runtime link it, its compiler too — the benchmark compiles a package's JSX with it, and @solidjs/vite-plugin brings it; the paths are relative to bench/.out/ws, where this file is installed) and the ecosystem's Solid 2 releases (pre-releases included: Kobalte 2 is an alpha, TanStack's adapters release candidates). (@tanstack/virtual-core has no Solid 2 adapter yet: tasks/primitives-virtual/src/virtual.js is a small one, as tasks/table-pagination/src/table.js is for table-core. @happy-dom/global-registrator is what `rx-declare --run --dom` runs a package's hooks in, and @solidjs/universal what rx-verify mounts a row with to read its result.)",
   "dependencies": {
-    "solid-js": "2.0.3",
-    "@solidjs/web": "2.0.3",
-    "@solidjs/signals": "2.0.3",
-    "@solidjs/universal": "2.0.3",
+    "solid-js": "file:../../../../solid-next/packages/solid",
+    "@solidjs/web": "file:../../../../solid-next/packages/web",
+    "@solidjs/signals": "file:../../../../solid-next/packages/signals",
+    "@solidjs/universal": "file:../../../../solid-next/packages/universal",
+    "@solidjs/compiler": "file:../../../../solid-next/packages/compiler",
     "@formisch/solid": "1.3.0",
     "valibot": "1.5.0",
     "@tanstack/solid-query": "6.0.0-rc.6",
@@ -152,5 +153,8 @@
     "terracotta": "2.0.0",
     "virtua": "0.56.0",
     "xstate": "6.0.0-beta.5"
+  },
+  "overrides": {
+    "@solidjs/compiler": "$@solidjs/compiler"
   }
 }

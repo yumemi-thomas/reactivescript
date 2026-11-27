@@ -7,7 +7,8 @@ Three components of `@ui-sdk/solid` (Apache-2.0: `LICENSE`, `NOTICE`) in Reactiv
 Both sides are 0.1.0-beta.17, built from source (vercel-labs/ui at d5c6249e), on Solid 2.0.3. Needed beside this repository's
 built crate, runtime, `ref/` and language server: a copy `$UI` of that repository (`pnpm install --ignore-scripts`, Solid
 replaced by 2.0.3 in its `node_modules`; `pnpm build` in `packages/core` and `packages/solid`), and here a `node_modules` as
-`bench/`'s workspace has it, with `@solidjs/compiler`. Then:
+`bench/`'s workspace has it, with `@solidjs/compiler` (since 2026-11-27 Solid there is the pin's, linked from `../solid-next`
+beside the repository, as every runner's: `bench/package.json`). Then:
 
     node install.mjs $UI && node build.mjs && sh upstream/sync.sh $UI
     node app/test.mjs                                     # this suite, both packages and the .rx app, Chromium

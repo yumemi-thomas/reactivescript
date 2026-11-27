@@ -20,13 +20,17 @@
     "@solid-primitives/timer": "1.4.5",
     "@solid-primitives/utils": "7.0.1",
     "@solidjs/babel-plugin": "2.0.2",
+    "@solidjs/signals": "file:../../../solid-next/packages/signals",
     "@solidjs/vite-plugin": "3.0.1",
-    "@solidjs/web": "2.0.3",
+    "@solidjs/web": "file:../../../solid-next/packages/web",
     "esbuild": "^0.28.2",
     "jsdom": "^31.0.1",
-    "solid-js": "2.0.3",
+    "solid-js": "file:../../../solid-next/packages/solid",
     "typescript": "^6.0.3",
     "vite": "8.3.8",
     "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "@solidjs/compiler": "file:../../../solid-next/packages/compiler"
   }
 }

@@ -534,6 +534,29 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   now states F-3 and what still holds. Changed on the user's decision of
   2026-11-26: F-3 is Solid's deliberate rule, not a bug, so the language
   follows it (a Solid bug would have stayed a DV with a memo).
+- **DV-29 (a reader misses a change after an effect's cleanup called an
+  action) — a Solid bug, a regression in 2.0.4; open, 2026-11-27**
+  (`ref/oracle/repros/cleanup-action-write.mjs`, plain Solid;
+  S-effect-cleanup-action). A part that registers with its root in an effect
+  and unregisters in the effect's cleanup (EF-5), through an action, is the
+  shape of a dialog kit (Kobalte's `Title`). When `if` ends the part, the
+  cleanup's action runs while its owner is disposed; from then on a render
+  effect over a memo of the root's record misses the next change: the
+  trigger keeps `F` while the part shows (`Ft` where the rule says `Tt`). A
+  plain write in the cleanup does not do it, nor the same write in the
+  effect's body. Solid 2.0.3, 2.0.0, rc.23 and rc.21 show `Tt`; 2.0.4 (its
+  development and production builds) and main at 30e7805eb and 50a4bfdde
+  show `Ft` — not #4906's, then. Among 2.0.4's 16 commits to the signals,
+  #5124 ("a removed row's cleanup can call an action during teardown") and
+  #5161 ("a cleanup during its landing never merges it") touch exactly
+  this; not bisected (Solid is not rebuilt here). Recorded as an `oracle`
+  divergence; the program is ordinary and nothing is refused. Found when the
+  examples moved onto the pinned Solid (2026-11-27): `examples/rx-packages`
+  `live.mjs`, Kobalte's popover, select and tooltip, whose rewrites
+  unregister so, differ from the originals at the reopening step (their
+  `causes.json` names DV-29). *Memo:* the user's to file; no draft yet,
+  the repro is the plain-Solid program to start from. Nothing here changes
+  when it is fixed but this record.
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
   2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts

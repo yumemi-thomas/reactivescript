@@ -10,11 +10,12 @@ import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { relinked, linkedSolid } from "../../scripts/lib/relink.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
 const ws = path.join(here, ".out/start");
-const pkg = readFileSync(path.join(repo, "examples/start/package.json"), "utf8");
+const pkg = relinked(readFileSync(path.join(repo, "examples/start/package.json"), "utf8"), path.join(repo, "examples/start"), ws);   // Solid is the pin's, linked (scripts/lib/relink.mjs)
 mkdirSync(ws, { recursive: true });
 if (!existsSync(path.join(ws, "node_modules/@tanstack/solid-start")) || (existsSync(path.join(ws, "package.json")) && readFileSync(path.join(ws, "package.json"), "utf8") !== pkg)) {
   writeFileSync(path.join(ws, "package.json"), pkg);
@@ -22,6 +23,7 @@ if (!existsSync(path.join(ws, "node_modules/@tanstack/solid-start")) || (existsS
 }
 rmSync(path.join(ws, "src"), { recursive: true, force: true });
 for (const f of ["src", "vite.config.ts", "serve.mjs", "tsconfig.json"]) cpSync(path.join(repo, "examples/start", f), path.join(ws, f), { recursive: true });
+writeFileSync(path.join(ws, "vite.config.ts"), linkedSolid(readFileSync(path.join(ws, "vite.config.ts"), "utf8")));   // Solid is the pin's, linked (scripts/lib/relink.mjs)
 // this package and the runtime, as installed (the runtime copied: its peers are the app's Solid)
 const rx = path.join(ws, "node_modules/@reactivescript"); rmSync(rx, { recursive: true, force: true }); mkdirSync(path.join(rx, "runtime"), { recursive: true });
 symlinkSync(path.join(repo, "compiler"), path.join(rx, "compiler"));

@@ -11,9 +11,9 @@ name: bench
 on:
   push:
     branches: [main]
-    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml"]
+    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml", ".github/actions/solid-next/**"]
   pull_request:
-    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml"]
+    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml", ".github/actions/solid-next/**"]
   workflow_dispatch:
 
 jobs:
@@ -34,9 +34,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: compiler
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1   # solid-next's packageManager
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+      - name: Solid next, at the pin (the runtime and bench/package.json link ../solid-next)
+        uses: ./.github/actions/solid-next
       - name: The crate (rxc, and the Node-API build Solid's Vite plugin loads)
         working-directory: compiler
         run: |

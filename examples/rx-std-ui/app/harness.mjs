@@ -6,13 +6,13 @@ export const own = path.join(root, "node_modules/@rx-ui-sdk/solid");
 const solid = (generate, dev) => ({ name: "solid", setup(b) { b.onLoad({ filter: /\.[tj]sx$/ }, (a) => ({ contents: transform(readFileSync(a.path, "utf8"), { filename: a.path, generate, hydratable: true, dev, moduleName: "@solidjs/web" }).code, loader: "ts" })); } });
 const parts = (which) => ({ name: "parts", setup(b) { b.onResolve({ filter: /^#(toggle|tabs|dialog)$/ }, (a) => which === "orig" ? b.resolve(`@ui-sdk/solid/${a.path.slice(1)}`, { resolveDir: root, kind: a.kind }) : { path: path.join(root, "facade", a.path.slice(1) + ".js") }); } });
 export async function bundle(which, { dev = true, entry = "client.tsx", minify = false, external = [], contents, resolveDir } = {}) {
-  const r = await esbuild.build({ ...(contents ? { stdin: { contents, resolveDir: resolveDir ?? here, loader: "tsx" } } : { entryPoints: [path.join(here, entry)] }), bundle: true, write: false, format: "esm", platform: "browser", minify, treeShaking: true, external, conditions: ["browser", "solid", dev ? "development" : "production"], define: { "process.env.NODE_ENV": dev ? '"development"' : '"production"' }, logLevel: "error", plugins: [parts(which), solid("dom", dev)] });
+  const r = await esbuild.build({ tsconfigRaw: {}, ...(contents ? { stdin: { contents, resolveDir: resolveDir ?? here, loader: "tsx" } } : { entryPoints: [path.join(here, entry)] }), bundle: true, write: false, format: "esm", platform: "browser", minify, treeShaking: true, external, conditions: ["browser", "solid", dev ? "development" : "production"], define: { "process.env.NODE_ENV": dev ? '"development"' : '"production"' }, logLevel: "error", plugins: [parts(which), solid("dom", dev)] });
   return r.outputFiles[0].text;
 }
 let seq = 0;
 export async function server(which) {
   const out = path.join(root, "app/.out"); mkdirSync(out, { recursive: true }); const f = path.join(out, `server.${which}.${++seq}.mjs`);
-  await esbuild.build({ entryPoints: [path.join(here, "server.tsx")], bundle: true, outfile: f, format: "esm", platform: "node", packages: "bundle", conditions: ["node", "solid", "development"], external: ["solid-js", "@solidjs/*", "node:*"], logLevel: "error", plugins: [parts(which), solid("ssr", true)] });
+  await esbuild.build({ tsconfigRaw: {}, entryPoints: [path.join(here, "server.tsx")], bundle: true, outfile: f, format: "esm", platform: "node", packages: "bundle", conditions: ["node", "solid", "development"], external: ["solid-js", "@solidjs/*", "node:*"], logLevel: "error", plugins: [parts(which), solid("ssr", true)] });
   return import(pathToFileURL(f).href);
 }
 export async function rxApp() {

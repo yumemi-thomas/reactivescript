@@ -24,7 +24,7 @@ import * as web from "@solidjs/web";
 import { RequestContext } from "@solidjs/web";
 
 /** The releases of Solid this file was written against and is tested with. */
-export const SOLID_TESTED = "2.0.2 to 2.0.3";
+export const SOLID_TESTED = "2.0.4, and Solid main at ref/SOLID_NEXT";
 const RENDER_ROOTS = Symbol.for("@solidjs/web/render-roots");
 
 export type Own = { id?: string };

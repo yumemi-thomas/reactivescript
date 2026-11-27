@@ -48,8 +48,8 @@ function project(name, { runtimeAt, lists }) {
 import solid from "@solidjs/vite-plugin";
 import rx from "@reactivescript/compiler/vite";
 const app = "src/App.rx";
-export default defineConfig({ plugins: [solid({ ssr: true, start: { app, nodeServer: true }, frontends: { ".rx": rx({ pages: [app], generate: false }) } })] });
-`);
+export default defineConfig({ resolve: { preserveSymlinks: true }, plugins: [solid({ ssr: true, start: { app, nodeServer: true }, frontends: { ".rx": rx({ pages: [app], generate: false }) } })] });
+`);   // preserveSymlinks: Solid is the pin's, linked (scripts/lib/relink.mjs, linkedSolid)
   writeFileSync(path.join(dir, "dev.mjs"), `import { createServer } from "vite";
 const server = await createServer({ logLevel: "silent", server: { host: "127.0.0.1", port: 0 } });
 await server.listen();
