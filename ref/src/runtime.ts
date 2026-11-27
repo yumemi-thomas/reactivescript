@@ -2,6 +2,7 @@
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
 import { inPrelude, language } from "./names.ts";
 import { classMap } from "./style.ts";
+import { nonTailAwaits } from "./awaits.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 import { instantiates, keptParts, ownUses, readsOwn } from "./ast.ts";
@@ -65,6 +66,7 @@ export class Node {
   lane = false;                                        // R-10: read a probe during last compute
   lanes = new Set<Node>();                             // R-10 / H-7: which probed sources' lanes this value lives in
   inLanes = new Set<Node>();                           // H-7: the lanes it is held by: all but a guess's lane reached only through `latest` (DV-10)
+  lifted: Node[] = [];                                 // 07 §3: the awaits of its expression that are flights of their own
   flight: Flight | null = null; answered = false; firstPaint = false; landing = false;   // R-1, R-7; landing: its flight answered and it has not recomputed since
   heldBy: number | null = null;                        // the change (instant) whose uncommitted write / flight this value belongs to
   taint = new Set<number>();                           // open changes this value derives from (equations); empty for served reads
@@ -303,7 +305,7 @@ export class Runtime {
   land(target: string, value: unknown, reject = false) {
     let f: Flight | undefined;
     if (/^".*"$/.test(target)) f = this.flights.get(target.slice(1, -1));
-    else { const n = this.findNode(target); f = n?.flight ?? undefined; if (!n) throw new Error(`no node ${target}`); if (!f) throw new Error(`${target} has no flight`); }
+    else { const n = this.findNode(target); f = n ? this.flightsOf(n).find(x => x.state === "pending") ?? this.flightsOf(n)[0] : undefined; if (!n) throw new Error(`no node ${target}`); if (!f) throw new Error(`${target} has no flight`); }
     if (!f) throw new Error(`no flight ${target.replace(/^"(.*)"$/, "$1")}`);   // the flight's key, as the other runners name it
     this.answer(f, reject ? "rejected" : "resolved", reject ? (value instanceof Error ? value : new Error(String(value))) : value);   // `reject x NotFound("…")`: a declared class (MO-8)
     const w = this.pendingWrites; this.pendingWrites = [];
@@ -383,7 +385,8 @@ export class Runtime {
       if (process.env.RS_TRACE) console.log(`[instant ${this.instant} pass ${pass}] holding=${holding.map(h => h.name + "@" + h.heldOn).join(",")} heldRoots=${[...heldRoots]} roots=${[...roots()]} parent=${[...this.parent.entries()].map(e => e.join(">"))} actions=${[...this.openActions].map(a => a.change)} lanes=${[...this.heldLanes].map(l => l.name + ":" + l.heldBy + "/" + [...l.taint])}`);
       for (const g of roots()) {
         if (heldRoots.has(g)) { this.openChanges.add(g); continue; }
-        this.openChanges.delete(g); any = true; committedSome = true;
+        for (const c of [...this.openChanges]) if (this.find(c) === g) this.openChanges.delete(c);   // every change of the group: one left behind was a group again at the next instant, and its commit took that instant's fresh writes with it
+        any = true; committedSome = true;
         this.commitGroup(g);
       }
       if (!any) break;
@@ -807,7 +810,23 @@ export class Runtime {
   private untracked<T>(f: () => T): T { const dm = this.demandMode, tr = this.tracking; this.demandMode = false; this.tracking = null; try { return f(); } finally { this.demandMode = dm; this.tracking = tr; } }
 
   // ---- expressions ----
-  evalExpr(e: Expr, region: Region, env?: Map<string, unknown>): unknown { return this.ev(e, region, env); }
+  evalExpr(e: Expr, region: Region, env?: Map<string, unknown>): unknown {
+    // 07 §3, R-1: each `await` that is not an equation's result is a flight of its own — a node the expression reads where
+    // the `await` was (awaits.ts; the compilers hoist the same ones). A reader's own result too: it is no equation's memo.
+    if (this.tracking && this.demandMode && !this.roots.has(e)) { this.roots.add(e); for (const h of nonTailAwaits(e, this.tracking.kind === "eq")) this.liftedAwaits.add(h.node); }
+    return this.ev(e, region, env);
+  }
+  private roots = new WeakSet<Expr>(); private liftedAwaits = new WeakSet<Expr>(); private liftedNodes = new WeakMap<Region, Map<Expr, Node>>();
+  /** …that node, made where the `await` is first reached (E-11: an arm not selected asks nothing). */
+  private liftedNode(e: Expr, region: Region, env?: Map<string, unknown>): Node {
+    let m = this.liftedNodes.get(region); if (!m) this.liftedNodes.set(region, (m = new Map()));
+    let n = m.get(e);
+    if (!n) { const owner = this.tracking!; n = this.mkNode("eq", `${owner.name}$await`, region, rt => rt.ev(e, region, env)); m.set(e, n); owner.lifted.push(n); }
+    return n;
+  }
+  /** A node's flights: its own, or those of the awaits lifted out of its expression. */
+  private flightsOf(n: Node): Flight[] { return [...(n.flight ? [n.flight] : []), ...n.lifted.flatMap(l => this.flightsOf(l))]; }
+  private withLifted(n: Node): Node[] { return [n, ...n.lifted.flatMap(l => this.withLifted(l))]; }
   private latestOfGuess = 0;                            // DV-10: evaluating `latest g` of a guess: its reads join g's lane without being held by it
   private addLane(l: Node, held = true) { const t = this.tracking!; t.lanes.add(l); if (held && !this.latestOfGuess) t.inLanes.add(l); }
   /** H-6, R-11 (Solid D-17, decision 1 of #4695): a re-arm shows its fallback now iff every held value its `on` pass read, it read
@@ -922,6 +941,7 @@ export class Runtime {
       case "peek": return this.demandMode ? this.unsubscribed(() => this.ev(e.e, region, env)) : this.untracked(() => this.ev(e.e, region, env));   // E-5: in reactive scope, the pass's own values with no input; imperative reads see σ (H-10)
       case "use": return this.readNode(this.provisionOf(e.name, region, this.above.get(e)));   // RG-7b: the nearest provision of the context through the instantiation chain
       case "await": {                                                  // R-1, R-6, R-7
+        if (this.tracking && this.demandMode && this.liftedAwaits.has(e)) { const own = this.liftedNode(e, region, env); if (this.tracking !== own) return this.readNode(own); }   // 07 §3: a flight of its own
         const v = this.ev(e.e, region, env); if (isAbsent(v)) return v;
         if (!(v instanceof Flight)) return v;                          // a value: same instant, no tick
         const n = this.tracking; if (n) n.flight = v;
@@ -1215,7 +1235,7 @@ export class Runtime {
   private resumeStmtOnly(s: Stmt, region: Region, env: Map<string, unknown>) {
     const run = this.currentRun ?? { action: false };
     if (s.k === "action") this.startRun(s.body, region, new Map(env), true);
-    else if (s.k === "refresh") { const n = this.nodeNamed(s.name, region); if (!n || (n.kind !== "eq") || !(n.question || n.flight || n.compute)) throw new RuleError("INVALID_REFRESH_TARGET", `${s.name} has no question to re-ask`); n.refreshInAction = !!run.action; this.pendingRefresh.push(n); }
+    else if (s.k === "refresh") { const n = this.nodeNamed(s.name, region); if (!n || (n.kind !== "eq") || !(n.question || n.flight || n.compute)) throw new RuleError("INVALID_REFRESH_TARGET", `${s.name} has no question to re-ask`); for (const l of this.withLifted(n)) { l.refreshInAction = !!run.action; this.pendingRefresh.push(l); } }
     else if (s.k === "affects") { const n = this.nodeNamed(s.name, region); if (!n) throw new RuleError("INVALID_AFFECTS_TARGET", `${s.name} is not reactive`); this.pendingAffects.push(n); }
     else if (s.k === "optimistic") {
       if (!run.action) throw new RuleError("GUESS_OUTSIDE_HOLD", "a guess outside an action body");

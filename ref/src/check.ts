@@ -22,7 +22,19 @@ const DRAFT_METHODS = new Set([
   "toFixed", "toPrecision", "toString", "toLocaleString", "valueOf", "hasOwnProperty",
 ]);
 /** W2: an Array's methods that answer a list of some of the items it holds, as they are. */
-const SAME_ITEMS = new Set(["filter", "toSorted", "toReversed", "slice", "concat", "reverse", "sort"]);
+const SAME_ITEMS = new Set(["filter", "toSorted", "toReversed", "slice", "concat", "reverse", "sort", "flat", "with", "toSpliced", "splice", "fill", "copyWithin", "values"]);
+/** R-io-3d (2026-11-27): …that answer one of its items; that put what they are given among the items; and the methods of
+ *  plain data that answer a primitive, nothing, or a list of primitives, whatever they are called on. A method that is in
+ *  none of these lists answers a value that holds whatever it was called on or given held (`?`). */
+const ITEM_OF = new Set(["at", "find", "findLast", "pop", "shift"]);
+const GIVEN_ITEMS = new Set(["concat", "with", "toSpliced", "splice", "fill"]);
+const ANSWERS_PLAIN = new Set(["push", "unshift", "includes", "indexOf", "lastIndexOf", "join", "keys", "has", "delete", "clear", "forEach", "findIndex", "findLastIndex", "some", "every",
+  "trim", "trimStart", "trimEnd", "toUpperCase", "toLowerCase", "startsWith", "endsWith", "padStart", "padEnd", "split", "replace", "replaceAll", "charAt", "charCodeAt", "codePointAt", "substring", "repeat", "normalize", "localeCompare", "match", "search",
+  "toFixed", "toPrecision", "toString", "toLocaleString", "hasOwnProperty"]);
+/** A method of plain data, by name (MO-10i's lists): what a value of a shape that is not known is called with. */
+const plainMethod = (m: string) => DRAFT_METHODS.has(m) || DRAFT_CALLBACKS.has(m);
+/** The language's functions that answer a primitive (`names.ts`). */
+const SCALAR_FNS = new Set(["len", "str", "sum", "every", "indexOf"]);
 const DRAFT_CALLBACKS = new Set(["forEach", "map", "filter", "find", "findIndex", "findLast", "findLastIndex", "some", "every", "flatMap", "reduce", "reduceRight", "sort", "toSorted"]);
 /** W-1a: an Array's methods that change it in place. */
 const ARRAY_MUTATORS = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]);
@@ -31,7 +43,22 @@ const lang = (env: Env, name: string) => language(name, env.lookup(name), env.co
 /** MO-8j: the language's methods and functions that call a function they are given while the call runs. */
 const CALLS_NOW = new Set(["map", "filter", "some", "every", "find", "reduce", "forEach", "flatMap", "toSorted", "replace"]);
 /** W2 (2026-11-26): a path into a value — fields by name, an item of a list `*` — "" is the value itself. */
-export const joinPath = (a: string, b: string): string => a === "" ? b : b === "" ? a : `${a}.${b}`;
+export const joinPath = (a: string, b: string): string => deepCut(a === "" ? b : b === "" ? a : `${a}.${b}`);
+/** R-io-3d (2026-11-27): `?` ends a path — somewhere at it or below, where the form that made the value is not one the
+ *  checker reads; `()` is what calling the value answers. */
+const deepCut = (p: string): string => { if (!p.includes("?")) return p; const s = p.split("."); return s.slice(0, s.indexOf("?") + 1).join("."); };
+const isIndex = (s: string) => /^\d+$/.test(s);
+/** …what a value with these io parts holds at a key (`*`: an item, any index; null: a key that is not known, any). */
+export function partsAt(o: Iterable<string>, k: string | null): Set<string> {
+  const out = new Set<string>();
+  for (const p of o) {
+    if (p === "") continue;
+    const i = p.indexOf("."), h = i < 0 ? p : p.slice(0, i);
+    if (h === "?") out.add("?");
+    else if (k === null ? h !== "()" : k === "*" ? h === "*" || isIndex(h) : h === k || (h === "*" && isIndex(k))) out.add(i < 0 ? "" : p.slice(i + 1));
+  }
+  return out;
+}
 /** …with each index an item (`0.go` is `*.go`). */
 export const itemPath = (p: string): string => p === "" ? "" : p.split(".").map(s => /^\d+$/.test(s) ? "*" : s).join(".");
 /** MO-8j, W2 (2026-11-26): the paths of a fn's i-th parameter that its body calls while the fn runs ("": the parameter
@@ -41,40 +68,86 @@ export const itemPath = (p: string): string => p === "" ? "" : p.split(".").map(
  *  over the module's fns, the cycle cut where it closes (by the caller of `called`). Outside any closure,
  *  or in a closure given to one of `CALLS_NOW`. A closure kept, a statement body, a call of JavaScript: not read — what
  *  is not known to call now is not refused. */
-export function calledPaths(d: Extract<Decl, { k: "fn" }>, i: number, isFn: (name: string) => boolean, called: (name: string, j: number) => Set<string>): Set<string> {
+export function calledPaths(d: { params: { name: string }[]; decls: Decl[]; tail: Expr }, i: number, isFn: (name: string) => boolean, called: (name: string, j: number) => Set<string>): Set<string> {
   const p = d.params[i]?.name, out = new Set<string>(); if (p === undefined) return out;
-  type Names = Map<string, string | null>;   // a name for a path of the parameter; null: a name that is no path (a closure's parameter, a local)
-  const pathOf = (x: Expr, names: Names): string | undefined => {
+  type Names = Map<string, Set<string> | null>;   // the paths of the parameter a name may stand for; null: a name that is none (a closure's parameter, a local)
+  const none = new Set<string>(), closures = new Map<string, Extract<Expr, { k: "fn" }>>();   // …and the locals that name a closure written there
+  /** R-io-3d: a form that is not read holds whatever the names in it hold — each path they stand for, and anything below. */
+  const mentions = (x: Expr, names: Names, to: Set<string>): Set<string> => {
+    const go = (y: Expr) => mentions(y, names, to);
     switch (x.k) {
-      case "id": return names.get(x.name) ?? undefined;
-      case "member": { const o = pathOf(x.o, names); return o === undefined ? undefined : joinPath(o, x.p); }
-      case "index": { const o = pathOf(x.o, names); if (o === undefined) return undefined; const k = litKey(x.i); return joinPath(o, k === undefined || /^\d+$/.test(k) ? "*" : k); }
-      case "peek": return pathOf(x.e, names);
-      default: return undefined;
+      case "id": for (const q of names.get(x.name) ?? none) to.add(joinPath(q, "?")); break;
+      case "call": go(x.f); x.args.forEach(go); break;
+      case "fn": if (!x.stmts) mentions(x.body, scoped(names, x.params), to); break;
+      case "bin": go(x.l); go(x.r); break;
+      case "un": case "peek": case "latest": case "pending": case "spread": case "omit": case "throw": go(x.e); break;
+      case "await": go(x.e); if (x.init) go(x.init); break;
+      case "pre": if (x.init) go(x.init); break;
+      case "if": go(x.c); go(x.t); go(x.f); break;
+      case "catch": go(x.e); go(x.alt); break;
+      case "tpl": for (const q of x.parts) if (typeof q !== "string") go(q); break;
+      case "member": go(x.o); break;
+      case "index": go(x.o); go(x.i); break;
+      case "arr": x.items.forEach(go); break;
+      case "rec": for (const f of x.fields) go("spread" in f ? f.spread : f.v); break;
+      case "draft": go(x.seed); break;
+      default: break;   // lit, use, stylemap, serverfn
+    }
+    return to;
+  };
+  /** The paths of the parameter an expression's value may be (R-io-3d): through names, fields, items, choices and the
+   *  methods of a list that answer its items; any other form by `mentions`. */
+  const pathsOf = (x: Expr, names: Names): Set<string> => {
+    const r = new Set<string>(); const all = (ps: Iterable<string>, k = "") => { for (const q of ps) r.add(joinPath(q, k)); return r; };
+    switch (x.k) {
+      case "id": return all(names.get(x.name) ?? none);
+      case "member": return all(pathsOf(x.o, names), x.p);
+      case "index": { const k = litKey(x.i); return all(pathsOf(x.o, names), k === undefined ? "?" : isIndex(k) ? "*" : k); }
+      case "peek": case "latest": case "await": case "omit": return all(pathsOf(x.e, names));
+      case "if": all(pathsOf(x.t, names)); return all(pathsOf(x.f, names));
+      case "bin": if (x.op === "??" || x.op === "||" || x.op === "&&") { if (x.op !== "&&") all(pathsOf(x.l, names)); all(pathsOf(x.r, names)); } return r;
+      case "catch": all(pathsOf(x.e, names)); return all(pathsOf(x.alt, names));
+      case "call": {
+        const m = x.f.k === "member" ? x.f.p : x.f.k === "id" && !names.has(x.f.name) && !isFn(x.f.name) ? x.f.name : undefined;
+        const o = x.f.k === "member" ? x.f.o : x.args[0], rest = x.f.k === "member" ? x.args : x.args.slice(1);
+        if (m !== undefined && o && ITEM_OF.has(m)) return all(pathsOf(o, names), "*");
+        if (m !== undefined && o && SAME_ITEMS.has(m)) { all(pathsOf(o, names)); if (GIVEN_ITEMS.has(m)) for (const a of rest) all(pathsOf(a, names), "?"); return r; }
+        if (m !== undefined && (ANSWERS_PLAIN.has(m) || (x.f.k === "id" && SCALAR_FNS.has(m)))) return r;
+        return mentions(x, names, r);
+      }
+      case "lit": case "tpl": case "un": case "pending": case "throw": case "stylemap": case "serverfn": case "use": return r;
+      default: return mentions(x, names, r);   // arr, rec, fn, spread, draft, pre: not read
     }
   };
-  const scoped = (names: Names, ps: string[], item?: string, k = 0) => { const m: Names = new Map(names); for (const q of ps) m.set(q, null); if (item !== undefined && ps[k] !== undefined) m.set(ps[k], item); return m; };
+  const scoped = (names: Names, ps: string[], bind?: (Set<string> | undefined)[]) => { const m: Names = new Map(names); ps.forEach((q, j) => m.set(q, bind?.[j]?.size ? bind[j]! : null)); return m; };
   const fnOf = (n: string, names: Names) => !names.has(n) && isFn(n);
+  const items = (ps: Set<string>) => new Set([...ps].map(q => joinPath(q, "*")));
+  /** …a path the callee calls, under a path it is given: a method of plain data called on a part that is not known is no call of it */
+  const under = (ap: string, q: string) => { if (!(ap.endsWith("?") && plainMethod(q.slice(q.lastIndexOf(".") + 1)))) out.add(joinPath(ap, q)); };
+  let depth = 0;
   const visit = (x: Expr, now: boolean, names: Names): void => {
     switch (x.k) {
       case "call": {
-        const fp = pathOf(x.f, names); if (now && fp !== undefined) out.add(fp);
+        if (now) { const plain = x.f.k === "member" && plainMethod(x.f.p); for (const fp of pathsOf(x.f, names)) if (!(plain && fp.endsWith("?"))) out.add(fp); }
         const method = x.f.k === "member" ? x.f.p : x.f.k === "id" && !names.has(x.f.name) && !fnOf(x.f.name, names) ? x.f.name : undefined;
         const c = now && method !== undefined && CALLS_NOW.has(method);
         const recv = !c ? undefined : x.f.k === "member" ? x.f.o : x.args[0];
-        const rp = recv && pathOf(recv, names), k = method === "reduce" ? 1 : 0;
+        const rps = recv ? pathsOf(recv, names) : none, k = method === "reduce" ? 1 : 0;
         const cbs = !c ? [] : x.f.k === "member" ? x.args : x.args.slice(1);
         const g = x.f.k === "id" && fnOf(x.f.name, names) ? x.f.name : undefined;
-        if (x.f.k !== "id") visit(x.f, now, names);
+        // a closure written there and called where it is written, or by the local that names it: its body, with what it is given
+        const own = x.f.k === "fn" ? x.f : x.f.k === "id" && names.get(x.f.name) === null ? closures.get(x.f.name) : undefined;
+        if (own && !own.stmts && now && depth < 8) { depth++; visit(own.body, true, scoped(names, own.params, x.args.map(a => pathsOf(a, names)))); depth--; }
+        if (x.f.k !== "id" && x.f.k !== "fn") visit(x.f, now, names);
         x.args.forEach((a, j) => {
-          const ap = pathOf(a, names);
           if (cbs.includes(a)) {
-            if (ap !== undefined) { out.add(ap); return; }
-            if (a.k === "fn") { if (!a.stmts) visit(a.body, true, scoped(names, a.params, rp === undefined ? undefined : joinPath(rp, "*"), k)); return; }
-            if (a.k === "id" && rp !== undefined && fnOf(a.name, names)) for (const q of called(a.name, k)) out.add(joinPath(joinPath(rp, "*"), q));
+            if (a.k === "fn") { if (!a.stmts) { const it = items(rps), acc = method === "reduce" ? new Set([...rps, ...cbs.filter(y => y !== a).flatMap(y => [...pathsOf(y, names)])].map(r => joinPath(r, "?"))) : undefined, bind = a.params.map((_, q) => q === k ? it : q === 0 ? acc : undefined); visit(a.body, true, scoped(names, a.params, bind)); } return; }
+            const aps = pathsOf(a, names);
+            if (aps.size) { for (const ap of aps) out.add(ap); return; }
+            if (a.k === "id" && fnOf(a.name, names)) for (const rp of rps) for (const q of called(a.name, k)) under(joinPath(rp, "*"), q);
             visit(a, now, names); return;
           }
-          if (g !== undefined && now && ap !== undefined) for (const q of called(g, j)) out.add(joinPath(ap, q));
+          if (g !== undefined && now) for (const ap of pathsOf(a, names)) for (const q of called(g, j)) under(ap, q);
           if (a.k === "fn") { if (!a.stmts) visit(a.body, false, scoped(names, a.params)); return; }
           visit(a, now, names);
         });
@@ -96,16 +169,28 @@ export function calledPaths(d: Extract<Decl, { k: "fn" }>, i: number, isFn: (nam
       default: return;   // lit, id, use, stylemap, serverfn
     }
   };
-  const names: Names = new Map([[p, ""]]); for (const x of d.decls) if ("name" in x && typeof x.name === "string") names.set(x.name, null);
+  const names: Names = new Map([[p, new Set([""])]]); for (const x of d.decls) if ("name" in x && typeof x.name === "string") names.set(x.name, null);
+  // a local is the paths its expression may be; one written above what it reads is read again (twice: a chain of three)
+  for (let n = 0; n < 3; n++) for (const x of d.decls) if (x.k === "eq") { if (x.e.k === "fn") closures.set(x.name, x.e); else { const ps = pathsOf(x.e, names); names.set(x.name, ps.size ? ps : null); } }
   for (const x of d.decls) {
-    if (x.k === "eq") { const ap = pathOf(x.e, names); if (ap !== undefined) names.set(x.name, ap); else { names.set(x.name, null); visit(x.e, true, names); } }   // a name for a path of it is that path
+    if (x.k === "eq") visit(x.e, true, names);
     else if (x.k === "source") visit(x.init, true, names);
   }
   visit(d.tail, true, names);
   return new Set([...out].map(itemPath));
 }
 /** W2: whether a value with these io parts holds one at a path that is called (paths as `itemPath` writes them). */
-export const callsHeld = (parts: Iterable<string>, called: Set<string>): string | undefined => { for (const q of parts) { const n = itemPath(q); if (called.has(n)) return n; } return undefined; };
+export const callsHeld = (parts: Iterable<string>, called: Set<string>): string | undefined => {
+  for (const q of parts) { const a = q === "" ? [] : q.split(".");
+    for (const c of called) { const b = c === "" ? [] : c.split(".");
+      for (let i = 0; ; i++) {
+        if (a[i] === "?") { if (!plainMethod(b[b.length - 1] ?? "")) return c; break; }   // somewhere in it: a method of plain data called on a part of it is no call of it
+        if (b[i] === "?") return c;
+        if (i >= a.length || i >= b.length) { if (a.length === b.length) return c; break; }
+        if ((isIndex(a[i]) ? "*" : a[i]) !== (isIndex(b[i]) ? "*" : b[i])) break;
+      } } }
+  return undefined;
+};
 /** `map(…)` is the language's only where nothing binds `map`. */
 const ownMap = (e: Expr, env: Env): boolean => !(e.k === "call" && e.f.k === "id" && !lang(env, e.f.name));
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr) || attr === "ref";                // SC-4; `ref`: called once with the element (07 §4)
@@ -230,6 +315,8 @@ type Sym = {
   waits?: [boolean, string[]];   // MO-10l: a JS fn whose whole result is an accessor that waits or fails (holds, classes)
   result?: Result;                     // MO-13i: an imported fn — the parts of its result, where they are known
   fnDecls?: Set<string>;               // MO-13i: an instantiating fn of this module — the names its body declares
+  clParts?: string[];                  // R-io-3d: a closure's parameter, bound for a reading of its body — the statement closures it is given (B3)
+  mayGet?: { e: Expr; env: Env }[];    // R-io-3d: a closure's parameter — what the call the closure is written in may hand it (its other arguments, what it is called on)
   actionParts?: string[];              // R-io-3: an import — the parts of its value (a fn's: of its result) that are actions, as paths
   needs?: string[];                    // MO-12b: the JS contexts a declared hook reads (keys) — a use at each call
   gives?: string[];                    // MO-12c: the JS contexts a declared factory's component provides to what it renders
@@ -2162,9 +2249,13 @@ class Checker {
     const method = f.k === "member" ? f.p : f.k === "id" && lang(env, f.name) === "fn" ? f.name : undefined;
     if (method !== undefined && CALLS_NOW.has(method) && method !== "replace") {
       const over = f.k === "member" ? f.o : args[0];
-      if (over) for (const a of f.k === "member" ? args : args.slice(1)) if (a.k === "fn") this.itemOf.set(a, { k: method === "reduce" ? 1 : 0, e: over, env });
+      if (over) for (const a of f.k === "member" ? args : args.slice(1)) if (a.k === "fn") { this.itemOf.set(a, { k: method === "reduce" ? 1 : 0, e: over, env }); if (method === "reduce") this.handedOf.set(a, { only: 0, srcs: [over, ...args.filter(x => x !== a && x !== over)].map(x => ({ e: x, env })) }); }
     }
+    // R-io-3d (2026-11-27): …and a closure written among the arguments of any other call the module's text can make —
+    // a fn of `.rx`, a closure, a part of a value — may be handed the other arguments, or what it is called on
+    else if (!this.opaque(f, env) && !(f.k === "member" && plainMethod(f.p))) for (const a of args) if (a.k === "fn" && !a.stmts) this.handedOf.set(a, { srcs: [...recv, ...args.filter(x => x !== a)].map(x => ({ e: x, env })) });
   }
+  private handedOf = new Map<Expr, { only?: number; srcs: { e: Expr; env: Env }[] }>();
   /** W2: a closure's parameter that a calling method hands an item of a list (`callMarks`) */
   private itemOf = new Map<Expr, { k: number; e: Expr; env: Env }>();
   /** MO-10i: the closures being walked (ids, innermost last) — a library's draft is its callback's alone */
@@ -2402,44 +2493,125 @@ class Checker {
     };
     return of((e as { o: Expr }).o, env, 0);
   }
-  /** …`cl`: the parts that are a statement closure written as an item or a field (B3), and nothing else (step 4). */
+  /** …`cl`: the parts that are a statement closure written as an item or a field (B3), and nothing else (step 4).
+   *  R-io-3d (2026-11-27): the fact follows the value through every form. A form the checker reads gives the paths (a
+   *  name, a field, an item, a literal, a choice, `??`, a list's methods that answer its items, a closure's answer `()`);
+   *  any other form — a call of a fn with what it was given, a method that is in no list, a closure handed arguments —
+   *  gives `?`: the value holds, somewhere, whatever it was made from. Only what the module's text does not make is left
+   *  to its declaration (`opaque`). */
   private actionParts(e: Expr, env: Env, cl = false): Set<string> {
     const out = new Set<string>();
     const go = (x: Expr) => this.actionParts(x, env, cl); const memo = cl ? this.closureMemo : this.partsMemo;
     const named = (s: Sym, v: { e?: Expr; env?: Env }): Set<string> => { const m = memo.get(s); if (m) return new Set(m); memo.set(s, out); if (!v.e || !v.env) return out; const r = this.actionParts(v.e, v.env, cl); memo.set(s, r); return new Set(r); };   // one being read by itself adds nothing
-    const at = (o: Set<string>, k: string | undefined) => { if (k !== undefined) for (const p of o) if (p === k) out.add(""); else if (p.startsWith(`${k}.`)) out.add(p.slice(k.length + 1)); return out; };
-    const put = (k: string, v: Expr) => { for (const p of [...out]) if (p === k || p.startsWith(`${k}.`)) out.delete(p); if (!k.includes(".")) for (const p of go(v)) out.add(p === "" ? k : `${k}.${p}`); };
+    const add = (ps: Iterable<string>, pre = "") => { for (const p of [...ps]) out.add(joinPath(pre, p)); return out; };
+    const put = (k: string, v: Expr) => { for (const p of [...out]) if (p === k || p.startsWith(`${k}.`)) out.delete(p); const ps = go(v); if (k === "" || k.includes(".") || k === "?" || k === "*" || k === "()") { if (ps.size) out.add("?"); } else add(ps, k); };
+    const holds = (xs: Expr[]) => xs.some(x => go(x).size > 0);
     switch (e.k) {
-      case "id": { const s = env.lookup(e.name); if (!s) return out; if (!cl && s.kind === "action") return out.add(""); if (!cl && s.actionParts) return new Set(s.actionParts); return (s.kind === "eq" || s.kind === "value") && s.val ? named(s, s.val) : out; }
-      case "member": return !cl && this.handlerProp(e, env) ? out.add("") : at(go(e.o), e.p);   // SC-4b: a handler the component is given is io, as an action is
-      case "index": return !cl && this.handlerProp(e, env) ? out.add("") : at(go(e.o), litKey(e.i));
-      case "rec": for (const f of e.fields) if ("spread" in f) { out.clear(); for (const p of go(f.spread)) out.add(p); } else put(f.key, f.v); return out;
-      case "arr": for (const [i, x] of e.items.entries()) { if (x.k === "spread") break; put(String(i), x); } return out;
-      case "if": for (const x of [e.t, e.f]) for (const p of go(x)) out.add(p); return out;
-      case "bin": if (e.op === "??" || e.op === "||" || e.op === "&&") for (const x of e.op === "&&" ? [e.r] : [e.l, e.r]) for (const p of go(x)) out.add(p); return out;   // `h = props.onPick ?? other`
-      case "peek": return go(e.e);
-      case "fn": return e.stmts ? out.add("") : out;   // B3: a statement closure is io, as an action is
-      case "call": { const f = e.f.k === "id" ? env.lookup(e.f.name) : undefined; return f?.kind !== "fn" ? out : f.actionParts && !cl ? new Set(f.actionParts) : named(f, { e: f.fnTail, env: f.fnEnv }); }
-      default: return out;
+      case "id": {
+        const s = env.lookup(e.name); if (!s) return out;
+        if (!cl && s.kind === "action") return out.add("");
+        if (!cl && s.actionParts) return new Set(s.actionParts); if (cl && s.clParts) return new Set(s.clParts);
+        if ((s.kind === "eq" || s.kind === "value") && s.val) return named(s, s.val);
+        if (s.kind === "value" && s.mayGet) { const m = memo.get(s); if (m) return new Set(m); memo.set(s, out); const r = new Set<string>(s.mayGet.some(x => this.actionParts(x.e, x.env, cl).size > 0) ? ["?"] : []); memo.set(s, r); return new Set(r); }   // a closure's parameter: what the call beside it gives
+        return out;
+      }
+      case "member": return !cl && this.handlerProp(e, env) ? out.add("") : partsAt(go(e.o), e.p);   // SC-4b: a handler the component is given is io, as an action is
+      case "index": return !cl && this.handlerProp(e, env) ? out.add("") : partsAt(go(e.o), litKey(e.i) ?? null);
+      case "rec": for (const f of e.fields) if ("spread" in f) add(go(f.spread)); else put(f.key, f.v); return out;
+      case "arr": { let rest = false; for (const [i, x] of e.items.entries()) { if (x.k === "spread") { rest = true; add(partsAt(go(x.e), "*"), "*"); } else add(go(x), rest ? "*" : String(i)); } return out; }
+      case "if": add(go(e.t)); return add(go(e.f));
+      case "bin": if (e.op === "??" || e.op === "||" || e.op === "&&") for (const x of e.op === "&&" ? [e.r] : [e.l, e.r]) add(go(x)); return out;   // `h = props.onPick ?? other`
+      case "peek": case "latest": case "spread": return go(e.e);
+      case "await": add(go(e.e)); return e.init ? add(go(e.init)) : out;
+      case "catch": add(go(e.e)); return add(go(e.alt));
+      case "omit": for (const p of go(e.e)) if (!e.keys.includes(p.split(".")[0])) out.add(p); return out;
+      case "draft": return holds([e.seed]) ? out.add("?") : out;
+      case "fn": return e.stmts ? out.add("") : add(this.actionParts(e.body, this.closureEnv(e, env), cl), "()");   // B3: a statement closure is io, as an action is; a closure of an expression answers what its body holds
+      case "call": {
+        const f = e.f, fs = f.k === "id" ? env.lookup(f.name) : undefined;
+        if (fs?.kind === "fn") {                                           // a fn: what its result holds, and — a fn of `.rx` — what it was given, where its body can reach it
+          add(fs.actionParts && !cl ? fs.actionParts : fs.fnTail ? named(fs, { e: fs.fnTail, env: fs.fnEnv }) : []);
+          const gives = fs.foreign !== undefined ? [] : fs.fnDecl ? this.fnGives(fs.fnDecl) : e.args.map((_, i) => i);
+          return gives.some(i => e.args[i] !== undefined && go(e.args[i]).size > 0) ? out.add("?") : out;
+        }
+        const m = f.k === "member" ? f.p : f.k === "id" && !fs && lang(env, f.name) === "fn" ? f.name : undefined;
+        const o = f.k === "member" ? f.o : e.args[0], rest = f.k === "member" ? e.args : e.args.slice(1);
+        if (m !== undefined && o && !(f.k === "member" && partsAt(go(o), m).has(""))) {
+          const items = () => partsAt(go(o), "*");
+          if (ITEM_OF.has(m)) return items();
+          if (SAME_ITEMS.has(m)) { const it = items(); add(it, "*"); if (m === "flat") add(partsAt(it, "*"), "*"); if (GIVEN_ITEMS.has(m)) for (const a of rest) { const ps = go(a); add(ps, "*"); add(partsAt(ps, "*"), "*"); } return out; }
+          if (m === "map" || m === "flatMap") {
+            const cb = rest[0]; if (!cb) return out;
+            if (cb.k === "fn" && !cb.stmts) { const b = this.actionParts(cb.body, this.closureEnv(cb, env, [[...items()]], cl), cl); add(b, "*"); if (m === "flatMap") add(partsAt(b, "*"), "*"); return out; }
+            add(partsAt(go(cb), "()"), "*"); return items().size ? out.add("?") : out;
+          }
+          if (ANSWERS_PLAIN.has(m) || (f.k === "id" && SCALAR_FNS.has(m))) return out;
+        }
+        if (f.k === "id" && (!fs || this.opaque(f, env))) return out;         // the language's, JavaScript's, an action's: its declaration says
+        add(partsAt(go(f), "()"));
+        return !this.opaque(f, env) && (holds(e.args) || go(f).has("?") || (f.k === "member" && go(f.o).size > 0)) ? out.add("?") : out;
+      }
+      default: return out;   // lit, tpl, un, pre, pending, throw, use, stylemap, serverfn: a primitive, or its declaration's
     }
+  }
+  /** A closure's body is read in a scope of its own: its parameters, with what they are given where that is known. */
+  private closureEnv(e: Extract<Expr, { k: "fn" }>, env: Env, bind?: string[][], cl = false): Env {
+    const inner = new Env(env, env.region);
+    e.params.forEach((p, j) => inner.vars.set(p, { kind: "value", name: p, region: env.region, line: this.line, ...(bind?.[j]?.length ? (cl ? { clParts: bind[j] } : { actionParts: bind[j] }) : {}) }));
+    return inner;
+  }
+  /** R-io-3d: the parameters of a fn its result can reach — those its body names (a local's expression is its body's). */
+  private givesMemo = new Map<Extract<Decl, { k: "fn" }>, number[]>();
+  private fnGives(d: Extract<Decl, { k: "fn" }>): number[] {
+    let r = this.givesMemo.get(d); if (r) return r;
+    const free = new Set<string>(); freeNames(d.tail, new Set(), free); for (const x of d.decls) if (x.k === "eq") freeNames(x.e, new Set(), free);
+    r = d.params.flatMap((q, i) => free.has(q.name) ? [i] : []); this.givesMemo.set(d, r); return r;
+  }
+  /** R-io-3d: a value the module's text does not make — JavaScript's, a prop's, a context's, a source's, the language's:
+   *  what it holds is its declaration's to say (R-io-3, MO-10b), and what is not declared is open (03 RG-4c). */
+  private opaque(e: Expr, env: Env, depth = 0): boolean {
+    if (depth > 16) return true;
+    switch (e.k) {
+      case "id": { const s = env.lookup(e.name); if (!s) return true;
+        if (s.kind === "eq" || s.kind === "value") return s.foreign !== undefined || (s.val ? this.opaque(s.val.e, s.val.env, depth + 1) : s.rowOf ? this.opaque(s.rowOf.e, s.rowOf.env, depth + 1) : false);
+        return s.kind !== "fn" || s.foreign !== undefined; }
+      case "member": case "index": return this.opaque(e.o, env, depth + 1);
+      case "call": return this.opaque(e.f, env, depth + 1);
+      case "peek": case "latest": case "await": return this.opaque(e.e, env, depth + 1);
+      case "use": return true;
+      default: return false;
+    }
+  }
+  /** R-io-3d: the literals a value is, through the names, fields, items, rows and choices it goes by; undefined where one
+   *  of them is not a literal the module writes. */
+  private literalsOf(e: Expr, env: Env, depth = 0): { e: Expr; env: Env }[] | undefined {
+    if (depth > 16) return undefined;
+    const both = (xs: ({ e: Expr; env: Env }[] | undefined)[]) => xs.every(x => x !== undefined) ? xs.flatMap(x => x!) : undefined;
+    switch (e.k) {
+      case "rec": case "arr": case "fn": return [{ e, env }];
+      case "id": { const s = env.lookup(e.name); if (!s || (s.kind !== "eq" && s.kind !== "value")) return undefined;
+        if (s.rowOf) { const ls = this.literalsOf(s.rowOf.e, s.rowOf.env, depth + 1); return ls && both(ls.map(l => l.e.k === "arr" && !l.e.items.some(x => x.k === "spread") ? both(l.e.items.map(x => this.literalsOf(x, l.env, depth + 1))) : undefined)); }
+        return s.val ? this.literalsOf(s.val.e, s.val.env, depth + 1) : undefined; }
+      case "peek": return this.literalsOf(e.e, env, depth + 1);
+      case "if": return both([this.literalsOf(e.t, env, depth + 1), this.literalsOf(e.f, env, depth + 1)]);
+      case "member": case "index": {
+        const k = e.k === "member" ? e.p : litKey(e.i), ls = this.literalsOf(e.o, env, depth + 1); if (!ls) return undefined;
+        return both(ls.map(l => {
+          if (l.e.k === "rec" && k !== undefined) { if (l.e.fields.some(f => "spread" in f)) return undefined; const f = l.e.fields.findLast(f => !("spread" in f) && f.key === k) as { v: Expr } | undefined; return f && this.literalsOf(f.v, l.env, depth + 1); }
+          if (l.e.k === "arr" && !l.e.items.some(x => x.k === "spread")) { if (k === undefined) return both(l.e.items.map(x => this.literalsOf(x, l.env, depth + 1))); const x = isIndex(k) ? l.e.items[Number(k)] : undefined; return x && this.literalsOf(x, l.env, depth + 1); }
+          return undefined;
+        }));
+      }
+      default: return undefined;
+    }
+  }
+  /** …the closures of an expression a callee is, where every one is known. */
+  private closuresOf(e: Expr, env: Env): { fn: Extract<Expr, { k: "fn" }>; env: Env }[] {
+    const ls = this.literalsOf(e, env); return ls && ls.every(l => l.e.k === "fn" && !l.e.stmts) ? ls.map(l => ({ fn: l.e as Extract<Expr, { k: "fn" }>, env: l.env })) : [];
   }
   /** W2 (2026-11-26): the io parts of an item of a list — what a closure given to one of `CALLS_NOW` over it, or a `for`'s
-   *  row, is handed: the parts of each item of a literal (after a spread too), through the names and the choices it goes
-   *  by, and a list a method only narrows (`filter`, `toSorted`, `slice`, …) holds the same items. */
-  private itemParts(e: Expr, env: Env, depth = 0): Set<string> {
-    const out = new Set<string>(); if (depth > 16) return out;
-    const go = (x: Expr, en = env) => this.itemParts(x, en, depth + 1);
-    for (const p of this.actionParts(e, env)) { const [h, ...rest] = p.split("."); if (/^\d+$/.test(h)) out.add(rest.join(".")); }
-    switch (e.k) {
-      case "arr": for (const x of e.items) for (const p of x.k === "spread" ? go(x.e) : this.actionParts(x, env)) out.add(p); break;
-      case "id": { const s = env.lookup(e.name); if (s && (s.kind === "eq" || s.kind === "value") && s.val && !s.rowOf) for (const p of go(s.val.e, s.val.env)) out.add(p); break; }
-      case "if": for (const x of [e.t, e.f]) for (const p of go(x)) out.add(p); break;
-      case "bin": if (e.op === "??" || e.op === "||" || e.op === "&&") for (const x of e.op === "&&" ? [e.r] : [e.l, e.r]) for (const p of go(x)) out.add(p); break;
-      case "peek": for (const p of go(e.e)) out.add(p); break;
-      case "call": if (e.f.k === "member" && SAME_ITEMS.has(e.f.p)) { for (const p of go(e.f.o)) out.add(p); if (e.f.p === "concat") for (const a of e.args) for (const p of go(a)) out.add(p); } break;
-    }
-    return out;
-  }
+   *  row, is handed. */
+  private itemParts(e: Expr, env: Env): Set<string> { return partsAt(this.actionParts(e, env), "*"); }
   /** MO-8j, W2: the paths of a fn's i-th parameter it calls while it runs (`calledPaths`): of a fn of the module from its
    *  body, through the fns it calls (the cycle cut where it closes); of one imported, from its row's `calls(…)`. */
   private calledStack = new Set<Sym>(); private calledMemo = new Map<Sym, Map<number, Set<string>>>();
@@ -2513,24 +2685,41 @@ class Checker {
   /** MO-8j, W2: a call in reactive scope, of what calls an argument (or a path of it) while it runs, given one that holds io
    *  there — from the expression walk and from an instantiating fn's call bound to a name. */
   private ioGiven(e: Extract<Expr, { k: "call" }>, env: Env, inFn: boolean) {
+    const f = e.f.k === "id" ? env.lookup(e.f.name) : undefined;
+    const method = e.f.k === "member" ? (CALLS_NOW.has(e.f.p) ? e.f.p : undefined) : e.f.k === "id" && !f && lang(env, e.f.name) === "fn" && CALLS_NOW.has(e.f.name) ? e.f.name : undefined;
+    // R-io-3d: a callee that is a closure the module writes — by a name, a field or an item of a literal — calls what its body calls
+    const own = method === undefined && f?.kind !== "fn" ? this.closuresOf(e.f, env) : [];
+    const ownCalls = (c: { fn: Extract<Expr, { k: "fn" }>; env: Env }, i: number) => calledPaths({ params: c.fn.params.map(name => ({ name })), decls: [], tail: c.fn.body }, i, n => c.env.lookup(n)?.kind === "fn", (n, j) => this.calledOf(c.env.lookup(n), j));
+    const fnCalls = (g: Sym | undefined, x: Expr): Set<string> | undefined => {   // every path of any parameter a function given by name calls
+      const cs = g?.kind === "fn" && g.foreign === undefined ? (g.params ?? []).map((_, j) => this.calledOf(g, j)) : x.k === "fn" ? [] : this.closuresOf(x, env).flatMap(c => c.fn.params.map((_, j) => ownCalls(c, j)));
+      const all = new Set(cs.flatMap(c => [...c])); return all.size ? all : undefined;
+    };
     e.args.forEach((a, i) => {
       const s = a.k === "id" ? env.lookup(a.name) : undefined; const named = !!s?.io || s?.kind === "action" || this.voidMethod(a, env);   // …a part of a declared result that is io (MO-10b)
-      const f = e.f.k === "id" ? env.lookup(e.f.name) : undefined;
-      const method = e.f.k === "member" ? (CALLS_NOW.has(e.f.p) ? e.f.p : undefined) : e.f.k === "id" && !f && lang(env, e.f.name) === "fn" && CALLS_NOW.has(e.f.name) ? e.f.name : undefined;
       const over = method === undefined ? undefined : e.f.k === "member" ? e.f.o : i > 0 ? e.args[0] : undefined;
       const g = method !== undefined && a.k === "id" ? env.lookup(a.name) : undefined;
       const byName = !!over && g?.kind === "fn" && !named;   // `[inc].forEach(run)`: each item is given to run
       let called: Set<string>; let held: () => Iterable<string>;
+      const parts = () => { const ps = new Set(this.actionParts(a, env)); if (named) ps.add(""); return ps; };
       if (byName) { called = this.calledOf(g, method === "reduce" ? 1 : 0); held = () => this.itemParts(over!, env); }
       else if (method !== undefined) { if (!named && a.k !== "id" && a.k !== "member" && a.k !== "index") return; called = new Set([""]); held = () => this.actionParts(a, env); }   // …or carried: a part of a record, a handler the component is given (SC-4b)
-      else if (f?.kind === "fn") { called = this.calledOf(f, i); held = () => { const ps = new Set(this.actionParts(a, env)); for (const q of this.itemParts(a, env)) ps.add(joinPath("*", q)); if (named) ps.add(""); return ps; }; }
+      else if (f?.kind === "fn") { called = this.calledOf(f, i); held = parts; }
+      else if (own.length) { called = new Set(own.flatMap(c => [...ownCalls(c, i)])); held = parts; }
       else return;
-      if (!called.size) return;
       const n = byName ? show(over!) : show(a);
-      const say = (at: string) => { const what = at === "" ? `${n} is io` : `${n} holds io at \`${at}\``;
-        if (inFn) this.err("IO_IN_FN", "R-io-2", `${what}, and ${show(e.f)}(…) calls it; a fn is pure by definition`);
-        else this.err(named && at === "" && s?.kind !== "action" ? "IO_IN_REACTIVE" : "ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${what}, and ${show(e.f)}(…) calls it while the call runs: it is called in reactive scope (R-io-3)${at === "" ? `, as \`(x) => ${n}(x)\` would be` : ""} — call it from a handler or an action`); };
-      if (named && !byName && called.has("")) say(""); else { const line = this.line; this.later.push(() => { const at = callsHeld(held(), called); if (at !== undefined) { const was = this.line; this.line = line; say(at); this.line = was; } }); }
+      const tell = (what: string, who: string, as: string, code: string) => { if (inFn) this.err("IO_IN_FN", "R-io-2", `${what}, and ${who}; a fn is pure by definition`); else this.err(code, "IO-2", `${what}, and ${who} while the call runs: it is called in reactive scope (R-io-3)${as} — call it from a handler or an action`); };
+      const say = (at: string) => tell(at === "" ? `${n} is io` : at.endsWith("?") ? `${n} may hold io${at === "?" ? "" : ` under \`${at.slice(0, -2)}\``} (R-io-3d)` : `${n} holds io at \`${at}\``, `${show(e.f)}(…) calls it`, at === "" ? `, as \`(x) => ${n}(x)\` would be` : "", named && at === "" && s?.kind !== "action" ? "IO_IN_REACTIVE" : "ACTION_CALLED_IN_OWNED_SCOPE");
+      const line = this.line;
+      if (called.size) { if (named && !byName && called.has("")) say(""); else this.later.push(() => { const at = callsHeld(held(), called); if (at !== undefined) { const was = this.line; this.line = line; say(at); this.line = was; } }); }
+      // R-io-3d: a function given by name to a callee that calls it may be handed the call's other arguments: what it
+      // calls of its own parameters, they must not hold (anywhere: which part it is handed is the callee's to choose)
+      if (method === undefined && (called.has("") || [...called].some(c => c.endsWith("?")))) this.later.push(() => {
+        const cs = fnCalls(s, a); if (!cs) return;
+        for (const [j, b] of e.args.entries()) { if (j === i) continue;
+          const tails = new Set<string>(); for (const q of this.actionParts(b, env)) { const segs = q === "" ? [] : q.split("."); for (let k = 0; k <= segs.length; k++) tails.add(segs.slice(k).join(".")); }
+          const at = callsHeld(tails, cs); if (at === undefined) continue;
+          const was = this.line; this.line = line; tell(`${show(b)} holds io`, `${show(e.f)}(…) calls ${n}, which calls ${at === "" ? "what it is given" : `\`${at}\` of what it is given`} and may be handed it (R-io-3d)`, "", "ACTION_CALLED_IN_OWNED_SCOPE"); this.line = was; return; }
+      });
     });
   }
   /** B3 (2026-11-26): a statement closure written as an item or a field is carried freely, and ends only where a handler
@@ -2548,9 +2737,11 @@ class Checker {
     const name = e.f.name;
     e.args.forEach((a, i) => { const c = s.cbs?.[i]; if (!c?.[0]) this.closureGiven(a, env, p => p !== "" && !!c?.[1].includes(p.split(".")[0]), `to ${name}(…), JavaScript that may call it while it computes`); });
   }
-  private carriedAction(e: Extract<Expr, { k: "call" }>, env: Env, say: () => void) {
-    if (e.f.k === "id" ? env.lookup(e.f.name)?.kind === "action" || env.lookup(e.f.name)?.io : e.f.k !== "member" && e.f.k !== "index") return;
-    const line = this.line; this.later.push(() => { if (this.actionParts(e.f, env).has("")) { this.line = line; say(); } });
+  private carriedAction(e: Extract<Expr, { k: "call" }>, env: Env, say: (deep: boolean) => void) {
+    if (e.f.k === "id" && (env.lookup(e.f.name)?.kind === "action" || env.lookup(e.f.name)?.io)) return;
+    // R-io-3d (2026-11-27): whatever form the callee is written in; `?` — the value may hold io somewhere, and no form
+    // the checker reads says where — is a call of it too, but for a method of plain data (`names.join(…)`)
+    const line = this.line; this.later.push(() => { const ps = this.actionParts(e.f, env); const deep = !ps.has("") && ps.has("?") && !(e.f.k === "member" && plainMethod(e.f.p)); if (ps.has("") || deep) { const was = this.line; this.line = line; say(deep); this.line = was; } });
   }
   /** SC-4 (2026-11-22): a handler is a function, called when its event happens. An attribute that takes one, given a call
    *  of something that is io — an action, an io import, a setter, a method declared to answer nothing — would make that
@@ -2687,7 +2878,9 @@ class Checker {
         // SC-4b: a handler the component is given (`props.onPick`, `props.ref`) is called when its event happens
         const given = ctx.scope !== "imperative" && !this.voidMethod(e.f, env) && this.handlerProp(e.f, env);
         if (given) this.err(ctx.inFn ? "IO_IN_FN" : "IO_IN_REACTIVE", ctx.inFn ? "R-io-2" : "IO-2", `${show(e.f)}(…) is a handler the component is given (SC-4b), called in reactive scope (R-io-3): where the component is applied its closure may write, so it would write while the view computes — call it from a handler or an action, or give it on to an element (\`onClick={${show(e.f)}}\`)`);
-        if (ctx.scope !== "imperative" && !given && !this.voidMethod(e.f, env)) this.carriedAction(e, env, () => ctx.inFn ? this.err("IO_IN_FN", "R-io-2", `${show(e.f)}(…) is io (an action); a fn is pure by definition`) : this.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${show(e.f)}(…) is an action, called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action`));
+        if (ctx.scope !== "imperative" && !given && !this.voidMethod(e.f, env)) this.carriedAction(e, env, deep => { const callee = e.f.k === "if" || e.f.k === "bin" || e.f.k === "catch" || e.f.k === "await" ? `(${show(e.f)})` : show(e.f); const what = deep ? `may be io (it is made from a value that holds an action or a statement closure, by a form that does not say where it went: R-io-3d)` : undefined;
+          if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${callee}(…) ${what ?? "is io (an action)"}; a fn is pure by definition`);
+          else this.err("ACTION_CALLED_IN_OWNED_SCOPE", "IO-2", `${callee}(…) ${what ? `${what}, and is` : "is an action,"} called in reactive scope (R-io-3): it would run, and write, while the view computes — call it from a handler or an action`); });
         // MO-8t: a method of an io import, with no row of its own, is io as its object is
         { const of = ctx.scope !== "imperative" && !this.voidMethod(e.f, env) && !this.promiseMethod(e.f, env) ? this.ioMember(e.f, env) : undefined;
           if (of !== undefined) {
@@ -2730,7 +2923,8 @@ class Checker {
       case "fn": {
         const inner = new Env(env, env.region); const drafts = this.draftFns.get(e); const srcs = this.fnSrcs.get(e) ?? [];
         e.params.forEach((p, j) => inner.vars.set(p, { kind: "value", name: p, region: env.region, line: this.line, srcs: [...srcs], ofFn: e, ...(drafts?.includes(j) ? { jsDraft: true, draftFn: this.fnStack[this.fnStack.length - 1] } : {}) }));   // MO-10k: what the parameter may be given; MO-10i
-        { const it = this.itemOf.get(e); const p = it && e.params[it.k]; if (it && p !== undefined) { const ps = this.itemParts(it.e, it.env); if (ps.size) inner.vars.get(p)!.actionParts = [...ps]; } }   // W2: an item of what a calling method runs over
+        { const it = this.itemOf.get(e); const p = it && e.params[it.k]; if (it && p !== undefined) { const ps = this.itemParts(it.e, it.env); if (ps.size) inner.vars.get(p)!.actionParts = [...ps]; }
+          const h = this.handedOf.get(e); if (h) e.params.forEach((q, j) => { if (!(it && j === it.k) && (h.only === undefined || h.only === j)) inner.vars.get(q)!.mayGet = h.srcs; }); }   // W2: an item of what a calling method runs over
         if (e.stmts) {
           if (ctx.scope === "reactive" && !this.callbackFns.has(e)) { this.err("REACTIVE_WRITE_IN_OWNED_SCOPE", "W-2", "a statement-bodied closure in reactive scope (SC-3: a closure created here is a pure function)"); return; }
           const why = ctx.server ? null : inferredAction(e.stmts);                          // AC-1b: an arrow that guesses, or writes and awaits, is an action

@@ -418,6 +418,8 @@ struct Gen<'p> {
     /// CSS-2: the scope class of the view being emitted
     style_hash: Option<String>,
     hoisted: HashMap<*const Expr, String>,
+    /// R-f-4a: an await a `catch` takes, settled to the failure: the answer its reader computes
+    settled: HashMap<*const Expr, E>,
     hoisted_catch: HashMap<*const Expr, String>,
     hoist_seq: usize,
     frames: Vec<Frame>,
@@ -472,6 +474,7 @@ impl<'p> Gen<'p> {
             sf_seq: 0,
             style_hash: None,
             hoisted: HashMap::new(),
+            settled: HashMap::new(),
             hoisted_catch: HashMap::new(),
             hoist_seq: 0,
             frames: vec![],
@@ -1307,7 +1310,9 @@ impl<'p> Gen<'p> {
             let ExprKind::Await { e: inner, init, stream } = &h.node.k else { unreachable!() };
             let body0 = self.expr(inner, env, &Ctx { tail: true, ..Ctx::default() })?;
             let body = if *stream { body0 } else { rtc("awaited", vec![body0]) };
-            // R-f-4: a matching rejection is the answer where it is awaited, as in tail position (05 H-4)
+            // R-f-4: a matching rejection is settled where it is awaited, as in tail position (05 H-4) — to the failure it
+            // caught; the answer is the reader's to compute, outside the await, so that it reads its sources as the rest of
+            // the expression does (R-f-4a)
             let body = match h.caught.map(|c| &c.k) {
                 Some(ExprKind::Catch { name: cn, classes, alt, .. }) => {
                     let inner = self.new_env(Some(env));
@@ -1317,7 +1322,8 @@ impl<'p> Gen<'p> {
                     let cls = self.classes(classes.as_deref(), env)?;
                     let a = self.expr(alt, inner, &reactive())?;
                     let pn = cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
-                    rtc("settle", vec![body, arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&pn], a)])
+                    self.settled.insert(h.node as *const Expr, arrow(&[&pn], a));
+                    rtc("settle", vec![thunk(body), arrow(&["__e"], rtc("isA", vec![id("__e"), cls]))])
                 }
                 _ => body,
             };
@@ -1493,19 +1499,18 @@ impl<'p> Gen<'p> {
                     let cls = self.classes(classes.as_deref(), env)?;
                     let a = self.expr(alt, inner, &reactive())?;
                     let pn = cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
-                    // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary
-                    let body = if matches!(ce.k, ExprKind::Await { .. }) {
-                        rtc("settle", vec![x, arrow(&["__e"], rtc("isA", vec![id("__e"), cls.clone()])), arrow(&[&pn], a.clone())])
-                    } else {
-                        x
-                    };
+                    // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary; the answer
+                    // is computed by its reader (R-f-4a)
+                    let awaited = matches!(ce.k, ExprKind::Await { .. });
+                    let body = if awaited { rtc("settle", vec![thunk(x), arrow(&["__e"], rtc("isA", vec![id("__e"), cls.clone()]))]) } else { x };
+                    let read = if awaited { rtc("caught", vec![call(id(i.clone()), vec![]), arrow(&[&pn], a.clone())]) } else { call(id(i.clone()), vec![]) };
                     let out = vec![
                         konst(i.clone(), rtc("memo", vec![str(name.clone()), arrow(&["__prev"], body), lv])),
                         konst(
                             b.js.clone(),
                             rtc(
                                 "catchMemo",
-                                vec![thunk(call(id(i), vec![])), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&pn], a)],
+                                vec![thunk(read), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&pn], a)],
                             ),
                         ),
                     ];
@@ -1988,7 +1993,11 @@ impl<'p> Gen<'p> {
             ExprKind::Omit { e: x, keys } => rtc("omit", std::iter::once(self.expr(x, env, &sub)).chain(keys.iter().map(|k| Ok(str(k.clone())))).collect::<Result<Vec<_>, _>>()?),
             ExprKind::Await { e: x, stream, .. } => {
                 if let Some(v) = self.hoisted.get(&(e as *const Expr)) {
-                    return Ok(call(id(v.clone()), vec![]));
+                    let read = call(id(v.clone()), vec![]);
+                    return Ok(match self.settled.get(&(e as *const Expr)) {
+                        Some(a) => rtc("caught", vec![read, a.clone()]),
+                        None => read,
+                    });
                 }
                 if ctx.imp {
                     let y = self.expr(x, env, &sub)?;
@@ -2034,6 +2043,8 @@ impl<'p> Gen<'p> {
             ExprKind::Throw(x) => rtc("throw", vec![self.expr(x, env, &sub)?]),
             // R-f-4: over a sync value, or the tail await's promise/stream
             ExprKind::Catch { .. } if !ctx.imp && self.hoisted_catch.contains_key(&(e as *const Expr)) => call(id(self.hoisted_catch[&(e as *const Expr)].clone()), vec![]),
+            // R-f-4a: the await is settled to what it caught, a failure of its operand too; the answer is computed here, with no boundary of its own
+            ExprKind::Catch { e: x, .. } if !ctx.imp && self.settled.contains_key(&(&**x as *const Expr)) => self.expr(x, env, &sub)?,
             ExprKind::Catch { e: x, name, classes, alt } => {
                 if ctx.imp && has_await_json(&x.to_json()) {
                     return fail("`await … catch` inside an expression of imperative scope (AWAIT_IN_EXPRESSION, AC-1)");

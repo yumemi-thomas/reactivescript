@@ -608,7 +608,7 @@ re!(P_LEAF, r"^(ref|value)(?:\s+(.*))?$");
 re!(T_CONTEXT, r"^context\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$");
 re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(");
 re!(T_PROPS, r"^props:\s*(\{.*\})$");
-re!(P_PART, r"^([A-Za-z0-9_$.-]+)\s*:\s*io$");
+re!(P_PART, r"^([A-Za-z0-9_$.*?()-]+)\s*:\s*io$");
 re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
 re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(([^)]*)\)");
 re!(P_PURE, r"(^|\s)pure(\s|$)");

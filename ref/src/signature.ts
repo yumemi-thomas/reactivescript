@@ -45,7 +45,7 @@ const cls = (c: Catch) => c === "all" ? "*" : c.size ? [...c].sort().join(" | ")
 const rows = (r: string[], fails: string[]) => [...["io", "pending", "lane"].filter(x => r.includes(x)), ...(fails.length ? [`fails(${[...fails].sort().join(" | ")})`] : [])].join(" ");
 /** R-io-3: the parts of a value that are actions, among others: `{ set: io; pair.1: io; … }`; `io`: the value itself. */
 const actionsText = (ps: string[] | undefined) => !ps?.length ? "" : ps.includes("") ? "io" : `{ ${ps.map(p => `${p}: io`).join("; ")}; … }`;
-const actionsOf = (text: string): string[] | undefined => { if (text === "io") return [""]; const m = /^\{(.*);\s*…\s*\}$/.exec(text); const ps = m ? split(m[1], ";").map(p => /^([\w$.-]+)\s*:\s*io$/.exec(p)?.[1]) : []; return ps.length && ps.every(p => p !== undefined) ? ps as string[] : undefined; };
+const actionsOf = (text: string): string[] | undefined => { if (text === "io") return [""]; const m = /^\{(.*);\s*…\s*\}$/.exec(text); const ps = m ? split(m[1], ";").map(p => /^([\w$.*?()-]+)\s*:\s*io$/.exec(p)?.[1]) : []; return ps.length && ps.every(p => p !== undefined) ? ps as string[] : undefined; };
 /** MO-13i: the parts of a fn's result. */
 const resultText = (r: Result): string => r.k === "io" ? "io" : r.k === "rec" ? `{ ${r.fields.map(([k, v]) => `${k}: ${resultText(v)}`).join("; ")} }` : r.k === "arr" ? `[${r.items.map(resultText).join(", ")}]` : [r.reader ? "ref" : "value", r.reader ? rows(r.rows, r.fails) : "", actionsText(r.actions)].filter(Boolean).join(" ");
 function resultOf(t: string): Result | undefined {

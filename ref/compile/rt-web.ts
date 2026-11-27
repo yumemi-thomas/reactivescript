@@ -428,7 +428,10 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     },
     awaited: (v: unknown) => v instanceof Flight ? v.first : v,
     /** `x = await f() catch (e: C) => alt` (R-f-4): a matching rejection lands `alt` as the answer; others reject on. */
-    settle: (p: unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => p && typeof (p as Promise<unknown>).then === "function" ? (p as Promise<unknown>).then(v => v, err => { if (match(err)) return alt(err); throw err; }) : p,
+    // R-f-4a: a rejection a `catch` takes is the await's answer — as the failure, marked; the catch's own answer is computed
+    // by the reader of the await (`caught`), outside it, where it reads its sources as any expression does
+    settle: (f: () => unknown, match: (err: unknown) => boolean) => { let p: unknown; try { p = f(); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return { __rxCaught: err }; } return p && typeof (p as Promise<unknown>).then === "function" ? (p as Promise<unknown>).then(v => v, err => { if (match(err)) return { __rxCaught: err }; throw err; }) : p; },
+    caught: (v: unknown, alt: (err: unknown) => unknown) => v !== null && typeof v === "object" && "__rxCaught" in (v as object) ? alt((v as { __rxCaught: unknown }).__rxCaught) : v,
     /** RG-8: Solid's Portal — client-only: the server renders nothing for it, the browser renders it once it has the page. */
     Portal: WebPortal,
     /** CSS-2: a dynamic class with the view's scope class after it. */
