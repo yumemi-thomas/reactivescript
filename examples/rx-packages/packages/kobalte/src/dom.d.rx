@@ -22,7 +22,7 @@ export fn place(element: any, orientation: string): any
 export fn hasTabbable(element: any): boolean
 export fn syncRadios(root: any, value: string | undefined): void
 export fn within(element: any, target: any): boolean
-export fn scrollTo(element: any): void
+export fn scrollTo(view: any, element: any): void
 export fn byKey(list: any, key: string | undefined): any
 export pure fn ask(option: any, how: any): any
 export pure fn stepKey(items: any[], key: string | undefined, by: number, wrap: boolean): string | undefined

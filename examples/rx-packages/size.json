@@ -18,9 +18,9 @@
   "facade": 0
  },
  "kobalte": {
-  "rx": 1031,
-  "js": 91,
-  "decl": 69,
+  "rx": 1032,
+  "js": 128,
+  "decl": 73,
   "facade": 19
  },
  "p-animation": {
@@ -192,146 +192,146 @@
   "facade": 0
  },
  "ui-sdk": {
-  "rx": 171,
-  "js": 123,
-  "decl": 121,
+  "rx": 177,
+  "js": 122,
+  "decl": 119,
   "facade": 5
  },
  "cases": {
   "cmdk": {
-   "orig": 12362,
+   "orig": 12327,
    "withRuntime": 4739,
-   "alone": 11991
+   "alone": 12284
   },
   "icons": {
    "orig": 1719,
-   "withRuntime": 1323,
-   "alone": 8672
+   "withRuntime": 1363,
+   "alone": 9000
   },
   "kobalte-accordion": {
-   "orig": 11097,
-   "withRuntime": 4139,
-   "alone": 11277
+   "orig": 11245,
+   "withRuntime": 4188,
+   "alone": 11611
   },
   "kobalte-breadcrumbs": {
    "orig": 1075,
    "withRuntime": 1336,
-   "alone": 8665
+   "alone": 8948
   },
   "kobalte-checkbox": {
-   "orig": 4211,
+   "orig": 4234,
    "withRuntime": 3674,
-   "alone": 10871
+   "alone": 11156
   },
   "kobalte-dialog": {
-   "orig": 8558,
-   "withRuntime": 11040,
-   "alone": 18087
+   "orig": 8528,
+   "withRuntime": 11386,
+   "alone": 18705
   },
   "kobalte-pagination": {
-   "orig": 3207,
-   "withRuntime": 3638,
-   "alone": 10890
+   "orig": 3201,
+   "withRuntime": 3689,
+   "alone": 11231
   },
   "kobalte-popover": {
-   "orig": 17178,
-   "withRuntime": 10974,
-   "alone": 18031
+   "orig": 17155,
+   "withRuntime": 11318,
+   "alone": 18650
   },
   "kobalte-progress": {
    "orig": 2879,
    "withRuntime": 1587,
-   "alone": 8863
+   "alone": 9149
   },
   "kobalte-radio": {
-   "orig": 5327,
+   "orig": 5389,
    "withRuntime": 4122,
-   "alone": 11310
+   "alone": 11596
   },
   "kobalte-select": {
-   "orig": 28154,
-   "withRuntime": 14015,
-   "alone": 21077
+   "orig": 28326,
+   "withRuntime": 14457,
+   "alone": 21800
   },
   "kobalte-switch": {
-   "orig": 3511,
+   "orig": 3532,
    "withRuntime": 3613,
-   "alone": 10730
+   "alone": 11011
   },
   "kobalte-tabs": {
-   "orig": 11063,
+   "orig": 11208,
    "withRuntime": 3032,
-   "alone": 10261
+   "alone": 10535
   },
   "kobalte-toggle-group": {
-   "orig": 9326,
-   "withRuntime": 2362,
-   "alone": 9603
+   "orig": 9482,
+   "withRuntime": 2410,
+   "alone": 9935
   },
   "kobalte-tooltip": {
-   "orig": 14778,
-   "withRuntime": 8656,
-   "alone": 15829
+   "orig": 14781,
+   "withRuntime": 9079,
+   "alone": 16520
   },
   "slider": {
    "orig": 7031,
    "withRuntime": 7386,
-   "alone": 14647
+   "alone": 14927
   },
   "terracotta-dialog": {
    "orig": 3459,
    "withRuntime": 2793,
-   "alone": 10006
+   "alone": 10280
   },
   "terracotta-disclosure": {
    "orig": 1814,
    "withRuntime": 2792,
-   "alone": 10002
+   "alone": 10276
   },
   "terracotta-listbox": {
    "orig": 4753,
    "withRuntime": 6372,
-   "alone": 13427
+   "alone": 13700
   },
   "terracotta-menu": {
    "orig": 2429,
    "withRuntime": 6328,
-   "alone": 13384
+   "alone": 13642
   },
   "terracotta-radio": {
    "orig": 3191,
    "withRuntime": 6255,
-   "alone": 13456
+   "alone": 13735
   },
   "terracotta-switch": {
    "orig": 1318,
-   "withRuntime": 1220,
-   "alone": 8528
+   "withRuntime": 1195,
+   "alone": 8793
   },
   "ui-accordion": {
-   "orig": 15084,
-   "withRuntime": 47970,
-   "alone": 54953
+   "orig": 16735,
+   "withRuntime": 50045,
+   "alone": 57336
   },
   "ui-checkbox": {
-   "orig": 15194,
-   "withRuntime": 48042,
-   "alone": 55003
+   "orig": 16679,
+   "withRuntime": 50130,
+   "alone": 57388
   },
   "ui-listbox": {
-   "orig": 24166,
-   "withRuntime": 48102,
-   "alone": 55069
+   "orig": 25901,
+   "withRuntime": 50178,
+   "alone": 57448
   },
   "ui-switch": {
-   "orig": 12717,
-   "withRuntime": 47964,
-   "alone": 54941
+   "orig": 14160,
+   "withRuntime": 50040,
+   "alone": 57308
   },
   "ui-tooltip": {
-   "orig": 31936,
-   "withRuntime": 47923,
-   "alone": 54909
+   "orig": 34458,
+   "withRuntime": 49998,
+   "alone": 57280
   }
  }
 }

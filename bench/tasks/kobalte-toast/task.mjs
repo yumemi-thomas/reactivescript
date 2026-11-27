@@ -1,4 +1,4 @@
-// Toasts on Kobalte 2 (@kobalte/core 2.0.0-alpha.5): a toast is a component the app hands the toaster from a handler,
+// Toasts on Kobalte 2 (@kobalte/core 2, its solid2 branch at ref/KOBALTE, built against the pinned Solid): a toast is a component the app hands the toaster from a handler,
 // and the library renders it later, in its list, wherever the app put that (09 MO-11u). Kobalte left the suite on
 // 2026-11-22 and is back with the task it was missed for: its toaster is one of the three libraries of Solid 2 —
 // with solid-sonner and TanStack Router's code-based routes — whose rows say `renders(<Component>)`, and the bar a

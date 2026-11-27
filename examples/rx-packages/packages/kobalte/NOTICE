@@ -1,3 +1,3 @@
-Derived from @kobalte/core 2.0.0-alpha.5 (https://github.com/kobaltedev/kobalte, branch solid2, 9c237a0), MIT,
+Derived from @kobalte/core 2 (https://github.com/kobaltedev/kobalte, branch solid2, 9c237a06, after 2.0.0-alpha.5), MIT,
 Copyright (c) the Kobalte authors, and parts it derives from React Spectrum (Apache-2.0, Copyright 2020 Adobe) and
 Radix UI (MIT, Copyright (c) 2022 WorkOS). Its tests in ../../test/kobalte are copied as they are.

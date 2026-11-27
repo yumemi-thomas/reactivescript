@@ -3,8 +3,8 @@
 Local branch `rx-packages` from `rx-best` 7cc1fc0e with the Rust generator merged (a5a6f374). 2026-11-26. Solid 2.0.3.
 Nothing pushed or posted.
 
-**65 packages or parts** (57 rows of the table) from 9 sources: Kobalte 2.0.0-alpha.5 (22 parts), terracotta 2.0.0 (7), cmdk-solid 2.0.0-rc.0,
-solid-slider 2.0.0, an icon set (@lucide/solid 1.80.0 / solid-icons 2.0.0), CodeMirror and Tiptap in a component
+**65 packages or parts** (57 rows of the table) from 9 sources: Kobalte 2 (its solid2 branch at 9c237a06, after 2.0.0-alpha.5; 22 parts), terracotta 2.0.0 (7), cmdk-solid 2.0.0-rc.0,
+solid-slider 2.0.0, an icon set (@lucide/solid 1.81.0 / solid-icons 2.0.0), CodeMirror and Tiptap in a component
 (2: solid-codemirror 3.0.0, solid-tiptap 1.0.0), a toast kit (@trev.zip/solid-toast 1.2.15 / solid-sonner 1.0.0), five
 parts of UI SDK over its core (0.1.0-beta.17, the bridge of `../rx-ui-sdk`), and 25 solid-primitives packages (the next
 class-B ones of `../rx-primitives`' survey by monthly downloads). Sources from the npm tarballs and the projects' git

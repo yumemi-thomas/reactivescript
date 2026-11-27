@@ -16,10 +16,9 @@ export function relinked(text, from, to) {
  *  its real path is outside any node_modules, and Vite keeps a linked dependency in its server bundle, beside what Node
  *  loads from node_modules (the runtime, a router) on the installed copy: two Solids, and `provide` finds no owner. An app
  *  installed from npm has Solid in node_modules. `resolve.preserveSymlinks` keeps every path as that install has it.
- *  Where node_modules is itself a link (a benchmark task with an install of its own, `linked`), preserved paths would
- *  give a router two identities (one through the link, one Node's real path); there Solid's packages are made external
- *  to the server build instead, which is what an install from npm gets for them. (Not everywhere: under a dev server
- *  Solid's plugin keeps the runtime in Vite's graph on purpose, compiler/test/runtime-resolve.mjs.) */
-export const SOLID_PACKAGES = ["solid-js", "@solidjs/web", "@solidjs/signals", "@solidjs/universal"];
-export const linkedSolid = (text, linked = false) => /preserveSymlinks|ssr: \{ external:/.test(text) ? text
-  : text.replace("defineConfig({", linked ? `defineConfig({ ssr: { external: ${JSON.stringify(SOLID_PACKAGES)} },` : "defineConfig({ resolve: { preserveSymlinks: true },");
+ *  (A benchmark task with an install of its own, whose node_modules is a link, once had Solid's packages made external
+ *  to the server build instead: preserved paths gave its router two identities. That was TanStack Start's task, on an
+ *  install of its own while Start's rc.11 did not build; on rc.12 it is on the workspace's, and the one task still with
+ *  an install of its own, router-rx-routes, holds only a generator and a plugin there. Not everywhere: under a dev
+ *  server Solid's plugin keeps the runtime in Vite's graph on purpose, compiler/test/runtime-resolve.mjs.) */
+export const linkedSolid = text => /preserveSymlinks/.test(text) ? text : text.replace("defineConfig({", "defineConfig({ resolve: { preserveSymlinks: true },");

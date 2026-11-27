@@ -1,4 +1,4 @@
-// RadioGroup. Derived from radio-group/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// RadioGroup. Derived from radio-group/* of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
 import { call, give, focus, put, formOf, announceChange, syncRadios } from "./dom.js"
 import client { on } from "@reactivescript/std/browser"
 import pure { hidden, flag, words, uniqueId } from "./dom.js"

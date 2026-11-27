@@ -1735,3 +1735,126 @@ Solid bug found (DV-29) is recorded, not lowered around.
 shown part's effect cleanup calls an action while the part is disposed, a render effect over a memo misses the next
 change (2.0.3 and earlier correct; candidates #5124, #5161). No new bug from #4906. Still open from before: #5220
 (X1), DV-26 (draft 2), DV-28 (draft 5).
+
+## Ecosystem on the main pin (2026-11-27)
+
+Every ecosystem package the runners test against is at its newest Solid 2 version, on the pinned Solid (50a4bfdde).
+npm was read again on the day: nothing newer than the list below. Not in scope: `eval/` (rc.23 on purpose) and
+`tooling/`. Build and test tools (Playwright 1.65, Rolldown 1.3, TypeScript 7, jest-dom 8) are not packages tested
+against, and stay.
+
+| package | from | to | what changed |
+| --- | --- | --- | --- |
+| `@kobalte/core` | npm 2.0.0-alpha.5 | its `solid2` branch at 9c237a06 (2026-11-23), built from source | #783 (text-field: an untracked read, the id fallback for an explicit `undefined`, a controlled value that starts `undefined`), #786 (select, combobox: no `STRICT_READ_UNTRACKED`), #770 (a collection scrolls its own container, never the window). The originals' tests (already copied from `solid2`): select 57 → 58 of 58, tabs 15 → 16, text-field 35 → 39 (the rewrite's side runs the original text-field: 35 → 39). live: the original switch no longer warns `STRICT_READ_UNTRACKED`. One port change, below |
+| `@tanstack/solid-router` | 2.0.0-rc.10 (start-route, examples/start), rc.11 (bench, rx-packages, compiler/test/vite.mjs) | 2.0.0-rc.12 | the same `router-core` 1.171.39 and `history` 1.162.5 as rc.11; `router-plugin` 1.169.0 and `router-generator` 1.168.0 are still what it pairs with, so router-rx-routes' fork (on rc.11's release commit) is on the same generator |
+| `@tanstack/solid-start` | 2.0.0-rc.10, rc.11 | 2.0.0-rc.12 | builds: start-route no longer needs an install of its own (it had one because rc.11 did not build); it runs on the workspace's install |
+| `@ui-sdk/core`, `@ui-sdk/solid` | 0.1.0-beta.13 | 0.1.0-beta.18 | `use-primitive.jsx` reworked inside (a part is subscribed when it is made and followed once settled, entries shared between users, an element made without `dynamic` on the client); `checkbox.jsx`: a checkbox in a group inside a field. Our bridge is its own implementation of the same contract, and the ported Checkbox has no field or group: nothing to follow. `app/test.mjs` 44 of 44 both sides, as before |
+| `@wardic/dom`, `@wardic/solid` | 1.2.0, 2.0.1 | 1.3.1, 2.1.1 | a "stage" API (`stageWard`, `createBatchOnStage`, …) and more overloads (`ward` has 5 signatures): the whole draft 250 → 297 rows, 11 more questions; wardic-motion keeps `ward`, so its TODOs 2 → 3. The draft asks what it cannot prove, as it should |
+| `@solid-primitives/animation` | 1.0.1 | 1.0.2 | the originals' tests (1.0.2's copies) 41 → 53 of 53; the rewrite's side 27 → 33 (its facade re-exports the parts not rewritten from the original) |
+| `@solid-primitives/i18n`, `scheduled`, `sse`, `storage` | 3.0.0, 2.0.0, 1.0.0, 5.0.0 | 3.0.1, 2.0.1, 1.0.1, 5.0.1 | no test moved; drafts as below (storage also in rx-std and compiler/test/vite.mjs, with `utils` 7.0.1, which storage 5.0.1 needs) |
+| `@lucide/solid` | 1.80.0 | 1.81.0 | nothing moved |
+| `@tanstack/virtual-core` | 3.19.11 (compiler/test/vite.mjs: 3.13.13) | 3.19.13 | nothing moved |
+| `effect` | 4.1.5 | 4.1.6 | nothing moved |
+| `vite` | 8.3.8 | 8.4.0 | it wants Rolldown ~1.3.2 and installs its own beside ours (1.2.19) |
+| `@codemirror/view` | 6.44.0 | 6.44.2 | nothing moved |
+| `@solidjs/router` (compiler/test/vite.mjs) | 2.0.0 | 2.0.1 | the version everything else already had |
+| `@tanstack/table-core` | 8.21.3 | stays | 9.3.1 removes `getCoreRowModel` and `getPaginationRowModel` (features registered with `tableFeatures`, `create…RowModel`, state in `@tanstack/store` atoms), and its Solid adapter `@tanstack/solid-table` 9.3.1 is still Solid 1 (`solid-js/web`, `createComputed`, `mergeProps`): moving means writing table-pagination's adapter and its declarations again |
+| `graphql` | 16.15.0 | stays | 17.1.0 is outside the peer range of the one package that uses it (`@solid-primitives/graphql` 3.0.0: `^16.6.0`) |
+| `@babel/core`, `@babel/preset-typescript`, `@solidjs/babel-plugin` 2.0.2 | rx-packages, rx-std | removed | the hydration harness compiles with the pinned `@solidjs/compiler` (below); Babel is still installed under `@solidjs/vite-plugin` 3.0.1 and TanStack's plugins, not by us |
+
+### Kobalte from source
+
+`ref/KOBALTE` holds the commit, as `ref/SOLID_NEXT` holds Solid's; `ref/scripts/kobalte.sh [--latest]` clones
+kobaltedev/kobalte's `solid2` branch to `../kobalte` (beside `../solid-next`), checks the pin out, overrides `solid-js`,
+`@solidjs/web`, `@solidjs/signals` and the compiler its build runs (`unplugin-solid`'s `@solidjs/compiler`) with links
+to the pinned checkout in its `pnpm-workspace.yaml`, installs `@kobalte/core` and what it needs with pnpm, and builds
+`@kobalte/utils` and `@kobalte/core`. Checked: every `solid-js`, `@solidjs/web`, `@solidjs/signals` and
+`@solidjs/compiler` in Kobalte's tree is the pin's real path, and no npm Solid is in its store. `examples/rx-packages`
+and `bench/package.json` link `../kobalte/packages/core` as they link Solid (npm makes the link and writes nothing in
+Kobalte's tree); Kobalte's own dependencies resolve in its pnpm tree, and Solid from there is the same real path.
+GitHub: `.github/actions/kobalte` builds or restores it after `solid-next`, in `bench.yml` and in `suites.yml`'s job
+that installs the bench workspace; `scripts/ci`'s `bench-install` says what to run when `../kobalte` is not built.
+
+### The ports against the newer originals
+
+- **select** (#770): the listbox brought the focused option into view with `element.scrollIntoView({ block: "nearest" })`,
+  which also scrolls the window; Kobalte now scrolls only the collection's own container. `dom.js` `scrollTo(view,
+  element)` is Kobalte's `scrollIntoView` (from React Spectrum, Apache-2.0), and the listbox passes itself. #786's
+  untracked reads have no counterpart in the port (an `.rx` read is tracked where the language says), and its test
+  ("does not read options or the trigger ref untracked") passed on the rewrite before and after.
+- **text-field and the form control** (#783): there is no text-field port (its tests run the original on both sides);
+  `form.rx`'s label, description, error and field already fell back with `id ?? default`, so an explicit `undefined`
+  id was already the default id. Nothing to change.
+- **tabs** (#770's "does not scroll the page"): the port never scrolled; the test passed on the rewrite before and after.
+- The headers say `@kobalte/core 2 (solid2, 9c237a06)`; `NOTICE`, `LICENSES.md`, `REPORT.md` the same.
+- **DV-29** stays: Kobalte's popover, select and tooltip rewrites differ from the originals at the reopening step, and
+  the rewrite's "controlled clear selection" still fails (47 of 58 as before). It is on the rewrite's path (its
+  cleanup calls an action), not Kobalte's, so Kobalte's branch could not change it; `cleanup-action-write.mjs` still
+  shows it on the pin (`action`: the last set misses; `plain` right).
+
+### The hydration harness without Babel
+
+`examples/{rx-packages,rx-std}/test-utils/hydration-harness.ts` (one file, two copies) compiled the fixture with
+`@solidjs/babel-plugin` and Babel's TypeScript preset. Now: `transform(source, { filename, generate, hydratable: true })`
+of the pinned `@solidjs/compiler`, then Oxc strips the types (`rolldown/utils` `transformSync`, `lang: "ts"`): the
+compiler keeps TypeScript as written, as it does under Vite, where Oxc strips it after the plugin. (Vite's own
+`transformWithOxc` cannot be imported in a jsdom worker: its `URL` is jsdom's.) `moduleName: "@solidjs/web"` is both
+compilers' default (`DEFAULT_MODULE_NAME` in the compiler, `moduleName: "@solidjs/web"` in the Babel plugin's
+defaults), so it is no longer written. rx-std lists `@solidjs/compiler` (the pin's) and `rolldown` itself now. Before
+and after, every assertion of both projects compared by name, both modes: **nothing changed** in the hydration tests
+(p-controlled-signal, p-event-listener, p-interaction, p-scroll; rx-std's pagination, form-control, resize-observer,
+keyboard, media), and rx-std's summary is byte for byte the same.
+
+### The benchmark's harness: TanStack Start on the workspace
+
+`bench/tasks/start-route` had an install of its own because Start rc.11 did not build; on rc.12 the workspace's
+install builds it, so its `package.json` and lock are gone and it runs Vite from the workspace. The other part of that
+workaround in `scripts/lib/relink.mjs` (Solid's packages made external to the server build where a task's
+`node_modules` is a link, because preserved paths gave its router two identities) is no longer needed:
+router-rx-routes, the one task still with an install of its own, holds only the forked generator and plugin there,
+and passes with `resolve.preserveSymlinks` (checked: router-rx-routes 4/9/17/16 and start-route 1/6/9/7/1, as the
+scorecard). `linkedSolid` keeps `preserveSymlinks` alone.
+
+### What the numbers moved (bench `--write`, uncached)
+
+Every check of the scorecard and the coverage suite is as it was (good 44 of 44, types 188, runtime 282, bad 249,
+unrepresentable 13; every coverage entry's counts the same). What moved is what the libraries' drafts say:
+
+- tasks: wardic-motion's TODOs 2 → 3 (above); the whole drafts 4,893 → 4,984 rows (+47 ×2 for wardic, −3 for
+  start-route's router, rc.10 → rc.12), `any` the libraries' own 643 → 625 (−8 ×2, −2), by place 414 → 383 (−16 ×2,
+  +1), questions 1,436 → 1,457, words read 603 → 599 (wardic's 21 → 19, twice). `audit.txt`: start-route's router is
+  read from the workspace's install.
+- coverage: UI SDK beta.18 has one more prop in navigation-menu, segmented-control and tabs, and 7 more words proved in
+  `overlays` (`inferred` 12 → 19, TODOs 129 → 128); `@wardic/solid` as above; animation 1.0.2 (`inferred` 1 → 13),
+  storage 5.0.1, i18n 3.0.1 and wardic's gestures entry lose a TODO each. analytics, clipboard, fullscreen,
+  geolocation, signal-builders, utils and video moved too (more words read, fewer TODOs) with no version changed:
+  `coverage.json` was last written at a447fc7e, 146 commits before, and the ratchet fails only on an increase, so
+  the generator's improvements since were never written. They are now.
+- `examples/rx-packages/size.json` was last measured at 052c0ea2 (before the pin): Kobalte's JS grows by the scroll
+  helper; the rest is the commits since (the runtime in `alone`, the UI SDK rewrites).
+- rx-ui-sdk's `check/run.mjs`: its column for the original's drafts said `DECLARATION_VERSION` on every line (the drafts
+  are `for @ui-sdk/solid ^0.1.0-beta.17`, which beta.13 is not); beta.18 is, and the column measures again: the good
+  program accepted, 8 of 12 mistakes caught (not the four parts outside their root: a draft proves no context), three
+  correct lines refused as drafted (a function of the state as children and as `render`, `VIEW_FN_MISPLACED`; a ref
+  that writes state, `REACTIVE_WRITE_IN_OWNED_SCOPE`). REPORT.md's table (beta.17, before the view-function rules)
+  had the drafts refuse two and take the `render` function; no checker changed here, and the drafts hold only proven
+  words, so a JS component's function children are not known to be views. The rewrite's column is unchanged (12 of
+  12, no correct line refused).
+
+### Census
+
+Before = 0b5221e7 (the pin, npm Kobalte, Babel in the harness); after = this tree.
+
+| census | result |
+| --- | --- |
+| `examples/rx-packages`: `build.mjs`, `run.mjs` both ways, `live.mjs`, `check.mjs`, `size.mjs` | 65 built; client tests, by assertion: the originals 1,228 → 1,246 of 1,262 (Kobalte select, tabs, text-field, animation, above), the rewrites 1,073 → 1,083 (text-field and animation through the originals' parts); the server's 101 and 90 of 105 unchanged; no other assertion moved. live: switch's original warning gone, slider's attributed harness step agreed this run, nothing unattributed; `check.json` byte for byte |
+| `examples/rx-std`: `build.mjs`, `run.sh` | `summary.mjs` byte for byte; every assertion of both modes, both sides, the same |
+| `examples/rx-ui-sdk`: `build.mjs`, `check/run.mjs`, `app/test.mjs` | builds; the rewrite's column as before, the drafts' measured again (above); 44 of 44, original and rewrite |
+| `std/test/browser.mjs` | 39 of 39 |
+| bench `--check --strict`, then `--write` | as above: every check the same, the draft numbers moved by the libraries |
+| `ref/oracle/repros/cleanup-action-write.mjs` (DV-29) | still shows it |
+| the full `scripts/ci`, uncached, with the Vite plugin fork | 47 of 47 passed (596 s): scenarios in every runner, `proposals/check.mjs`, bench `--check --strict`, `t-start` on Start rc.12 (11 of 11), `t-wardic` on 2.1.1, `t-formisch`, `t-vite` (9 of 9, Vite 8.4.0), `t-vite-hosts` and `t-vite-watch` run. `t-vite-hosts`' two comparisons with npm's plugin skip in every ci run that names the fork (nothing installs npm's then, as on the earlier runs); run once after installing it as `vite.mjs` does: all 5 pass |
+
+Nothing stricter dropped, nothing correct refused by the rewrites or the checkers (neither checker changed), nothing
+accepted that a runner shows differently. **For the user to file:** no new upstream bug. DV-29 still reproduces
+(`ref/oracle/repros/cleanup-action-write.mjs`), unchanged by Kobalte's branch, as are #5220 (X1), DV-26 and DV-28.

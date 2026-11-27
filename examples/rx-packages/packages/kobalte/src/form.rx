@@ -1,5 +1,5 @@
 // The form control: one field's ids and states, and the three parts that name it.
-// Derived from form-control/* of @kobalte/core 2.0.0-alpha.5 and a11y's form-control (MIT, see ../NOTICE).
+// Derived from form-control/* of @kobalte/core 2 (solid2, 9c237a06) and a11y's form-control (MIT, see ../NOTICE).
 import { give } from "./dom.js"
 import pure { uniqueId, flag, words } from "./dom.js"
 import { Div, Label, Validation } from "./types.js"

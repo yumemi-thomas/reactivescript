@@ -1,4 +1,4 @@
-// Derived from pagination/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// Derived from pagination/* of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
 import { call } from "./dom.js"
 import { max, min } from "@reactivescript/std/math"
 import { from } from "@reactivescript/std/object"

@@ -1,4 +1,4 @@
-// Meter and Progress. Derived from meter and progress of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// Meter and Progress. Derived from meter and progress of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
 import { max, min } from "@reactivescript/std/math"
 import pure { uniqueId, flag, mix, percent } from "./dom.js"
 import { Div, Span } from "./types.js"

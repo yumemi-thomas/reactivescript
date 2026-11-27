@@ -1,4 +1,4 @@
-// Derived from tooltip/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE). Without the safe area between trigger and content.
+// Derived from tooltip/* of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE). Without the safe area between trigger and content.
 import { call, give, within } from "./dom.js"
 import client { float, tipShown, tipHidden, tipWarm } from "./layer.js"
 import client { onDocument } from "@reactivescript/std/browser"

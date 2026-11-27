@@ -11,9 +11,9 @@ name: bench
 on:
   push:
     branches: [main]
-    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml", ".github/actions/solid-next/**"]
+    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml", ".github/actions/solid-next/**", ".github/actions/kobalte/**"]
   pull_request:
-    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml", ".github/actions/solid-next/**"]
+    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml", ".github/actions/solid-next/**", ".github/actions/kobalte/**"]
   workflow_dispatch:
 
 jobs:
@@ -42,6 +42,8 @@ jobs:
           node-version: 24
       - name: Solid next, at the pin (the runtime and bench/package.json link ../solid-next)
         uses: ./.github/actions/solid-next
+      - name: Kobalte's solid2 branch at ref/KOBALTE, on that Solid (bench/package.json links ../kobalte)
+        uses: ./.github/actions/kobalte
       - name: The crate (rxc, and the Node-API build Solid's Vite plugin loads)
         working-directory: compiler
         run: |

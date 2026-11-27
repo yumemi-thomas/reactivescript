@@ -1,6 +1,6 @@
 # Licences of what is rewritten here
 
-## @kobalte/core 2.0.0-alpha.5 — MIT
+## @kobalte/core 2 (solid2 branch, 9c237a06) — MIT
 
 ```
 MIT License

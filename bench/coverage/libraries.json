@@ -24,7 +24,7 @@
     ]
    },
    "@solid-primitives/animation": {
-    "version": "1.0.1",
+    "version": "1.0.2",
     "modules": [
      "@solid-primitives/animation"
     ]
@@ -210,7 +210,7 @@
     ]
    },
    "@solid-primitives/i18n": {
-    "version": "3.0.0",
+    "version": "3.0.1",
     "modules": [
      "@solid-primitives/i18n"
     ]
@@ -432,7 +432,7 @@
     ]
    },
    "@solid-primitives/scheduled": {
-    "version": "2.0.0",
+    "version": "2.0.1",
     "modules": [
      "@solid-primitives/scheduled"
     ]
@@ -492,7 +492,7 @@
     ]
    },
    "@solid-primitives/sse": {
-    "version": "1.0.0",
+    "version": "1.0.1",
     "modules": [
      "@solid-primitives/sse",
      "@solid-primitives/sse/worker",
@@ -512,7 +512,7 @@
     ]
    },
    "@solid-primitives/storage": {
-    "version": "5.0.0",
+    "version": "5.0.1",
     "modules": [
      "@solid-primitives/storage",
      "@solid-primitives/storage/tauri"
@@ -687,7 +687,7 @@
   "about": "Wardic (Motion on Solid 2): every module is drafted whole; the entries cover its families (elements, gestures, layout, presence, values, easing). bench/tasks/wardic-motion has an element with its ward and presence, with their mistakes.",
   "packages": {
    "@wardic/solid": {
-    "version": "2.0.1",
+    "version": "2.1.1",
     "modules": [
      "@wardic/solid",
      "@wardic/solid/v1",
@@ -698,7 +698,7 @@
     ]
    },
    "@wardic/dom": {
-    "version": "1.2.0",
+    "version": "1.3.1",
     "modules": [
      "@wardic/dom"
     ],
@@ -712,7 +712,7 @@
   "about": "UI SDK for Solid (Vercel Labs): every module is drafted whole; `use` lists the modules a program of the suite imports — its component families (disclosure, form controls, status, popups, selection) and its utilities. bench/tasks/ui-sdk-dialog has the dialog and the toggle, with their mistakes.",
   "packages": {
    "@ui-sdk/solid": {
-    "version": "0.1.0-beta.13",
+    "version": "0.1.0-beta.18",
     "modules": [
      "@ui-sdk/solid",
      "@ui-sdk/solid/accordion",

@@ -1,4 +1,4 @@
-// Collapsible and Accordion. Derived from collapsible and accordion of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// Collapsible and Accordion. Derived from collapsible and accordion of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
 import { call, give, move, sizeOf } from "./dom.js"
 import pure { uniqueId, flag, mix } from "./dom.js"
 import { Div, H3, Button as ButtonProps } from "./types.js"

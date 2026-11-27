@@ -61,13 +61,13 @@ const out = path.join(here, ".out"); mkdirSync(out, { recursive: true });
 /** The npm packages an example needs (09 MO-11, MO-12, MO-10f/g, MO-11k), each packed once into .out and copied into the
  *  project, so their peers are the project's Solid. */
 const PACKAGES = {
-  router: ["@solidjs/router@2.0.0"],
-  virtual: ["@tanstack/virtual-core@3.13.13"],
+  router: ["@solidjs/router@2.0.1"],
+  virtual: ["@tanstack/virtual-core@3.19.13"],
   query: ["@tanstack/solid-query@6.0.0-rc.6", "@tanstack/query-core@5.107.1"],
   // @tanstack/solid-router's Solid 2 line (2.0 rc), and what it depends on
-  tanstack: ["@tanstack/solid-router@2.0.0-rc.11", "@solid-devtools/logger@0.9.11", "@solid-primitives/refs@1.1.4", "@solidjs/meta@0.29.8", "@tanstack/history@1.162.5", "@tanstack/router-core@1.171.39", "isbot@5.2.3", "@nothing-but/utils@0.17.0", "@solid-primitives/utils@6.4.1", "@solid-devtools/shared@0.20.0", "@solid-devtools/debugger@0.28.1", "cookie-es@3.1.1", "seroval@1.8.2", "seroval-plugins@1.8.0", "@solid-primitives/event-listener@2.4.6", "@solid-primitives/media@2.3.6", "@solid-primitives/rootless@1.5.4", "@solid-primitives/scheduled@1.5.3", "@solid-primitives/static-store@0.1.4", "@solid-primitives/styles@0.1.4", "@solid-primitives/bounds@0.1.7", "@solid-primitives/keyboard@1.3.7", "@solid-primitives/resize-observer@2.2.0"],
+  tanstack: ["@tanstack/solid-router@2.0.0-rc.12", "@solid-devtools/logger@0.9.11", "@solid-primitives/refs@1.1.4", "@solidjs/meta@0.29.8", "@tanstack/history@1.162.5", "@tanstack/router-core@1.171.39", "isbot@5.2.3", "@nothing-but/utils@0.17.0", "@solid-primitives/utils@6.4.1", "@solid-devtools/shared@0.20.0", "@solid-devtools/debugger@0.28.1", "cookie-es@3.1.1", "seroval@1.8.2", "seroval-plugins@1.8.0", "@solid-primitives/event-listener@2.4.6", "@solid-primitives/media@2.3.6", "@solid-primitives/rootless@1.5.4", "@solid-primitives/scheduled@1.5.3", "@solid-primitives/static-store@0.1.4", "@solid-primitives/styles@0.1.4", "@solid-primitives/bounds@0.1.7", "@solid-primitives/keyboard@1.3.7", "@solid-primitives/resize-observer@2.2.0"],
   // @solid-primitives' Solid 2.0 releases the app uses, and what they depend on
-  primitives: ["@solid-primitives/media@4.0.0", "@solid-primitives/resize-observer@4.0.0", "@solid-primitives/active-element@3.0.0", "@solid-primitives/timer@1.4.5", "@solid-primitives/pagination@1.0.0", "@solid-primitives/scheduled@2.0.0", "@solid-primitives/event-listener@3.0.0", "@solid-primitives/keyed@3.0.0", "@solid-primitives/mouse@4.0.0", "@solid-primitives/storage@5.0.0", "@solid-primitives/rootless@2.0.0", "@solid-primitives/static-store@1.0.0", "@solid-primitives/utils@7.0.0"],
+  primitives: ["@solid-primitives/media@4.0.0", "@solid-primitives/resize-observer@4.0.0", "@solid-primitives/active-element@3.0.0", "@solid-primitives/timer@1.4.5", "@solid-primitives/pagination@1.0.0", "@solid-primitives/scheduled@2.0.1", "@solid-primitives/event-listener@3.0.0", "@solid-primitives/keyed@3.0.0", "@solid-primitives/mouse@4.0.0", "@solid-primitives/storage@5.0.1", "@solid-primitives/rootless@2.0.0", "@solid-primitives/static-store@1.0.0", "@solid-primitives/utils@7.0.1"],
 };
 function packed(spec) {
   const cache = path.join(out, ".packages", spec.replace(/[@/]/g, "_")), dir = path.join(cache, "package");

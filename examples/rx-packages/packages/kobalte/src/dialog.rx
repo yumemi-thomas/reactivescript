@@ -1,4 +1,4 @@
-// Dialog and Popover. Derived from dialog/*, popover/* and popper/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// Dialog and Popover. Derived from dialog/*, popover/* and popper/* of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
 import { call, give } from "./dom.js"
 import client { openLayer, float } from "./layer.js"
 import pure { uniqueId, flag, mix } from "./dom.js"

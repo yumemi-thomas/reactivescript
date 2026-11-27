@@ -14,7 +14,7 @@ export default {
   entry: "src/pages.rx",
   host: true,   // the TSX routes import it with ?rx-lib: its exported components are applied by JS, where src/host.d.rx says
   // the build first: Start's plugin writes the route tree the routes are typed by
-  prepare(dir) { execFileSync(process.execPath, [path.join(dir, "node_modules/vite/bin/vite.js"), "build"], { cwd: dir, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, RX_TYPECHECK: "0" } }); },
+  prepare(dir) { execFileSync(process.execPath, [path.join(dir, "../../node_modules/vite/bin/vite.js"), "build"], { cwd: dir, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, RX_TYPECHECK: "0" } }); },
   types: [
     { name: "a link to no route is refused (the generated route tree)", edit: ['<Link to="/">Home</Link>', '<Link to="/home">Home</Link>'], expect: /TS2322|TS2820/ },
     { name: "useParams' `from` is a route of the tree", edit: ['useParams({ from: "/people/$id" })', 'useParams({ from: "/person/$id" })'], expect: /TS2322|TS2820|TS2345/ },

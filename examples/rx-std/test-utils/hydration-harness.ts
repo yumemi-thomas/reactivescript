@@ -34,30 +34,23 @@
  * hydrate pipeline — no custom harness of our own to second-guess.
  */
 
-import { transformAsync } from "@babel/core";
-import babelTypescript from "@babel/preset-typescript";
-import babelSolid from "@solidjs/babel-plugin";
+import { transform } from "@solidjs/compiler";
+import { transformSync } from "rolldown/utils";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 async function compile(source: string, generate: "ssr" | "dom"): Promise<string> {
-  const result = await transformAsync(source, {
-    filename: "hydration-app.tsx",
-    // Plugins run before presets, so the Solid plugin would see TS syntax; the typescript
-    // preset is a sibling visitor pass and strips types in the same traversal.
-    plugins: [[babelSolid, { moduleName: "@solidjs/web", generate, hydratable: true }]],
-    presets: [[babelTypescript, { isTSX: true, allExtensions: true }]],
-    ast: false,
-    sourceMaps: false,
-    configFile: false,
-    babelrc: false,
-    parserOpts: { plugins: ["jsx", "typescript"] },
-  });
-  if (!result?.code)
-    throw new Error("[hydration-harness] @solidjs/babel-plugin produced no output");
-  return result.code;
+  // Solid's compiler (Oxc, the one @solidjs/vite-plugin runs) turns the JSX into Solid's runtime calls and keeps the
+  // TypeScript as written; Oxc's transformer (rolldown's, which Vite runs after the plugin) then strips the types. (Not
+  // Vite's own transformWithOxc: importing vite in a jsdom worker fails, its URL is jsdom's.) The runtime module is
+  // `@solidjs/web`, the compiler's default (and @solidjs/babel-plugin's, which this harness used to name).
+  const solid = transform(source, { filename: "hydration-app.tsx", generate, hydratable: true });
+  if (!solid?.code) throw new Error("[hydration-harness] @solidjs/compiler produced no output");
+  const js = transformSync("hydration-app.ts", solid.code, { lang: "ts", sourcemap: false });
+  if (js.errors?.length) throw new Error(`[hydration-harness] stripping the types failed: ${js.errors.map(String).join("; ")}`);
+  return js.code;
 }
 
 type PreparedFixture = { html: string; domFile: string };

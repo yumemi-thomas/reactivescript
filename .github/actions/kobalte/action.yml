@@ -1,0 +1,20 @@
+# Kobalte 2 at ref/KOBALTE (its `solid2` branch), built beside the repository against the pinned Solid
+# (ref/scripts/kobalte.sh) — once per pin, then from the cache. Runs after ./.github/actions/solid-next: Kobalte's Solid
+# and the compiler its build runs are links to ../solid-next. bench/package.json links ../kobalte/packages/core.
+# Needs Node and pnpm (Kobalte's own packageManager is fetched by pnpm).
+name: Kobalte
+description: Kobalte's solid2 branch at ref/KOBALTE, built or restored at ../kobalte
+runs:
+  using: composite
+  steps:
+    - id: at
+      shell: bash
+      run: echo "dir=$(dirname "$GITHUB_WORKSPACE")/kobalte" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.at.outputs.dir }}
+        key: kobalte-v1-${{ runner.os }}-${{ hashFiles('ref/KOBALTE', 'ref/SOLID_NEXT', 'ref/scripts/kobalte.sh') }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: sh ref/scripts/kobalte.sh

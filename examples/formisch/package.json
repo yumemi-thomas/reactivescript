@@ -9,7 +9,7 @@
     "solid-js": "file:../../../solid-next/packages/solid",
     "@solidjs/web": "file:../../../solid-next/packages/web",
     "@solidjs/signals": "file:../../../solid-next/packages/signals",
-    "vite": "8.3.8",
+    "vite": "8.4.0",
     "@solidjs/vite-plugin": "3.0.1"
   },
   "overrides": {

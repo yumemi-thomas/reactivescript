@@ -77,8 +77,8 @@ The tasks' declarations, every behaviour word (pure, handler, draft, rejects, us
   start-mode/src/people.d.rx: getPerson: pure — it uses Solid's isServerFunction [@solidjs/router/dist/index.js:2005]
   start-mode/src/people.d.rx: getPerson: rejects(NotFound) — what it throws is not read
   start-mode/src/router.d.rx: Router: provides(router) — not read: it loads virtual:file-routes, which is not read (bench/.out/ws/tasks/start-mode/src/router.ts, node)
-  start-route/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/deps/start-route/node_modules/seroval/dist/read-B3lBprVF.js:212)
-  start-route/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/deps/start-route/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  start-route/rx-types/@tanstack/solid-router.d.rx: Link: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
+  start-route/rx-types/@tanstack/solid-router.d.rx: useParams: uses(router) — not read: it replaces a part of a built-in (bench/.out/ws/node_modules/seroval/dist/read-B3lBprVF.js:212)
   start-route/src/people.d.rx: fetchPerson: pure — a class the module exports, which any importer may change [people.js:9]
   start-route/src/people.d.rx: fetchPerson: rejects(NotFound) — what it throws is not read
   store-helper/array.d.rx: moveItem: draft(list) — whether the code changes what it is given in place, and keeps nothing of it, is not read

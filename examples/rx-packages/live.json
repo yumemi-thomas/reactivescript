@@ -12,9 +12,7 @@
    "rx": []
   },
   "diag": {
-   "orig": [
-    "STRICT_READ_UNTRACKED"
-   ],
+   "orig": [],
    "rx": []
   },
   "alive": {
@@ -556,14 +554,10 @@
  },
  "slider": {
   "steps": 5,
-  "same": 2,
+  "same": 3,
   "sameSsr": 0,
   "differ": {
    "client": [
-    {
-     "step": "click #t-n",
-     "cause": "harness: the slides' transform is read 60 ms into their animation, and where that falls varies from run to run (the next step, `wait 900`, agrees); not counted against either side"
-    },
     {
      "step": "click #t-more",
      "cause": "original: its dots do not follow a slide that is added (two dots for three slides); the rewrite shows three"
@@ -600,7 +594,7 @@
    "orig": [
     "[REACTIVITY_HALTED] An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.\n  in <App> › <SliderProvider> › <provider",
     "Error: Failed attempt to create new DOM elements during hydration. Check that the libraries you are using support hydration.",
-    "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error.\n  in <App> › <SliderProvider> › <provider> › computed\n  at http://127.0.0.1:64765/cases/slider.tsx:6:12",
+    "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error.\n  in <App> › <SliderProvider> › <provider> › computed\n  at http://127.0.0.1:57019/cases/slider.tsx:6:12",
     "not mounted"
    ],
    "rx": []

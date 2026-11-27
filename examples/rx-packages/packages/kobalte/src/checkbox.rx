@@ -1,4 +1,4 @@
-// Derived from checkbox/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// Derived from checkbox/* of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
 import { give, call, focus, put, formOf, announceChange } from "./dom.js"
 import client { on } from "@reactivescript/std/browser"
 import pure { hidden, flag } from "./dom.js"

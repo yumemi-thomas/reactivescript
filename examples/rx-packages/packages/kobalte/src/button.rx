@@ -1,4 +1,4 @@
-// Button, ToggleButton, ToggleGroup. Derived from button, toggle-button and toggle-group of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// Button, ToggleButton, ToggleGroup. Derived from button, toggle-button and toggle-group of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
 import { call, give, move, tell, enter, mark } from "./dom.js"
 import { isString } from "@reactivescript/std/is"
 import pure { flag, uniqueId } from "./dom.js"

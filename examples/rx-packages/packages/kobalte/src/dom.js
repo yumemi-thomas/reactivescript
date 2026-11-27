@@ -67,7 +67,19 @@ export const place = (e, orientation) => orientation === "vertical" ? { transfor
 export const hasTabbable = (e) => !!e.querySelector("a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])");
 export function syncRadios(root, value) { for (const r of root?.querySelectorAll("[type='radio']") ?? []) r.checked = r.value === value; }
 export const within = (element, target) => !!element?.contains(target);
-export const scrollTo = (element) => element?.scrollIntoView?.({ block: "nearest" });
+/** Scrolls `view` so that `element` is visible, as `element.scrollIntoView({ block: "nearest" })` would, but scrolls no
+ *  parent above `view` (the window): Kobalte's scrollIntoView (kobaltedev/kobalte#770, from React Spectrum, Apache-2.0). */
+export function scrollTo(view, element) {
+  if (!view || !element) return;
+  const offset = (axis) => { const prop = axis === "left" ? "offsetLeft" : "offsetTop"; let sum = 0, child = element;
+    while (child.offsetParent) { sum += child[prop]; if (child.offsetParent === view) break; if (child.offsetParent.contains(view)) { sum -= view[prop]; break; } child = child.offsetParent; }
+    return sum; };
+  const ox = offset("left"), oy = offset("top"), w = element.offsetWidth, h = element.offsetHeight;
+  let x = view.scrollLeft, y = view.scrollTop; const maxX = x + view.offsetWidth, maxY = y + view.offsetHeight;
+  if (ox <= x) x = ox; else if (ox + w > maxX) x += ox + w - maxX;
+  if (oy <= y) y = oy; else if (oy + h > maxY) y += oy + h - maxY;
+  view.scrollLeft = x; view.scrollTop = y;
+}
 export const byKey = (list, key) => [...(list?.querySelectorAll("[data-key]") ?? [])].find((e) => e.dataset.key === key);
 /** What an option says by a field's name or by a function. */
 export const ask = (option, how) => how == null ? option : typeof how === "function" ? how(option) : option[how];

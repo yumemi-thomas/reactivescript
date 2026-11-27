@@ -4,12 +4,12 @@
   "type": "module",
   "description": "TanStack Start (Solid 2) with .rx components in its file routes (spec/11 CP-4d). Built and driven by compiler/test/start.mjs.",
   "dependencies": {
-    "@tanstack/solid-start": "2.0.0-rc.10",
-    "@tanstack/solid-router": "2.0.0-rc.10",
+    "@tanstack/solid-start": "2.0.0-rc.12",
+    "@tanstack/solid-router": "2.0.0-rc.12",
     "solid-js": "file:../../../solid-next/packages/solid",
     "@solidjs/web": "file:../../../solid-next/packages/web",
     "@solidjs/signals": "file:../../../solid-next/packages/signals",
-    "vite": "8.3.8",
+    "vite": "8.4.0",
     "@solidjs/vite-plugin": "3.0.1"
   },
   "overrides": {

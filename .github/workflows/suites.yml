@@ -16,9 +16,9 @@ name: suites
 on:
   push:
     branches: [main]
-    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", "spec/**", "scripts/**", "guide/**", ".github/workflows/suites.yml", ".github/actions/solid-next/**"]
+    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", "spec/**", "scripts/**", "guide/**", ".github/workflows/suites.yml", ".github/actions/solid-next/**", ".github/actions/kobalte/**"]
   pull_request:
-    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", "spec/**", "scripts/**", "guide/**", ".github/workflows/suites.yml", ".github/actions/solid-next/**"]
+    paths: ["compiler/**", "ref/**", "runtime/**", "scenarios/**", "examples/**", "bench/**", "spec/**", "scripts/**", "guide/**", ".github/workflows/suites.yml", ".github/actions/solid-next/**", ".github/actions/kobalte/**"]
   workflow_dispatch:
 
 jobs:
@@ -53,6 +53,8 @@ jobs:
           node-version: 24
       - name: Solid next, at the pin
         uses: ./.github/actions/solid-next
+      - name: Kobalte's solid2 branch at ref/KOBALTE, on that Solid (bench/package.json links ../kobalte)
+        uses: ./.github/actions/kobalte
       - name: ref/ (links ../solid-next), and Chromium
         run: |
           npm --prefix ref install

@@ -1,4 +1,4 @@
-// Select: one or several of flat options (no sections, no virtual list). Derived from select/*, listbox/* and hidden-select of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// Select: one or several of flat options (no sections, no virtual list). Derived from select/*, listbox/* and hidden-select of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
 import { call, give, focus, scrollTo, byKey, typeKey, put, announceChange } from "./dom.js"
 import client { openLayer, float } from "./layer.js"
 import pure { flag, mix, hidden, words, ask, stepKey } from "./dom.js"
@@ -144,7 +144,7 @@ export component Listbox(props: Omit<Ul, "children">) {
   mine = id ?? f.id + "-listbox"
   effect (mine) { c.name("list", $0); return () => { c.name("list", undefined) } }
   effect (c.focused, el) { let e = byKey($1, $0)
-    if (e) { focus(e); scrollTo(e) } else { focus($1) } }
+    if (e) { focus(e); scrollTo($1, e) } else { focus($1) } }
   <ul ref={(e: Element) => { el := e; c.listRef(e); give(user, e) }} id={mine} role="listbox" tabindex={c.focused == undefined ? 0 : 0 - 1} aria-multiselectable={c.multiple ? "true" : undefined} aria-labelledby={c.labelled}
     onKeyDown={(e) => { call(e, onKeyDown)
       if (e.key == "ArrowDown" || e.key == "ArrowUp") { e.preventDefault(); c.focus(stepKey(c.items, c.focused, e.key == "ArrowDown" ? 1 : 0 - 1, c.wrap)) }

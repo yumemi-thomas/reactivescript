@@ -1,4 +1,4 @@
-// Derived from tabs/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// Derived from tabs/* of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
 import { call, give, move, pickTab, tabOf, place, hasTabbable } from "./dom.js"
 import client { onResize, onMutation } from "@reactivescript/std/browser"
 import pure { uniqueId, flag, mix } from "./dom.js"

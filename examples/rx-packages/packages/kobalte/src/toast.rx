@@ -1,4 +1,4 @@
-// Toast: what is shown is data, and the region's caller writes how one looks. Derived from toast/* of @kobalte/core 2.0.0-alpha.5 (MIT, see ../NOTICE).
+// Toast: what is shown is data, and the region's caller writes how one looks. Derived from toast/* of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
 // Not the original's `toaster.show((props) => <Toast.Root …>)`: a view is not given to a fn. Without the swipe and the progress bar.
 import { call, give, within, isFocusIn } from "./dom.js"
 import { after } from "@reactivescript/std/time"

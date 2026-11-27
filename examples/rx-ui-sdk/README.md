@@ -4,7 +4,7 @@ Three components of `@ui-sdk/solid` (Apache-2.0: `LICENSE`, `NOTICE`) in Reactiv
 `@ui-sdk/core`. The verdict, numbers, bugs and blockers: [REPORT.md](REPORT.md). `src/` is the package, `dist/` what
 `rx-lib` built, `facade/` what a `.tsx` app imports.
 
-Both sides are 0.1.0-beta.17, built from source (vercel-labs/ui at d5c6249e), on Solid 2.0.3. Needed beside this repository's
+The rewrite derives from 0.1.0-beta.17, built from source (vercel-labs/ui at d5c6249e), on Solid 2.0.3; since 2026-11-27 the original it is run beside is npm's 0.1.0-beta.18 (the bench workspace's `@ui-sdk/core` and `@ui-sdk/solid`, copied into `node_modules`), on the pinned Solid. Needed beside this repository's
 built crate, runtime, `ref/` and language server: a copy `$UI` of that repository (`pnpm install --ignore-scripts`, Solid
 replaced by 2.0.3 in its `node_modules`; `pnpm build` in `packages/core` and `packages/solid`), and here a `node_modules` as
 `bench/`'s workspace has it, with `@solidjs/compiler` (since 2026-11-27 Solid there is the pin's, linked from `../solid-next`
