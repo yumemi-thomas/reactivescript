@@ -9,7 +9,7 @@
 use crate::parse::JsTrim;
 use crate::ast::*;
 use crate::content::{carried_by, misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE, USE};
-use crate::infer::{action_waits, held_word, inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
+use crate::infer::{action_joins, action_waits, held_word, inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::{other_mention, shown, shown_in, takes_view, view_uses, ModuleSet, Shown};
 use crate::names::{harness_reason, language, scalar, Lang};
@@ -3508,6 +3508,26 @@ impl<'a> Checker<'a> {
         }
         self.server_io(decls, env);
         self.prop_interfaces(decls, env);
+        // AC-1h, AC-1 (D-7): an action that launches one whose change outlasts the call outlasts it too — its writes join
+        // that change (an action that answers at the call included, AC-1i: it waits for nothing itself)
+        loop {
+            let mut changed = false;
+            for d in decls {
+                let Decl::Action { name, params, body, .. } = d else { continue };
+                let s = self.envs[env].vars[name.as_str()];
+                if self.syms[s].outlasts == Some(true) {
+                    continue;
+                }
+                let out = |n: &str| !params.iter().any(|p| p == n) && self.lookup(env, n).is_some_and(|t| self.syms[t].kind == SymKind::Action && self.syms[t].outlasts != Some(false));
+                if action_joins(body, &out).is_some() {
+                    self.syms[s].outlasts = Some(true);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
         // MO-10k: what a fn or an action of this module may give back, by mention (every name of the block is bound now)
         for d in decls {
             let mut names = IndexSet::new();
@@ -4659,7 +4679,7 @@ impl<'a> Checker<'a> {
                 self.comp("action", env, Some(name.clone()), None, |c| c.stmts(body, inner, Ctx { in_action: true, ..Ctx::imperative() }));
                 self.actions.push(ActionRec { name: name.clone(), body, env: inner, line: *line as i64 });
                 if let Some(ret) = ret {
-                    // AC-1i (B10, a prototype): an action that answers at the call never waits — its writes land as a handler's
+                    // AC-1i (B10): an action that answers at the call never waits — its writes land as a handler's
                     // do, so nothing would hold a change, and its body is checked as a handler's run
                     if let Some((w, at)) = held_word(body) {
                         let line0 = self.line;

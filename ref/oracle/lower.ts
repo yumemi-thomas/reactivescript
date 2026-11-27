@@ -723,7 +723,7 @@ export class Oracle {
     }
   }
   /** AC-1: an action body is a generator; a statement-level `await` is a hold-safe `yield` of the flight. */
-  /** AC-1i (B10, a prototype): an action that answers at the call — its body (no \`await\`) runs to its end now, as a handler's. */
+  /** AC-1i (B10): an action that answers at the call — its body (no \`await\`) runs to its end now, as a handler's. */
   private lowerNow(params: string[], body: Stmt[], scope: Scope) {
     const self = this;
     return (...args: unknown[]) => {

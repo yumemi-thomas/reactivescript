@@ -384,8 +384,10 @@ export default component App() {
 ### ACTION_ANSWER_HELD
 
 An action that declares what it answers (`action show(t: string): number`) answers it at the call: the caller gets the
-value, not a promise. Such an action never waits, so an `await` (or `refresh`, `affects`, a guess) in it would make its
-change outlive the call, and the answer would come before its writes settle. Leave the result out, so a caller gets a
+value, not a promise. Such an action never waits, so an `await` (or `refresh`, `affects`, a guess) in its own statements
+— a branch, a loop, a `try`, and a local closure it calls by name — would make its change outlive the call, and the
+answer would come before its writes settle. An inline `action { … }` is its own run and is not refused: it is launched,
+as a call of a declared action is. Leave the result out, so a caller gets a
 promise that settles with the change, or keep the part that answers at once and let the caller launch the waiting part.
 
 ```rx before

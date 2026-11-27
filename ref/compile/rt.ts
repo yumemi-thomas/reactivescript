@@ -391,7 +391,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
       return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
     },
-    /** \`action f(…): T { … }\` (AC-1i, B10, a prototype): an action that answers at the call never waits — its body runs
+    /** \`action f(…): T { … }\` (AC-1i, B10): an action that answers at the call never waits — its body runs
      *  as a handler's, and what it answers is the call's value. A panic ends it as it ends an action (DV-2): the app's. */
     now(fn: (...a: unknown[]) => unknown) {
       return (...a: unknown[]) => { try { return fn(...a); } catch (e) { app.asyncError = e; return undefined; } };

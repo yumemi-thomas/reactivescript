@@ -267,7 +267,29 @@ action, and until it settles the next click reads the old value too: a counter t
 Read the value the next run builds on with `latest`, which sees a write still waiting (not this run's own):
 `let n = latest seq + 1; seq := n; add(n)`. If the run doesn't need the value, a functional write does the same
 (`seq := v => v + 1`). If the write should show now instead (a reset), give it its own instant with `onFlush`. The
-compiler flags the plain read (`STALE_NEXT_READ`).
+compiler flags the plain read (`STALE_NEXT_READ`). The same goes for a handler that calls an action which itself
+launches one that waits, or that writes an inline `action { … }` that waits: the run joins that change too.
+
+### A named handler that answers
+
+An action that declares what it answers answers it at the call, and never waits (AC-1i):
+
+```rx
+action mint(): number {
+  let n = seq + 1
+  seq := n
+  return n
+}
+// a handler: let id = mint(); send("a" + str(id))
+```
+
+Its body is a handler's run with a name: its writes land in the caller's instant, and a `.tsx` caller gets a number,
+not a promise. Because it never waits, an `await`, `refresh`, `affects` or `guess` in its own statements (a local
+closure it calls by name included) is refused (`ACTION_ANSWER_HELD`): leave the result out to get an ordinary action
+whose promise settles with the change, or launch the waiting part as an action of its own. It may launch an action
+that waits (a call, or an inline `action { … }`); the writes beside that launch then wait with it, as a handler's do,
+and the counter rule above applies to them and to whoever calls it. It is still an action: a view or an equation
+cannot call it while it computes.
 
 ## 6. Effects: acting on a value as it changes
 

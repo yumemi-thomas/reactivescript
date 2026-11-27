@@ -248,7 +248,7 @@ pub enum Decl {
     Fn { name: String, params: Vec<Param>, decls: Vec<Decl>, tail: Expr, line: usize, span: Span, ret: Option<String>, exported: bool, tparams: Option<String>, named: bool },
     /// `tparams`: `<T>`, as text (07 §2)
     Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, no_props: bool, exported: bool, is_default: bool, tparams: Option<String> },
-    Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, /** AC-1f: how many of them a call must pass, where the last ones may be left out (`by?`) */ required: Option<usize>, /** AC-1i (B10, a prototype): the value it answers at the call, declared */ ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
+    Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, /** AC-1f: how many of them a call must pass, where the last ones may be left out (`by?`) */ required: Option<usize>, /** AC-1i (B10): the value it answers at the call, declared */ ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Server { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Provide { name: String, e: Expr, line: usize, span: Span },
     Context { name: String, ty: Option<String>, source: bool, dflt: Option<Expr>, line: usize, span: Span, exported: bool },

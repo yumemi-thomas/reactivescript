@@ -1062,7 +1062,7 @@ impl<'p> Gen<'p> {
             let Decl::Action { name, params, body, ret, .. } = d else { continue };
             let n0 = out.len();
             let penv = self.params(env, params);
-            // AC-1i (B10, a prototype): an action that answers at the call is a plain function, its body a handler's
+            // AC-1i (B10): an action that answers at the call is a plain function, its body a handler's
             let now = ret.is_some();
             let body = self.stmts(body, penv, &Ctx { imp: true, gen: !now, ..Ctx::default() }, false)?;
             let gen = E::Func(Box::new(Func { name: None, params: params.iter().map(|p| P::Id(mg(p))).collect(), directives: vec![], body, is_async: false, generator: !now }));
