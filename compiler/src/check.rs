@@ -5052,7 +5052,7 @@ impl<'a> Checker<'a> {
                     return;
                 }
                 let ptypes: Vec<Option<String>> = ptypes.iter().map(|t| t.as_ref().map(|t| if self.scalar_aliases.contains(t.js_trim()) { "string".to_string() } else { t.clone() })).collect();
-                self.run_checks_with(body, inner, true, params, false, ptypes, true, None);
+                self.run_checks_with(body, inner, true, params, false, ptypes, true, Some(inner)); // AC-1h (2026-11-27): a declared action that launches one that waits holds its own writes with it
             }
             Decl::Server { name, params, body, line, .. } => {
                 let region = self.reg(env);

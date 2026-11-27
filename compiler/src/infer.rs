@@ -582,7 +582,7 @@ impl<'o> Walker<'o> {
             ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Draft { .. } | ExprKind::Pending(_) | ExprKind::Latest(_) | ExprKind::Lit(_) | ExprKind::Pre { .. } | ExprKind::Peek(_) | ExprKind::StyleMap { .. } => {}
             ExprKind::Call { f, args, .. } => {
                 let c = called_closure(x, local);
-                if !self.action && c.is_none() && self.joins.is_none() {
+                if c.is_none() && self.joins.is_none() {
                     if let ExprKind::Id(n) = &f.k {
                         if (!sh.contains(n) && self.is_action.is_some_and(|a| a(n))) || self.local_actions.contains(n) {
                             self.joins = Some(n.clone());
@@ -877,7 +877,7 @@ impl<'o> Walker<'o> {
                 }
                 // AC-1 (D-7): an inline action that waits is launched as a declared one is, and the run's writes join its change
                 StmtKind::Action(b) => {
-                    if !self.action && self.joins.is_none() {
+                    if self.joins.is_none() {
                         let out = |n: &str| self.is_action.is_some_and(|a| a(n));
                         if action_waits(b) || action_joins(b, &out).is_some() {
                             self.joins = Some("action { … }".into());
@@ -906,7 +906,9 @@ pub fn run_findings(stmts: &[Stmt], action: bool, bound: &[String], inferred: bo
         }
     }
     w.walk(stmts, State { written: IndexMap::new(), held: IndexSet::new(), dead: false, taint, epoch: 0 }, &sh, &IndexMap::new(), &[]);
-    let held = !action && w.joins.is_some(); // a declared action's writes after its last `await` land as it ends
+    // a declared action's writes after its last `await` land as it ends — unless it launches an action that waits there:
+    // they join that change (AC-1h, D-7; 2026-11-27)
+    let held = w.joins.is_some();
     w.flush_next(held);
     let held_writes: HashSet<String> = w.out.iter().filter(|f| f.code == Code::HeldWrite).map(|f| f.name.clone()).collect();
     w.out.retain(|f| f.code != Code::StaleNextRead || !held_writes.contains(&f.name));

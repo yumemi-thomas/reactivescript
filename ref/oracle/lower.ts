@@ -614,7 +614,7 @@ export class Oracle {
           case "const": return b.value;
           case "sig": case "memo": case "store": {
             if (!this.imperative) return b.get();
-            try { return b.get(); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; }   // H-10: an apply block or handler reads σ; R-f-7: a snapshot of an error throws it
+            return b.get();   // R-8a: of a value that has never had one it throws, as `latest` does (R-12)   // H-10: an apply block or handler reads σ; R-f-7: a snapshot of an error throws it
           }
           case "fn": { const f = b.decl, home = b.home; return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return f.named ? this.withLocals(f, home, en) : this.ev(f.tail, home, en); }; }
           case "action": return b.run;

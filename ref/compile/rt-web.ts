@@ -549,7 +549,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
 
     // ---- reads ----
     /** An imperative read sees σ (H-10): a pending value is a value; a snapshot of an error throws it (R-f-7). */
-    snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
+    snapshot(get: Acc) { return untrack(get); },   // H-10: the committed value; R-8a: of a value that has never had one it throws, as `latest` does (R-12; Solid F-9: nothing to serve) — it handed Solid's pending mark on, and `got := x + "!"` wrote `#pending!`
     // ---- failures (R-f) ----
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity: the same on both sides (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,

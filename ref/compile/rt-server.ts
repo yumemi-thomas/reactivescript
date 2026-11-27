@@ -410,7 +410,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     },
     inst<T>(f: () => T): T { return (getOwner() ? runWithOwner(createOwner(), () => untrack(f)) : untrack(f)) as T; },   // with no owner above there is none to make one under: what needs one (`provide`) says so, as where two copies of Solid are loaded (CP-4a)
 
-    snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
+    snapshot(get: Acc) { return untrack(get); },   // H-10: the committed value; R-8a: of a value that has never had one it throws, as `latest` does (R-12; Solid F-9: nothing to serve) — it handed Solid's pending mark on, and `got := x + "!"` wrote `#pending!`
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },

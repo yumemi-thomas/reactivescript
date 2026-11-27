@@ -205,7 +205,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
         case "fn": case "serverfn": case "draft": case "pending": case "latest": case "lit": case "pre": case "peek": case "stylemap": return;
         case "call": {
           const c = calledClosure(x, local);
-          if (!action && !c && x.f.k === "id" && !joins && ((!sh.has(x.f.name) && opts.isAction?.(x.f.name)) || localActions.has(x.f.name))) joins = x.f.name;
+          if (!c && x.f.k === "id" && !joins && ((!sh.has(x.f.name) && opts.isAction?.(x.f.name)) || localActions.has(x.f.name))) joins = x.f.name;
           x.args.forEach(read);
           if (c) { if (!depth.has(c)) { const inner = new Set(sh); c.params.forEach(p => inner.add(p)); const after = walk(c.stmts!, { ...clone(st), dead: false }, inner, local, new Set([...depth, c])); st.written = after.written; st.held = after.held; st.epoch = after.epoch; } return; }
           read(x.f); return;
@@ -284,7 +284,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
         }
         // an inline action is its own run, checked on its own; AC-1 (D-7): one that waits is launched as a declared one is,
         // and the run's writes join its change
-        case "action": if (!action && !joins && (actionWaits(s.body) || actionJoins(s.body, n => !!opts.isAction?.(n)) !== undefined)) joins = "action { … }"; break;
+        case "action": if (!joins && (actionWaits(s.body) || actionJoins(s.body, n => !!opts.isAction?.(n)) !== undefined)) joins = "action { … }"; break;
         case "refresh": case "affects": break;
       }
     }
@@ -292,7 +292,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
   };
   const taint0 = new Map<string, Dep[]>(); bound.forEach((p, i) => { const t = opts.ptypes?.[i]; if (t && !scalarType(t)) taint0.set(p, [{ k: "param " + p, path: [], epoch: 0 }]); });
   walk(stmts, { written: new Map(), held: new Set(), dead: false, taint: taint0, epoch: 0 }, new Set(bound), new Map(), new Set());
-  flushNext(!action && !!joins);                                       // a declared action's writes after its last `await` land as it ends
+  flushNext(!!joins);                                                  // a declared action's writes after its last `await` land as it ends — unless it launches an action that waits there: they join that change (AC-1h, D-7; 2026-11-27)
   return out.filter(f => f.code !== "STALE_NEXT_READ" || !said.has("HELD_WRITE" + f.name));
 }
 

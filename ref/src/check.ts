@@ -1646,7 +1646,7 @@ class Checker {
           this.runChecks(d.body, inner, false, d.params, false, { isAction: n => { const t = inner.lookup(n); return t?.kind === "action" && t.outlasts !== false; } });
           return;
         }
-        this.runChecks(d.body, inner, true, d.params, false, { ptypes: (d.ptypes ?? d.params.map(() => undefined)).map(t => t && this.scalarAliases.has(t.trim()) ? "string" : t), answered: n => { const t = inner.lookup(n); return !!t && t.kind === "source" && !!t.question; }, stateful: n => { const t = inner.lookup(n); return !!t && (t.kind === "source" || t.kind === "eq"); } });
+        this.runChecks(d.body, inner, true, d.params, false, { ptypes: (d.ptypes ?? d.params.map(() => undefined)).map(t => t && this.scalarAliases.has(t.trim()) ? "string" : t), answered: n => { const t = inner.lookup(n); return !!t && t.kind === "source" && !!t.question; }, stateful: n => { const t = inner.lookup(n); return !!t && (t.kind === "source" || t.kind === "eq"); }, isAction: n => { const t = inner.lookup(n); return t?.kind === "action" && t.outlasts !== false; } });   // AC-1h (2026-11-27): a declared action that launches one that waits holds its own writes with it
         return;
       }
       case "server": {                                                                       // 12 SF-1/SF-3/SF-4: a statement block that runs on the server

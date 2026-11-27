@@ -734,7 +734,7 @@ export class Runtime {
   }
   pull(n: Node): unknown {
     if (n.kind === "source") { n.taint = n.heldBy !== null ? new Set([n.heldBy]) : new Set(); return this.demandMode || this.probing ? n.value : (n.hasCommitted ? n.committed : n.value); }   // H-10: snapshots see σ; R-9: `latest` in imperative scope reads the value a held write moves it toward (σ′)
-    if (!this.demandMode) return this.transient(n);
+    if (!this.demandMode) { const v = this.transient(n); if (v instanceof PendingVal && this.currentRun && !this.probing && !this.verdicts) throw new Error(`NotReadyError: ${n.name} has no value yet`);   /* R-8a: a run's read of a value that has never had one fails there, as `latest` of it does (R-12; Solid F-9) — what the run wrote before stands */ return v; }
     n.demanded = true;
     if (n.evaluated) return n.value;
     let recompute = !n.hasValue || n.state === "dirty";
@@ -853,6 +853,7 @@ export class Runtime {
   /** A node's flights: its own, or those of the awaits lifted out of its expression. */
   private flightsOf(n: Node): Flight[] { return [...(n.flight ? [n.flight] : []), ...n.lifted.flatMap(l => this.flightsOf(l))]; }
   private withLifted(n: Node): Node[] { return [n, ...n.lifted.flatMap(l => this.withLifted(l))]; }
+  private verdicts = 0;                                 // evaluating `pending? e`: a verdict reads no value
   private latestOver = 0;                               // R-9: evaluating `latest (e)` of an expression
   private latestOfGuess = 0;                            // DV-10: evaluating `latest g` of a guess: its reads join g's lane without being held by it
   private addLane(l: Node, held = true) { const t = this.tracking!; t.lanes.add(l); if (held && !this.latestOfGuess) t.inLanes.add(l); }
@@ -992,6 +993,7 @@ export class Runtime {
         return v;
       }
       case "pending": {                                                // R-9 / H-9 verdict
+        this.verdicts++; try { return (() => {
         if (this.tracking) this.tracking.lane = true;
         const n = this.nodeOf(e.e, region, env);
         if (!n) {                                                      // composite: the verdict of the reads inside it (Solid S-29)
@@ -1020,6 +1022,7 @@ export class Runtime {
           return false;
         }
         return open(n.heldBy);
+              })(); } finally { this.verdicts--; }
       }
       case "if": { const c = this.asked(this.ev(e.c, region, env)); if (isAbsent(c)) return c; return this.ev(c ? e.t : e.f, region, env); }
       case "serverfn": { let f = this.serverFns.get(e); if (!f) this.serverFns.set(e, (f = this.serverFn({ name: this.serverNames.get(e) ?? "server fn", params: e.params, body: e.body }, region))); return f; }   // SF-1d
