@@ -112,7 +112,12 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 
 - **ST-5a.** `source x = e` (not `:=`) declares a source whose value is the
   equation `e` **until written**: it re-derives when `e`'s inputs change, and
-  a write `x := v` overrides it until the next re-derivation. `e` may
+  a write `x := v` overrides it until the next re-derivation **that changes
+  `e`'s value** (2026-11-27, the apps hunt: `source id = list[0]` over a
+  polled list lost the user's pick on every poll that answered the same
+  list, unkeyed; over a keyed list it was kept, its rows keeping their
+  identity — the rule is the value's, keyed or not, compared as values are,
+  W-3; `refresh x` still drops the write, AC-4; S-standing-write). `e` may
   `await`. `e` may also be a constant (`source editing = null`,
   `source cart = []`): a question with no inputs, whose truth is that
   constant — the shape for provisional UI state that a guess (AC-3) can
@@ -514,8 +519,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   A call of a fn of the module asks where its body does (`shown = pick(ans)`
   with `fn pick(x) => x` asks nothing); a parameter or a local of a fn's
   body called there may be anything, and asks. A source with a question is
-  read the same way (`source issues = ans == null ? [] : ans`): both were
-  accepted and re-asked nothing (2026-11-27, the claims hunt). An equation
+  read the same way (`source issues = ans == null ? [] : ans`) where nothing
+  writes or guesses it — over a write, `refresh` drops the override, which
+  is what it is for there: both were accepted and re-asked nothing
+  (2026-11-27, the claims hunt). An equation
   whose answer is caught where it is awaited (`base = await f(id) catch
   (e) => 0`, R-f-4) is re-asked through its inner flight: the compiled
   code and the oracle re-ran the catching layer, which asks nothing, so a

@@ -79,7 +79,8 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
 - The screen is always one consistent frame. A change whose readers are still waiting is **held**: nothing of it
   shows until all of it can (H-1, H-2).
 - A `loading` region shows its fallback instead of holding while it is **armed**: before it first showed content,
-  and again each time its `on(x)` value changes. Otherwise a change below it holds (H-5). Put a read that waits on
+  and again each time its `on(x)` value changes — or what `x` is computed from is re-asked (a `refresh` or a poll of
+  the list `x = list[0]` reads re-arms it, as Solid's `Loading` does, H-6a). Otherwise a change below it holds (H-5). Put a read that waits on
   `x` inside the `loading on(x)` region; a read of it outside holds the change (CN-3e).
 - `pending? x` is true while a new answer for `x` is out; `latest x` is the value `x` is moving to (R-9). Use them to
   show work in progress without a fallback.

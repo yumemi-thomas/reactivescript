@@ -3396,10 +3396,14 @@ class Checker {
           if (s.k === "action") { this.comp("action", env, { name: "(inline)" }, () => this.stmts(s.body, env, { scope: "imperative", inAction: true })); this.actions.push({ name: "(inline)", body: s.body, env, line: this.line }); this.runChecks(s.body, env, true, []); break; }
           if (s.k === "affects") { const t = this.resolve(s.name, env, ctx); this.model.write(t, "affects"); if (t) this.changed.add(t); if (t && !reactiveKinds.has(t.kind)) this.err("INVALID_AFFECTS_TARGET", "AC-5", `${s.name} is not reactive`); break; }
           { const t = this.resolve(s.name, env, ctx); this.model.write(t, "refresh"); if (t) this.changed.add(t); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`);
-            else if ((t?.kind === "eq" || t?.kind === "source") && !t.imported && t.foreign === undefined && !t.factory && t.expr && t.env && !this.asksItself(t.expr, t.env)) {   // a source with a question too (2026-11-27: `source issues = ans == null ? [] : ans`)
+            else if ((t?.kind === "eq" || t?.kind === "source") && !t.imported && t.foreign === undefined && !t.factory && t.expr && t.env && !this.asksItself(t.expr, t.env)) {
               // AC-4 (2026-11-27): an equation that asks nothing itself re-asks nothing — the question is the one it reads
               const from = this.questionsOf(t, new Set());
-              this.err("INVALID_REFRESH_TARGET", "AC-4", from.length ? `${s.name} asks nothing itself: it is computed from ${from.join(", ")}, which ${from.length > 1 ? "ask" : "asks"} — \`refresh ${from[0]}\` re-asks it, and ${s.name} follows` : `${s.name} has no question to re-ask: it awaits nothing, and reads nothing that does`);
+              const say = () => this.err("INVALID_REFRESH_TARGET", "AC-4", from.length ? `${s.name} asks nothing itself: it is computed from ${from.join(", ")}, which ${from.length > 1 ? "ask" : "asks"} — \`refresh ${from[0]}\` re-asks it, and ${s.name} follows` : `${s.name} has no question to re-ask: it awaits nothing, and reads nothing that does`);
+              // a source with a question too (2026-11-27, the claims hunt: `source issues = ans == null ? [] : ans`) — where nothing
+              // writes or guesses it: a refresh also drops a write's override, and over a written one that is what it does
+              if (t.kind === "source") { const t0 = t, line = this.line; this.later.push(() => { if (!(this.srcWrites.get(t0)?.length)) { const was = this.line; this.line = line; say(); this.line = was; } }); }
+              else say();
             }
             break; }
         case "sif": this.wholeOk.add(s.c); this.expr(s.c, env, ctx); this.stmts(s.t, env, ctx); this.stmts(s.f, env, ctx); break;   // MO-10f: a condition reads no field

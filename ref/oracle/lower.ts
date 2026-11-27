@@ -2,6 +2,7 @@
 // solid-js 2.0 flow components over @solidjs/universal with a string-tree renderer.
 // This is the compiler's back half, run as an interpreter: every form maps to the primitive
 // its rule names (ST-1, ST-4c, ST-6c, AC-3 …). Unsupported shapes throw `Unsupported`.
+import { standing } from "../compile/standing.ts";
 import { inPrelude, language } from "../src/names.ts";
 import { classMap } from "../src/style.ts";
 import { inferredAction } from "../src/infer.ts";
@@ -415,12 +416,14 @@ export class Oracle {
               scope.vars.set(d.name, { k: "store", get: () => store, set: plain, setPath: plain, question: true, setGuess: setStore });
             }
             else if (this.optimisticTargets.has(d.name)) {                   // AC-3 over ST-5: the truth is a signal with a question, written plainly; the guess layer is createOptimistic over it
-              const [truth, setTruth] = createSignal(compute as any, this.loadingValue(d.init, scope) as any);
+              const st = standing(compute as (p: unknown) => unknown);        // ST-5 (2026-11-27): a write stands until the question's value changes
+              const [truth, setTruth0] = createSignal(st.compute as any, this.loadingValue(d.init, scope) as any);
+              const setTruth = (v: unknown) => { st.wrote(); return (setTruth0 as any)(v); };
               const [get, setGuess] = createOptimistic(() => truth());
-              scope.vars.set(d.name, { k: "sig", get, set: setTruth as any, setGuess: setGuess as any, question: true, optimistic: true, truth });   // AC-4: `refresh` re-asks `truth`, not the guess layer
+              scope.vars.set(d.name, { k: "sig", get, set: setTruth as any, setGuess: setGuess as any, question: true, optimistic: true, truth, reset: st.reset } as any);   // AC-4: `refresh` re-asks `truth`, not the guess layer
             }
             else if (this.isStructuredAwait(d.init, d.name)) { const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}); /* ST-5 structured: the derive writes its draft (Solid's createStore(fn, seed) idiom) */ scope.vars.set(d.name, { k: "store", get: () => store, set: () => { throw new Unsupported("root write to a derived store"); }, setPath: setStore, question: true }); }
-            else { const [get, set] = createSignal(compute as any, this.loadingValue(d.init, scope) as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: false }); }
+            else { const st = standing(compute as (p: unknown) => unknown); const [get, set0] = createSignal(st.compute as any, this.loadingValue(d.init, scope) as any); const set = (v: unknown) => { st.wrote(); return (set0 as any)(v); }; scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: false, reset: st.reset } as any); }   // ST-5 (2026-11-27): a write stands until the question's value changes
           } else {
             const init = untrack(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
@@ -701,7 +704,7 @@ export class Oracle {
       }
       case "throw": throw untrack(() => this.ev(s.e, scope, env));
       case "action": this.lowerAction([], s.body, scope, env)(); return;
-      case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); const d = Scope.all.find(x => x.vars.get(s.name) === b); for (const h of (d && this.hoistedByName.get(d)?.get(s.name)) ?? []) refresh(h as any); refresh((b.k === "store" ? (b.truth ?? b.get)() : ((b.k === "sig" || b.k === "memo") && (b as any).truth) || b.get) as any); return; }
+      case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); (b as { reset?: () => void }).reset?.(); const key = this.lastKey.get(s.name); if (key) this.forget(key); const d = Scope.all.find(x => x.vars.get(s.name) === b); for (const h of (d && this.hoistedByName.get(d)?.get(s.name)) ?? []) refresh(h as any); refresh((b.k === "store" ? (b.truth ?? b.get)() : ((b.k === "sig" || b.k === "memo") && (b as any).truth) || b.get) as any); return; }
       case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects((b.k === "store" || (b as { proj?: true }).proj ? b.get() : boxOf.get(b.get) ?? b.get) as any); return; }   // a store binding's get wraps the store: Solid takes the store (#50); so does a keyed equation's or a draft's, a projection (they threw: found checking #4906's affects() ruling)
       case "optimistic": case "write": {
         const b = s.target.ctx ? this.provision(s.target.name, scope) : scope.lookup(s.target.name);

@@ -191,6 +191,22 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   read ahead, it is that hold's work and the swap lands with the hold's frame
   (`on(id)`, S-solid-48).
 
+- **H-6a (A re-ask of what `on` reads re-arms; 2026-11-27, Solid's
+  `Loading`, followed).** A value `on` reads *going pending* is a change
+  (Solid documents it: "a plain write, an optimistic write, a source going
+  pending or landing"): while a quiet re-ask (`refresh`, AC-4) of what `on`
+  reads — or of what it is computed from — is out, the region is armed, and
+  a reader under it computed from that re-ask is pending there (in Solid it
+  is; AC-4's quiet is the hold's, which keeps the old screen where nothing
+  is armed), so the fallback shows until the answer lands, though the value
+  `on` yields is the same (`id = list[0]`, `loading on(id)`, `refresh
+  list`). The interpreter kept the content (found by the apps hunt: a
+  dashboard's polls blanked both panels in compiled code, not in `ref/`).
+  To keep the content through a re-ask, key the region on a value the
+  re-ask does not reach: a plain source (`source id := …`, set from the
+  list where it is picked), or nothing (`loading`, armed only until it
+  first shows). S-standing-write.
+
 - **H-7 (Lanes).** [F-6, Solid D-25] A reader whose equation carries `lane(x)` (R-10)
   renders from `σ′` for `x` and what is derived from it, beside the held
   screen, and never holds the instant on its account. A pass that reads

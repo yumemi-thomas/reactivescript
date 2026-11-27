@@ -2588,6 +2588,8 @@ enum Later<'a> {
     Hands { f: &'a Expr, args: &'a [Expr], env: EId, line: i64, in_fn: bool, own: Vec<(&'a Expr, EId)> },
     /// R-io-3e: a callee no form says the inside of, and the callers it holds
     Callee { f: &'a Expr, args: &'a [Expr], env: EId, line: i64, in_fn: bool },
+    /// AC-4 (2026-11-27): `refresh` of a source with a question that asks nothing: refused where nothing writes or guesses it
+    RefreshSource { t: SId, msg: String, line: i64 },
 }
 
 /// E-5a: whether a value can change: by what this module sees (`yes`), or only if one of `deps` does — a prop of a component
@@ -3720,6 +3722,14 @@ impl<'a> Checker<'a> {
     fn run_later(&mut self, job: Later<'a>) {
         match job {
             Later::Content { ms, env, anc } => self.content_check(ms, env, &anc),
+            Later::RefreshSource { t, msg, line } => {
+                if self.src_writes.get(&t).is_none_or(|w| w.is_empty()) {
+                    let was = self.line;
+                    self.line = line;
+                    self.err("INVALID_REFRESH_TARGET", "AC-4", msg);
+                    self.line = was;
+                }
+            }
             Later::ShownCarried { key, region, attrs } => {
                 for (k, cs, f, block) in self.carried_fns.clone() {
                     if k == key {
@@ -9246,7 +9256,8 @@ impl<'a> Checker<'a> {
                             if !(k == SymKind::Eq || (k == SymKind::Source && self.syms[t].question)) {
                                 self.err("INVALID_REFRESH_TARGET", "AC-4", format!("{} has no question to re-ask", name));
                             } else if (k == SymKind::Eq || k == SymKind::Source) && self.syms[t].imported.is_none() && self.syms[t].foreign.is_none() && self.syms[t].factory.is_none() {
-                                // (a source with a question too, 2026-11-27: `source issues = ans == null ? [] : ans`)
+                                // a source with a question too (2026-11-27, the claims hunt: `source issues = ans == null ? [] : ans`) — where
+                                // nothing writes or guesses it: a refresh also drops a write's override, and over a written one that is what it does
                                 // AC-4 (2026-11-27): an equation that asks nothing itself re-asks nothing — the question is the one it reads
                                 if let Some((x, xe)) = self.syms[t].expr.filter(|&(x, xe)| !self.asks_itself(Node::E(x), xe)) {
                                     let _ = (x, xe);
@@ -9257,7 +9268,11 @@ impl<'a> Checker<'a> {
                                     } else {
                                         format!("{name} asks nothing itself: it is computed from {}, which {} — `refresh {}` re-asks it, and {name} follows", from.join(", "), if from.len() > 1 { "ask" } else { "asks" }, from[0])
                                     };
-                                    self.err("INVALID_REFRESH_TARGET", "AC-4", msg);
+                                    if k == SymKind::Source {
+                                        self.later.push(Later::RefreshSource { t, msg, line: self.line });
+                                    } else {
+                                        self.err("INVALID_REFRESH_TARGET", "AC-4", msg);
+                                    }
                                 }
                             }
                         }

@@ -44,6 +44,9 @@ forecast = city == "" ? null : city.length < 3 ? throw TooShort(city) : await fe
   `latest city` is what was typed.
 - The first load has nothing to show yet: wrap the readers in `loading fallback { <p>loading…</p> } { … }`. To
   show the fallback again each time a key changes (a new selection, not a refinement), use `loading on(selected)`.
+  Key it on a value nothing re-asks: `on(id)` with `id = list[0]` (or `source id = list[0]`) re-arms on every
+  `refresh list` or poll, and blanks the region until the answer lands, though `id` stays the same (H-6a). A write
+  over `source id = list[0]` stands until the list's first item changes.
 - An answer read outside the region that loads it (elsewhere on the page, a count, a button's `disabled`) needs a
   value before it lands, or every one of those readers waits with it, and so does every reader of a store over it.
   That includes another answer's region: a pane that borrows other lists (for a limit, a count, or to find where a row

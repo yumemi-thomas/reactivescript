@@ -7,6 +7,7 @@
 import { primsSolid } from "./prims-solid.ts";
 import { keyedWrite } from "./keyed.ts";
 import { ownAttrs } from "./own.ts";
+import { standing } from "./standing.ts";
 import { getObserver } from "@solidjs/signals";
 import { Show, For, Loading, Errored, DEV } from "solid-js";
 import {
@@ -232,6 +233,7 @@ function slot<T>(make: () => T): T {
 export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
+  const resetOf = new Map<Acc, () => void>();                           // ST-5: a question source's write, dropped by its own `refresh` (AC-4)
   const truthOf = new Map<Acc, Acc>();                                  // an optimistic signal-form source: its guess layer -> its question
   const registry = new Map<string, Entry[]>();
   const contexts = new Map<string, ReturnType<typeof createContext<Entry | undefined>>>();
@@ -345,9 +347,12 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
         return [get as Acc, { set: plain, path: plain, guess: setGuess as any }];
       }
       if (mode.optimistic) {
-        const [truth, setTruth] = createSignal(fn as any, opts as any);
+        const st = standing(fn);                                         // ST-5: a write stands until the question's value changes
+        const [truth, setTruth0] = createSignal(st.compute as any, opts as any);
+        const setTruth = (v: unknown) => { st.wrote(); return (setTruth0 as any)(v); };
         const [get, setGuess] = createOptimistic(() => truth());
         truthOf.set(get as Acc, truth as Acc);                            // AC-4: `refresh x` re-asks the truth, not the guess layer over it
+        resetOf.set(get as Acc, st.reset);
         return [get, { set: setTruth as any, path: () => { throw new Error("optimistic path writes are not lowered yet"); }, guess: setGuess as any }];
       }
       if (mode.structured) {
@@ -355,7 +360,10 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
         const get = () => store; storeAccs.add(get);
         return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
       }
-      const [get, set] = createSignal(fn as any, opts as any);
+      const st = standing(fn);                                           // ST-5: a write stands until the question's value changes
+      const [get, set0] = createSignal(st.compute as any, opts as any);
+      const set = (v: unknown) => { st.wrote(); return (set0 as any)(v); };
+      resetOf.set(get as Acc, st.reset);
       return [get, { set: set as any, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("GUESS_NO_QUESTION"); } }];
     },
     memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, opts as any) as Acc,
@@ -450,7 +458,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     until: (p: () => unknown) => until(p),                                   // AC-6
     onSettled: (f: () => void) => onSettled(f),                             // EF-7
     onFlush: (f: () => void) => onFlush(f),                                 // EF-8
-    refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedOf.get(get) ?? []) refresh(h as any); const t = truthOf.get(get) ?? get; refresh((storeAccs.has(t) ? t() : t) as any); },
+    refresh(name: string, get: Acc) { resetOf.get(get)?.(); const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedOf.get(get) ?? []) refresh(h as any); const t = truthOf.get(get) ?? get; refresh((storeAccs.has(t) ? t() : t) as any); },
     affects: (get: Acc) => affects((storeAccs.has(get) ? get() : boxOf.get(get) ?? get) as any),   // a structured source's accessor wraps its store: Solid takes the store (#50), as `refresh` above
     preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 

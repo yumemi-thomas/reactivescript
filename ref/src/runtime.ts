@@ -40,6 +40,8 @@ function guessedAt(n: { guessPaths: Path[] }, diff: Set<Path>): boolean {
   return false;
 }
 /** Leaf paths at which `a` and `b` differ (E-6 per path). */
+/** ST-5: a copy of an answer's arrays and records, kept beside a value that path writes change in place. */
+function plainCopy(v: unknown): unknown { return Array.isArray(v) ? v.map(plainCopy) : v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plainCopy(x)])) : v; }
 function diffPaths(a: unknown, b: unknown, path: Path, out: Set<Path>) {
   if (Object.is(a, b)) return;
   if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b)) {
@@ -89,6 +91,8 @@ export class Node {
   shownGuess: unknown = undefined; guessShown = false; answerCorrected = false;   // D-22/D-34 (Solid decision 3, #4695): the guess as the screen last showed it; `latest x` keeps it after an answer corrects the graph, until the hold commits
   guessEntries: { path: Path; by: number; value: unknown; spent?: boolean }[] = [];   // H-11: each guess with the hold it was made over ("" = the root); `guess` is the truth with the live ones applied in order; `spent`: a new answer corrected it (D-34) — it shows the truth now but still belongs to its action, so the action's re-ask still holds it (D-34) and its end still ends it   // guessPaths: the keys guessed ("" = the root; AC-3 path targets)   // AC-3 / H-11: a guess over the hold `guessBy`; corrected: the truth differed, display keeps what it showed
   quiet = false; refreshBy: number | null = null; refreshInAction = false;      // AC-4: a quiet re-ask; its landing belongs to the change that asked (D-31)
+  reasked = false;
+  overridden = false; lastAnswer: unknown = undefined; hasAnswer = false;   // ST-5 (2026-11-27): a question source written over, and its question's last value — the write stands until that value changes                                     // H-6a: a `refresh` re-ask whose flight is out (it outlives `quiet`, which is the asking instant's)
   affectedBy: number | null = null;                    // AC-5: declared pending until that change lands
   heldKeys = new Map<string, number>();                // ST-2c: held path writes, per key ("" = the root)
   keyBy: string | null = null;                         // ST-4: a keyed collection is reconciled by this key
@@ -127,7 +131,7 @@ type Write = { node: Node; path: (string | number)[]; value: unknown };
 type ViewInst = { region: Region; items: VItem[] };
 type Row = { elem: unknown; region: Region; inst: ViewInst };
 type ReaderItem = { k: "read"; node: Node; shown: string | null };
-type BoundaryItem = { classes?: unknown[]; k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean; armedBy: number; laneAttached: boolean; bornCandidates: number };
+type BoundaryItem = { classes?: unknown[]; k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean; armedBy: number; laneAttached: boolean; bornCandidates: number; quiet?: Node[] };   // quiet: H-6a, the quiet re-asks `on` reads through, while they are out
 type VItem =
   | { k: "text"; s: string } | ReaderItem | { k: "comp"; inst: ViewInst; portal?: boolean }   // portal: RG-8 — settled and committed here, shown at the end of the document
   | { k: "el"; tag: string; attrs: { name: string; node: Node }[]; children: VItem[] }
@@ -360,6 +364,7 @@ export class Runtime {
         let cur: unknown = w.node.value; for (const k of w.path) cur = isObj(cur) ? cur[String(k)] : undefined;
         w = { ...w, value: (w.value as (v: unknown) => unknown)(cur) };
       }
+      if (w.node.question) w.node.overridden = true;                                                      // ST-5: written over
       if (w.path.length === 0) {
         if (w.node.keyBy && Array.isArray(w.value) && Array.isArray(w.node.value)) w = { ...w, value: this.reconcile(w.node.value, w.value, w.node.keyBy) };   // ST-4a on a source: a root write reconciles by key
         const d = new Set<Path>(); diffPaths(w.node.value, w.value, "", d);
@@ -389,7 +394,7 @@ export class Runtime {
       node.corrected = false; this.rebuildGuess(node); this.notify(node, "");
     }
     this.pendingGuesses = [];
-    for (const n of this.pendingRefresh) { n.quiet = true; n.refreshBy = this.instant; if (n.flight) this.flights.delete(n.flight.key); this.markDirty(n); }   // AC-4: re-ask quietly
+    for (const n of this.pendingRefresh) { n.quiet = true; n.reasked = true; n.overridden = false; n.refreshBy = this.instant; if (n.flight) this.flights.delete(n.flight.key); this.markDirty(n); }   // AC-4: re-ask quietly
     this.pendingRefresh = [];
     for (const n of this.pendingAffects) n.affectedBy = this.instant;                                        // AC-5
     this.pendingAffects = [];
@@ -487,6 +492,18 @@ export class Runtime {
     }
     this.commit(this.view, g);
   }
+  /** H-6a: the quiet re-asks (AC-4) a node is computed from, itself included, whose flight is out. */
+  private quietUnder(n: Node, seen = new Set<Node>(), out: Node[] = []): Node[] {
+    if (seen.has(n)) return out; seen.add(n);
+    if (n.reasked && n.flight?.state === "pending") out.push(n);
+    for (const t of n.deps.keys()) if (t instanceof Node) this.quietUnder(t, seen, out);
+    return out;
+  }
+  private reaches(n: Node, to: Set<Node>, seen = new Set<Node>()): boolean {
+    if (to.has(n)) return true; if (seen.has(n)) return false; seen.add(n);
+    for (const t of n.deps.keys()) if (t instanceof Node && this.reaches(t, to, seen)) return true;
+    return false;
+  }
   // ---- settle / commit / render over the two structure versions ----
   private settle(v: ViewInst, holding: Node[], boundary: BoundaryItem | null) { for (const i of v.items) this.settleItem(i, holding, boundary); }
   private settleItem(i: VItem, holding: Node[], boundary: BoundaryItem | null) {
@@ -496,6 +513,7 @@ export class Runtime {
       case "read": {
         const v = this.pull(i.node);
         if (v instanceof ViewValue) return this.settle(v, holding, boundary);
+        { const lb = nearest(boundary, "loading"); if (lb && lb.armed && lb.quiet?.length && this.reaches(i.node, new Set(lb.quiet))) { lb.caught.push(i.node); i.node.heldOn = null; return; } }   // H-6a: pending in Solid while the re-ask `on` reads through is out
         { const eb = erroredShowing(boundary); const above = eb && v instanceof PendingVal ? armedAbove(eb) : null; if (above) { above.caught.push(i.node); i.node.heldOn = null; return; }   // H-12: an armed `loading` above the error fallback takes the pending content (found by S-ai2-search)
           if (eb && (i.node.served.size || v instanceof PendingVal)) { eb.stillWaiting = true; i.node.served.clear(); i.node.heldOn = null; return; } }   // behind an error fallback: not the display (H-4); pending is not an answer (D-41)
         if (v instanceof ErrVal) {                                                                                         // H-12 / D-41: an error is an answer; it reveals with its frame
@@ -593,6 +611,11 @@ export class Runtime {
       }
       case "loading": {
         if (i.onNode) { this.pull(i.onNode); if (i.onNode.changed && !i.armed) { i.armed = true; i.armedBy = this.instant; } }   // H-6: a change to what `on` reads re-arms; the fallback belongs to this change's frame (H-5)
+        // H-6a (Solid's Loading, followed, 2026-11-27): a value `on` reads going pending is a change — a quiet re-ask (`refresh`)
+        // of what it is computed from re-arms, and what reads that re-ask under the region is pending in Solid (only the screen
+        // keeps the old answer: AC-4's quiet is the hold's), so the armed region catches it until the answer lands
+        i.quiet = i.onNode ? this.quietUnder(i.onNode) : [];
+        if (i.quiet.length && !i.armed) { i.armed = true; i.armedBy = this.instant; }
         i.caught = []; i.bornCandidates = 0;
         this.settle(i.content, holding, i);
         if (i.armed) { i.showingFallback = i.caught.length > 0 || i.bornCandidates > 0; if (!i.showingFallback) i.armed = false; }   // H-5: catch; disarm when ready (born-held candidates keep it armed until the hold is decided)
@@ -774,8 +797,13 @@ export class Runtime {
       this.subscribe(n);
       if (n.deferred && n.answered && v instanceof PendingVal) { n.lagging = true; v = n.value; }   // D-40: a declared-lag re-ask keeps showing its last answer
       else if (n.deferred) n.lagging = false;
+      if (n.reasked && n.flight?.state !== "pending") n.reasked = false;                             // H-6a: the re-ask landed
       if (n.quiet && v instanceof PendingVal && n.answered) v = n.value;                              // AC-4: a quiet re-ask reveals silently; nothing pends
       else if (n.quiet && !(v instanceof PendingVal)) { if (n.refreshBy !== null && this.groupOpen(n.refreshBy)) n.heldBy = n.refreshBy; else { n.quiet = false; n.refreshBy = null; } }   // D-31: a refresh in a hold lands into it
+      if (n.question && !(v instanceof PendingVal) && !(v instanceof ErrVal)) {                       // ST-5 (2026-11-27, the apps hunt): a write over a question stands until the question's value changes — a re-ask with the same answer keeps it (as a keyed list kept it)
+        if (n.overridden && n.hasAnswer) { const d = new Set<Path>(); diffPaths(n.lastAnswer, v, "", d); if (d.size === 0) v = n.value; else { n.lastAnswer = plainCopy(v); n.overridden = false; } }
+        else { n.lastAnswer = plainCopy(v); n.hasAnswer = true; }
+      }
       if (n.keyBy && Array.isArray(v) && Array.isArray(n.value)) v = this.reconcile(n.value, v, n.keyBy);   // ST-4a: rows with the same key keep their identity and receive per-key updates
       const ch = new Set<Path>();
       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
