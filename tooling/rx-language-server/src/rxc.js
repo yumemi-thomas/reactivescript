@@ -84,9 +84,15 @@ function viaProcess(method, params) {
 let wasm, reader;
 /** RX_TRACE=<file>: each request and its answer, a line each (what a result of a tool depended on: scripts/lib/cache.mjs). */
 function ask(method, params) {
-  const result = answer(method, params);
-  if (process.env.RX_TRACE) require("node:fs").appendFileSync(process.env.RX_TRACE, JSON.stringify({ cwd: process.cwd(), method, params, result, ...(/\.trial\.d\.rx$/.test(params.file ?? "") ? { trial: readFileSync(params.file, "utf8") } : {}) }) + "\n");   // (a trial is gone by the time it is asked again: its text with it)
+  let result;
+  // (a request that throws is traced too, answered null: a result made while the build could not be loaded — absent, or
+  // half written by a build running beside — depends on it, and is not kept as though it had been asked nothing)
+  try { result = answer(method, params); } catch (e) { trace(method, params, null); throw e; }
+  trace(method, params, result);
   return result;
+}
+function trace(method, params, result) {
+  if (process.env.RX_TRACE) require("node:fs").appendFileSync(process.env.RX_TRACE, JSON.stringify({ cwd: process.cwd(), method, params, result, ...(/\.trial\.d\.rx$/.test(params.file ?? "") && existsSync(params.file) ? { trial: readFileSync(params.file, "utf8") } : {}) }) + "\n");   // (a trial is gone by the time it is asked again: its text with it)
 }
 function answer(method, params) {
   if (method === "words") {
@@ -148,4 +154,4 @@ function lookup(file, spec) {
 function rows(file, text) {
   return ask("rows", text === undefined ? { file } : { file, text });
 }
-module.exports = { ask, analyze, checkProgram, preludeFor, boundary, declaration, lookup, rows };
+module.exports = { ask, analyze, checkProgram, preludeFor, boundary, declaration, lookup, rows, wasmPath, wordsPath };

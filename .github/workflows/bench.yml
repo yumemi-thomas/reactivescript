@@ -31,6 +31,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown   # the WebAssembly builds below
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: compiler
@@ -44,12 +46,17 @@ jobs:
         uses: ./.github/actions/solid-next
       - name: Kobalte's solid2 branch at ref/KOBALTE, on that Solid (bench/package.json links ../kobalte)
         uses: ./.github/actions/kobalte
-      - name: The crate (rxc, and the Node-API build Solid's Vite plugin loads)
+      - name: The crate (rxc, the Node-API build Solid's Vite plugin loads, and the WebAssembly builds the language server loads)
         working-directory: compiler
         run: |
           npm ci
           cargo build --release
           npx napi build --platform --release --features node --manifest-path ./Cargo.toml -- --lib
+          # what rx-declare reads a package's code with (compiler/words): without it every draft is "the code could not be
+          # read" — no word proven, every one a question (DECISION.md "Bench on GitHub vs local"); and the crate's, which
+          # rx-tsc and rx-declare ask in process, as scripts/ci and scripts/setup.sh build them
+          cargo build --lib --release --target wasm32-unknown-unknown
+          cargo build -p rx-words --release --target wasm32-unknown-unknown
       - name: The runtime
         run: npm --prefix runtime ci && npm --prefix runtime run build
       - name: The language server's packages (rx-tsc)

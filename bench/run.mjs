@@ -17,8 +17,10 @@
 //        node bench/run.mjs --tasks-only | --coverage-only [--shard i/n]
 //                                             the tasks alone; the coverage suite alone; or the i-th n-th of it (CI)
 //        VERBOSE=1                            prints every check, not only the failures
-// Needs: the crate (`cargo build --release` in compiler/), the runtime (`npm run build` in runtime/), the language
-// server's packages (`npm ci` in tooling/rx-language-server), Node 22.6+, and the network once (bench/package.json).
+// Needs: the crate (`cargo build --release` in compiler/) and its WebAssembly builds (`cargo build --lib --release --target
+// wasm32-unknown-unknown`, and `-p rx-words`: what rx-declare reads a package's code with — a run refuses to start without
+// it), the runtime (`npm run build` in runtime/), the language server's packages (`npm ci` in tooling/rx-language-server),
+// Node 22.6+, and the network once (bench/package.json).
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -26,7 +28,7 @@ import path from "node:path";
 import { runCoverage } from "./coverage.mjs";
 import * as cache from "../scripts/lib/cache.mjs";
 import { heavy } from "../scripts/lib/lock.mjs";
-import { here, ws, given, workspace, stage, loadRef, shareKeys, reaches, driven, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone, end, longestFirst, prepared } from "./harness.mjs";
+import { here, ws, given, workspace, stage, loadRef, shareKeys, reaches, driven, both, rxTsc, edit, Runner, anysWritten, declarations, claimKinds, claimsSaid, compact, draftOf, onEdit, pool, alone, end, longestFirst, prepared, needWords } from "./harness.mjs";
 
 /** The codes of a program that cannot be written: the grammar has no position for it (99, bin U as the parser reports
  *  it, and the habits it names), or a name resolves to nothing. */
@@ -201,6 +203,7 @@ if (items.length) {
   process.exit(0);
 }
 
+needWords();
 // several browsers and a process a core: one such run at a time on a machine (scripts/lib/lock.mjs; a filtered run does not wait)
 if (!args.some((a, i) => !a.startsWith("--") && args[i - 1] !== "--shard")) given(await heavy("bench", { want: Number(process.env.BENCH_JOBS) || undefined }));
 workspace(); shareKeys();

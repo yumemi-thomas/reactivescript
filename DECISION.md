@@ -1858,3 +1858,64 @@ Before = 0b5221e7 (the pin, npm Kobalte, Babel in the harness); after = this tre
 Nothing stricter dropped, nothing correct refused by the rewrites or the checkers (neither checker changed), nothing
 accepted that a runner shows differently. **For the user to file:** no new upstream bug. DV-29 still reproduces
 (`ref/oracle/repros/cleanup-action-write.mjs`), unchanged by Kobalte's branch, as are #5220 (X1), DV-26 and DV-28.
+
+## Bench on GitHub vs local (2026-11-27)
+
+The bench workflow failed on GitHub at 0b5221e7 (run 45920933851, all four jobs at "The benchmark, against
+bench/scorecard.json…"), while the full `scripts/ci` was green on the same head here. On GitHub every draft read
+nothing: "whole drafts: 0 words read", "0 proven by the generator", in all four jobs. That gives inferred words 0
+everywhere, every word a question, and the hand-written words each a TODO. Examples: primitives-virtual inferred 4 →
+0, questions 14 → 25; solid-use-primitives TODOs 1 → 6. It was not the pin: the bench workflow had failed this way on
+every run since the generator moved to Rust (45778619880 onwards).
+
+**Cause.** `bench.yml` never built `compiler/target/wasm32-unknown-unknown/release/rx_words.wasm`. That is the crate
+(compiler/words) rx-declare reads a package's code with, and its toolchain step had no wasm32 target. The file is
+gitignored. Without it, `src/rxc.js` `wordsPath()` throws, and `declare-infer.js` catches that as "the code could not
+be read". The draft is still written: the types only, every word a question. Nothing failed loudly. `scripts/ci`'s
+`wasm` step and `scripts/setup.sh` build it, so a local run always had it. Shown in a fresh GitHub-like setup
+(`rx-gh.noindex`: new clones of the repository at a3d680dc, of solid-next at the pin and of Kobalte at ref/KOBALTE,
+built only as `bench.yml` and its actions build them, `CI=1`, `bench/run.mjs primitives-virtual solid-use-primitives
+--tasks-only --check --strict`):
+
+| setup | words read | questions | --check |
+| --- | --- | --- | --- |
+| as `bench.yml` builds it | 0 | 34 | 12 problems, GitHub's exactly (primitives-virtual 7/6/0/2/3/25, solid-use-primitives 7/6/0/5/2/9) |
+| the same, plus the two wasm builds | 493 | 16 | as the scorecard |
+
+Nothing else differed: Solid, Kobalte, the runtime and the `npm ci` install resolved alike.
+
+**A local leak too.** The bench cache (scripts/lib/cache.mjs) keeps a draft under the requests it made of the crate
+(`RX_TRACE`). A `words` request that threw was not traced. So a draft made while the words build could not be loaded
+(absent, or half written by a cargo build running beside it) was kept as though it depended on nothing. Later cached
+runs got it back with the build in place. That is how a cached `bench/run.mjs primitives-virtual --check` here first
+gave GitHub's numbers. It was right uncached, and the full `scripts/ci` is uncached, so 0b5221e7's green stands.
+Checked both ways: a run with an invalid `RX_WORDS_WASM`, then a run with the real one. With the old `ask`, the second
+run reused the empty draft (25 questions). With the fix it drafted again (14).
+
+**Fix.**
+- `bench.yml`: the toolchain gets `targets: wasm32-unknown-unknown`, and the crate step builds `cargo build --lib
+  --release --target wasm32-unknown-unknown` and `cargo build -p rx-words --release --target wasm32-unknown-unknown`,
+  as `scripts/ci` and `scripts/setup.sh` do. The language server then asks the crate in process on GitHub too, as it
+  does here, not through `rxc serve`.
+- `bench/run.mjs` and `bench/generated.mjs` refuse to start without the words build, naming the command
+  (`needWords`, bench/harness.mjs). A missing build is no longer measured as the generator's result.
+- `src/rxc.js` traces a request that throws, answered `null`. A result made without the build is never valid again
+  once the build answers.
+- bench/harness.mjs keys the crate's and the words' WebAssembly builds by the files `src/rxc.js` really loads
+  (`wasmPath()`, `wordsPath()`, now exported). A copy bundled in `src/` (after `npm pack`) comes first there. Before,
+  the key hashed `compiler/target` while the answers came from the copy.
+
+**The scorecard.** Not changed. Its numbers are what the generator gives when it can read the code. The a3d680dc
+rewrite (`--write`, uncached, the words build present) moved only what the library bumps moved: start-route's whole
+draft 301 → 298 rows; wardic-motion and wardic-values 371 → 418 rows, inferred 21 → 19, questions 134 → 145,
+wardic-motion's TODOs 2 → 3 (wardic 2.1's stage API and `ward`'s 5 signatures); and the coverage entries of the bumped
+primitives, UI SDK beta.18 (`@ui-sdk/solid` inferred 12 → 19, `overlays` 0 → 7) and wardic. None of them went to the
+0-words state GitHub showed. `bench/run.mjs --write` on the fixed tree (uncached, tasks and coverage) writes
+bench/scorecard.json, scorecard.txt, coverage/coverage.json, coverage.txt and both audit.txt files byte for byte as
+a3d680dc has them.
+
+| check | result |
+| --- | --- |
+| the full `scripts/ci`, uncached, with the Vite plugin fork | 47 of 47 passed (588 s), bench `--check --strict` and `generated` among them, `t-vite-hosts` run |
+| `bench/run.mjs --write` | no file changed |
+| a missing words build (`RX_WORDS_WASM` absent) | `bench/run.mjs` and `bench/generated.mjs` exit 1 and name the build command |

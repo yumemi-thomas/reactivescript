@@ -12,7 +12,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { here, repo, rxc, workspace, ws, given, jobs, shareKeys, generate } from "./harness.mjs";
+import { here, repo, rxc, workspace, ws, given, jobs, shareKeys, generate, needWords } from "./harness.mjs";
 import * as cache from "../scripts/lib/cache.mjs";
 import { heavy } from "../scripts/lib/lock.mjs";
 import { entries } from "./coverage.mjs";
@@ -25,6 +25,7 @@ const { rowsOf } = require_("../tooling/rx-language-server/src/rows.js");
 const { ensureDeclarations, packageImportSites } = require_("../tooling/rx-language-server/src/generate.js");
 const args = process.argv.slice(2);
 if (args[0] === "--draft") { process.on("disconnect", () => process.exit(1)); await new Promise(res => { process.on("message", m => { if (m === null) return process.send(cache.stats, res); generate(...m); process.send("done"); }); process.send("ready"); }); process.exit(0); }   // (a process of `draftAll`'s)
+needWords();
 if (!args.length) given(await heavy("generated", { want: Number(process.env.BENCH_JOBS) || undefined }));
 /** The declarations of what `entries` import, drafted by several processes: each package as the first module that imports it
  *  does (they share one install). What each entry then asks for is there, and is looked at again (`ensureDeclarations`). */

@@ -72,7 +72,7 @@ function shared() {
     // (the copies a program runs with, not what they were copied from: `workspace()` makes them again, a task run alone does not)
     runtime: cache.treeHash(path.join(nm, "@reactivescript/runtime")),
     // what a task that runs a build, or a process of its own, may reach: the compiler as it is built, and ref/
-    builds: cache.inputs(rxc, ...["index.js", "vite.mjs", "lib.mjs", "package.json", "scripts"].map(f => at("compiler", f)), process.env.RX_WASM || at("compiler/target/wasm32-unknown-unknown/release/reactivescript.wasm"), wordsWasm, ...(existsSync(at("compiler")) ? readdirSync(at("compiler")).filter(f => f.endsWith(".node")).map(f => at("compiler", f)) : []), ...["src", "compile", "check.ts", "disk.ts", "types"].map(f => at("ref", f))),
+    builds: cache.inputs(rxc, ...["index.js", "vite.mjs", "lib.mjs", "package.json", "scripts"].map(f => at("compiler", f)), crateWasm, wordsWasm, ...(existsSync(at("compiler")) ? readdirSync(at("compiler")).filter(f => f.endsWith(".node")).map(f => at("compiler", f)) : []), ...["src", "compile", "check.ts", "disk.ts", "types"].map(f => at("ref", f))),
     browser: cache.browser(pw()),
   };
   cache.saveIndex();
@@ -112,7 +112,18 @@ function serve(a) {
 }
 /** The build that reads JavaScript (`words`): what it answers is in the packages' files and the task's — the key's, and the
  *  folders above, which have no packages (`above`, in the key) — so that, while it is the same file, its answers are. */
-const wordsWasm = process.env.RX_WORDS_WASM || path.join(repo, "compiler/target/wasm32-unknown-unknown/release/rx_words.wasm");
+// (the files src/rxc.js loads, found as it finds them: a copy bundled beside it comes first, and a key of another file would
+// keep an answer of the copy's)
+const builds_ = require_("../tooling/rx-language-server/src/rxc.js");
+const wordsWasm = (() => { try { return builds_.wordsPath(); } catch { return path.join(repo, "compiler/target/wasm32-unknown-unknown/release/rx_words.wasm"); } })();
+const crateWasm = builds_.wasmPath() ?? path.join(repo, "compiler/target/wasm32-unknown-unknown/release/reactivescript.wasm");
+/** What rx-declare reads the code with (compiler/words): without it, every draft says only "the code could not be read" —
+ *  no word proven, every one a question — and a run measures the missing build, not the generator. A run refuses to start. */
+export function needWords() {
+  if (existsSync(wordsWasm)) return;
+  console.error(`no ${wordsWasm}: rx-declare reads no code without it (every draft would be all questions). Build it: (cd compiler && cargo build -p rx-words --release --target wasm32-unknown-unknown)`);
+  process.exit(1);
+}
 answer.by = a => a.k === "serve" && a.method === "words" ? cache.fileHash(wordsWasm) ?? undefined : undefined;
 /** The questions for `rxc serve`, from one folder, in one process (it answers a line a line, each alone). */
 answer.many = asks => {
