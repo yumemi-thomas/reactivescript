@@ -58,6 +58,8 @@ forecast = city == "" ? null : city.length < 3 ? throw TooShort(city) : await fe
   Its own `loading` region shows while `folderAns == null`; every other reader reads `messages` and never waits.
   The `[]` is a stand-in, not an answer. A click that works something out from the list (where a row goes, whether
   the list is full) would compute it from an empty list, so keep that control `disabled` while `folderAns == null`.
+  The question is the source's: to ask again, `refresh folderAns`. `refresh messages` is refused
+  (`INVALID_REFRESH_TARGET`), since `messages` asks nothing itself.
 
 ## 2. Failures: a region where they're read
 

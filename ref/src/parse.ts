@@ -8,6 +8,8 @@ import { contentShapeOf } from "./signature.ts";
 export class ParseError extends Error { code = "PARSE"; }
 
 const JS_APIS = /\b(useState|useReducer|useMemo|useCallback|useEffect|useRef|createSignal|createMemo|createEffect|createStore|createResource|createAsync)\s*\(/;
+/** `e as T`: TypeScript's assertion, which the language does not have (2026-11-27). */
+const AS_CAST = /^as\s+\S|^=[^=>].*[\w$)\]"'`]\s+as\s+["'`(\[{A-Za-z_$]/;
 /** What a parse failure at `i` most likely meant, when the line reads like JavaScript, React or Solid: `[code, text]`.
  *  `src/parse.rs` `hint` is the same function. */
 export function hint(src: string, i: number, msg: string): [string, string] | null {
@@ -22,6 +24,8 @@ export function hint(src: string, i: number, msg: string): [string, string] | nu
     return ["REACTIVE_WRITE_IN_OWNED_SCOPE", `an arrow that writes takes a braced body, \`() => { ${name} := … }\`: an expression-bodied arrow is a pure function (SC-3)`];
   if (/^=(?![=>])/.test(rest) && /\b(fn|action)\s+[A-Za-z_$][\w$]*\s*\([^)]*$/.test(before))
     return ["PARSE", `a parameter has no default: give every argument at the call, and say what an absent one means in the body, \`${name} ?? …\` (E-9, AC-1f)`];
+  if (AS_CAST.test(rest.split("\n")[0]))
+    return ["PARSE", "\`as\` is not .rx: a value has the type it was made with — give the type where the value is declared (\`source s: T := …\`, a parameter, a fn's result), or narrow it with a fn, \`fn asT(v: string): T => …\` (07 §2)"];
   if (/^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*\/%])=|=(?![=>]))/.test(rest))
     return ["ASSIGNMENT", `a source is written with \`:=\`, as a statement in a handler or action: \`${name} := ${name} + 1\`, or \`${name} := v => v + 1\` (W-1, W-6); .rx has no \`=\`, \`+=\` or \`++\` on state`];
   if (/^(export\s+)?(default\s+)?(async\s+)?function\b/.test(line))

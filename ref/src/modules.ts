@@ -491,8 +491,8 @@ export class ViewProps {
   given(tag: string, attr: string, e: Expr): string | undefined { return e.k === "id" && this.props.get(tag)?.has(attr) && this.comps.has(e.name) ? e.name : undefined; }
 }
 
-/** The names a module imports from JavaScript and writes only in its types: nothing to import when it runs, as TypeScript
- *  leaves them out. A name a declaration gives a row is that row's to say (`typeNames`: its rows that are types). */
+/** The names a module imports from JavaScript and writes only in its types, or nowhere: nothing to import when it runs, as
+ *  TypeScript leaves them out. A name a declaration gives a row is that row's to say (`typeNames`: its rows that are types). */
 export function typeOnly(p: { decls: Decl[]; view: unknown }, set?: ModuleSet): Set<string> {
   const values = new Set<string>(), types: string[] = [];
   const walk = (x: unknown, key = ""): void => {
@@ -506,7 +506,7 @@ export function typeOnly(p: { decls: Decl[]; view: unknown }, set?: ModuleSet): 
   const out = new Set<string>();
   for (const d of p.decls) if (d.k === "import" && !d.resolved) for (const n of d.names) {
     if (d.declared && set?.declarations?.get(d.declared)?.some(y => "name" in y && y.name === n.name)) continue;
-    if (!values.has(n.alias) && types.some(t => new RegExp(`(?<![\\w$.])${n.alias.replace(/\$/g, "\\$")}(?![\\w$])`).test(t))) out.add(n.alias);
+    if (!values.has(n.alias)) out.add(n.alias);   // …and a name the module writes nowhere (2026-11-27): it may be a type of a `.d.ts`, which the JS module does not export
   }
   return out;
 }

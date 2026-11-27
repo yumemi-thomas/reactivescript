@@ -126,7 +126,7 @@ pub struct SigParam {
 }
 #[derive(Debug, Clone)]
 pub enum ExportSig {
-    Source { question: bool, rows: Vec<String>, fails: Vec<String> },
+    Source { question: bool, rows: Vec<String>, fails: Vec<String>, actions: Vec<String> },
     /// `actions`: R-io-3, the parts of its value (a fn's: of its result) that are actions, as paths ("": the value)
     Eq { rows: Vec<String>, fails: Vec<String>, io: bool, actions: Vec<String> },
     /// `uses`: RG-7b, the contexts a call of it reads above the place it is written (keys)
@@ -407,13 +407,17 @@ fn hosts_of(file: &str, text: &str) -> IndexMap<String, Vec<HostSite>> {
     out
 }
 /// R-io-3: the parts of a value that are actions, among others: `{ set: io; pair.1: io; … }`; `io`: the value itself.
+fn is_caller(p: &str) -> bool {
+    p.split('.').any(|x| x == "!")
+}
 fn actions_text(ps: &[String]) -> String {
     if ps.is_empty() {
         String::new()
     } else if ps.iter().any(|p| p.is_empty()) {
         "io".to_string()
     } else {
-        format!("{{ {}; … }}", ps.iter().map(|p| format!("{p}: io")).collect::<Vec<_>>().join("; "))
+        // R-io-3e: a caller — where, `!`, what it calls of what it is given
+        format!("{{ {}; … }}", ps.iter().map(|p| format!("{p}: {}", if is_caller(p) { "calls" } else { "io" })).collect::<Vec<_>>().join("; "))
     }
 }
 fn actions_of(text: &str) -> Option<Vec<String>> {
@@ -421,7 +425,7 @@ fn actions_of(text: &str) -> Option<Vec<String>> {
         return Some(vec![String::new()]);
     }
     let inner = crate::parse::js_trim(crate::parse::js_trim(text.strip_prefix('{')?.strip_suffix('}')?).strip_suffix('…')?).strip_suffix(';')?;
-    let ps = split(inner, ';').iter().map(|p| P_PART.captures(p).map(|m| m[1].to_string())).collect::<Option<Vec<_>>>()?;
+    let ps = split(inner, ';').iter().map(|p| P_PART.captures(p).filter(|m| is_caller(&m[1]) == (&m[2] == "calls")).map(|m| m[1].to_string())).collect::<Option<Vec<_>>>()?;
     (!ps.is_empty()).then_some(ps)
 }
 fn words(parts: [String; 3]) -> String {
@@ -462,7 +466,7 @@ fn with_rows(head: String, r: String) -> String {
 
 fn line(file: &str, name: &str, x: &ExportSig) -> String {
     match x {
-        ExportSig::Source { question, rows: r, fails } => format!("{} {} …", with_rows(format!("export source {}", name), rows(r, fails)), if *question { "=" } else { ":=" }),
+        ExportSig::Source { question, rows: r, fails, actions } => format!("{} {} …", with_rows(format!("export source {}", name), [rows(r, fails), actions_text(actions)].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" ")), if *question { "=" } else { ":=" }),
         ExportSig::Eq { rows: r, fails, io, actions } => {
             let mut rr = r.clone();
             if *io {
@@ -608,7 +612,7 @@ re!(P_LEAF, r"^(ref|value)(?:\s+(.*))?$");
 re!(T_CONTEXT, r"^context\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*?))?\s*(=\s*…)?$");
 re!(T_COMP, r"^component\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(");
 re!(T_PROPS, r"^props:\s*(\{.*\})$");
-re!(P_PART, r"^([A-Za-z0-9_$.*?()-]+)\s*:\s*io$");
+re!(P_PART, r"^([A-Za-z0-9_$.*?()!-]+)\s*:\s*(io|calls)$");
 re!(T_EQ, r"^([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*(.*))?$");
 re!(P_ACTION, r"(^|[^A-Za-z0-9_])action\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+catches\(([^)]*)\)");
 re!(P_PURE, r"(^|\s)pure(\s|$)");
@@ -772,10 +776,9 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
         }
         if let Some(m) = T_SOURCE.captures(&s) {
             let r = row_words(m.get(2).map(|x| x.as_str()).unwrap_or(""));
-            if !r.rest.is_empty() {
-                return Err(fail("a source's rows"));
-            }
-            exports.insert(m[1].to_string(), ExportSig::Source { question: &m[3] == "=", rows: r.rows, fails: r.fails });
+            let acts = if r.rows.iter().any(|x| x == "io") { Some(vec![String::new()]) } else if r.rest.is_empty() { Some(vec![]) } else { actions_of(&r.rest) };
+            let Some(actions) = acts else { return Err(fail("a source's rows")) };
+            exports.insert(m[1].to_string(), ExportSig::Source { question: &m[3] == "=", rows: r.rows.into_iter().filter(|x| x != "io").collect(), fails: r.fails, actions });
             continue;
         }
         if let Some(m) = T_SERVER.captures(&s) {

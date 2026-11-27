@@ -20,7 +20,7 @@ export fn createFileUploader(send: (file: any, progress: (p: Progress) => void, 
       files[i].error := () => e } }
   }
   action upload(list: any[]) {
-    abortAll(controllers)
+    abortAll(latest controllers)
     let g = latest generation + 1
     let cs = makeControllers(list.length)
     generation := g

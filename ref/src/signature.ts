@@ -44,8 +44,9 @@ const HOLD = "$hold";
 const cls = (c: Catch) => c === "all" ? "*" : c.size ? [...c].sort().join(" | ") : "nothing";
 const rows = (r: string[], fails: string[]) => [...["io", "pending", "lane"].filter(x => r.includes(x)), ...(fails.length ? [`fails(${[...fails].sort().join(" | ")})`] : [])].join(" ");
 /** R-io-3: the parts of a value that are actions, among others: `{ set: io; pair.1: io; … }`; `io`: the value itself. */
-const actionsText = (ps: string[] | undefined) => !ps?.length ? "" : ps.includes("") ? "io" : `{ ${ps.map(p => `${p}: io`).join("; ")}; … }`;
-const actionsOf = (text: string): string[] | undefined => { if (text === "io") return [""]; const m = /^\{(.*);\s*…\s*\}$/.exec(text); const ps = m ? split(m[1], ";").map(p => /^([\w$.*?()-]+)\s*:\s*io$/.exec(p)?.[1]) : []; return ps.length && ps.every(p => p !== undefined) ? ps as string[] : undefined; };
+const isCaller = (p: string) => p.split(".").includes("!");   // R-io-3e: a caller — where, `!`, what it calls of what it is given
+const actionsText = (ps: string[] | undefined) => !ps?.length ? "" : ps.includes("") ? "io" : `{ ${ps.map(p => `${p}: ${isCaller(p) ? "calls" : "io"}`).join("; ")}; … }`;
+const actionsOf = (text: string): string[] | undefined => { if (text === "io") return [""]; const m = /^\{(.*);\s*…\s*\}$/.exec(text); const ps = m ? split(m[1], ";").map(p => { const x = /^([\w$.*?()!-]+)\s*:\s*(io|calls)$/.exec(p); return x && isCaller(x[1]) === (x[2] === "calls") ? x[1] : undefined; }) : []; return ps.length && ps.every(p => p !== undefined) ? ps as string[] : undefined; };
 /** MO-13i: the parts of a fn's result. */
 const resultText = (r: Result): string => r.k === "io" ? "io" : r.k === "rec" ? `{ ${r.fields.map(([k, v]) => `${k}: ${resultText(v)}`).join("; ")} }` : r.k === "arr" ? `[${r.items.map(resultText).join(", ")}]` : [r.reader ? "ref" : "value", r.reader ? rows(r.rows, r.fails) : "", actionsText(r.actions)].filter(Boolean).join(" ");
 function resultOf(t: string): Result | undefined {
@@ -131,7 +132,7 @@ function hostsOf(file: string, text: string): Record<string, HostSite[]> {
 }
 function line(file: string, name: string, x: ExportSig): string {
   switch (x.kind) {
-    case "source": { const r = rows(x.rows, x.fails); return `export source ${name}${r ? `: ${r}` : ""} ${x.question ? "=" : ":="} …`; }
+    case "source": { const r = [rows(x.rows, x.fails), actionsText(x.actions)].filter(Boolean).join(" "); return `export source ${name}${r ? `: ${r}` : ""} ${x.question ? "=" : ":="} …`; }
     case "eq": { const r = [rows(x.io ? ["io", ...x.rows] : x.rows, x.fails), x.io ? "" : actionsText(x.actions)].filter(Boolean).join(" "); return `export ${name}${r ? `: ${r}` : ""}`; }
     case "fn": { const a = x.result ? resultText(x.result) : x.actions?.includes("") ? "ref io" : actionsText(x.actions); const r = [rows(x.rows, x.fails), a].filter(Boolean).join(" "); return `export pure fn ${name}${x.tparams ?? ""}(${x.params.map(p => (p.ref ? "ref " : "") + p.name + (p.opt ? "?" : "") + ((p as { type?: string }).type ? `: ${(p as { type?: string }).type}` : "")).join(", ")})${r ? `: ${r}` : ""}${x.rejects.length ? ` rejects(${x.rejects.join(" | ")})` : ""}${x.instantiating ? " instantiates" : ""}${x.uses?.length ? ` uses(${x.uses.map(k => relKey(file, k)).join(", ")})` : ""}${x.calls?.length ? ` calls(${x.calls.join(", ")})` : ""}`; }
     case "server": return `export server ${x.io ? "" : "pure "}fn ${name}(${x.params.join(", ")})${x.rejects.length ? ` rejects(${[...x.rejects].sort().join(" | ")})` : ""}`;
@@ -224,7 +225,7 @@ export function parseSignature(src: string, file: string): ModSig {
     if ((m = /^type\s+([A-Za-z_$][\w$]*)/.exec(s))) { const h = aliasHead(s); exports.set(m[1], { kind: "type", ...(h ? { text: h.body } : {}), ...(h?.tparams ? { tparams: h.tparams } : {}) }); return; }
     if ((m = /^action\s+([A-Za-z_$][\w$]*)$/.exec(s))) { exports.set(m[1], { kind: "action" }); return; }
     if ((m = /^error\s+([A-Za-z_$][\w$]*)\s*(?:\(([^)]*)\))?$/.exec(s))) { exports.set(m[1], { kind: "errclass", params: (m[2] ?? "").split(",").map(x => x.trim()).filter(Boolean) }); return; }
-    if ((m = /^source\s+([A-Za-z_$][\w$]*)\s*(?::(?!=)\s*(.*?))?\s*(:?=)\s*…$/.exec(s))) { const r = rowWords(m[2] ?? ""); if (r.rest) fail("a source's rows"); exports.set(m[1], { kind: "source", question: m[3] === "=", rows: r.rows, fails: r.fails }); return; }
+    if ((m = /^source\s+([A-Za-z_$][\w$]*)\s*(?::(?!=)\s*(.*?))?\s*(:?=)\s*…$/.exec(s))) { const r = rowWords(m[2] ?? ""); const acts = r.rows.includes("io") ? [""] : r.rest ? actionsOf(r.rest) : []; if (!acts) fail("a source's rows"); exports.set(m[1], { kind: "source", question: m[3] === "=", rows: r.rows.filter(x => x !== "io"), fails: r.fails, ...(acts!.length ? { actions: acts } : {}) }); return; }
     if ((m = /^server\s+(pure\s+)?fn\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?:rejects\(([^)]*)\))?$/.exec(s))) { exports.set(m[2], { kind: "server", io: !m[1], params: m[3].split(",").map(x => x.trim()).filter(Boolean), rejects: classesOf(m[4] ?? "") }); return; }
     const g = typeParamsOf(s);
     if ((m = /^pure\s+fn\s+([A-Za-z_$][\w$]*)\s*\(/.exec(g.text))) {

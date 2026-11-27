@@ -85,9 +85,41 @@ and where they may not go.
   not hold (`each((h) => h(), inc)`, `each(callIt, inc)`). What the module's
   text does not make — JavaScript's, a prop's, a context's, a source's — is
   its declaration's to say (MO-10b), as before. Giving a value on is never
-  refused by this rule: only a call is. Still open, and said: an expression
-  closure kept in a record or a list and later handed an io value by a fn
-  that is only given both; a source that is written an io value. S-check-9.
+  refused by this rule: only a call is. S-check-9.
+  **R-io-3e** *A caller is followed too (2026-11-27).* A second fact follows
+  a value as io does, through the same forms and with the same default: where
+  it holds a *caller* — an expression closure, or a fn by its name, that
+  calls a path of what it is given (`(h) => h()`, `(r) => r.go()`), or gives
+  that path to a caller of the scope around it. What a call hands on, no
+  argument may hold as io where a caller it reaches calls it: (1) a callee
+  no form says the inside of (`pick(cs)(inc)`, `cs.at(0)(inc)`,
+  `col.render(row)` with `col` a row of a mapped list) calls what the
+  callers it holds call, of the call's arguments; (2) a fn, or a closure the
+  module writes, that calls a path of an argument at which that argument
+  holds a caller (`all([(h) => h()], inc)`, `all({ run: … }, inc)`,
+  `all([callIt], inc)`) may hand that caller any part of any argument, and a
+  caller it hands on in turn; (3) a parameter nothing binds — a fn's, or a
+  closure's that no call beside it gives a value — called with a value that
+  holds io by itself (`fn hand(f) => f(inc)`) is refused there: the one
+  conservative arm, since what the parameter is given is its caller's to
+  say and the io value is not an argument of that call. A closure that calls
+  nothing of what it is given is no caller, so table code stays accepted
+  (`col.render(row)` with handlers in the rows and `render: (r) => r.label`).
+  A signature carries the fact beside the io parts, as a path with `!`
+  (where the caller is, `!`, what it calls): `{ 0.render.!.go: calls; … }`
+  (09 MO-9b). JavaScript's, a prop's and a context's values are their
+  declaration's, as before. S-check-10.
+  **R-io-3f** *A source holds what it is given (2026-11-27).* Only its own
+  block writes a source (W-5), so the module shows every value it is given:
+  its initializer, each `:=` and `guess` (a function is applied, W-6: what
+  it answers of the value it is given; a path writes that path), what a
+  draft's body writes into it, and what the module's calls of an action
+  give the parameter a write names. Both facts of each are the source's, and
+  a call of it, of a part of it or of a row of it in reactive scope is
+  refused as a call of the value would be (`source h := inc`, `x = h()`;
+  `source hs := [inc]`, `{for f in hs { … f() … }}`). An exported source's
+  signature carries them (`export source h: io := …`). A source given a
+  value the module's text does not make is its declaration's. S-check-10.
   *An action a value carries (2026-11-24).* What a name, a field, an item
   or a fn's result holds is followed through the literals that say it: an
   action handed back by a fn (`{ n: n, set: set }`, `[n, set]`, `set`), of

@@ -90,7 +90,11 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   every change in the flight's question — stays open while a display is
   waiting on it. A source written by the reader's own change is read, not
   served: that reader shows at the change's commit (S-solid-4's `1:0`).
-  Lane values are never served: pending in a lane is the lane's (H-7). An **equation** never serves: it computes on
+  Lane values are never served: pending in a lane is the lane's (H-7). A **control reader** — an `if` condition, a
+  `for` list — is a computation, not a display, and is not served either (2026-11-27; Solid's `<Show when>` and
+  `<For each>` are memos): it waits with the held value it reads, keeps its branch or its rows, and a write of this
+  instant that it reads joins that hold everywhere (S-hold-9: `{if a + t …}` holds `t := 5` while `a` is re-asked,
+  where `{a + t}` shows it at once). An **equation** never serves: it computes on
   `σ′`, and a reader that consumes a value derived from `c`'s held writes, or
   a landed answer of `c`, **joins** `c` — its reveal belongs to `c`'s commit
   and `d` merges into `c`'s group. A reader that consumed `d`'s own fresh

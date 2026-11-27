@@ -1059,9 +1059,9 @@ pub fn type_only(p: &Program, set: &ModuleSet) -> HashSet<String> {
     let (mut values, mut types) = (HashSet::new(), vec![]);
     walk(&decls_json(&p.decls), "", &mut values, &mut types);
     walk(&markups_json(&p.view), "", &mut values, &mut types);
-    let word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
-    let named = |t: &str, n: &str| t.match_indices(n).any(|(i, _)| !t[..i].ends_with(|c| word(c) || c == '.') && !t[i + n.len()..].starts_with(word));
-    names.into_iter().filter(|(_, a)| !values.contains(*a) && types.iter().any(|t| named(t, a))).map(|(_, a)| a.to_string()).collect()
+    // …and a name the module writes nowhere (2026-11-27): it may be a type of a `.d.ts`, which the JS module does not export
+    let _ = &types;
+    names.into_iter().filter(|(_, a)| !values.contains(*a)).map(|(_, a)| a.to_string()).collect()
 }
 
 /// RG-4b, RG-4c: what a name is of a component's props. `props`: the props themselves, without `less` (an object rest);

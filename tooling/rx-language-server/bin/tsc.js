@@ -24,6 +24,9 @@ const { report } = require("../src/report.js");
 
 // MO-8j: `--rx-strict` (or `"reactivescript": { "strict": true }` in the tsconfig): every row of a declaration the program
 // imports must be verified by rx-verify, its record beside it (UNVERIFIED_ROW, TY-7). Not tsc's flag.
+// 08 CN-3d: `--rx-spa` (or `"reactivescript": { "spa": true }` in the tsconfig): the project is built for the client
+// alone (Solid's `hydratable: false`), so what that build refuses is reported here too. Not tsc's flag.
+if (process.argv.includes("--rx-spa")) { process.env.RX_SPA = "1"; process.argv = process.argv.filter(a => a !== "--rx-spa"); }
 const strictFlag = process.argv.includes("--rx-strict");
 process.argv = process.argv.filter(a => a !== "--rx-strict");
 // E-5a: `--rx-whole-program` checks the crate's rows as a `wholeProgram` build does — each program from its entry (an .rx

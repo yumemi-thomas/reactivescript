@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+**Soundness, and an author's findings** (DECISION.md, "The io gaps, the held control reader, and an author's findings")
+
+- **Changed: a function that calls what it is given is followed like an io value** (spec/04 R-io-3e). A closure kept in
+  a list or a record and handed an action by a fn that is only given both (`all([(h) => h()], inc)`), or reached by a
+  form the checker does not read (`pick(cs)(inc)`, `cs.at(0)(inc)`, `col.render(row)` where `render` calls `row.go`),
+  was accepted and called the action while the view computed (Solid throws `ACTION_CALLED_IN_OWNED_SCOPE`). It is
+  refused. A `render` that calls nothing of its row is untouched, whatever the rows hold. **If a program of yours is
+  refused after this**: call it from a handler, or give the function on instead of calling it.
+- **Changed: a source holds what it is given** (R-io-3f): `source h := inc` with `x = h()`, a list of handlers kept in
+  a source and called in a `for`, a handler written into a source by an action: refused as the call of the value is.
+- **Changed: `refresh` of an equation that asks nothing is `INVALID_REFRESH_TARGET`** (06 AC-4). `refresh issues` with
+  `issues = ans == null ? [] : ans` compiled and re-asked nothing; the message names the question, `refresh ans`.
+- **Changed: `GUESS_WHILE_LOADING` suggests the test in the handler**, `onClick={() => { if (!(pending? x)) { … } }}`,
+  and accepts it. `disabled={pending? x}` still covers the click, but beside another changing attribute of the same
+  markup it makes that one read ahead too in compiled code (a known difference from the interpreter, not fixed here).
+- **Fixed: an `if` condition and a `for` list wait with a held value they read** in the interpreter, as compiled code
+  does (05 H-3): a write they read during the hold joins it.
+- **Fixed: a name imported from JavaScript and written nowhere is not imported at run time** (07 §1b): an unused type
+  import failed the bundle with `MISSING_EXPORT`.
+- **Fixed: messages.** `e as T` says that `as` is not part of the language and what to write; `pending? x` is printed
+  in "a reader of …".
+- **New: `rx-tsc --rx-spa`, and `"reactivescript": { "spa": true }` in the tsconfig**: the editor and `rx-tsc` check as
+  a client-only build does (`ASYNC_OUTSIDE_LOADING_BOUNDARY`), which only the build knew.
+
 **Posture follows Solid** (DECISION.md, "DV-21 closed: posture is the pass's")
 
 - **Changed: a probe makes its whole computation read ahead** (spec/04 R-11; DV-21 closed). A computation that

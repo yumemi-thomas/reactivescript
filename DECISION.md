@@ -2287,3 +2287,113 @@ advisory row.
 - `cart.rx:71`-like flags: the row cannot see that the action that holds the read also makes the probe true.
 - Solid's own rule documents still say "S-49, S-50 ruled, not built"; the language follows the code and the closed
   issues. If Solid builds the ruling one day, DV-21 opens again the other way.
+
+## The io gaps, the held control reader, and an author's findings (2026-11-27)
+
+What a sceptic would push on before this is shown, and what a new author found building an app from the guide alone
+(`rx-author.noindex/REPORT.md`, read only). Probes, logs and the census are outside the tree, in
+`rx-fix.noindex/probes` (`gapa`, `gapb`, `gapx`, `refr`, `gwl`, `gwl2`, `asx`, `author`), `out` and `census3`. Both
+checkers stay equal on every program below (`same`).
+
+### The table
+
+| | item | ruling | change | probes |
+| --- | --- | --- | --- | --- |
+| 1 | io gap A: an expression closure kept in a record or a list, handed an io value by a fn that is only given both (`all([(h) => h()], inc)`); the same closure reached by any form that is not read (`pick(cs)(inc)`, `cs.at(0)(inc)`, a row of a mapped list, across a module) | **R-io-3e: a second fact follows the value.** Where a value holds a *caller* — an expression closure or a fn that calls a path of what it is given — is read through every form `actionParts` reads, with the same `?` default; the path keeps what the caller calls (`0.render.!.go`). What a call hands on, no argument may hold as io where a caller it reaches calls it | both checkers alike: `actionParts`/`parts_of` in a second mode (`m2`), `calledPaths`/`called_paths` ask the scope around a body for the callers a callee holds, `ioGiven`/`io_given` checks what a call hands on (a fn, a closure the module writes, a callee no form says the inside of). The signature carries the fact (`{ 0.render.!.go: calls; … }`). 04 R-io-3e, 09 MO-9b, S-check-10 | `gapa`: 25 refused, each one throws `ACTION_CALLED_IN_OWNED_SCOPE` in the interpreter, the oracle and compiled code before the change (all were accepted); 8 accepted and alike. `gapx` (another module): 6 refused, 4 accepted |
+| 2 | io gap B: a source that is written an io value, called while computing | **R-io-3f: a source holds what it is given.** Only its own block writes it (W-5), so the module shows every value: the initializer, each `:=` and `guess` (a function is applied, W-6), what a draft writes, what the module's calls give an action's parameter | both checkers: every write of a source is recorded in the walk; a source's facts are read once the walk is over (the memos are cleared before the deferred checks, and a row's or an item's facts are read then, not when its block is entered); a source is no longer opaque where every value it is given is the module's. An exported source's signature carries its parts. 04 R-io-3f, S-check-10 | `gapb`: 19 refused (17 threw in every runner before; two were a function written with `:=`, which is applied, W-6); 6 accepted and alike |
+| 3 | an `if` condition or a `for` list that reads a held value and a source written during the hold (finding 7's leftover) | **Ours, in the interpreter: a control reader is a computation, not a display** (Solid's `<Show when>` and `<For each>` are memos). It is not served the committed value (H-3), so it waits with what it reads and the write joins the hold | `ref/src/runtime.ts`: the condition and the list are marked `control`, and D-3's serving skips them. Nothing else. The first attempt joined the write by hand after the read and broke S-ai2-search; this one changes what the read answers and breaks nothing. 05 H-3, S-hold-9 | `aw` 13 of 13 and `aw2` 7 of 7 alike in the interpreter, the oracle and both emitters (12 of 13, 4 of 6 before) |
+| A | `refresh issues` where `issues = ans == null ? [] : ans` over `source ans = await … -> null`: accepted, re-asks nothing | **Refused, with the name to refresh.** AC-4 already said "any other target is `INVALID_REFRESH_TARGET`"; the checkers took every equation. Re-asking through the equation was not taken: Solid's `refresh` of a memo re-runs that memo, and which of several questions an equation reads it would re-ask is not the equation's to say | both checkers: an equation whose own expression asks nothing (no `await`, no context, no call the module's text does not show the inside of) is refused; the message names the questions it is computed from (`refresh ans`). 06 AC-4, guide (async §1, diagnostics), S-check-1 | `refr`: 4 refused, 3 accepted; the author's `refr.rx` |
+| B | the fix `GUESS_WHILE_LOADING` suggests, `disabled={pending? detail}`, holds the whole click | **The suggestion changes; the cause is ours and is left, said.** Compiled code computes the changing attributes of one piece of markup in one render effect (Solid's JSX compiler merges them), so an attribute that probes makes its neighbours read ahead with it (R-11, the posture DV-21 closed on): beside `class={sel == it ? …}` a new selection waits and `loading on(sel)` shows no fallback. The interpreter and the oracle give each attribute a computation of its own, as the language says | both checkers: the message suggests the test where the click starts, `onClick={() => { if (!(pending? x)) { … } }}`, and that form is a cover of AC-3a (it was not: the check refused its own advice). Guide: the entry, its `after` program, and why `disabled={pending? x}` is for an element with no other changing attribute. The emitters are not changed: see *Left* | `gwl2`: the handler test accepted, the bare click refused. `gwl`: 3 of 6 differ (the interpreter and the oracle against both emitters), reduced: alone, or as a spread, the attribute agrees |
+| C | `import { fetchIssues, Issue } from "./api.js"` with `Issue` written nowhere: a value import, `MISSING_EXPORT` in the bundle | **A name written nowhere is not imported**, as one written only in types is not (TypeScript leaves both out) | `typeOnly`/`type_only`, read by both emitters. 07 §1b | the author's shape compiles to a module with no import of `./api.js` |
+| D | `x := e.target.value as T`: `ASSIGNMENT … .rx has no '='`; `pending? issues` outside a `loading` region: "a reader of …", and only the build says it | **`as` is not taken; the message says so.** An assertion claims a type no rule checked, and an expression carries no type (07 §2: types are text at declarations): taking it means type text in both expression grammars, both emitters and the projection, for a claim the checker cannot hold. **The build's mode is the build's**, and a tool is told it | both parsers' `hint` (a parse failure at `as`), both checkers (`as` unbound); `show` prints `pending? x`; `rx-tsc --rx-spa` and `"reactivescript": { "spa": true }` in the tsconfig make `rx-tsc` and the editor check as a client-only build does. 07 §1b, guide (language, diagnostics) | `asx` 3; the author's `cast.rx`, `pend.rx` |
+
+### Gap A: why a second fact, and its one conservative arm
+
+*Not taken: refusing every call of a function the checker cannot read with an argument that holds io* (ruled out in
+"Outside review", finding 1: `col.render(row)` with handlers in the rows is table code). The fact makes that refusal
+exact instead: the call is refused only where the callee's value holds a function that calls what it is given, at a
+path the argument holds io. `render: (r) => r.label + "!"` calls nothing of `r`, so it is no caller, whatever the
+rows hold and whatever form the columns went through (`cols.toReversed()`, a fn's result, an import).
+
+*Decided.* (a) What a caller calls is kept in the path, so `(r) => r.label()` beside `{ label: f, go: inc }` is
+accepted and `(r) => r.go()` refused. (b) A caller reached through a form that is not read (`?`) may be handed any
+part of an argument: its called paths are matched against every end of the argument's paths, as R-io-3d's "may be
+handed" was. (c) Handing on is transitive: a caller that is called may hand the other callers the call was given
+whatever it was given. (d) A closure's own parameters hold nothing in the value's reading; what a call gives is added
+there, as for io. (e) **The conservative arm:** a parameter nothing binds (a fn's; a closure's that no call beside it
+gives a value), called with a value that holds io *by itself* — not another parameter — is refused where it is
+written (`fn hand(f) => f(inc)`). Following it would need a third summary per fn (which paths of a parameter are
+handed which io); its cost is measured below.
+
+*Across modules.* An imported value's callers are its signature's (`calls` beside `io` in the parts). An imported
+fn's `calls(…)` now includes what it gives to a caller of its own scope.
+
+### Gap B: what a source is given
+
+The source was "its declaration's to say" (R-io-3d (d)); but W-5 makes it the one reactive value whose every writer
+the module shows. An updater's parameter is the source's value (read to a fixpoint; a write that keeps wrapping it,
+`hs := p => [p]`, widens to "somewhere"). A function written without an updater is applied (W-6), so `h := inc`
+gives the source what `inc` answers, and the type refuses it (TY-2): both readings are taken. An action's parameter
+holds what the module's calls of the action give it; a call from outside the module (an exported action, a handler
+prop) is that module's.
+
+### Finding B: the same posture rule, in a unit the language does not have
+
+`PROBE_BESIDE_HELD_READ` (DV-21 closed) advises on *a computation* that reads ahead and reads plainly a value that can
+be held, and counts an attribute as a computation of its own — which it is in the interpreter and the oracle. In
+compiled code the computation is wider: Solid's JSX compiler puts every changing attribute of one template in one
+render effect (`_$effect(() => ({ e: class…, t: isPending(…) }), …)`), so `disabled={pending? detail}` on a button and
+`class={sel == it ? "on" : "off"}` on its `<li>` are one pass, and the pass reads ahead: the row does not highlight and
+the `loading on(sel)` region shows no fallback until the answer lands. It is the posture rule of R-11 exactly, applied
+to a unit no program can name. `probes/gwl`: `busy`, `busy-lit`, `busy-wrap-lit` differ (interpreter and oracle
+`12*wait`, both emitters `1*2one`); `busy-alone` (no other changing attribute) and `busy-spread` (the probe given as a
+spread) agree. The advice did not fire, rightly by its own rule: `sel` is not a value that can be held.
+
+*Decided now:* the checker stops leading authors there (the message, the guide's entry and its example), and the test
+in the handler — which reads the verdict as it stands (R-12) and is no reader at all — is a cover of AC-3a.
+*Not decided here:* which side gives. Either an attribute that reads ahead gets an effect of its own in both emitters
+(a spread separates it from other elements' attributes but not from its own element's; an effect of its own needs a
+runtime primitive in the three runtimes and a form for the server), or the element's attributes become one
+computation in the language, the interpreter, the oracle and the advice. See *Left*.
+
+### Census
+
+Before = 64562a3b (`rx-fix.noindex/base98`, moved to it and built on the same pin), after = this tree. `census3/run.mjs`
+as the two censuses above ran it (`scripts/matrix.mjs` in chunks of 400): the interpreter, the oracle, both emitters,
+both checkers alike, both lowerings, on both revisions; the filled sets served and hydrated in both emitters, on both.
+(The first run was cut after 22 chunks: the machine's `node` binary was overwritten by a process outside this work,
+17:0x–17:11; it was run again from the chunks that had finished, none failed.)
+
+| census | result |
+| --- | --- |
+| the review sets: 72 folders, 18,798 programs | **every verdict the same in every folder: nothing newly refused, nothing that agreed now differs, no program every runner agrees on shows something else.** `same` and `lower`: all, both revisions (but `op-o1f`'s 22 whose frames the harness cannot read, as before). So the conservative arm of R-io-3e (a parameter called with a value that holds io by itself), R-io-3f, and the `refresh` rule refuse no program of the sets |
+| served and hydrated: 25 folders, 6,185 programs | every verdict the same, both revisions |
+| the probe sets, before → after, six runners (`out/r6`): the reviewer's and mine of the two sections above (23 sets), and this section's seven | the 23: every verdict the same but `aw` 12 → 13 of 13 agree and `aw2` 5 → 7 of 7 (item 3). `gapa`: 24 differ → refused (25 refused, 8 agree). `gapb`: 17 differ → refused (19 refused, 5 agree; the one left, `ok-pure-fn-written`, writes a function with `:=`, which is applied, W-6: every runner fails "call of non-function", in its own words). `gapx`: 6 differ → refused, 4 agree. `gwl2`: the handler test accepted. `gwl`: 3 differ, as before (finding B). `same` and `lower`: every program, after |
+| scenarios (`scripts/quick`) | all; new: S-check-10, S-hold-9; S-check-1 gets a variant |
+| `examples/rx-packages` | `check.json` unchanged byte for byte. `build.mjs`: `p-upload` did not build **at 64562a3b already** (`STALE_NEXT_READ`, AC-1h in a declared action that launches, added in 98738e21, whose census reported 65 of 65 built before that rule). The refusal is right: `upload` read the committed `controllers` and would abort the upload before last; it reads `latest controllers` now, and every package builds |
+| `bench/run.mjs --check --strict` (in the full ci) | as the scorecard: `bench/scorecard.txt` unchanged |
+| the author's repros (`probes/author`) | `refr.rx` refused with the name to refresh; `pend.rx --spa` names `pending? issues`; `cast.rx` says `as`; an unused `Issue` import is not in the compiled module |
+| the full `scripts/ci`, uncached, with the Vite plugin fork (`SOLID_VITE_PLUGIN`) | on the tree before this file's last edit: **48 of 48 passed**, nothing kept from before, no step skipped (421 s; 494 s on the run before the census) |
+
+Strictness: nothing dropped. Raised: R-io-3e, R-io-3f, AC-4's equation that asks nothing. Accepted anew: the handler
+test as a cover of AC-3a (it was refused, and is right on every runner).
+
+### Left, and said
+
+- **A probe among the changing attributes of one template** (finding B): compiled code differs from the interpreter
+  and the oracle (`probes/gwl`). Ours, in both emitters or in the language's unit; not fixed. A prop that probes, read
+  by a child beside another attribute, is the same case. Until then the guide says where `disabled={pending? x}` is
+  safe, and the checker no longer suggests it.
+- **R-io-3e's conservative arm**: a parameter nothing binds, called with a value that holds io by itself, is refused
+  though its caller might give it a function that only keeps the value. No program of the sets, the examples, the
+  bench or the packages is refused by it.
+- **What is the declaration's, as before**: a prop or a context of a type that is not read, an io value given to
+  JavaScript that calls it at once, a value JavaScript made that is written into a source.
+- **`as`** is not in the language; the message says what to write. Taking it is a proposal of its own.
+- **The build's mode**: the editor and `rx-tsc` check as a client-only build only where the tsconfig (or `--rx-spa`)
+  says so; nothing reads Vite's configuration.
+- **Not looked at** (the three unreduced differences of "Outside review"): `f3/e-nested-errored`,
+  `eq/effect-store-input`; `pin/ref-asks` agrees on the six core runners here and was not read further.
+- **New Solid bugs**: none found. Finding B is Solid's compiler doing what it documents (one effect per template).
+- **Not ours, seen**: during the census the machine's `node` (mise 26.13.0) was a JSON size report for some minutes
+  (`"mr: csr"`, `r-optimistic.js`, …), written by a process outside this work, and was a binary again at 17:11.

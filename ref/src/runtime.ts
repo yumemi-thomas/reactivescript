@@ -72,6 +72,7 @@ export class Node {
   taint = new Set<number>();                           // open changes this value derives from (equations); empty for served reads
   heldOn: number | null = null;                        // readers: the group this reader holds (root), or null
   taintFrom = new Set<Node>();                         // the inputs whose holds this node's last pass took (plain reads, not probes)
+  control = false;                                     // H-8: an `if` condition or a `for` list — a computation (Solid's memo), not a display: a held value is not served to it
   served = new Set<Node>();                            // readers: held values this pass was served σ for (D-3); re-run while any is still in flight
   triggered = false;                                   // readers: this instant's pass was caused by a notification (D-4: membership is the tick's)
   kept = new Map<Target, Set<string>>();               // D-10: inputs of the committed pass, kept while the value is held
@@ -897,7 +898,7 @@ export class Runtime {
         const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
         const heldRead = !this.probing && b.hasCommitted && (held || [...b.taint].some(t => t === this.instant || this.groupOpen(t)));
         if (heldRead && this.tracking.verdict && !b.lane && !armed && this.aheadOf(b, this.tracking.carried)) return b.committed;   // R-11: a reader ahead reads a held value as the screen shows it, and joins nothing
-        if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
+        if (this.tracking.kind === "reader" && !this.tracking.control && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
         if (this.probing) this.tracking.probed.add(b);
         else if (heldRead) this.tracking.plainAhead.add(b);
         if (!this.probing) { this.tracking.taintFrom.add(b); for (const t of (b.lane ? b.plainTaint : b.taint)) { this.tracking.taint.add(t); this.tracking.plainTaint.add(t); } }   // probes and lane work are the lane's, not the instant's (F-6); a lane value carries the holds of its plain reads (R-11, Solid D-25)
@@ -1433,8 +1434,8 @@ export class Runtime {
         }
         return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, (/^on[A-Z:]/.test(a.name) || a.name === "ref") ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: this.spreadKids(m).map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
       }
-      case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.askedAt(rt.evalExpr(m.c, region)); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
-      case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };
+      case "mif": return { k: "mif", m, cond: Object.assign(this.mkNode("reader", "if", region, rt => { const c = rt.askedAt(rt.evalExpr(m.c, region)); return isAbsent(c) ? c : Boolean(c); }), { control: true }), region, committed: null, inflight: null };
+      case "mfor": return { k: "mfor", m, xs: Object.assign(this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), { control: true }), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };
       case "loading": case "errored": {
         const item: BoundaryItem = { classes: m.k === "errored" ? this.classValues(m.classes, region) : undefined, k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false, armedBy: Math.max(this.instant, 0), laneAttached: false, bornCandidates: 0 };
         if (m.k === "loading" && m.on) item.onNode = this.mkNode("reader", "on", region, rt => rt.evalExpr(m.on!, region));

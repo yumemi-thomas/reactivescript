@@ -454,6 +454,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     Read off the body by the checkers, never written: a JavaScript
     declaration that says it is refused by name (a JS fn that runs a function
     it is given is declared without `pure`, MO-8l);
+  - a part that is a *caller* (04 R-io-3e) is written with the io parts, its path with `!` — where it is, `!`, what
+    it calls of what it is given — and the word `calls`: `{ 0.render.!.go: calls; go: io; … }`; an exported
+    source's parts follow its rows (`export source h: io := …`, R-io-3f). Derived marks of a printed signature, as
+    `calls(…)` is: no word of the language.
   - the parts of a fn's result, where they are known (MO-13i): `export pure
     fn createPage(first): pending { page: ref; quote: ref pending; set: io;
     first: value } instantiates`, `[ref, io]` for a tuple, `io` or `value`

@@ -109,13 +109,30 @@ function answer(method, params) {
 
 /** A file's projection (`code`, `mappings`, `ranges`, UTF-16 offsets) and its diagnostics, as the editor has it. */
 function analyze(file, text, prelude) {
-  return ask("analyze", { file, overlays: { [file]: text }, prelude });
+  return ask("analyze", { file, overlays: { [file]: text }, prelude, spa: spaFor(file) });
+}
+
+/** 08 CN-3d: whether `file`'s project is built for the client alone (Solid's `hydratable: false`), which only the build
+ *  knows: the nearest tsconfig.json says so, `"reactivescript": { "spa": true }`, or `rx-tsc --rx-spa` for the run
+ *  (RX_SPA=1). The editor and rx-tsc then report what that build refuses (ASYNC_OUTSIDE_LOADING_BOUNDARY). */
+const spaDirs = new Map();
+function spaFor(file) {
+  if (process.env.RX_SPA === "1") return true;
+  const fs = require("node:fs"), path = require("node:path");
+  const of = dir => {
+    if (spaDirs.has(dir)) return spaDirs.get(dir);
+    let v;
+    try { const t = fs.readFileSync(path.join(dir, "tsconfig.json"), "utf8"); let c; try { c = JSON.parse(t); } catch { c = JSON.parse(t.replace(/\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1")); } v = !!c?.reactivescript?.spa; }
+    catch { const up = path.dirname(dir); v = up === dir ? false : of(up); }
+    spaDirs.set(dir, v); return v;
+  };
+  return of(require("node:path").dirname(require("node:path").resolve(file)));
 }
 
 /** E-5a: the crate's diagnostics for every module `entry` loads, checked as a build checks them: `whole`, the loaded
  *  modules as the whole program, with `hosts` the modules a JS host imports with ?rx-lib; `spa`, a client-only build. */
 function checkProgram(entry, { whole = false, hosts = [], spa = false } = {}) {
-  return ask("analyze", { file: entry, overlays: {}, prelude: undefined, whole, hosts, spa, all: true });
+  return ask("analyze", { file: entry, overlays: {}, prelude: undefined, whole, hosts, spa: spa || spaFor(entry), all: true });
 }
 
 /** Where a file's projection imports the prelude from: written once beside the nearest `node_modules`, so its own

@@ -1005,7 +1005,9 @@ export default component App() {
 ### INVALID_REFRESH_TARGET
 
 `refresh x` re-asks `x`'s question (AC-4), so `x` is an equation that awaits or a source declared with `=`. A source
-seeded with `:=` has nothing to re-ask: write it instead.
+seeded with `:=` has nothing to re-ask: write it instead. An equation that asks nothing itself has nothing to re-ask
+either: `issues = ans == null ? [] : ans` over `source ans = await … -> null` is computed from the question, so
+refresh that one, `refresh ans` (the message names it).
 
 ```rx before
 export default component App() {
@@ -1503,8 +1505,12 @@ export default component App() {
 A click can start a guess on a value while that value is loading a new question: its question reads what the click
 reads (a selection, a row), and the element is neither inside the `loading` region that shows the value nor disabled
 while it loads (AC-3a). The guess composes on the previous answer, and the new answer replaces it (D-34), so the
-user's change disappears while its action is out. Put the element inside the value's `loading` region, give it
-`disabled={pending? x}`, or keep the pending change in a source of its own until it lands. Solid warns
+user's change disappears while its action is out. Put the element inside the value's `loading` region, test the
+verdict where the click starts (`onClick={() => { if (!(pending? x)) { … } }}`: a handler reads it as it stands, R-12),
+or keep the pending change in a source of its own until it lands. `disabled={pending? x}` on the element covers it too,
+but use it only where the element has no other attribute that changes: compiled code computes the changing attributes
+of one piece of markup together, so a probe among them makes the others read ahead with it (R-11), and beside
+`class={sel == it.id ? … }` a new selection then waits with no sign of it. Solid warns
 `OPTIMISTIC_WRITE_WHILE_LOADING` at run time for the same case.
 
 Neither cover holds when the selection changes while a guess on `x` is out. That change joins the guess's hold
@@ -1560,14 +1566,15 @@ export default component App() {
     }
   }
   <button onClick={() => { sel := sel + 1 }}>next</button>
-  <button disabled={pending? detail} onClick={() => { rename("Bravo") }}>rename</button>
+  <button onClick={() => { if (!(pending? detail)) { rename("Bravo") } }}>rename</button>
 }
 ```
 
 ### ASYNC_OUTSIDE_LOADING_BOUNDARY
 
 In a client-only build (`--spa`), a value with no answer yet and no `loading` region above it shows nothing until it
-answers (CN-3d). Put it under `loading fallback { … } { … }`, or give the await a first paint, `await f() -> v`. Later
+answers (CN-3d). Only the build knows it is client-only (Solid's `hydratable: false`): say so in the tsconfig,
+`"reactivescript": { "spa": true }` (or `rx-tsc --rx-spa`), and the editor and `rx-tsc` report it as the build does. Put it under `loading fallback { … } { … }`, or give the await a first paint, `await f() -> v`. Later
 answers are transitions and need no region.
 
 ```rx before spa

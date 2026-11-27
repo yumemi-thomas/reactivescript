@@ -320,6 +320,12 @@ struct Sym<'a> {
     action_parts: Vec<String>,
     /// R-io-3d: a closure's parameter, bound for a reading of its body — the statement closures it is given (B3)
     cl_parts: Vec<String>,
+    /// R-io-3e: an import's callers, or a closure's parameter bound for a reading of its body
+    call_parts: Vec<String>,
+    /// R-io-3e: a closure's parameter that is an item of a list a calling method runs over
+    item_src: Option<(&'a Expr, EId)>,
+    /// R-io-3f: an action's parameter — what the calls of the action in the module give it
+    given_at: Option<(SId, usize)>,
     /// R-io-3d: a closure's parameter — what the call the closure is written in may hand it (its other arguments, what it is called on)
     may_get: Option<Vec<(&'a Expr, EId)>>,
     /// MO-9b, W2: an imported fn's row, `calls(…)`: the paths of each parameter it calls while it runs
@@ -447,6 +453,9 @@ impl<'a> Sym<'a> {
             cbs: vec![],
             action_parts: vec![],
             cl_parts: vec![],
+            call_parts: vec![],
+            item_src: None,
+            given_at: None,
             may_get: None,
             calls: vec![],
             result: None,
@@ -1687,14 +1696,102 @@ fn is_index(s: &str) -> bool {
 }
 /// R-io-3d (2026-11-27): `?` ends a path — somewhere at it or below, where the form that made the value is not one the
 /// checker reads; `()` is what calling the value answers.
-fn deep_cut(p: String) -> String {
+fn cut_at(p: &str) -> String {
     if !p.contains('?') {
-        return p;
+        return p.to_string();
     }
     let segs: Vec<&str> = p.split('.').collect();
     match segs.iter().position(|x| *x == "?") {
         Some(i) => segs[..=i].join("."),
-        None => p,
+        None => p.to_string(),
+    }
+}
+/// R-io-3e (2026-11-27): `!` marks a caller — a function that calls what it is given: before it, where the value holds
+/// one; after it, the path of what it is given that it calls (`0.render.!.go`). Each side ends at its `?`.
+fn deep_cut(p: String) -> String {
+    let b = p.as_bytes();
+    let i = if p == "!" || p.starts_with("!.") { Some(0) } else { p.find(".!") };
+    let Some(i) = i.filter(|&i| i == 0 || b.get(i + 2).is_none_or(|c| *c == b'.')) else { return cut_at(&p) };
+    let w = cut_at(&p[..i]);
+    let c = cut_at(p.get(if i == 0 { 2 } else { i + 3 }..).unwrap_or(""));
+    format!("{}!{}", if w.is_empty() { String::new() } else { format!("{w}.") }, if c.is_empty() { String::new() } else { format!(".{c}") })
+}
+/// …the callers a value holds: where, and what each calls of what it is given.
+pub fn callers_in<'s>(ps: impl IntoIterator<Item = &'s String>) -> Vec<(String, String)> {
+    ps.into_iter()
+        .filter_map(|p| {
+            let s: Vec<&str> = p.split('.').collect();
+            s.iter().position(|x| *x == "!").map(|i| (s[..i].join("."), s[i + 1..].join(".")))
+        })
+        .collect()
+}
+fn caller_path(calls: &str) -> String {
+    if calls.is_empty() {
+        "!".to_string()
+    } else {
+        format!("!.{calls}")
+    }
+}
+/// R-io-3e: what a signature says a value holds — the io parts, and the callers.
+fn held_split(ps: &[String]) -> (Vec<String>, Vec<String>) {
+    ps.iter().cloned().partition(|q| !q.split('.').any(|x| x == "!"))
+}
+/// …the path of a caller from its `!` on, if it is one.
+fn caller_tail(q: &str) -> Option<String> {
+    let s: Vec<&str> = q.split('.').collect();
+    s.iter().position(|x| *x == "!").map(|i| s[i..].join("."))
+}
+/// …every path of a value under which a part of it may be handed on: the path itself and each of its ends.
+fn tails_of<'s>(ps: impl IntoIterator<Item = &'s String>) -> IndexSet<String> {
+    let mut out = IndexSet::new();
+    for q in ps {
+        let segs: Vec<&str> = if q.is_empty() { vec![] } else { q.split('.').collect() };
+        for k in 0..=segs.len() {
+            out.insert(segs[k..].join("."));
+        }
+    }
+    out
+}
+/// The name an expression is a part of, through fields, items and calls.
+fn root_of(e: &Expr) -> Option<&str> {
+    match &e.k {
+        ExprKind::Id(n) => Some(n.as_str()),
+        ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => root_of(o),
+        ExprKind::Call { f, .. } => root_of(f),
+        ExprKind::Peek(x) | ExprKind::Latest(x) => root_of(x),
+        _ => None,
+    }
+}
+/// R-io-3f: the values a statement body gives to what it writes — what is written (`d.x := v`), what a call is given
+/// (`d.push(v)`).
+fn written_in<'e>(body: &'e [Stmt], out: &mut Vec<&'e Expr>) {
+    for st in body {
+        match &st.k {
+            StmtKind::Write { e, .. } | StmtKind::Optimistic { e, .. } => out.push(e),
+            StmtKind::Let { e, .. } => out.push(e),
+            StmtKind::Expr(e) => {
+                if let ExprKind::Call { args, .. } = &e.k {
+                    out.extend(args.iter());
+                }
+            }
+            StmtKind::Action(b) => written_in(b, out),
+            StmtKind::Sif { t, f, .. } => {
+                written_in(t, out);
+                written_in(f, out);
+            }
+            StmtKind::For { body, .. } => written_in(body, out),
+            StmtKind::Try { body, handler, fin, .. } => {
+                written_in(body, out);
+                if let Some(h) = handler {
+                    written_in(h, out);
+                }
+                if let Some(f) = fin {
+                    written_in(f, out);
+                }
+            }
+            StmtKind::Return(Some(e)) => out.push(e),
+            _ => {}
+        }
     }
 }
 /// …what a value with these io parts holds at a key (`*`: an item, any index; None: a key that is not known, any).
@@ -1708,8 +1805,11 @@ pub fn parts_at(o: &IndexSet<String>, k: Option<&str>) -> IndexSet<String> {
             Some(i) => (&p[..i], &p[i + 1..]),
             None => (p.as_str(), ""),
         };
+        if h == "!" {
+            continue;
+        }
         if h == "?" {
-            out.insert("?".to_string());
+            out.insert(p.clone());
         } else if match k {
             None => h != "()",
             Some("*") => h == "*" || is_index(h),
@@ -1782,8 +1882,14 @@ pub fn calls_held<'s>(parts: impl IntoIterator<Item = &'s String>, called: &Inde
 struct CalledAt<'c, 'a> {
     c: &'c mut Checker<'a>,
     env: EId,
+    /// R-io-3e: the scope the body is read in, where it is not `env` (a fn's own: its locals)
+    at: Option<EId>,
 }
-impl CalledAsk for CalledAt<'_, '_> {
+impl<'a> CalledAsk<'a> for CalledAt<'_, 'a> {
+    fn callers(&mut self, callee: &'a Expr) -> Vec<String> {
+        let env = self.at.unwrap_or(self.env);
+        self.c.callee_calls(callee, env).into_iter().collect()
+    }
     fn is_fn(&mut self, n: &str) -> bool {
         self.c.lookup(self.env, n).is_some_and(|s| self.c.syms[s].kind == SymKind::Fn)
     }
@@ -1793,17 +1899,21 @@ impl CalledAsk for CalledAt<'_, '_> {
     }
 }
 /// What `called_paths` asks of the names a fn's body calls.
-pub trait CalledAsk {
+pub trait CalledAsk<'e> {
     fn is_fn(&mut self, n: &str) -> bool;
     fn called(&mut self, n: &str, j: usize) -> IndexSet<String>;
+    /// R-io-3e: what the callers a callee of the scope around the body holds call of what they are given
+    fn callers(&mut self, _callee: &'e Expr) -> Vec<String> {
+        vec![]
+    }
 }
-pub fn called_paths(d: &Decl, i: usize, ask: &mut dyn CalledAsk) -> IndexSet<String> {
+pub fn called_paths<'e>(d: &'e Decl, i: usize, ask: &mut dyn CalledAsk<'e>) -> IndexSet<String> {
     let Decl::Fn { params, decls, tail, .. } = d else { return IndexSet::new() };
     let ps: Vec<String> = params.iter().map(|x| x.name.clone()).collect();
     called_paths_of(&ps, decls, tail, i, ask)
 }
 /// …of a fn, or of a closure of an expression (its parameters, no declarations, its body).
-pub fn called_paths_of(params: &[String], decls: &[Decl], tail: &Expr, i: usize, ask: &mut dyn CalledAsk) -> IndexSet<String> {
+pub fn called_paths_of<'e>(params: &[String], decls: &'e [Decl], tail: &'e Expr, i: usize, ask: &mut dyn CalledAsk<'e>) -> IndexSet<String> {
     let Some(p) = params.get(i).cloned() else { return IndexSet::new() };
     // the paths of the parameter a name may stand for; None: a name that is none (a closure's parameter, a local)
     type Names = IndexMap<String, Option<IndexSet<String>>>;
@@ -1816,7 +1926,7 @@ pub fn called_paths_of(params: &[String], decls: &[Decl], tail: &Expr, i: usize,
     }
     struct V<'f, 'e> {
         out: IndexSet<String>,
-        ask: &'f mut dyn CalledAsk,
+        ask: &'f mut dyn CalledAsk<'e>,
         /// the locals that name a closure written there
         closures: IndexMap<String, &'e Expr>,
         depth: usize,
@@ -2047,6 +2157,24 @@ pub fn called_paths_of(params: &[String], decls: &[Decl], tail: &Expr, i: usize,
                     if !matches!(f.k, ExprKind::Id(_) | ExprKind::Fn { .. }) {
                         self.visit(f, now, names);
                     }
+                    // R-io-3e: a callee the body does not make — a name of the scope around it, a part of one — that holds
+                    // a caller calls, of what it is given here, what that caller calls
+                    if now && own.is_none() && g.is_none() && !c {
+                        if let Some(root) = root_of(f) {
+                            if !names.contains_key(root) {
+                                let cs = self.ask.callers(f);
+                                if !cs.is_empty() {
+                                    for a in args {
+                                        for ap in self.paths_of(a, names) {
+                                            for q in &cs {
+                                                self.under(&ap, q);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     for (j, a) in args.iter().enumerate() {
                         let cb = c && (member || j > 0);
                         if cb {
@@ -2212,6 +2340,7 @@ pub fn show(e: &Expr) -> String {
         ExprKind::Call { f, .. } => format!("{}(…)", show(f)),
         ExprKind::Await { e, .. } => format!("await {}", show(e)),
         ExprKind::Latest(e) => format!("latest {}", show(e)),
+        ExprKind::Pending(e) => format!("pending? {}", show(e)),
         ExprKind::Peek(e) => format!("peek {}", show(e)),
         ExprKind::Throw(e) => format!("throw {}", show(e)),
         ExprKind::Index { o, .. } => format!("{}[…]", show(o)),
@@ -2452,8 +2581,10 @@ enum Later<'a> {
     /// MO-8j: a value that may carry an action, given to what calls it while the call runs
     /// MO-8j, W2: an argument that may hold io at a path the callee calls: `held` 0, its parts; 1, an item of `over`; 2, its parts and its items' (and itself, `named`)
     Given { a: &'a Expr, over: Option<&'a Expr>, f: &'a Expr, env: EId, line: i64, in_fn: bool, called: IndexSet<String>, held: u8, named: bool, action: bool },
-    /// R-io-3d: a function given by name to a callee that calls it, beside the call's other arguments
-    Beside { i: usize, f: &'a Expr, args: &'a [Expr], env: EId, line: i64, in_fn: bool },
+    /// R-io-3e: what a call of a fn (or of closures the module writes, `own`) hands on to the callers its arguments hold
+    Hands { f: &'a Expr, args: &'a [Expr], env: EId, line: i64, in_fn: bool, own: Vec<(&'a Expr, EId)> },
+    /// R-io-3e: a callee no form says the inside of, and the callers it holds
+    Callee { f: &'a Expr, args: &'a [Expr], env: EId, line: i64, in_fn: bool },
 }
 
 /// E-5a: whether a value can change: by what this module sees (`yes`), or only if one of `deps` does — a prop of a component
@@ -2690,6 +2821,15 @@ pub struct Checker<'a> {
     gives_memo: HashMap<*const Decl, Vec<usize>>,
     /// W2: `called_of`'s cycle, and what it answered at the top
     called_stack: IndexSet<SId>,
+    /// R-io-3e: the second fact is being read (`parts_of`), and its memo
+    m2: bool,
+    caller_memo: HashMap<SId, IndexSet<String>>,
+    closure_calls: HashMap<*const Expr, IndexSet<String>>,
+    closure_stack: HashSet<*const Expr>,
+    /// R-io-3f: every write of a source (its path, the value, the scope), and each action's parameters
+    src_writes: HashMap<SId, Vec<(&'a [PathSeg], &'a Expr, EId)>>,
+    action_args: HashMap<(SId, usize), Vec<(&'a Expr, EId)>>,
+    opaque_seen: std::cell::RefCell<Vec<SId>>,
     called_memo: HashMap<(SId, usize), IndexSet<String>>,
     results: HashMap<SId, Option<std::rc::Rc<Plan>>>,
     /// MO-10g: closures passed where a declared JS fn takes a callback
@@ -3197,6 +3337,13 @@ impl<'a> Checker<'a> {
             handed_of: HashMap::new(),
             gives_memo: HashMap::new(),
             called_stack: IndexSet::new(),
+            m2: false,
+            caller_memo: HashMap::new(),
+            closure_calls: HashMap::new(),
+            closure_stack: HashSet::new(),
+            src_writes: HashMap::new(),
+            action_args: HashMap::new(),
+            opaque_seen: std::cell::RefCell::new(vec![]),
             called_memo: HashMap::new(),
             results: HashMap::new(),
             callback_fns: HashSet::new(),
@@ -3407,6 +3554,12 @@ impl<'a> Checker<'a> {
         provides_in(&p.decls, view, &mut self.provided, &mut self.action_names);
         self.block(&p.decls, view, root, Ctx::reactive());
         self.later.push(Later::Content { ms: view, env: root, anc: vec![] });
+        // R-io-3f: read again, now that every write of a source is known
+        self.parts_memo.clear();
+        self.closure_memo.clear();
+        self.caller_memo.clear();
+        self.closure_calls.clear();
+        self.called_memo.clear();
         let mut i = 0;
         while i < self.later.len() {
             let job = std::mem::replace(&mut self.later[i], Later::Content { ms: &[], env: root, anc: vec![] });
@@ -3612,28 +3765,58 @@ impl<'a> Checker<'a> {
                 self.say_given(&n, &hit, f, in_fn, named, action);
                 self.line = was;
             }
-            Later::Beside { i, f, args, env, line, in_fn } => {
-                let a = &args[i];
-                let Some(cs) = self.fn_calls(a, env) else { return };
-                for (j, b) in args.iter().enumerate() {
-                    if j == i {
-                        continue;
-                    }
-                    let mut tails: IndexSet<String> = IndexSet::new();
-                    for q in self.action_parts(b, env) {
-                        let segs: Vec<&str> = if q.is_empty() { vec![] } else { q.split('.').collect() };
-                        for k in 0..=segs.len() {
-                            tails.insert(segs[k..].join("."));
+            Later::Hands { f, args, env, line, in_fn, own } => {
+                let fs = match &f.k {
+                    ExprKind::Id(n) => self.lookup(env, n),
+                    _ => None,
+                };
+                let mut called = vec![];
+                for i in 0..args.len() {
+                    if own.is_empty() {
+                        called.push(self.called_of(fs, i));
+                    } else {
+                        let mut all = IndexSet::new();
+                        for &c in &own {
+                            all.extend(self.own_calls(c, i));
                         }
+                        called.push(all);
                     }
-                    let Some(at) = calls_held(tails.iter(), &cs) else { continue };
+                }
+                self.hands(f, args, env, line, in_fn, called, false);
+            }
+            Later::Callee { f, args, env, line, in_fn } => {
+                // JavaScript's, a prop's, a context's: its declaration's (MO-10b)
+                if self.opaque(f, env, 0) {
+                    return;
+                }
+                let plain = matches!(&f.k, ExprKind::Member { p, .. } if plain_method(p));
+                let ks: Vec<(String, String)> = callers_in(self.caller_parts(f, env).iter()).into_iter().filter(|(at, _)| at.is_empty() || (at == "?" && !plain)).collect();
+                let exact: IndexSet<String> = ks.iter().filter(|(at, _)| at.is_empty()).map(|(_, c)| c.clone()).collect();
+                let mut deep_c: IndexSet<String> = ks.iter().filter(|(at, _)| at == "?").map(|(_, c)| c.clone()).collect();
+                // a parameter nothing binds: what it is, its caller says
+                let param = self.unbound_param(f, env);
+                if param.is_some() && !plain {
+                    deep_c.insert("?".to_string());
+                }
+                if exact.is_empty() && deep_c.is_empty() {
+                    return;
+                }
+                for a in args {
+                    let ps = self.io_parts(a, env);
+                    let Some(at) = calls_held(ps.iter(), &exact).or_else(|| calls_held(tails_of(ps.iter()).iter(), &deep_c)) else { continue };
                     let was = self.line;
                     self.line = line;
-                    let which = if at.is_empty() { "what it is given".to_string() } else { format!("`{at}` of what it is given") };
-                    self.tell_given(&format!("{} holds io", show(b)), &format!("{}(…) calls {}, which calls {which} and may be handed it (R-io-3d)", show(f), show(a)), "", "ACTION_CALLED_IN_OWNED_SCOPE", in_fn);
+                    let who = match &param {
+                        Some(p) if ks.is_empty() => format!("{}(…) gives it to what the parameter {p} is given, which may call it (R-io-3e: what a parameter is called with holds no io)", show(f)),
+                        _ => format!("{}(…) is a function that calls {} (R-io-3e)", show(f), if at.is_empty() || at == "?" { "what it is given".to_string() } else { format!("`{at}` of what it is given") }),
+                    };
+                    self.tell_given(&format!("{} holds io", show(a)), &who, "", "ACTION_CALLED_IN_OWNED_SCOPE", in_fn);
                     self.line = was;
                     return;
                 }
+                let all: IndexSet<String> = exact.iter().chain(deep_c.iter()).cloned().collect();
+                let loose = !deep_c.is_empty();
+                self.hands(f, args, env, line, in_fn, vec![all; args.len()], loose);
             }
             Later::Escape { target, e, tsym, env, line } => {
                 self.line = line;
@@ -4008,8 +4191,9 @@ impl<'a> Checker<'a> {
             let set = |v: &Vec<String>| -> IndexSet<String> { v.iter().cloned().collect() };
             let sym = match x {
                 ExportSig::Type(..) => continue,
-                ExportSig::Source { question, rows, fails } => {
+                ExportSig::Source { question, rows, fails, actions } => {
                     let mut s = Sym::new(SymKind::Source, alias, region, line);
+                    (s.action_parts, s.call_parts) = held_split(actions);
                     s.question = *question;
                     s.imported = Some(from.clone());
                     s.rows = Some(RowsT::Fixed(set(rows)));
@@ -4019,7 +4203,7 @@ impl<'a> Checker<'a> {
                 ExportSig::Eq { rows, fails, io, actions } => {
                     let mut s = Sym::new(SymKind::Eq, alias, region, line);
                     s.io = *io;
-                    s.action_parts = actions.clone();
+                    (s.action_parts, s.call_parts) = held_split(actions);
                     s.rows = Some(RowsT::Fixed(set(rows)));
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s
@@ -4032,7 +4216,7 @@ impl<'a> Checker<'a> {
                     s.fails_t = Some(FailsT::Fixed(set(fails)));
                     s.rejects = Some(set(rejects));
                     s.needs = uses.clone();
-                    s.action_parts = actions.clone();
+                    (s.action_parts, s.call_parts) = held_split(actions);
                     s.calls = params.iter().map(|q| calls.iter().filter_map(|c| if *c == q.name { Some(String::new()) } else { c.strip_prefix(&format!("{}.", q.name)).map(String::from) }).collect()).collect();
                     s.result = result.clone();
                     s
@@ -4578,7 +4762,15 @@ impl<'a> Checker<'a> {
                 SymKind::Source => {
                     let rows = if self.syms[s].rows.is_some() { self.sym_rows(s) } else { IndexSet::new() };
                     let fails = if self.syms[s].fails_t.is_some() { self.sym_fails(s).cls } else { IndexSet::new() };
-                    ExportSig::Source { question: self.syms[s].question, rows: arr(rows), fails: arr(fails) }
+                    // R-io-3f: what it holds
+                    let was = std::mem::replace(&mut self.m2, false);
+                    let mut all = self.source_parts(s, false);
+                    self.m2 = true;
+                    all.extend(self.source_parts(s, false));
+                    self.m2 = was;
+                    let mut actions: Vec<String> = all.into_iter().collect();
+                    actions.sort();
+                    ExportSig::Source { question: self.syms[s].question, rows: arr(rows), fails: arr(fails), actions }
                 }
                 SymKind::Eq => {
                     let rows = if self.syms[s].rows.is_some() { self.sym_rows(s) } else { IndexSet::new() };
@@ -5048,8 +5240,12 @@ impl<'a> Checker<'a> {
             Decl::Action { name, params, ptypes, ret, body, line, .. } => {
                 let region = self.reg(env);
                 let inner = self.env(Some(env), region);
-                for p in params {
+                // R-io-3f: what the module's calls give each parameter
+                let me = self.lookup(env, name);
+                for (i, p) in params.iter().enumerate() {
                     self.set_value(inner, p, *line as i64);
+                    let q = self.envs[inner].vars[p.as_str()];
+                    self.syms[q].given_at = me.map(|me| (me, i));
                 }
                 self.comp("action", env, Some(name.clone()), None, |c| c.stmts(body, inner, Ctx { in_action: true, ..Ctx::imperative() }));
                 self.actions.push(ActionRec { name: name.clone(), body, env: inner, line: *line as i64 });
@@ -6179,7 +6375,7 @@ impl<'a> Checker<'a> {
         if ctx.imperative && (lang == Some(Lang::Log) || DOLLAR_PARAM.is_match(name)) {
             return None;
         }
-        let why = if let Some(why) = harness_reason(name) { why } else if JS_GLOBALS.split(' ').any(|g| g == name) { ": JavaScript's globals are not in scope — export what you use of it from a `.js` module, and import that" } else { " (a component sees its declaration site, not its caller — RG-7a)" };
+        let why = if let Some(why) = harness_reason(name) { why } else if name == "as" { ": `as` is not .rx: a value has the type it was made with — give the type where the value is declared (`source s: T := …`, a parameter, a fn's result), or narrow it with a fn, `fn asT(v: string): T => …` (07 §2)" } else if JS_GLOBALS.split(' ').any(|g| g == name) { ": JavaScript's globals are not in scope — export what you use of it from a `.js` module, and import that" } else { " (a component sees its declaration site, not its caller — RG-7a)" };
         self.err("UNBOUND", "SCOPE", format!("{} is not declared here{}", name, why));
         None
     }
@@ -6575,7 +6771,6 @@ impl<'a> Checker<'a> {
             } else {
                 continue;
             };
-            let beside = method.is_none() && (called.contains("") || called.iter().any(|c| c.ends_with('?')));
             if !called.is_empty() {
                 if named && !by_name && called.contains("") {
                     self.say_given(&show(a), "", f, in_fn, named, action);
@@ -6583,45 +6778,81 @@ impl<'a> Checker<'a> {
                     self.later.push(Later::Given { a, over, f, env, line: self.line, in_fn, called, held, named, action });
                 }
             }
-            // R-io-3d: a function given by name to a callee that calls it may be handed the call's other arguments: what
-            // it calls of its own parameters, they must not hold (anywhere: which part it is handed is the callee's to choose)
-            if beside {
-                self.later.push(Later::Beside { i, f, args, env, line: self.line, in_fn });
-            }
         }
-    }
-    /// R-io-3d: the paths of its i-th parameter a closure of an expression calls while it runs.
-    fn own_calls(&mut self, c: (&'a Expr, EId), i: usize) -> IndexSet<String> {
-        let ExprKind::Fn { params, body, .. } = &c.0.k else { return IndexSet::new() };
-        called_paths_of(params, &[], body, i, &mut CalledAt { c: self, env: c.1 })
-    }
-    /// …every path of any parameter a function given by name calls.
-    fn fn_calls(&mut self, a: &'a Expr, env: EId) -> Option<IndexSet<String>> {
-        let g = match &a.k {
-            ExprKind::Id(n) => self.lookup(env, n),
-            _ => None,
-        };
-        let mut all = IndexSet::new();
-        match g.filter(|&g| self.syms[g].kind == SymKind::Fn && self.syms[g].foreign.is_none()) {
-            Some(g) => {
-                for j in 0..self.syms[g].params.as_ref().map_or(0, |p| p.len()) {
-                    all.extend(self.called_of(Some(g), j));
-                }
+        // R-io-3e (2026-11-27): what a call hands on. A caller an argument holds where the callee calls it — a closure or
+        // a fn, by name, in a record or a list, through any form — may be handed any part of the call's arguments, and a
+        // caller that one hands on in turn: what they call of what they are given, no argument may hold as io
+        if method.is_some() {
+            return;
+        }
+        if is_fn {
+            if fs.is_some_and(|t| self.syms[t].foreign.is_none()) {
+                self.later.push(Later::Hands { f, args, env, line: self.line, in_fn, own: vec![] });
             }
-            None if matches!(a.k, ExprKind::Fn { .. }) => {}
-            None => {
-                for c in self.callee_closures(a, env) {
-                    let n = match &c.0.k {
-                        ExprKind::Fn { params, .. } => params.len(),
-                        _ => 0,
-                    };
-                    for j in 0..n {
-                        all.extend(self.own_calls(c, j));
+            return;
+        }
+        if !own.is_empty() {
+            self.later.push(Later::Hands { f, args, env, line: self.line, in_fn, own });
+            return;
+        }
+        // the language's, an action (refused where it is called)
+        if matches!(f.k, ExprKind::Id(_)) && fs.is_none_or(|t| self.syms[t].kind == SymKind::Action || self.syms[t].io) {
+            return;
+        }
+        // …and a callee no form says the inside of: the callers it holds call what they call, of what the call gives
+        self.later.push(Later::Callee { f, args, env, line: self.line, in_fn });
+    }
+    /// R-io-3e: `called[i]`: the paths of the i-th argument the callee calls; `loose`: somewhere in it.
+    fn hands(&mut self, f: &'a Expr, args: &'a [Expr], env: EId, line: i64, in_fn: bool, called: Vec<IndexSet<String>>, loose: bool) {
+        let callers: Vec<Vec<(String, String)>> = args.iter().map(|a| callers_in(self.caller_parts(a, env).iter())).collect();
+        let mut active: IndexSet<String> = IndexSet::new();
+        let mut who = String::new();
+        for (i, a) in args.iter().enumerate() {
+            let c = &called[i];
+            if c.is_empty() || matches!(a.k, ExprKind::Fn { .. }) {
+                continue;   // a closure written there is read with what it may be handed (its parameters)
+            }
+            for (at, calls) in &callers[i] {
+                let one: IndexSet<String> = [at.clone()].into_iter().collect();
+                let hit = if loose { calls_held(tails_of(one.iter()).iter(), c) } else { calls_held(one.iter(), c) };
+                if hit.is_some() {
+                    active.insert(calls.clone());
+                    if who.is_empty() {
+                        who = format!("{}{}", show(a), if at.is_empty() { String::new() } else { format!(" (at `{at}`)") });
                     }
                 }
             }
         }
-        (!all.is_empty()).then_some(all)
+        if active.is_empty() {
+            return;
+        }
+        let mut grew = true;
+        while grew {
+            grew = false;
+            for ks in &callers {
+                for (at, calls) in ks {
+                    let one: IndexSet<String> = [at.clone()].into_iter().collect();
+                    if !active.contains(calls) && calls_held(tails_of(one.iter()).iter(), &active).is_some() {
+                        active.insert(calls.clone());
+                        grew = true;
+                    }
+                }
+            }
+        }
+        for b in args {
+            let ps = self.io_parts(b, env);
+            let Some(at) = calls_held(tails_of(ps.iter()).iter(), &active) else { continue };
+            let was = self.line;
+            self.line = line;
+            let which = if at.is_empty() { "what it is given".to_string() } else { format!("`{at}` of what it is given") };
+            self.tell_given(&format!("{} holds io", show(b)), &format!("{}(…) calls {who}, a function that calls {which} and may be handed it (R-io-3e)", show(f)), "", "ACTION_CALLED_IN_OWNED_SCOPE", in_fn);
+            self.line = was;
+            return;
+        }
+    }
+    /// R-io-3d: the paths of its i-th parameter a closure of an expression calls while it runs.
+    fn own_calls(&mut self, c: (&'a Expr, EId), i: usize) -> IndexSet<String> {
+        self.closure_called(c, Some(i))
     }
     /// B3 (2026-11-26): a statement closure written as an item or a field is carried freely, and ends only where a handler
     /// goes. Given anywhere else — a plain attribute or prop, a spread's field that is none, a JavaScript argument its
@@ -7122,43 +7353,102 @@ impl<'a> Checker<'a> {
             }
         }
         let one = |p: &str| -> IndexSet<String> { [p.to_string()].into_iter().collect() };
+        // a form that is not read: the value holds, somewhere, what these hold (a caller keeps what it calls)
+        fn deep(out: &mut IndexSet<String>, m2: bool, ps: &IndexSet<String>) {
+            for q in ps {
+                if !m2 {
+                    out.insert("?".to_string());
+                } else if let Some(t) = caller_tail(q) {
+                    out.insert(deep_cut(format!("?.{t}")));
+                }
+            }
+        }
+        let m2 = self.m2;
         let mut out = IndexSet::new();
         match &e.k {
             ExprKind::Id(n) => {
                 let Some(s) = self.lookup(env, n) else { return out };
-                if !cl && self.syms[s].kind == SymKind::Action {
-                    return one("");
+                if m2 {
+                    // R-io-3e: a fn that calls what it is given, by its name
+                    if self.syms[s].kind == SymKind::Fn {
+                        for q in self.fn_called(s) {
+                            out.insert(deep_cut(caller_path(&q)));
+                        }
+                        return out;
+                    }
+                    if !self.syms[s].call_parts.is_empty() {
+                        return self.syms[s].call_parts.iter().cloned().collect();
+                    }
+                } else {
+                    if !cl && self.syms[s].kind == SymKind::Action {
+                        return one("");
+                    }
+                    if !cl && !self.syms[s].action_parts.is_empty() {
+                        return self.syms[s].action_parts.iter().cloned().collect();
+                    }
+                    if cl && !self.syms[s].cl_parts.is_empty() {
+                        return self.syms[s].cl_parts.iter().cloned().collect();
+                    }
                 }
-                if !cl && !self.syms[s].action_parts.is_empty() {
-                    return self.syms[s].action_parts.iter().cloned().collect();
-                }
-                if cl && !self.syms[s].cl_parts.is_empty() {
-                    return self.syms[s].cl_parts.iter().cloned().collect();
+                // W2: a row, or the parameter of a closure a calling method runs, holds what an item holds
+                if !cl {
+                    if let Some((x, en)) = self.syms[s].item_src.or(self.syms[s].row_of) {
+                        if let Some(m) = self.memo_of(cl).get(&s) {
+                            return m.clone();
+                        }
+                        self.memo_of(cl).insert(s, IndexSet::new());
+                        let r = parts_at(&self.parts_of(x, en, cl), Some("*"));
+                        self.memo_of(cl).insert(s, r.clone());
+                        return r;
+                    }
                 }
                 if matches!(self.syms[s].kind, SymKind::Eq | SymKind::Value) && self.syms[s].val.is_some() {
                     return self.named_parts_cl(s, self.syms[s].val, cl);
                 }
-                // a closure's parameter: what the call beside it gives
-                if self.syms[s].kind == SymKind::Value && self.syms[s].may_get.is_some() {
-                    if let Some(m) = if cl { &self.closure_memo } else { &self.parts_memo }.get(&s) {
+                // R-io-3f: an action's parameter: what the module's calls of the action give it
+                if self.syms[s].given_at.is_some() {
+                    if let Some(m) = self.memo_of(cl).get(&s) {
                         return m.clone();
                     }
-                    if cl { &mut self.closure_memo } else { &mut self.parts_memo }.insert(s, IndexSet::new());
+                    self.memo_of(cl).insert(s, IndexSet::new());
+                    let srcs = self.syms[s].given_at.and_then(|k| self.action_args.get(&k).cloned()).unwrap_or_default();
+                    let mut r = IndexSet::new();
+                    for (x, en) in srcs {
+                        let ps = self.parts_of(x, en, cl);
+                        add(&mut r, ps, "");
+                    }
+                    self.memo_of(cl).insert(s, r.clone());
+                    return r;
+                }
+                // a closure's parameter: what the call beside it gives
+                if self.syms[s].kind == SymKind::Value && self.syms[s].may_get.is_some() {
+                    if let Some(m) = self.memo_of(cl).get(&s) {
+                        return m.clone();
+                    }
+                    self.memo_of(cl).insert(s, IndexSet::new());
                     let srcs = self.syms[s].may_get.clone().unwrap_or_default();
                     let mut r = IndexSet::new();
                     for (x, en) in srcs {
-                        if !self.parts_of(x, en, cl).is_empty() {
-                            r.insert("?".to_string());
-                            break;
-                        }
+                        let ps = self.parts_of(x, en, cl);
+                        deep(&mut r, m2, &ps);
                     }
-                    if cl { &mut self.closure_memo } else { &mut self.parts_memo }.insert(s, r.clone());
+                    self.memo_of(cl).insert(s, r.clone());
+                    return r;
+                }
+                // R-io-3f: a source holds what it is given
+                if self.syms[s].kind == SymKind::Source && self.syms[s].imported.is_none() {
+                    if let Some(m) = self.memo_of(cl).get(&s) {
+                        return m.clone();
+                    }
+                    self.memo_of(cl).insert(s, IndexSet::new());
+                    let r = self.source_parts(s, cl);
+                    self.memo_of(cl).insert(s, r.clone());
                     return r;
                 }
                 out
             }
             // SC-4b: a handler the component is given is io, as an action is
-            ExprKind::Member { .. } | ExprKind::Index { .. } if !cl && self.handler_prop(e, env) => one(""),
+            ExprKind::Member { .. } | ExprKind::Index { .. } if !cl && !m2 && self.handler_prop(e, env) => one(""),
             ExprKind::Member { o, p, .. } => parts_at(&self.parts_of(o, env, cl), Some(p)),
             ExprKind::Index { o, i, .. } => parts_at(&self.parts_of(o, env, cl), lit_key(i).as_deref()),
             ExprKind::Rec(fields) => {
@@ -7172,10 +7462,8 @@ impl<'a> Checker<'a> {
                             let k = key.as_str();
                             out.retain(|p| p != k && !p.strip_prefix(k).is_some_and(|r| r.starts_with('.')));
                             let ps = self.parts_of(v, env, cl);
-                            if k.is_empty() || k.contains('.') || k == "?" || k == "*" || k == "()" {
-                                if !ps.is_empty() {
-                                    out.insert("?".to_string());
-                                }
+                            if k.is_empty() || k.contains('.') || k.contains('!') || k == "?" || k == "*" || k == "()" {
+                                deep(&mut out, m2, &ps);
                             } else {
                                 add(&mut out, ps, k);
                             }
@@ -7235,15 +7523,27 @@ impl<'a> Checker<'a> {
                 out
             }
             ExprKind::Omit { e: x, keys } => self.parts_of(x, env, cl).into_iter().filter(|p| !keys.iter().any(|k| k == p.split('.').next().unwrap_or(""))).collect(),
-            ExprKind::Draft { seed, .. } => {
-                if !self.parts_of(seed, env, cl).is_empty() {
-                    out.insert("?".to_string());
+            // R-io-3f: and what its body writes into it
+            ExprKind::Draft { seed, body } => {
+                let ps = self.parts_of(seed, env, cl);
+                deep(&mut out, m2, &ps);
+                let mut ws = vec![];
+                written_in(body, &mut ws);
+                for x in ws {
+                    let ps = self.parts_of(x, env, cl);
+                    deep(&mut out, m2, &ps);
                 }
                 out
             }
+            ExprKind::Fn { stmts: Some(_), .. } if m2 => out,
             // B3: a statement closure is io, as an action is; a closure of an expression answers what its body holds
             ExprKind::Fn { stmts: Some(_), .. } => one(""),
             ExprKind::Fn { body, .. } => {
+                if m2 {
+                    for q in self.closure_called((e, env), None) {
+                        out.insert(deep_cut(caller_path(&q)));
+                    }
+                }
                 let inner = self.closure_env(e, env, vec![], cl);
                 let ps = self.parts_of(body, inner, cl);
                 add(&mut out, ps, "()");
@@ -7256,7 +7556,13 @@ impl<'a> Checker<'a> {
                 };
                 // a fn: what its result holds, and — a fn of `.rx` — what it was given, where its body can reach it
                 if let Some(t) = fs.filter(|&t| self.syms[t].kind == SymKind::Fn) {
-                    let base: IndexSet<String> = if !cl && !self.syms[t].action_parts.is_empty() {
+                    let base: IndexSet<String> = if m2 {
+                        if self.syms[t].fn_tail.is_some() {
+                            self.named_parts_cl(t, self.syms[t].fn_tail, cl)
+                        } else {
+                            self.syms[t].call_parts.iter().cloned().collect()
+                        }
+                    } else if !cl && !self.syms[t].action_parts.is_empty() {
                         self.syms[t].action_parts.iter().cloned().collect()
                     } else if self.syms[t].fn_tail.is_some() {
                         self.named_parts_cl(t, self.syms[t].fn_tail, cl)
@@ -7273,10 +7579,8 @@ impl<'a> Checker<'a> {
                     };
                     for i in gives {
                         if let Some(a) = args.get(i) {
-                            if !self.parts_of(a, env, cl).is_empty() {
-                                out.insert("?".to_string());
-                                break;
-                            }
+                            let ps = self.parts_of(a, env, cl);
+                            deep(&mut out, m2, &ps);
                         }
                     }
                     return out;
@@ -7293,7 +7597,7 @@ impl<'a> Checker<'a> {
                 };
                 if let (Some(m), Some(o)) = (m, o) {
                     let po = self.parts_of(o, env, cl);
-                    if !(member && parts_at(&po, Some(m)).contains("")) {
+                    if !(member && parts_at(&po, Some(m)).iter().any(|q| q.is_empty() || q == "!" || q.starts_with("!."))) {
                         let items = parts_at(&po, Some("*"));
                         if ITEM_OF.contains(&m) {
                             return items;
@@ -7330,9 +7634,7 @@ impl<'a> Checker<'a> {
                             }
                             let ps = parts_at(&self.parts_of(cb, env, cl), Some("()"));
                             add(&mut out, ps, "*");
-                            if !items.is_empty() {
-                                out.insert("?".to_string());
-                            }
+                            deep(&mut out, m2, &items);
                             return out;
                         }
                         if answers_plain(m) || (!member && scalar(m, false)) {
@@ -7348,22 +7650,15 @@ impl<'a> Checker<'a> {
                 let pf = self.parts_of(f, env, cl);
                 add(&mut out, parts_at(&pf, Some("()")), "");
                 if !opaque {
-                    let mut deep = pf.contains("?");
-                    if !deep {
-                        for a in args {
-                            if !self.parts_of(a, env, cl).is_empty() {
-                                deep = true;
-                                break;
-                            }
-                        }
+                    for a in args {
+                        let ps = self.parts_of(a, env, cl);
+                        deep(&mut out, m2, &ps);
                     }
-                    if !deep {
-                        if let ExprKind::Member { o, .. } = &f.k {
-                            deep = !self.parts_of(o, env, cl).is_empty();
-                        }
-                    }
-                    if deep {
-                        out.insert("?".to_string());
+                    let somewhere: IndexSet<String> = pf.iter().filter(|q| *q == "?" || q.starts_with("?.")).cloned().collect();
+                    deep(&mut out, m2, &somewhere);
+                    if let ExprKind::Member { o, .. } = &f.k {
+                        let ps = self.parts_of(o, env, cl);
+                        deep(&mut out, m2, &ps);
                     }
                 }
                 out
@@ -7381,7 +7676,9 @@ impl<'a> Checker<'a> {
                 self.set_value(inner, p, self.line);
                 if let Some(b) = bind.get(j).filter(|b| !b.is_empty()) {
                     let s = self.envs[inner].vars[p.as_str()];
-                    if cl {
+                    if self.m2 {
+                        self.syms[s].call_parts = b.clone();
+                    } else if cl {
                         self.syms[s].cl_parts = b.clone();
                     } else {
                         self.syms[s].action_parts = b.clone();
@@ -7425,6 +7722,28 @@ impl<'a> Checker<'a> {
                             (None, Some((v, ve))) => self.opaque(v, ve, depth + 1),
                             _ => false,
                         };
+                }
+                // R-io-3f: a source is what the module gives it, where every value it is given is the module's; one
+                // imported, what its signature says
+                if y.kind == SymKind::Source && y.imported.is_some() {
+                    return false;
+                }
+                if y.kind == SymKind::Source {
+                    if let Some((m, me, _)) = y.made {
+                        if self.opaque_seen.borrow().contains(&s) {
+                            return false;
+                        }
+                        self.opaque_seen.borrow_mut().push(s);
+                        let r = self.opaque(m, me, depth + 1)
+                            || self.src_writes.get(&s).is_some_and(|ws| {
+                                ws.iter().any(|&(_, w, we)| match &w.k {
+                                    ExprKind::Fn { body, stmts: None, .. } => self.opaque(body, we, depth + 1),
+                                    _ => self.opaque(w, we, depth + 1),
+                                })
+                            });
+                        self.opaque_seen.borrow_mut().pop();
+                        return r;
+                    }
                 }
                 y.kind != SymKind::Fn || y.foreign.is_some()
             }
@@ -7539,22 +7858,266 @@ impl<'a> Checker<'a> {
         }
         let Some(env) = self.syms[f].decl_env else { return IndexSet::new() };
         self.called_stack.insert(f);
-        let r = called_paths(d, i, &mut CalledAt { c: self, env });
+        let at = self.syms[f].fn_tail.map(|t| t.1);
+        let r = called_paths(d, i, &mut CalledAt { c: self, env, at });
         self.called_stack.shift_remove(&f);
         if self.called_stack.is_empty() {
             self.called_memo.insert((f, i), r.clone());
         }
         r
     }
+    fn memo_of(&mut self, cl: bool) -> &mut HashMap<SId, IndexSet<String>> {
+        if self.m2 {
+            &mut self.caller_memo
+        } else if cl {
+            &mut self.closure_memo
+        } else {
+            &mut self.parts_memo
+        }
+    }
+    /// R-io-3e (2026-11-27): a second fact follows a value as io does — where it holds a *caller*, a function that calls
+    /// what it is given: an expression closure or a fn whose body calls a path of a parameter, read through every form
+    /// `parts_of` reads (`m2`). `!` in a path: before it where the caller is, after it what it calls.
+    fn caller_parts(&mut self, e: &'a Expr, env: EId) -> IndexSet<String> {
+        let was = std::mem::replace(&mut self.m2, true);
+        let r = self.parts_of(e, env, false);
+        self.m2 = was;
+        r
+    }
+    fn io_parts(&mut self, e: &'a Expr, env: EId) -> IndexSet<String> {
+        let was = std::mem::replace(&mut self.m2, false);
+        let r = self.parts_of(e, env, false);
+        self.m2 = was;
+        r
+    }
+    /// …both facts, as a signature says them: the io parts, and the callers (`!`).
+    fn held_parts(&mut self, e: &'a Expr, env: EId) -> Vec<String> {
+        let mut all = self.io_parts(e, env);
+        all.extend(self.caller_parts(e, env));
+        let mut ps: Vec<String> = all.into_iter().collect();
+        ps.sort();
+        ps
+    }
+    /// …what the callers a callee holds — the value itself, or somewhere in a value no form says the inside of — call.
+    fn callee_calls(&mut self, f: &'a Expr, env: EId) -> IndexSet<String> {
+        let mut out = IndexSet::new();
+        if self.opaque(f, env, 0) {
+            return out;
+        }
+        let plain = matches!(&f.k, ExprKind::Member { p, .. } if plain_method(p));
+        let ps = self.caller_parts(f, env);
+        for (at, calls) in callers_in(ps.iter()) {
+            if at.is_empty() || (at == "?" && !plain) {
+                out.insert(calls);
+            }
+        }
+        out
+    }
+    /// …every path of any parameter a fn calls.
+    fn fn_called(&mut self, g: SId) -> IndexSet<String> {
+        let mut out = IndexSet::new();
+        if self.syms[g].kind != SymKind::Fn || self.syms[g].foreign.is_some() {
+            return out;
+        }
+        let n = match self.syms[g].fn_decl {
+            Some(Decl::Fn { params, .. }) => params.len(),
+            _ => self.syms[g].params.as_ref().map_or(0, |p| p.len()),
+        };
+        for j in 0..n {
+            out.extend(self.called_of(Some(g), j));
+        }
+        out
+    }
+    /// …and an expression closure: the paths its body calls, and those it gives to a caller of the scope around it.
+    fn closure_called(&mut self, c: (&'a Expr, EId), i: Option<usize>) -> IndexSet<String> {
+        let key = c.0 as *const Expr;
+        if i.is_none() {
+            if let Some(m) = self.closure_calls.get(&key) {
+                return m.clone();
+            }
+        }
+        let mut out = IndexSet::new();
+        let ExprKind::Fn { params, body, stmts: None, .. } = &c.0.k else { return out };
+        if self.closure_stack.contains(&key) {
+            return out;
+        }
+        self.closure_stack.insert(key);
+        let js: Vec<usize> = match i {
+            None => (0..params.len()).collect(),
+            Some(i) => vec![i],
+        };
+        for j in js {
+            out.extend(called_paths_of(params, &[], body, j, &mut CalledAt { c: self, env: c.1, at: None }));
+        }
+        self.closure_stack.remove(&key);
+        if i.is_none() && self.closure_stack.is_empty() {
+            self.closure_calls.insert(key, out.clone());
+        }
+        out
+    }
+    /// R-io-3f (2026-11-27): a source holds what it is given — its initializer, and every value written to it (W-5: only
+    /// its own block writes it, so the module shows them all). A write of a function is applied (W-6): what it answers.
+    fn source_parts(&mut self, s: SId, cl: bool) -> IndexSet<String> {
+        let m2 = self.m2;
+        let some = |out: &mut IndexSet<String>, ps: &IndexSet<String>| {
+            for q in ps {
+                if !m2 {
+                    out.insert("?".to_string());
+                } else if let Some(t) = caller_tail(q) {
+                    out.insert(deep_cut(format!("?.{t}")));
+                }
+            }
+        };
+        let mut out: IndexSet<String> = IndexSet::new();
+        if let Some((e, env, _)) = self.syms[s].made {
+            for q in self.parts_of(e, env, cl) {
+                out.insert(join_path("", &q));
+            }
+        }
+        let writes = self.src_writes.get(&s).cloned().unwrap_or_default();
+        for round in 0..3 {
+            let before = out.len();
+            for &(path, e, env) in &writes {
+                let keys: Vec<Option<String>> = path.iter().map(|k| match k {
+                    PathSeg::Name(k) => Some(k.clone()),
+                    PathSeg::Expr(x) => lit_key(x),
+                }).collect();
+                let known = keys.iter().all(|k| k.as_ref().is_some_and(|k| !k.is_empty() && !k.contains(['.', '!', '?', '*', '(', ')'])));
+                let at = |k: &str| if is_index(k) { "*".to_string() } else { k.to_string() };
+                let ps: IndexSet<String> = match &e.k {
+                    // an updater (W-6): what it answers of the value it is given; a statement one writes its draft
+                    ExprKind::Fn { stmts: Some(ss), .. } => {
+                        let mut ws = vec![];
+                        written_in(ss, &mut ws);
+                        let mut all = IndexSet::new();
+                        for x in ws {
+                            all.extend(self.parts_of(x, env, cl));
+                        }
+                        some(&mut out, &all);
+                        continue;
+                    }
+                    ExprKind::Fn { body, .. } => {
+                        let was: Vec<String> = if known {
+                            let mut w = out.clone();
+                            for k in keys.iter().flatten() {
+                                w = parts_at(&w, Some(&at(k)));
+                            }
+                            w.into_iter().collect()
+                        } else if out.is_empty() {
+                            vec![]
+                        } else {
+                            vec!["?".to_string()]
+                        };
+                        let inner = self.closure_env(e, env, vec![was], cl);
+                        self.parts_of(body, inner, cl)
+                    }
+                    _ => {
+                        let v = self.parts_of(e, env, cl);
+                        let ans = parts_at(&v, Some("()"));
+                        v.into_iter().chain(ans).collect()
+                    }
+                };
+                if known {
+                    let pre = keys.iter().flatten().map(|k| at(k)).collect::<Vec<_>>().join(".");
+                    for q in ps {
+                        out.insert(join_path(&pre, &q));
+                    }
+                } else {
+                    some(&mut out, &ps);
+                }
+            }
+            if out.len() == before {
+                break;
+            }
+            // it still grows: somewhere in it
+            if round == 2 {
+                let all = out.clone();
+                some(&mut out, &all);
+            }
+        }
+        out
+    }
+    /// AC-4: whether an equation's own expression asks — an `await`, a context, a server fn, or a call the module's text
+    /// does not show the inside of (a fn, JavaScript's, a prop's).
+    fn asks_itself(&self, n: Node, env: EId) -> bool {
+        if let Node::E(e) = n {
+            match &e.k {
+                ExprKind::Await { .. } | ExprKind::Use(_) | ExprKind::ServerFn { .. } => return true,
+                ExprKind::Call { f, .. } => {
+                    if match &f.k {
+                        ExprKind::Id(n) => self.lookup(env, n).is_some(),
+                        _ => self.opaque(f, env, 0),
+                    } {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        children(n, true).into_iter().any(|c| self.asks_itself(c, env))
+    }
+    /// …the questions an equation that asks nothing is computed from: the sources with a question and the equations that
+    /// ask, through the equations between.
+    fn questions_of(&self, t: SId, seen: &mut Vec<SId>) -> Vec<String> {
+        let mut out: Vec<String> = vec![];
+        let Some((e, env)) = self.syms[t].expr else { return out };
+        if seen.contains(&t) {
+            return out;
+        }
+        seen.push(t);
+        let mut names = IndexSet::new();
+        free_names(e, &HashSet::new(), &mut names);
+        for n in names {
+            let Some(q) = self.lookup(env, &n).filter(|&q| q != t) else { continue };
+            let y = &self.syms[q];
+            let asks = match y.kind {
+                SymKind::Source => y.question,
+                SymKind::Eq => y.imported.is_some() || y.foreign.is_some() || y.factory.is_some() || y.expr.is_none_or(|(x, xe)| self.asks_itself(Node::E(x), xe)),
+                _ => false,
+            };
+            if asks {
+                if !out.contains(&n) {
+                    out.push(n);
+                }
+            } else if y.kind == SymKind::Eq {
+                for m in self.questions_of(q, seen) {
+                    if !out.contains(&m) {
+                        out.push(m);
+                    }
+                }
+            }
+        }
+        out
+    }
+    /// AC-3a (2026-11-27): the handler tests the verdict where the click starts — its whole body is
+    /// `if (!(pending? t)) { … }`; a handler reads it as it stands (R-12).
+    fn tested_in(&self, h: &Expr, env: EId, t: SId) -> bool {
+        let ExprKind::Fn { stmts: Some(ss), .. } = &h.k else { return false };
+        let [Stmt { k: StmtKind::Sif { c, f, .. }, .. }] = &ss[..] else { return false };
+        if !f.is_empty() {
+            return false;
+        }
+        let ExprKind::Un { op, e } = &c.k else { return false };
+        let ExprKind::Pending(x) = &e.k else { return false };
+        let ExprKind::Id(n) = &x.k else { return false };
+        op == "!" && self.lookup(env, n) == Some(t)
+    }
+    /// R-io-3e: the parameter a callee is a part of, where nothing says what it is given — a fn's, or a closure's that no
+    /// call beside it binds.
+    fn unbound_param(&self, f: &Expr, env: EId) -> Option<String> {
+        let root = root_of(f)?;
+        let s = self.lookup(env, root)?;
+        let y = &self.syms[s];
+        (y.kind == SymKind::Value && (y.param || y.of_fn.is_some()) && y.val.is_none() && y.row_of.is_none() && y.item_src.is_none() && y.may_get.is_none() && y.given_at.is_none() && y.action_parts.is_empty() && y.call_parts.is_empty() && !y.js_draft).then(|| root.to_string())
+    }
     fn named_parts_cl(&mut self, s: SId, v: Option<(&'a Expr, EId)>, cl: bool) -> IndexSet<String> {
-        let memo = if cl { &mut self.closure_memo } else { &mut self.parts_memo };
-        if let Some(m) = memo.get(&s) {
+        if let Some(m) = self.memo_of(cl).get(&s) {
             return m.clone();
         }
-        memo.insert(s, IndexSet::new());
+        self.memo_of(cl).insert(s, IndexSet::new());
         let Some((e, env)) = v else { return IndexSet::new() };
         let r = self.parts_of(e, env, cl);
-        if cl { &mut self.closure_memo } else { &mut self.parts_memo }.insert(s, r.clone());
+        self.memo_of(cl).insert(s, r.clone());
         r
     }
     /// MO-13i: the parts of what an instantiating fn answers, as far as the names its own body declares and the fns it calls
@@ -7692,9 +8255,7 @@ impl<'a> Checker<'a> {
         }
     }
     fn sorted_parts(&mut self, v: Option<(&'a Expr, EId)>) -> Vec<String> {
-        let mut ps: Vec<String> = v.map(|(e, env)| self.action_parts(e, env).into_iter().collect()).unwrap_or_default();
-        ps.sort();
-        ps
+        v.map(|(e, env)| self.held_parts(e, env)).unwrap_or_default()
     }
     /// R-io-3: a call of an action that a value carries, in reactive scope — judged once every fn's result is known.
     /// `attr`: SC-4, a handler attribute's value.
@@ -8149,6 +8710,12 @@ impl<'a> Checker<'a> {
                     if kind == Some(SymKind::Comp) {
                         self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} called as a function: apply it in a view", fname));
                     }
+                    // R-io-3f
+                    if let Some(t) = s.filter(|&s| self.syms[s].kind == SymKind::Action) {
+                        for (i, a) in args.iter().enumerate() {
+                            self.action_args.entry((t, i)).or_default().push((a, env));
+                        }
+                    }
                     if let Some(s) = s {
                         self.mark_callbacks(args, s);
                     }
@@ -8196,12 +8763,10 @@ impl<'a> Checker<'a> {
                 // W2: an item of what a calling method runs over
                 let item = self.item_of.get(&(e as *const Expr)).copied();
                 if let Some((k, over, oenv)) = item {
+                    // (it holds what an item of the list holds: read once every write is known)
                     if let Some(p) = params.get(k) {
-                        let ps = self.item_parts(over, oenv, 0);
-                        if !ps.is_empty() {
-                            let s = self.envs[inner].vars[p.as_str()];
-                            self.syms[s].action_parts = ps.into_iter().collect();
-                        }
+                        let s = self.envs[inner].vars[p.as_str()];
+                        self.syms[s].item_src = Some((over, oenv));
                     }
                 }
                 // R-io-3d: …and what the call it is written in may hand its other parameters
@@ -8484,6 +9049,10 @@ impl<'a> Checker<'a> {
                         }
                     } else {
                         tsym = self.resolve(&target.name, env, ctx);
+                        // R-io-3f
+                        if let Some(t) = tsym.filter(|&t| self.syms[t].kind == SymKind::Source) {
+                            self.src_writes.entry(t).or_default().push((&target.path[..], e, env));
+                        }
                         // R-11: an action holds its writes until its body returns
                         if ctx.in_action && op == "write" {
                             if let Some(t) = tsym.filter(|&t| self.syms[t].kind == SymKind::Source) {
@@ -8579,6 +9148,19 @@ impl<'a> Checker<'a> {
                             let k = self.syms[t].kind;
                             if !(k == SymKind::Eq || (k == SymKind::Source && self.syms[t].question)) {
                                 self.err("INVALID_REFRESH_TARGET", "AC-4", format!("{} has no question to re-ask", name));
+                            } else if k == SymKind::Eq && self.syms[t].imported.is_none() && self.syms[t].foreign.is_none() && self.syms[t].factory.is_none() {
+                                // AC-4 (2026-11-27): an equation that asks nothing itself re-asks nothing — the question is the one it reads
+                                if let Some((x, xe)) = self.syms[t].expr.filter(|&(x, xe)| !self.asks_itself(Node::E(x), xe)) {
+                                    let _ = (x, xe);
+                                    let mut seen = vec![];
+                                    let from = self.questions_of(t, &mut seen);
+                                    let msg = if from.is_empty() {
+                                        format!("{name} has no question to re-ask: it awaits nothing, and reads nothing that does")
+                                    } else {
+                                        format!("{name} asks nothing itself: it is computed from {}, which {} — `refresh {}` re-asks it, and {name} follows", from.join(", "), if from.len() > 1 { "ask" } else { "asks" }, from[0])
+                                    };
+                                    self.err("INVALID_REFRESH_TARGET", "AC-4", msg);
+                                }
                             }
                         }
                     } else {
@@ -9369,11 +9951,6 @@ impl<'a> Checker<'a> {
                     row.row_of = Some((xs, env));
                     let s = self.new_sym(row);
                     self.envs[inner].vars.insert(name.clone(), s);
-                    // W2: a row holds what an item of the list holds
-                    let ps = self.item_parts(xs, env, 0);
-                    if !ps.is_empty() {
-                        self.syms[s].action_parts = ps.into_iter().collect();
-                    }
                     self.block(decls, body, inner, Ctx::reactive());
                 }
                 MarkupKind::Loading { on, fallback, decls, body } => {
@@ -10695,6 +11272,7 @@ impl<'a> Checker<'a> {
                                     && self.awaits(t, &mut HashSet::new())
                                     && self.asks_about(t, &inputs)
                                     && !attrs.iter().any(|a| a.name == "disabled" && self.depends(&a.e, env, t, &mut HashSet::new()))
+                                    && !self.tested_in(h, env, t)
                                     && !(!submits.is_empty() && submits.iter().all(|b| b.iter().any(|a| a.name == "disabled" && self.depends(&a.e, env, t, &mut HashSet::new()))))
                                     && !self.region_reads(region, t, |r| r.provides.contains(HOLD))
                                 {
@@ -10704,7 +11282,7 @@ impl<'a> Checker<'a> {
                                         "GUESS_WHILE_LOADING",
                                         "AC-3a",
                                         format!(
-                                            "{what} {} `guess {n}` while {n} is loading a new question (its question reads what the click reads): the guess composes on the previous answer, and the new answer replaces it, so the change disappears while it is out (D-34) — put the element inside the `loading` region whose content reads {n}, or give it `disabled={{pending? {n}}}`, or keep the pending change in a source of its own until it lands",
+                                            "{what} {} `guess {n}` while {n} is loading a new question (its question reads what the click reads): the guess composes on the previous answer, and the new answer replaces it, so the change disappears while it is out (D-34) — put the element inside the `loading` region whose content reads {n}, or test it where the click starts, `onClick={{() => {{ if (!(pending? {n})) {{ … }} }}}}` (a handler reads the verdict as it stands, R-12), or keep the pending change in a source of its own until it lands",
                                             match &via { Some(a) => format!("starts `{a}`, which can run"), None => "can run".into() }
                                         ),
                                     );

@@ -464,7 +464,8 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   `<form>`'s `onSubmit`, every submit button's `disabled` does, since a form
   with its submit buttons disabled does not submit). Otherwise it is
   `GUESS_WHILE_LOADING` (static). The repairs are Solid's: the control inside
-  `x`'s `loading`, or `disabled={pending? x}`, or the pending change kept in a
+  `x`'s `loading`, or `disabled={pending? x}`, or (2026-11-27) a handler whose
+  whole body is `if (!(pending? x)) { … }`, or the pending change kept in a
   source of its own until it lands. Solid's dev build warns the same case at
   the guess (`OPTIMISTIC_WRITE_WHILE_LOADING`); the check finds it before the
   race runs. Principle: a write must not read stale state (the guess's
@@ -483,7 +484,14 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   (S-solid-26 instants 4–5, S-solid-37). On a question source it drops a
   write's override (S-store-4). Issued inside an open change, the landing is
   staged into that change and reveals at its commit, still quiet (Solid
-  D-31; S-solid-26 instant 7). Any other target is `INVALID_REFRESH_TARGET`.
+  D-31; S-solid-26 instant 7). Any other target is `INVALID_REFRESH_TARGET`:
+  a source seeded with `:=`, and (2026-11-27) an equation that asks nothing
+  itself — no `await`, no context, no call the module's text does not show
+  the inside of. Its question is the one it reads (`issues = ans == null ?
+  [] : ans` over `source ans = await … -> null`): re-running it re-asks
+  nothing (Solid's `refresh` of a memo that awaits nothing), so the message
+  names what to refresh, `refresh ans`. It was accepted and did nothing
+  (found by an author following guide/async.md §1 then §3). S-check-1.
   An awaited `refresh x` resolves when the re-ask lands (not in `ref/`).
 - **AC-5 (affects).** `affects x`, in imperative scope anywhere, declares
   that work now in flight will change `x`: `pending? x` is `true` until

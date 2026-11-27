@@ -55,6 +55,11 @@ export component Profile(props: { id: number }) { … }
   variable shared across requests. Module state lives as long as the app
   and there is one of it: state for a subtree, a route or an instance
   belongs in a component, shared down through a context (RG-7).
+- **§1b A name imported from JavaScript and written nowhere** (2026-11-27) is not imported when the module runs, as
+  one written only in types is not (TypeScript leaves both out): it may be a type of the module's `.d.ts`, which the
+  JS module does not export (`import { fetchIssues, Issue } from "./api.js"` with `Issue` unused failed the bundle,
+  `MISSING_EXPORT`). There is no `as`: an expression carries no type of its own (§2); a parse failure at `as`, and a
+  name `as` that is not declared, say so.
 - **§1a An import for its effect** (proposed 2026-11-19).
   `import "./styles.css"` or `import "@fontsource/inter"` imports a module
   for what loading it does: a stylesheet a UI kit ships, a polyfill, a

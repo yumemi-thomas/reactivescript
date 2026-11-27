@@ -43,7 +43,7 @@ Bins:
 | `SNAPSHOT_ARGUMENT` (new)         | S   | E-10: reactive argument to a value parameter at an instantiation       |
 | `SNAPSHOT_INITIALIZER` (new)      | S   | E-4 / DV-6: a source initializer reads a reactive value outside `peek(…)` |
 | `SNAPSHOT_KEPT` (new)             | S   | E-5a: a `peek` kept where it is read (an equation, a provision, a view, an argument) of a value that changes |
-| `INVALID_REFRESH_TARGET`          | S   | `refresh` requires a source with a question (V-9)                  |
+| `INVALID_REFRESH_TARGET`          | S   | `refresh` requires a source with a question or an equation that asks itself (V-9, AC-4) |
 | `INVALID_AFFECTS_TARGET`          | S   | same                                                               |
 | `LOADING_ON_OUTSIDE_HOLD`         | S/R | H: a reader of the `on` data outside the boundary; S within a component (08 CN-3e), R through a prop |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`  | S/R | H: a pending reader with no armed boundary on its path; S only in a client-only build, for a first load (08 CN-3d) |

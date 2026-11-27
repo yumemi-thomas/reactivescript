@@ -390,6 +390,8 @@ re!(JS_LOCAL, r"^(const|let|var)\b");
 re!(JS_RETURN, r"^return\b");
 re!(NAME_BEFORE, r"([A-Za-z_$][A-Za-z0-9_$.]*)\s*$");
 re!(ARROW_BEFORE, r"=>\s*[A-Za-z_$][A-Za-z0-9_$.]*\s*$");
+// `e as T`: TypeScript's assertion, which the language does not have (2026-11-27)
+re!(AS_CAST, r#"^as\s+\S|^=[^=>].*[\w$)\]"'`]\s+as\s+["'`(\[{A-Za-z_$]"#);
 re!(OP_ASSIGN, r"^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*/%])=)");
 
 /// What a parse failure at `i` most likely meant, when the line reads like JavaScript, React or Solid: its code and the
@@ -409,6 +411,9 @@ pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
     }
     if rest.starts_with('=') && !rest[1..].starts_with('=') && !rest[1..].starts_with('>') && IN_PARAMS.is_match(before) {
         return Some(("PARSE", format!("a parameter has no default: give every argument at the call, and say what an absent one means in the body, `{} ?? …` (E-9, AC-1f)", name)));
+    }
+    if AS_CAST.is_match(rest.split('\n').next().unwrap_or("")) {
+        return Some(("PARSE", "`as` is not .rx: a value has the type it was made with — give the type where the value is declared (`source s: T := …`, a parameter, a fn's result), or narrow it with a fn, `fn asT(v: string): T => …` (07 §2)".into()));
     }
     if OP_ASSIGN.is_match(rest) || (rest.starts_with('=') && !rest[1..].starts_with('=') && !rest[1..].starts_with('>')) {
         return Some(("ASSIGNMENT", format!("a source is written with `:=`, as a statement in a handler or action: `{n} := {n} + 1`, or `{n} := v => v + 1` (W-1, W-6); .rx has no `=`, `+=` or `++` on state", n = name)));

@@ -58,8 +58,10 @@ in JS; that holds for destructuring too. Mutation is only `:=` and `guess`. A re
 
 ## Expressions
 
-TypeScript's, minus assignment operators (`=`, `+=`, `++`), `this`, `function`, `async` and `new` on reactive
-values. Arrays and strings have their usual methods: `xs.filter(f)`, `xs.map(f)`, `xs.findIndex(f)`, `xs.some(f)`,
+TypeScript's, minus assignment operators (`=`, `+=`, `++`), `this`, `function`, `async`, `new` on reactive
+values, and `as`: a value has the type it was made with, so give the type where the value is declared
+(`source s: Status := …`, a parameter, a fn's result) or narrow with a fn, `fn asStatus(v: string): Status => v ==
+"open" ? "open" : "closed"`. Arrays and strings have their usual methods: `xs.filter(f)`, `xs.map(f)`, `xs.findIndex(f)`, `xs.some(f)`,
 `xs.length`, `s.trim()`. Added forms:
 
 | Form | Meaning |

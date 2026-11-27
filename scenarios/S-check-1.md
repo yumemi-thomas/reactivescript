@@ -266,6 +266,19 @@ export default component App() {
 }
 ```
 
+An equation that asks nothing itself re-asks nothing: its question is the one it reads (AC-4).
+
+```rx
+-- reject: INVALID_REFRESH_TARGET
+export default component App() {
+  source q := "a"
+  source ans = await fetch(q) -> null
+  issues = ans == null ? [] : [ans]
+
+  errored fallback(e) { <p>failed</p> } { <button onClick={() => { refresh issues }}>{len(issues)}</button> }
+}
+```
+
 ```rx
 -- reject: INVALID_AFFECTS_TARGET
 export default component App() {
