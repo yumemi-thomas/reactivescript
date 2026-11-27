@@ -24,6 +24,7 @@ node --conditions=browser --conditions=development repros/dv19-latest-reask.mjs
 node --conditions=browser --conditions=development repros/4690-guess-reask-refresh.mjs
 node --conditions=browser --conditions=development repros/pin-4906-target.mjs
 node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
+node --conditions=browser --conditions=development repros/keyed-guess-refresh-tear.mjs [fresh]   # DV-30, open
 ```
 
 The hydration repros are each one `app.jsx`, compiled by Solid's own
@@ -439,6 +440,7 @@ S-guess-reask-refresh's effect-only variant records it (instants 5 and 6).
 ```
 node --conditions=browser --conditions=development repros/pin-4906-target.mjs
 node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
+node --conditions=browser --conditions=development repros/keyed-guess-refresh-tear.mjs [fresh]   # DV-30, open
 ```
 
 #4906 runs stores on the thin engine and deletes the deep one, whose record a proxy answered as `store[$TARGET]`.
@@ -454,3 +456,14 @@ the same effects fire on both pins (`pin-effect-store.mjs`: `["A,C"]`, `["x,C"]`
 
 `==` through a store (ST-2) compared `x[$TARGET].v`, the deep engine's raw; it is now the proxy itself (one per record
 in a store), and a proxy against a plain object compares by `snapshot()`, the record while nothing below it was written.
+
+---
+
+## DV-30 — a keyed optimistic store tears on a switch after one guess has settled (open, 2026-11-27)
+
+`keyed-guess-refresh-tear.mjs`: `createOptimisticStore(async () => fetch(filter()), [], { key: "id" })` and an action
+that guesses a row (`setTodos(ts => [...ts, { id }])`), awaits, and refreshes. After one add has settled, a second
+add's guess is out and `filter` is switched. **Expected** (H-11, Solid D-34; what the `fresh` argument shows): the
+switch joins the guess's hold — `all | a,x,z` until the action ends, then `open | o,z`. **Actual** at 50a4bfdde:
+`open | a,x,z` for the whole action. Found by the claims hunt at 41142a46 (finding 4). Not filed here.
+

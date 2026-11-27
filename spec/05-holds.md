@@ -591,6 +591,25 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   now states F-3 and what still holds. Changed on the user's decision of
   2026-11-26: F-3 is Solid's deliberate rule, not a bug, so the language
   follows it (a Solid bug would have stayed a DV with a memo).
+- **DV-30 (a keyed optimistic store tears on a switch after one guess has
+  settled) — a Solid bug; open, 2026-11-27**
+  (`ref/oracle/repros/keyed-guess-refresh-tear.mjs`, plain signals;
+  S-guess-filter). `createOptimisticStore(async () => fetch(filter()), [], {
+  key: "id" })` and an action that guesses a row, awaits and refreshes. On a
+  fresh store a `filter` switch while the guess is out joins its hold (H-11,
+  Solid D-34): the screen stays on the old filter with the guessed list. After
+  one such add has settled (guess, answer, refresh landed), the next add's
+  guess no longer holds the switch: the filter's reader shows `open` beside
+  the old answer with the guess for as long as the action is out (`open |
+  a,x,z` where the rule says `all | a,x,z`), then the new answer. Both
+  emitters and the oracle show it (compiled code lowers a keyed equation a
+  guess sits over to exactly that store); an unkeyed equation and a source
+  with a question hold. The interpreter tore too, for a guess on any
+  equation — ours, fixed (H-11 was read for a source with a question only).
+  Found by the claims hunt (finding 4, `rx-hunt.noindex/claims/app/t/
+  s01-solid-tear`, `s02-solid-fresh`). Recorded as an `oracle` divergence; the
+  program is the guide's §3 shape and nothing is refused. *Memo:* the user's
+  to file; no draft, the repro is the plain-Solid program to start from.
 - **DV-29 (a reader misses a change after an effect's cleanup called an
   action) — a Solid bug, a regression in 2.0.4; open, 2026-11-27**
   (`ref/oracle/repros/cleanup-action-write.mjs`, plain Solid;
