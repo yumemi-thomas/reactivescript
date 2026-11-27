@@ -8076,6 +8076,74 @@ impl<'a> Checker<'a> {
     }
     /// AC-4: whether an equation's own expression asks — an `await`, a context, a server fn, or a call the module's text
     /// does not show the inside of (a fn, JavaScript's, a prop's).
+    /// W-1a (2026-11-27): the parameters a fn of the module changes in place, each with the call that does
+    /// (`mutatedParams` in `ref/src/check.ts`)
+    fn mutated_params(&self, t: SId, seen: &mut Vec<SId>) -> Vec<(usize, String)> {
+        let (Some(Decl::Fn { params, decls, tail, .. }), Some(env)) = (self.syms[t].fn_decl, self.syms[t].decl_env) else { return vec![] };
+        if seen.contains(&t) {
+            return vec![];
+        }
+        seen.push(t);
+        let mut alias: IndexMap<String, usize> = params.iter().enumerate().map(|(i, p)| (p.name.clone(), i)).collect();
+        loop {
+            let mut more = false;
+            for d in decls {
+                if let Decl::Eq { name, e, .. } = d {
+                    if alias.contains_key(name) || !matches!(e.k, ExprKind::Id(_) | ExprKind::Member { .. } | ExprKind::Index { .. }) {
+                        continue;
+                    }
+                    if let Some(i) = root_of(e).and_then(|r| alias.get(r)).copied() {
+                        alias.insert(name.clone(), i);
+                        more = true;
+                    }
+                }
+            }
+            if !more {
+                break;
+            }
+        }
+        fn chain_root(x: &Expr) -> Option<&str> {
+            match &x.k {
+                ExprKind::Id(n) => Some(n),
+                ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => chain_root(o),
+                _ => None,
+            }
+        }
+        let mut out: Vec<(usize, String)> = vec![];
+        let mut stack: Vec<Node> = decls.iter().filter_map(|d| if let Decl::Eq { e, .. } = d { Some(Node::E(e)) } else { None }).chain(std::iter::once(Node::E(tail))).collect();
+        stack.reverse();
+        while let Some(n) = stack.pop() {
+            if let Node::E(o) = n {
+                if let ExprKind::Call { f, args, .. } = &o.k {
+                    if let ExprKind::Member { o: m, p, .. } = &f.k {
+                        if ARRAY_MUTATORS.contains(&p.as_str()) {
+                            if let Some(i) = chain_root(m).and_then(|r| alias.get(r)).copied() {
+                                if !out.iter().any(|(j, _)| *j == i) {
+                                    out.push((i, format!("{}(…)", show(f))));
+                                }
+                            }
+                        }
+                    }
+                    if let ExprKind::Id(g) = &f.k {
+                        if let Some(gt) = self.lookup(env, g).filter(|&g| self.syms[g].kind == SymKind::Fn && self.syms[g].fn_decl.is_some() && self.syms[g].decl_env.is_some()) {
+                            for (j, how) in self.mutated_params(gt, seen) {
+                                if let Some(i) = args.get(j).and_then(chain_root).and_then(|r| alias.get(r)).copied() {
+                                    if !out.iter().any(|(k, _)| *k == i) {
+                                        out.push((i, how));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let mut cs = children(n, true);
+            cs.reverse();
+            stack.extend(cs);
+        }
+        seen.retain(|&x| x != t);
+        out
+    }
     fn asks_itself(&self, n: Node, env: EId) -> bool {
         self.asks_in(n, env, &HashSet::new(), &mut vec![])
     }
@@ -8643,6 +8711,22 @@ impl<'a> Checker<'a> {
                                 _ => "write the new value, `xs := v => [...v, x]`, in the block that declares the source (or through an action it exports)".to_string(),
                             };
                             self.err("MUTATION_IN_PLACE", "W-1a", format!("{}(…) changes {what} in place: the value of a source, an equation or a prop is changed by a write (`:=`), which tells its readers — a change in place tells none, and changes what every other reader of it holds; {fix}", show(f)));
+                        }
+                    }
+                }
+                // W-1a (2026-11-27, the apps hunt): a fn of the module whose body changes a parameter in place (`ys.sort(…)`,
+                // through a name for it or another fn that does) changes what it is given: given the value of a source, an
+                // equation or a prop, that is the change in place a write would have told
+                if let ExprKind::Id(fname) = &f.k {
+                    if let Some(t) = self.lookup(env, fname).filter(|&t| self.syms[t].kind == SymKind::Fn && self.syms[t].fn_decl.is_some() && self.syms[t].decl_env.is_some()) {
+                        for (i, how) in self.mutated_params(t, &mut vec![]) {
+                            let Some(a) = args.get(i) else { continue };
+                            if self.draft_chain(a, env) || !self.is_list(a, env, &[], 0) {
+                                continue;
+                            }
+                            if let Some(what) = self.reactive_place(a, env, 0) {
+                                self.err("MUTATION_IN_PLACE", "W-1a", format!("{fname}(…) changes {what} in place: its body calls `{how}` on what it is given — the value of a source, an equation or a prop is changed by a write (`:=`), which tells its readers; a change in place tells none, and changes what every other reader holds: take a copy in the fn (`toSorted`, `toReversed`, `toSpliced`, `[...xs]`)"));
+                            }
                         }
                     }
                 }

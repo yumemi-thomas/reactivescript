@@ -438,7 +438,12 @@ Function application `f(e…)` covers both language functions and FFI imports;
   value nothing says is an array is let be. `rows.push(x)`
   in a handler changes the array and no reader hears of it;
   `props.items.sort()` in an equation reorders the parent's source under
-  it. This is Solid's own trap (a signal's array pushed to, a store
+  it. So is a call of a fn of the module given such a value where its body
+  changes that parameter in place — on a path of it, of a name it binds to
+  one, or through another fn that does (2026-11-27, the apps hunt:
+  `sortedCopy(xs)` with `fn sortedCopy(ys) => ys.sort(…)` was accepted and
+  showed the list unsorted; S-mutation-fn); a fn of another module is not
+  read yet (its signature would carry the parameters). This is Solid's own trap (a signal's array pushed to, a store
   written outside its setter, a memo's value sorted), made a refusal. The
   ways through are the language's: a write (`rows := rs => [...rs, x]`),
   and the methods that answer a copy (`toSorted`, `toReversed`,

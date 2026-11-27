@@ -2981,6 +2981,31 @@ class Checker {
       const all = new Set([...exact, ...deepC]); hands(() => all, deepC.size > 0);
     });
   }
+  /** W-1a (2026-11-27): the parameters a fn of the module changes in place, each with the call that does — a mutating
+   *  method on a path of it, or of a name its body binds to a path of it, or a fn of the module given a path of it where that
+   *  fn changes its own. Closures in the body are read too (they may run during the call). */
+  private mutatedParamsMemo = new Map<Sym, [number, string][]>();
+  private mutatedParams(t: Sym, seen = new Set<Sym>()): [number, string][] {
+    const memo = this.mutatedParamsMemo.get(t); if (memo) return memo;
+    const fd = t.fnDecl, env = t.declEnv; if (!fd || !env || seen.has(t)) return []; seen.add(t);
+    const alias = new Map<string, number>(); fd.params.forEach((p, i) => alias.set(p.name, i));
+    for (let more = true; more;) { more = false; for (const d of fd.decls) if (d.k === "eq" && !alias.has(d.name)) { const r = rootOf(d.e); if (r !== undefined && alias.has(r) && (d.e.k === "id" || d.e.k === "member" || d.e.k === "index")) { alias.set(d.name, alias.get(r)!); more = true; } } }
+    const out: [number, string][] = []; const add = (i: number, how: string) => { if (!out.some(([j]) => j === i)) out.push([i, how]); };
+    const chainRoot = (x: Expr): string | undefined => x.k === "id" ? x.name : x.k === "member" || x.k === "index" ? chainRoot(x.o) : undefined;
+    const go = (x: unknown): void => {
+      if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(go); return; }
+      const o = x as Expr;
+      if (o.k === "call") {
+        if (o.f.k === "member" && ARRAY_MUTATORS.has(o.f.p)) { const r = chainRoot(o.f.o); if (r !== undefined && alias.has(r)) add(alias.get(r)!, `${show(o.f)}(…)`); }
+        if (o.f.k === "id") { const g = env.lookup(o.f.name); if (g?.kind === "fn" && g.fnDecl && g.declEnv) for (const [j, how] of this.mutatedParams(g, seen)) { const a = o.args[j]; const r = a && chainRoot(a); if (r !== undefined && alias.has(r)) add(alias.get(r)!, how); } }
+      }
+      for (const v of Object.values(o)) if (v && typeof v === "object") go(v);
+    };
+    go([fd.decls.flatMap(d => d.k === "eq" ? [d.e] : []), fd.tail]);
+    if (seen.size === 1) this.mutatedParamsMemo.set(t, out);
+    seen.delete(t);
+    return out;
+  }
   /** AC-4: whether an equation's own expression asks — an `await`, a context, a server fn, or a call the module's text
    *  does not show the inside of (a fn, JavaScript's, a prop's). */
   private asksItself(e: unknown, env: Env, local: Set<string> = new Set(), seen: Set<Sym> = new Set()): boolean {
@@ -3151,6 +3176,14 @@ class Checker {
             this.err("MUTATION_IN_PLACE", "W-1a", `${show(e.f)}(…) changes ${what} in place: the value of a source, an equation or a prop is changed by a write (\`:=\`), which tells its readers — a change in place tells none, and changes what every other reader of it holds; ${fix}`);
           }
         }
+        // W-1a (2026-11-27, the apps hunt): a fn of the module whose body changes a parameter in place (`ys.sort(…)`, through a
+        // name for it or another fn that does) changes what it is given: given the value of a source, an equation or a prop,
+        // that is the change in place a write would have told (`sorted = sortedCopy(xs)` showed xs unsorted, and sorted too)
+        if (e.f.k === "id") { const t = env.lookup(e.f.name); if (t?.kind === "fn" && t.fnDecl && t.declEnv) for (const [i, how] of this.mutatedParams(t)) {
+          const a = e.args[i]; if (!a || this.draftChain(a, env) || !this.isList(a, env)) continue;
+          const what = this.reactivePlace(a, env);
+          if (what !== undefined) this.err("MUTATION_IN_PLACE", "W-1a", `${e.f.name}(…) changes ${what} in place: its body calls \`${how}\` on what it is given — the value of a source, an equation or a prop is changed by a write (\`:=\`), which tells its readers; a change in place tells none, and changes what every other reader holds: take a copy in the fn (\`toSorted\`, \`toReversed\`, \`toSpliced\`, \`[...xs]\`)`);
+        } }
         // MO-10i (2026-11-22): a JS fn whose declaration says it changes a parameter in place (`draft list`) is given a
         // draft as it is; anything else it would change behind its writes — the value of a source, an equation or a
         // prop, a store outside its setter — is refused, as a mutating method called on it is
