@@ -795,8 +795,8 @@ function parseDecl(c: Cursor): Decl {
     // AC-1f (2026-11-26): a parameter may be left out, `by?: number`, the last ones (as a fn's, E-9a): it is `undefined` then
     const params: string[] = []; const ptypes: (string | undefined)[] = []; let required: number | undefined;
     while (!c.startsWith(")")) { params.push(c.bound("param")); const opt = c.peek() === "?" && c.eat("?"); if (opt) required ??= params.length - 1; else if (required !== undefined) c.fail("an optional parameter is the last (E-9a): a required one follows"); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
-    c.expect(")"); c.ws();
-    return { k: "action", name, params, ptypes, ...(required !== undefined ? { required } : {}), body: parseBlock(c), line };
+    c.expect(")"); const ret = optType(c, true); c.ws();   // AC-1i: `action add(t: string): number { … }` answers at the call
+    return { k: "action", name, params, ptypes, ...(required !== undefined ? { required } : {}), ...(ret !== undefined ? { ret } : {}), body: parseBlock(c), line };
   }
   if (/^server\s+(fn|action)\b/.test(c.src.slice(c.i))) {             // 12 SF-1: `server fn f(a) { … }`
     c.keyword("server"); c.ws(); if (c.keyword("action")) c.fail("`server fn` (SF-1: one form — it is io when its body is; there is no `server action`)"); c.keyword("fn");

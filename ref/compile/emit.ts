@@ -301,7 +301,9 @@ class Gen {
     for (const d of decls) if (d.k === "context") out.push(`${pad}const ${mg(d.name)} = __rt.context(${J(d.name)}, ${d.dflt ? `() => ${this.expr(d.dflt, env, { imp: false })}` : "null"});   // RG-7: the declaration is the context's identity${this.reg(d.name, `{ value: ${mg(d.name)} }`, pad)}`);
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
-    for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});${this.reg(d.name, `{ value: ${mg(d.name)} }`, pad)}`);
+    for (const d of decls) if (d.k === "action") out.push(d.ret !== undefined
+      ? `${pad}const ${mg(d.name)} = __rt.now(function (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true }, ind + 1)}\n${pad}});${this.reg(d.name, `{ value: ${mg(d.name)} }`, pad)}`   // AC-1i: answers at the call
+      : `${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});${this.reg(d.name, `{ value: ${mg(d.name)} }`, pad)}`);
     for (const d of decls) if (d.k === "eq" && unwrapServer(d.e)) { const f = this.serverWrapped(d.name, d.e); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-1d: a wrapped server fn, at module level`); }
     for (const d of decls) if (d.k === "server") { const f = this.serverHoist(d); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-7a: the call site's (question or request); the function is module-level`); }
     // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)

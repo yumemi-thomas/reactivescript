@@ -381,6 +381,47 @@ export default component App() {
 ```
 
 
+### ACTION_ANSWER_HELD
+
+An action that declares what it answers (`action show(t: string): number`) answers it at the call: the caller gets the
+value, not a promise. Such an action never waits, so an `await` (or `refresh`, `affects`, a guess) in it would make its
+change outlive the call, and the answer would come before its writes settle. Leave the result out, so a caller gets a
+promise that settles with the change, or keep the part that answers at once and let the caller launch the waiting part.
+
+```rx before
+import { post } from "./api.js"
+export default component App() {
+  source seq := 0
+  source sent := ""
+  action add(t: string): number {
+    let r = await post(t) catch (e) => ""
+    sent := r
+    seq := v => v + 1
+    return 1
+  }
+  <button onClick={() => { add("a") }}>{seq}:{sent}</button>
+}
+```
+
+```rx after
+import { post } from "./api.js"
+export default component App() {
+  source seq := 0
+  source sent := ""
+  action mint(): number {
+    let n = seq + 1
+    seq := n
+    return n
+  }
+  action send(t: string) {
+    let r = await post(t) catch (e) => ""
+    sent := r
+  }
+  <button onClick={() => { let id = mint(); send("a" + str(id)) }}>{seq}:{sent}</button>
+}
+```
+
+
 ### STALE_CAPTURE
 
 After an `await`, a write into a source with a question (the server's answer) takes only what the server answered,

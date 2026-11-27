@@ -294,6 +294,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
       createEffect((() => { try { return inputs(); } catch (e) { if (e instanceof NotReadyError) throw e; return ERR; } }) as any, { effect() {}, error() {} } as any);
     },
     action(_gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) { return onServer("an action"); },
+    now(_fn: (...a: unknown[]) => unknown) { return onServer("an action"); },
     /** SV-5a: a JS promise that rejects with a declared JS error class (imported by the program) is sent as it is, carrying
      *  its class's identity; the side branch only marks it, before Solid serializes it, and changes nothing else. */
     awaited: (v: unknown) => {

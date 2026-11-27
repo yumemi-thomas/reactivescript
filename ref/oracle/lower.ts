@@ -376,7 +376,7 @@ export class Oracle {
       if (d.k === "context") { const b: Binding = { k: "ctx", ctx: createContext<Binding | undefined>(NO_PROVISION as any, d.name), dflt: d.dflt ?? null, home: scope, dv: null }; scope.vars.set(d.name, b); if (this.viewCtxs.has(d)) this.viewCtxNames.add(b); }   // a sentinel default: absence is ours to decide (the default, or RG-7b)
       if (d.k === "fn") scope.vars.set(d.name, { k: "fn", decl: d, home: scope });
       if (d.k === "component") scope.vars.set(d.name, { k: "comp", decl: d, home: scope });
-      if (d.k === "action") scope.vars.set(d.name, { k: "action", run: this.lowerAction(d.params, d.body, scope) });
+      if (d.k === "action") scope.vars.set(d.name, { k: "action", run: d.ret !== undefined ? this.lowerNow(d.params, d.body, scope) : this.lowerAction(d.params, d.body, scope) });
     }
     for (const d of this.provisionsFirst(decls)) {
       switch (d.k) {
@@ -723,6 +723,14 @@ export class Oracle {
     }
   }
   /** AC-1: an action body is a generator; a statement-level `await` is a hold-safe `yield` of the flight. */
+  /** AC-1i (B10, a prototype): an action that answers at the call — its body (no \`await\`) runs to its end now, as a handler's. */
+  private lowerNow(params: string[], body: Stmt[], scope: Scope) {
+    const self = this;
+    return (...args: unknown[]) => {
+      const env = new Map<string, unknown>(); params.forEach((p, i) => env.set(p, args[i]));
+      try { const r = untrack(() => self.block(body, scope, env).next()); return r.done && r.value ? r.value.value : undefined; } catch (e) { self.asyncError = e; return undefined; }
+    };
+  }
   private lowerAction(params: string[], body: Stmt[], scope: Scope, outer?: Map<string, unknown>) {
     const self = this;
     const run = action(function* (...args: unknown[]) {
