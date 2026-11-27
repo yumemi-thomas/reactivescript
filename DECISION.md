@@ -2397,3 +2397,78 @@ test as a cover of AC-3a (it was refused, and is right on every runner).
 - **New Solid bugs**: none found. Finding B is Solid's compiler doing what it documents (one effect per template).
 - **Not ours, seen**: during the census the machine's `node` (mise 26.13.0) was a JSON size report for some minutes
   (`"mr: csr"`, `r-optimistic.js`, …), written by a process outside this work, and was a binary again at 17:11.
+
+## Fix round after the hunts: an attribute that probes, and what the claims and apps hunts found (2026-11-27)
+
+Decision B of "The io gaps…" (the user's: option 1), then the two hunts at 41142a46 (`rx-hunt.noindex/claims/REPORT.md`,
+`rx-hunt.noindex/apps/REPORT.md`, read only). Their runners mostly agreed on the wrong behaviour, so each item has a
+scenario that asserts the intended one. Probes and logs are outside the tree: `rx-fix.noindex/probes` (`gwl`, `gwl3`,
+`gwl4`, `snr`, `rf`, `cat`, `cat2`, `lon`, `mut`, `h01`, `r1`, `r1m`, `c4`, `c7`, `c8`, `c9`, `fences.mjs`), `out/b`,
+and the census in `census4`. The baseline is a worktree of 41142a46 (`rx-fix.noindex/base41`, built on the same pin).
+Both checkers are equal on every program below (`same`), both emitters' modules are equal (`lower`).
+
+### The table
+
+| | item | ruling | change | scenario |
+| --- | --- | --- | --- | --- |
+| B | `disabled={pending? detail}` beside `class={sel == it …}`: compiled code held the click (Solid's JSX compiler computes one template's changing attributes in one effect, and the probe made the pass read ahead) | **R-11a: an attribute that reads ahead is a reader of its own in compiled code too** (the user's option 1) | both emitters: an attribute whose expression probes outside a closure and `peek`, or reads an equation, a source with a question or a fn whose expression does (`readsAhead`/`reads_ahead`), is `__rt.served(() => v)` where it was written and an entry of `__rt.own(ref, [name, () => v]…)`, the element's `ref`. The three runtimes: `own` makes one render effect per attribute **while the element is built** (Solid runs a ref as an effect's callback, where no primitive may be made — the first attempt, in the ref, threw `PRIMITIVE_IN_EFFECT_CALLBACK`), and sets it as a spread does (`assign`); a value that lands before the ref gives the element waits for it. `served` is the value on the server and nothing in the browser, so the page carries it and hydration keeps it (checked in Chromium, served `true` and `false`). Web's `effect` is transparent: no hydration id is taken. `GUESS_WHILE_LOADING` suggests `disabled={pending? x}` again (both checkers, guide) | S-posture-3 (`gwl` 6 of 6 and `gwl4` 8 of 8 agree on eight runners; 6 differed before) |
+| C1, A4, A6 | `ACTION_ANSWER_HELD`'s own suggested fix (`mint` reading `seq + 1`, then `send`) minted `a1` twice; so did `nextId = seq + 1`; `count := count + 1; report(doubled)` sent the old `doubled` | **AC-1h, AC-1d read through what the run calls and reads.** An action that settles as it returns writes in its caller's run (AC-1i), so the sources it writes computed from their own value are the caller's: each such action carries them (read to a fixpoint through the actions it calls), and a call adds them to the run wherever it stands (`add(bump())`). A read of an equation is a read of the sources it is computed from, at their paths (`b2 = s.b * 2` after `s.a := 1` is fine) | `infer.ts`/`infer.rs`: `staleOf`, `eqDeps`, `ownNextWrites`, `exprDeps`; the message says where (`(in mint, which this run calls)`, `(through nextId)`, `doubled is computed from seq, and it is read after this change wrote seq`). The guide's `mint` reads `latest seq` | S-answer-2 (the `latest` form at run time, five refusals) |
+| C2 | `refresh shown` over `shown = pick(ans)`; `refresh issues` over `source issues = ans == null ? [] : ans` | **Refused, naming `refresh ans`** (AC-4, as item A of the last round) | `asksItself`/`asks_in`: a call of a fn of the module asks where its body does; a parameter or a local of the body called there may be anything, and asks. A source with a question is read so **where nothing writes or guesses it** — over a write, `refresh` drops the override (S-store-4), which is what it is for there (the first version refused that too: a unit caught it) | S-refresh-catch |
+| A3 | `refresh base` over `base = await f(id) catch (e) => 0` asked nothing, in compiled code and the oracle (`INVALID_REFRESH_TARGET`'s own "after"; a retry after a caught failure never recovered); the interpreter re-asked | **Ours, in the lowering**: the equation is an inner memo (the flight) read through a boundary; `refresh` re-ran the boundary | `catchMemo` takes the inner memo as its truth (`truthOf`, three runtimes, both emitters); the oracle's binding carries it | S-refresh-catch |
+| C3, R3 | `source done = await f() -> "" catch (e) => ""` (STALE_CAPTURE's examples), `c ? 0 : (await f() catch …)`, a guess on an equation ending in `catch`: checked, then "`await` outside an equation's result position is not lowered yet" | **Lowered, every one**: only a plain equation's own result has the in-place form; every other caught await is hoisted and settled, as a nested one always was | `nonTailAwaits(…, rootCatch)` / `non_tail_awaits_in`, read by both emitters and the oracle (a question source, a guessed, keyed or deferred equation: `rootCatch = false`; a catch that is not the root: always). 19 shapes (`cat`) agree on eight runners, none compiled before; 16 more placements (`cat2`) all compile; every `rx after` fence of the guide that builds alone builds (`fences.mjs`; the rest are several modules or need a library's declarations) | S-catch-lowered |
+| A1 | `loading on(id)` with `id = list[0]`: every re-ask of `list` (a poll, a quiet `refresh`) blanked the region in compiled code, though `id` did not change | **Solid's, deliberate, followed (H-6a)**: Solid's `Loading` documents "a source going pending" as a change of what `on` reads. The interpreter kept the content (AC-4's quiet substituted the old answer, so nothing downstream went pending) | `runtime.ts`: a region whose `on` reads, through what it is computed from, a `refresh` re-ask that is out (`reasked`, which outlives `quiet`) is armed, and a reader under it computed from that re-ask is caught. The guide: key the region on a value nothing re-asks | S-standing-write |
+| A2 | `source id = list[0]` lost the user's pick on every re-ask that answered the same list; over a keyed list it stood | **ST-5a: a write stands until the question's value changes**, keyed or not (the guide's words, "resets when the server answer changes"); `refresh id` still drops it | interpreter (`overridden`, `lastAnswer`), oracle and `rt.ts`/`rt-web.ts` (`ref/compile/standing.ts`: the compute gives back the written value while the question's value is the one it had; a stream is its own) | S-standing-write |
+| A5 | `fn sortedCopy(ys) => ys.sort(…)` over a source: accepted, the list shown unsorted | **W-1a through a fn**: a fn carries the parameters its body changes in place (a path of one, a name its body binds to one, another fn that does); a call giving one a reactive value is `MUTATION_IN_PLACE` | `mutatedParams`/`mutated_params`; a copy or a fresh array is accepted. A fn of another module is not read (its signature would carry it) | S-mutation-fn |
+| C5 | `GUESS_WHILE_LOADING` missed a guess launched through another action | the click's bodies are the handler and every action reached by name from them | both checkers (the walk carries each body's scope) | S-guess-equation's new variant |
+| R1 | two sibling `loading on(id)` regions over a source with a question refused (each `on(id)` counted outside the other) — correct code refused | a sibling region's own `on` over the same key re-arms with the same change: no outside read | both checkers | S-loading-siblings |
+| C8 | `its => { ...its, name: n }`: a record to `rxc` and the build, four PARSE errors to `rx-tsc` | **the compiler's reading stands** (braces after `=>` are a block when they hold statements, a record otherwise); the editor's recovering parse kept what the failed block attempt noted | `parse.rs` drops the attempt's notes (a test); guide/language.md | — |
+| R2 | computed keys `{ ...u, [r]: 0 }` are PARSE | **Not taken**: a key computed while the program runs is a field no rule can follow (paths, rows, io facts, the projection), and the change is a path write already (`guess unread[r] := 0`, accepted) | both parsers' `hint` says so, wherever the failure surfaces on the line; guide/language.md | — |
+| C4 | a keyed equation torn by a filter switch during a guess, after one earlier add + refresh | **Solid's (DV-30, new)**; the interpreter's own tear (for a guess on any equation, even fresh) is ours: H-11's union was read for a source with a question only | `runtime.ts` (the union for any guessed node); spec/05 DV-30, `ref/oracle/repros/keyed-guess-refresh-tear.mjs` (plain signals; `fresh` holds) | S-guess-filter (oracle divergence at instants 6–8) |
+| C6 | async.md: `pending? x` true while a refresh is out | the guide was wrong (AC-4: quiet) | guide | — |
+| C7 | README's injected `./api` failed `vite build`'s type check (TS2307) | typed by an `api.d.ts` beside the module, which `rx-tsc` reads (checked: a typo in a field is TS2551) | README, guide/language.md | — |
+| C9 | typing during a save launched at mount does not fire the effect until the save ends | **the language's, as Solid runs it**: the four runners hold the edit with the first save alike (`probes/c9`). Found beside it, left: the interpreter does not show the later saves' guesses that Solid shows (see *Left*) | — | — |
+| docs | `createApp({ request })` with Node's request crashed inside Solid; a plain `Error` thrown on the server reaches the page as `Internal Server Error`; a control that submits a value still being checked | the server runtime refuses a non-Fetch `request`, saying how to make one; runtime/README says what crosses (declared classes) and why; reference.md: `disabled={pending? check}` | `rt-server.ts`, runtime/README, guide | — |
+
+### Decided, and why
+
+*B, where the effect is made.* Solid's compiled `ref` runs inside an effect's callback (`runRefCallback`), where making a
+primitive throws in development. So `__rt.own(…)` makes its effects when it is evaluated — the JSX compiler hoists a
+`ref` value into the render body (`var _ref$ = …`) — and returns the ref, which only records the element. The template's
+own effect still sets the attribute from `__rt.served`, which is `undefined` in the browser: Solid's setters compare
+with the previous value and leave it, so the served attribute survives hydration (checked with `disabled` served `true`).
+A spread is not split (it is already an effect of its own), nor a handler. More attributes than Solid would count read
+ahead (a read of an equation that probes only in a branch not taken) costs one effect; fewer would be wrong.
+
+*C1 and A4, the counter's two hiding places.* The rule of AC-1h is about the read, and the run's reads include what an
+action it calls reads while it settles in the run, and what an equation it reads is computed from. Both are read as the
+direct form is (same paths, same exemptions: a probe, `peek`, a functional write that nothing beside it reads plainly).
+
+*A1, followed and not bent.* It is not a bug: Solid lists "a source going pending" among what re-arms `on`, and its own
+example says "a refetch of the same route keeps the page visible" only because the route does not go pending. The
+interpreter is the language's model of Solid's rules (F-3), so it changes; the guide says how to keep the content.
+
+*A2, the value's rule.* That a keyed list kept the pick was an accident of identity (its rows keep theirs, so nothing
+recomputed). The guide's words are the rule, now for both.
+
+*R2, not taken.* Every analysis that follows a value through a record keys it by name; a computed key would be `*` in
+all of them, and refusals would follow from it in the checkers where the program is fine. The path write says the same
+thing and every rule can follow it.
+
+### Census
+
+(below, filled when the run ends)
+
+### Left, and said
+
+- **A prop computed from a source and handed back through a child's handler** (`<Adder next={seq + 1} onAdd={n => {
+  seq := n; add(n) }} />`, the apps hunt's `pk5`): AC-1h does not see that the child passes one prop to the other.
+  Reading it needs a summary of what a component's handlers give its function props.
+- **C9's neighbour**: `effect (draft) { save($0) }` with a guess in `save`, typed twice while the first save is out
+  (`probes/c9`): the interpreter shows `ab/a`, `abc/a` where Solid (oracle, both emitters) shows `ab/ab`, `abc/abc` — the
+  later saves' guesses. Not reduced.
+- **`pending? (await f(x))`** written inline (`probes/cat2/pending`): the interpreter says `true` at the first load, Solid
+  shows the region's fallback. An odd program; not reduced.
+- **A probing prop read by a child's attribute beside another** (R-11a's limit): the child cannot see that the prop
+  probes. Advice is the remedy there.
+- **A fn of another module** that changes its parameter in place: its signature does not carry the parameters yet.
+- **New Solid bug: DV-30** (`ref/oracle/repros/keyed-guess-refresh-tear.mjs`). The user's to file; nothing drafted.

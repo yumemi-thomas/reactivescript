@@ -258,8 +258,8 @@ export function slot<T>(make: () => T): T {
 function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknown>; conformance?: boolean }) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
-  const resetOf = new Map<Acc, () => void>();                           // ST-5: a question source's write, dropped by its own `refresh` (AC-4)
-  const truthOf = new Map<Acc, Acc>();                                  // an optimistic signal-form source: its guess layer -> its question
+  const resetOf = new WeakMap<Acc, () => void>();                           // ST-5: a question source's write, dropped by its own `refresh` (AC-4)
+  const truthOf = new WeakMap<Acc, Acc>();                                  // an optimistic signal-form source: its guess layer -> its question
   const registry = new Map<string, Entry[]>();
   const contexts = new Map<string, ReturnType<typeof createContext<Entry | undefined>>>();
   const storeAccs = new WeakSet<object>();

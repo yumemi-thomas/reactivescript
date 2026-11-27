@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+**The hunts' findings** (DECISION.md, "Fix round after the hunts")
+
+- **Fixed: an attribute that probes is a reader of its own in compiled code** (spec/04 R-11a). `disabled={pending? x}`
+  beside `class={sel == it …}` held the click and the `loading on(sel)` fallback; it no longer does, and
+  `GUESS_WHILE_LOADING` suggests it again.
+- **Changed: a counter minted through an action that answers, or read through an equation, is `STALE_NEXT_READ`**
+  (06 AC-1h): `let id = mint(); send(id)` and `let n = nextId; seq := n` sent one id twice. Read `latest seq` in the
+  action. A run's own write read through an equation is `STALE_OWN_READ` (AC-1d).
+- **Changed: `refresh` that re-asks nothing is refused through a fn and a question source** (`shown = pick(ans)`;
+  `source issues = ans == null ? [] : ans` where nothing writes it).
+- **Fixed: `refresh x` over `x = await f() catch (e) => alt` re-asks** (it asked nothing, so a retry after a caught
+  failure never recovered).
+- **Fixed: every `await … catch` the checker takes compiles** — a question source's, one in an `if` arm, under a guess:
+  the build had stopped with "`await` … is not lowered yet".
+- **Changed: `loading on(id)` re-arms while what `id` is computed from is re-asked** (05 H-6a, Solid's `Loading`): the
+  interpreter now shows what compiled code showed. Key the region on a value nothing re-asks.
+- **Fixed: a write over `source x = e` stands until `e`'s value changes**, keyed or not (06 ST-5a): a poll that answered
+  the same list dropped the user's pick.
+- **Changed: a fn that changes its parameter in place, given a source's value, is `MUTATION_IN_PLACE`** (02 W-1a).
+- **Fixed: `GUESS_WHILE_LOADING` reads actions launched through other actions; two sibling `loading on(id)` regions over
+  a source with a question are accepted** (they were refused).
+- **Fixed: `its => { ...its, name: n }` is a record to `rx-tsc` too**; a computed key (`[r]: 0`) says what to write.
+- **Docs**: the injected `./api` is typed by an `api.d.ts`; `createApp({ request })` takes a Fetch `Request` (and says
+  so); an undeclared server failure reaches the page as `Internal Server Error`; `pending? x` stays `false` during a
+  `refresh`. **New Solid bug recorded: DV-30** (a keyed optimistic store tears on a switch after one settled guess).
+
 **Soundness, and an author's findings** (DECISION.md, "The io gaps, the held control reader, and an author's findings")
 
 - **Changed: a function that calls what it is given is followed like an io value** (spec/04 R-io-3e). A closure kept in
