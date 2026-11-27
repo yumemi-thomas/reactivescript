@@ -13,9 +13,12 @@ this spec cites the rule each one folded into: D-2 → D-1, D-11 → D-9,
 D-13/D-14/D-21 → D-12, D-15/D-16 → D-17, D-24 → D-23, D-26/D-27/D-28 →
 D-25, D-32 → D-33, D-35 → D-34, D-39 → D-41; D-36 and D-37 are retired as
 rules (consequences of the glossary's *Guess* and *Lane*). The one change
-of behaviour is decision 1, **posture is per read** (R-11, H-6, H-7): a
-probe reads ahead at its own site, and a plain read beside it in the same
-pass is a plain read.
+of behaviour that alignment made was decision 1, "posture is per read"; Solid
+never built it and closed its issues as not planned, and on 2026-11-27 the
+language took Solid's rule as Solid runs it instead (DV-21, closed): **posture
+is the pass's** (R-11, H-6, H-7). A pass that probes anywhere reads ahead with
+all of it, so does a pass that reads an equation whose pass read ahead, and
+so does a node's next pass after one that probed.
 
 ---
 
@@ -176,26 +179,28 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   settle; with nothing pending the re-arm is a no-op and the content
   updates in place (S-ai-grid). The value `on` yields is never compared;
   children are not recreated. The `on` expression is a pass like any other
-  (Solid D-17, decision 1 of #4695): when every held value it read, it read
-  through a probe, its frame has landed and the fallback shows now (H-7,
-  S-solid-21); when it read a held value plainly — one it did not also
-  probe (R-11) — it is that hold's work and the swap lands with the hold's
-  frame (`on(id)`, S-solid-48), even beside a probe (`on([latest id,
-  filter])` with `filter` held waits, S-solid-49).
+  (Solid D-17, R-11): when it reads ahead — it probes, or reads an equation
+  that does, or its last pass did — its frame has landed and the fallback
+  shows now beside the held frame (H-7, S-solid-21), even where it also
+  reads a held value plainly (`on([latest id, filter])` with `filter` held
+  re-arms now, S-solid-49); when it reads a held value plainly and does not
+  read ahead, it is that hold's work and the swap lands with the hold's frame
+  (`on(id)`, S-solid-48).
 
 - **H-7 (Lanes).** [F-6, Solid D-25] A reader whose equation carries `lane(x)` (R-10)
   renders from `σ′` for `x` and what is derived from it, beside the held
-  screen, and never holds the instant on its account. Only the probe sites
-  read ahead (R-11): in the same pass a plain read of a source the pass also
-  probes is the screen's (`x = 1 + n + (pending? n ? 1 : 0)` shows `1 + 0 +
-  1` now while an action holds `n := 5`: S-solid-27's equation variant), and a
-  plain read of any other held value makes the pass the hold's work — it
-  joins the hold like any reader of a held change (H-3), probe or no probe
-  (S-solid-27's second equation variant). What a pass probed is never carried
-  into its next pass: an equation that probed last time and probes nothing
-  this time is an ordinary reader of the held value, and the instant that
-  re-ran it joins the hold (S-solid-50, H-3a). The exception is at the
-  mount: a lane reader
+  screen, and never holds the instant on its account. A pass that reads
+  ahead does so with all of it (R-11): every plain read in it of a held
+  value is the screen's, and it joins no hold (`x = 1 + n + (pending? n ? 1 :
+  0)` shows `1 + 0 + 1` now while an action holds `n := 5`, and `x = 1 + k +
+  (pending? n ? 1 : 0)` shows `1 + 0 + 1` now while the action holds `k := 1`
+  beside it: S-solid-27's equation variants; S-posture-1). This depends on
+  the pass's history, not only on what it reads now: the pass after one that
+  probed still reads ahead though it probes nothing (S-solid-50: the instant
+  that re-ran it commits beside the held value), and the pass after that is
+  an ordinary reader of the held value, so the next instant that re-runs it
+  joins the hold (H-3a; S-solid-50's one-pass variant). The exception is at
+  the mount: a lane reader
   with no committed value has no committed world to show, so it is the
   mount's and holds instant 0 like any reader (S-hold-4; found by the
   oracle). A lane has identity — the probed
@@ -480,22 +485,41 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   S-guess-reask-refresh's effect-only variant records it at instants 5
   and 6; a rendered reader of the source holds the effect's view too.
   Fixed in 2.0.0-rc.22; no longer recorded.
-- **DV-21 (posture is per read) — Solid's ruling, not built** (solidjs/solid#4695,
-  decision 1: D-17, D-25; Solid's S-49 and S-50 `it.fails`). Today one probe in a
-  pass makes the whole pass a display-ahead reader, and a probe on its last
-  run is carried into the next: a mixed `on([latest id, filter])` with
-  `filter` held re-arms now (S-solid-49 instants 3–4), an equation that
-  probes one source and reads another held one plainly shows now
-  (S-solid-27's second equation variant), and an equation that probed once
-  publishes the plain write that re-ran it beside the held value (S-solid-50
-  instant 2: `m 2 k 1`). The spec frames are Solid's ruled ones.
+- **DV-21 (posture is per read) — not a divergence: Solid's rule as Solid
+  runs it, followed; closed 2026-11-27.** The rule is now R-11's (the pass's
+  posture, with its one-pass carry-over), and S-solid-27, S-solid-49 and
+  S-solid-50 have Solid's frames on every runner; no row is recorded. What a
+  program that wants per-read results writes is said by the advice
+  `PROBE_BESIDE_HELD_READ` (99, guide): the two reads in computations kept
+  apart up to the screen. History, for what cites it. Recorded 2026-11-06
+  as Solid's ruling, not built (solidjs/solid#4695, decision 1: D-17, D-25;
+  Solid's S-49 and S-50 `it.fails`): one probe in a pass made the whole pass
+  a display-ahead reader, and a probe on its last run was carried into the
+  next — a mixed `on([latest id, filter])` with `filter` held re-armed now
+  (S-solid-49 instants 3–4, where the ruling said `p1 c1`), an equation that
+  probed one source and read another held one plainly showed now
+  (S-solid-27's second equation variant, `x 2` where the ruling said `x 1`),
+  and an equation that probed once published the plain write that re-ran it
+  beside the held value (S-solid-50 instant 2: `m 2 k 1` where the ruling
+  said `m 2 k 0`). The spec kept the ruled frames until 2026-11-27.
   *Memo (2026-11-27).* Still so on Solid main 50a4bfdde and on 2.0.4, in
   plain Solid in a browser (`rx-review.noindex/solid-check`, `dv-21`): S-49
   shows `p1 [fallback]` where the ruling says `p1 c1`, S-50 `m 2 k 1` where
   it says `m 2 k 0`; Solid's own tests for both are `it.fails`. Its two
   issues, solidjs/solid#4698 and #4699, were closed as not planned on
-  2026-11-06 with no comment. The ruled frames are kept; whether Solid still
-  holds the ruling is a question for its maintainers.
+  2026-11-06 with no comment. *Closed (2026-11-27, the user's decision, as
+  for F-3/DV-25).* Solid closed both issues not planned; the language follows
+  what Solid does. Read at the pin (`packages/signals/src/core`): the verdict
+  bit of a node is set at the end of each pass from that pass's probes
+  (`core.ts`, "a verdict reader is one only while it probes or reads a memo
+  that does"), so a probe anywhere in the pass counts for all of it — a pass
+  that probes after a plain read that joined a hold restarts as a reader
+  ahead (`verdict.ts`, #4777) — it lasts one pass after (`seat.ts`, "D-25
+  carry-over (S-50)"), and a pass that reads a memo with the bit set reads
+  ahead too (`core.ts`; a render effect re-run by one, `scheduler.ts`
+  `laneDirty`). The last part was not in the record: putting the probe into
+  an equation of its own does not give per-read frames in Solid
+  (S-posture-1's variant, every runner).
 - **DV-22 (`pending?` under a new question under a guess) — Solid's ruling,
   not built** (#4695, S-44). An outside input change under a guess reads
   `pending? x` `false` (S-solid-44 instant 3); the ruled verdict is `true`.

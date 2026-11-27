@@ -83,8 +83,10 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
   `x` inside the `loading on(x)` region; a read of it outside holds the change (CN-3e).
 - `pending? x` is true while a new answer for `x` is out; `latest x` is the value `x` is moving to (R-9). Use them to
   show work in progress without a fallback.
-- Only the probe reads ahead. Beside it, a plain read of the same `x` shows what is on screen, and a plain read of
-  another held value waits for its change, probe or not (R-11). `loading on(latest x)` shows its fallback at once;
+- A probe makes its whole computation read ahead (R-11): beside it, a plain read of a held value shows what is on
+  screen and waits for nothing — and so does a computation that reads an equation that probes, and the pass right
+  after one that probed. To have a held value wait while a probe shows ahead, read the two in computations kept
+  apart up to the screen (`PROBE_BESIDE_HELD_READ` says where). `loading on(latest x)` shows its fallback at once;
   `loading on(x)` shows it with `x`'s change (H-6).
 - `await e -> v` gives `v` until the first answer, so there is no first-load wait (R-7).
 

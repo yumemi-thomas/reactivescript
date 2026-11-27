@@ -110,10 +110,11 @@ Solid: `untrack`; reads inside an effect's apply half.
 
 `latest x` and `pending? x`: reads that show a held instant, or the verdict about
 it, ahead of its commit. A probe never holds the instant it reads ahead of
-(H-7). What is derived from a probe lives in a **lane** (V-14). A probe is a
-read, not a kind of reader: a plain read beside it in the same pass is still a
-plain read (R-11; Solid renamed "display-ahead reader" to "display-ahead read"
-in #4695 for this reason).
+(H-7). What is derived from a probe lives in a **lane** (V-14). A probe makes
+the pass it is in read ahead as a whole, and the pass after it: a plain read
+of a held value beside it reads the screen and joins no hold (R-11; Solid's
+D-25 as Solid runs it — its "display-ahead read" of #4695 was ruled per read
+and never built, DV-21).
 
 Solid: `latest()`, `isPending()`.
 

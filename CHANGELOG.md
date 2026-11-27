@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+**Posture follows Solid** (DECISION.md, "DV-21 closed: posture is the pass's")
+
+- **Changed: a probe makes its whole computation read ahead** (spec/04 R-11; DV-21 closed). A computation that
+  reads `latest`/`pending?` anywhere — or reads an equation that does, or probed on its last pass — reads every held
+  value as the screen shows it and joins no hold, as Solid does. `on([latest id, filter])` re-arms at once
+  (S-solid-49); `x = 1 + k + (pending? n ? 1 : 0)` shows now with `k` held (S-solid-27); an equation that probed on its
+  last pass publishes the write that re-ran it (S-solid-50). Every runner already showed these frames; the spec and the
+  interpreter now say them.
+- **New advice: `PROBE_BESIDE_HELD_READ`** (99, R-11): a computation that reads ahead and reads plainly a value that
+  can be held (a source an action writes, a value that waits on a question, or one computed from either). Not an
+  error. For per-read results, keep the two reads in computations apart up to the screen; an equation of its own for
+  the probe is not enough (what reads it reads ahead too).
+
 **After an outside review** (DECISION.md, "Outside review of 15db0404")
 
 - **Changed: an action or a statement closure kept in a value is followed through every form** (spec/04 R-io-3d).

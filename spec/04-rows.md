@@ -261,19 +261,26 @@ and where they may not go.
   the probe-derived part of what it reads; its plain reads are R-11's). This
   is Solid F-6 ("a display-ahead read is a world of its own") as a type; what
   it means for the screen is 05.
-- **R-11 (Probes never hold; posture is per read).** A probe never holds the
-  instant it reads ahead of (F-6). Only the probe reads ahead: the row
-  `lane(x)` is the probe's, and every other read in the pass keeps its own
-  (Solid D-25, decision 1 of solidjs/solid#4695). A plain read of a source
-  the same pass also probes is the screen's: `[pending? x, x]` is `[true,
-  committed]` while `x`'s change is held, in either order, in a view reader
-  and in an equation alike, and the two are atomic because they are one
-  pass (D-23, V-1; S-solid-27). A plain read of any *other* held value makes
-  the pass the hold's work (H-3), whatever it probes beside it
-  (S-solid-27's equation variants; an `on` expression likewise, H-6,
-  S-solid-49). A pass's posture is decided by its reads in that pass: never
-  inherited from what created it or what it reads, never carried into its
-  next pass (S-solid-50).
+- **R-11 (Probes never hold; posture is the pass's).** A probe never holds
+  the instant it reads ahead of (F-6). A pass *reads ahead* when it probes
+  (`latest`, `pending?`) anywhere in it, when it reads an equation whose
+  last pass read ahead, or when its own last pass did (one pass: the
+  carry-over). A pass that reads ahead reads every held value it reads
+  plainly as the screen shows it, and joins no hold (H-3): `[pending? x, x]`
+  is `[true, committed]` while `x`'s change is held, in either order, in a
+  view reader and in an equation alike, the two atomic because they are one
+  pass (D-23, V-1; S-solid-27), and so is `[pending? x, k]` with `k` held
+  beside it (S-solid-27's second equation variant, S-posture-1; an `on`
+  expression likewise re-arms now, H-6, S-solid-49). A pass that does not
+  read ahead and reads a held value plainly is the hold's work. Posture
+  depends on history: an equation that probed on its last pass and probes
+  nothing now still reads ahead, and the pass after that does not
+  (S-solid-50 and its variant). It is not inherited from what created the
+  pass. This is Solid's rule as Solid runs it (D-25, its pass-wide posture
+  and carry-over; DV-21, closed 2026-11-27). Where two reads should keep
+  their own postures, they are computations kept apart up to the screen —
+  an equation that reads the probe makes its readers read ahead too
+  (advice `PROBE_BESIDE_HELD_READ`, 99).
 - **R-12 (Probes in imperative scope).** `latest x` and `pending? x` are
   readable in imperative scope as snapshots of the verdict / in-flight value
   at that moment. On a first load there is no owner to hold, so `pending?

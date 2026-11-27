@@ -651,6 +651,14 @@ fn submit_buttons<'a>(ms: &'a [Markup], out: &mut Vec<&'a [Attr]>) {
         }
     }
 }
+/// R-11: the name a probe's operand is rooted at (`pending? x.y`, `latest x`), if any.
+fn probe_root(e: &Expr) -> Option<&str> {
+    match &e.k {
+        ExprKind::Id(n) => Some(n),
+        ExprKind::Member { o, .. } | ExprKind::Index { o, .. } | ExprKind::Latest(o) => probe_root(o),
+        _ => None,
+    }
+}
 /// A node the reference walks generically (`Object.values`): an expression, or a statement inside one.
 #[derive(Clone, Copy)]
 pub(crate) enum Node<'a> {
@@ -2774,6 +2782,10 @@ pub struct Checker<'a> {
     /// MO-11k: view lambdas in a render-prop position
     view_fns: HashSet<*const Markup>,
     readers: Vec<ReaderRec<'a>>,
+    /// R-11 (99, PROBE_BESIDE_HELD_READ): the equations, each a computation (name, expression, scope, line)
+    eq_sites: Vec<(String, &'a Expr, EId, i64)>,
+    /// R-11: the sources an action's body writes (`:=`): their writes can be held
+    action_written: HashSet<SId>,
     /// CN-3e: `loading on(…)` regions (the region made, its `on`) and effect inputs, by where they are.
     load_ons: Vec<ReaderRec<'a>>,
     effect_ins: Vec<ReaderRec<'a>>,
@@ -3232,6 +3244,8 @@ impl<'a> Checker<'a> {
             pure_props: HashMap::new(),
             view_fns: HashSet::new(),
             readers: vec![],
+            eq_sites: vec![],
+            action_written: HashSet::new(),
             load_ons: vec![],
             effect_ins: vec![],
             handlers: vec![],
@@ -3403,6 +3417,7 @@ impl<'a> Checker<'a> {
         self.views_stored();
         self.resolve_tree();
         self.loading_on_outside();
+        self.probe_beside_held();
         self.snapshot_guards();
         self.guess_while_loading();
         self.kept_peek_check();
@@ -4948,6 +4963,7 @@ impl<'a> Checker<'a> {
                 self.comp(kind, env, Some(name.clone()), None, |c| c.expr(e, env, reactive, None));
                 self.keep(e, env);
                 self.row_check(name, ty.as_deref(), env);
+                self.eq_sites.push((name.clone(), e, env, d.line() as i64));
             }
             Decl::Provide { name, e, .. } => {
                 self.comp("provide", env, Some(name.clone()), None, |c| {
@@ -8468,6 +8484,12 @@ impl<'a> Checker<'a> {
                         }
                     } else {
                         tsym = self.resolve(&target.name, env, ctx);
+                        // R-11: an action holds its writes until its body returns
+                        if ctx.in_action && op == "write" {
+                            if let Some(t) = tsym.filter(|&t| self.syms[t].kind == SymKind::Source) {
+                                self.action_written.insert(t);
+                            }
+                        }
                         if op == "write" && !target.path.is_empty() && tsym.is_some_and(|t| self.syms[t].js_draft) {
                             // MO-10i: a path of a library's draft: the library's write, not a source's
                             self.draft_here(tsym.unwrap(), &target.name);
@@ -10840,6 +10862,223 @@ impl<'a> Checker<'a> {
                     name, on, on, name
                 ),
             );
+        }
+    }
+    /// R-11 (99): `PROBE_BESIDE_HELD_READ`, advice (DV-21 closed 2026-11-27: Solid's posture, followed). Solid makes a pass
+    /// that reads ahead anywhere — a `latest`, a `pending?`, or a read of an equation that does — a reader ahead for every
+    /// held read in it, and the next pass too. A computation (an equation, or a reader) that reads ahead and also reads
+    /// plainly a value an open change can hold — a source an action writes, a value that waits on a question, or one
+    /// computed from either — shows that value as the screen has it and waits for none of its changes. Not advised: a plain
+    /// read of a name the same computation probes where it is always evaluated, a value computed from a probe, reads
+    /// inside a closure or `peek`, and a read under `pending? x ? … : e` or `pending? x || e` that can be held only
+    /// through what `x` is held through. `ref/src/check.ts` `probeBesideHeld`, alike.
+    fn probe_beside_held(&mut self) {
+        let mut hold: HashMap<SId, Option<String>> = HashMap::new();
+        let mut bases: HashMap<SId, Vec<SId>> = HashMap::new();
+        let mut sites: Vec<(Option<String>, &'a Expr, EId, i64)> = self.eq_sites.iter().map(|(n, e, env, l)| (Some(n.clone()), *e, *env, *l)).collect();
+        sites.extend(self.readers.iter().map(|r| (None, r.e, r.env, r.line)));
+        for (name, e, env, line) in sites {
+            let (mut ahead, mut always, mut plain) = (None, HashSet::new(), vec![]);
+            self.ahead_walk(Node::E(e), env, false, &[], &mut ahead, &mut always, &mut plain, &mut bases);
+            let Some(ahead) = ahead else { continue };
+            let mut found = None;
+            for t in plain {
+                if always.contains(&t) {
+                    continue;
+                }
+                if let Some(why) = self.hold_of(t, &mut hold) {
+                    found = Some((t, why));
+                    break;
+                }
+            }
+            let Some((t, why)) = found else { continue };
+            let n = self.syms[t].name.clone();
+            let (subj, short) = match &name {
+                Some(q) => (format!("the equation {q}"), q.clone()),
+                None => ("this reader".to_string(), "it".to_string()),
+            };
+            self.line = line;
+            self.advise(
+                "PROBE_BESIDE_HELD_READ",
+                "R-11",
+                format!(
+                    "{subj} reads ahead ({ahead}) and reads {n} plainly, which can be held ({why}): Solid reads ahead with the whole of a computation that reads ahead anywhere — with the pass after it too, and with what reads it — so {n} is read as the screen shows it, and {short} does not wait for {n}'s held change. That is right where it is meant; for {n} to wait for its change while the probe shows ahead, read it in a computation of its own that reads no probe and nothing computed from one — its own `{{…}}` or equation, apart from this one up to the screen"
+                ),
+            );
+        }
+    }
+    /// R-11: what a computation reads ahead (the first probe, or an equation computed from one), the names it probes where
+    /// it is always evaluated, and the equations and sources it reads plainly, in the order of the walk.
+    #[allow(clippy::too_many_arguments)]
+    fn ahead_walk(&mut self, n: Node<'a>, env: EId, cond: bool, guards: &[SId], ahead: &mut Option<String>, always: &mut HashSet<SId>, plain: &mut Vec<SId>, bases: &mut HashMap<SId, Vec<SId>>) {
+        if let Node::E(x) = n {
+            match &x.k {
+                ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Peek(_) => return,
+                ExprKind::Latest(inner) | ExprKind::Pending(inner) => {
+                    let r = probe_root(inner);
+                    let t = r.and_then(|r| self.lookup(env, r));
+                    if ahead.is_none() {
+                        *ahead = Some(format!("`{}{}`", if matches!(x.k, ExprKind::Latest(_)) { "latest" } else { "pending?" }, r.map(|r| format!(" {r}")).unwrap_or_default()));
+                    }
+                    if let Some(t) = t {
+                        if !cond {
+                            always.insert(t);
+                        }
+                    }
+                    return;
+                }
+                ExprKind::Id(name) => {
+                    let Some(t) = self.lookup(env, name) else { return };
+                    if !matches!(self.syms[t].kind, SymKind::Eq | SymKind::Source) {
+                        return;
+                    }
+                    if self.sym_rows(t).contains("lane") {
+                        if ahead.is_none() {
+                            *ahead = Some(format!("through {}, which is computed from a probe", self.syms[t].name));
+                        }
+                        return;
+                    }
+                    if !plain.contains(&t) && !(!guards.is_empty() && self.guarded(t, guards, bases)) {
+                        plain.push(t);
+                    }
+                    return;
+                }
+                ExprKind::If { c, t, f } => {
+                    let g = self.guard_of(c, env);
+                    let mut gs = guards.to_vec();
+                    gs.extend(g);
+                    self.ahead_walk(Node::E(c), env, cond, guards, ahead, always, plain, bases);
+                    self.ahead_walk(Node::E(t), env, true, guards, ahead, always, plain, bases);
+                    self.ahead_walk(Node::E(f), env, true, &gs, ahead, always, plain, bases);
+                    return;
+                }
+                ExprKind::Bin { op, l, r } => {
+                    let g = if op == "||" { self.guard_of(l, env) } else { None };
+                    let mut gs = guards.to_vec();
+                    gs.extend(g);
+                    self.ahead_walk(Node::E(l), env, cond, guards, ahead, always, plain, bases);
+                    self.ahead_walk(Node::E(r), env, cond || op == "&&" || op == "||" || op == "??", &gs, ahead, always, plain, bases);
+                    return;
+                }
+                ExprKind::Catch { e, alt, .. } => {
+                    self.ahead_walk(Node::E(e), env, cond, guards, ahead, always, plain, bases);
+                    self.ahead_walk(Node::E(alt), env, true, guards, ahead, always, plain, bases);
+                    return;
+                }
+                _ => {}
+            }
+        }
+        for c in children(n, false) {
+            self.ahead_walk(c, env, cond, guards, ahead, always, plain, bases);
+        }
+    }
+    /// R-11: `pending? x ? … : e`, `pending? x || e`: the name `x` whose `false` answer `e` is read under.
+    fn guard_of(&self, c: &Expr, env: EId) -> Option<SId> {
+        let ExprKind::Pending(inner) = &c.k else { return None };
+        probe_root(inner).and_then(|r| self.lookup(env, r))
+    }
+    /// R-11: a read under such guards that can be held only through what they probe is not held when it is read.
+    fn guarded(&mut self, t: SId, guards: &[SId], memo: &mut HashMap<SId, Vec<SId>>) -> bool {
+        let bs = self.bases_of(t, memo);
+        if bs.is_empty() {
+            return false;
+        }
+        let mut by: HashSet<SId> = HashSet::new();
+        for &g in guards {
+            by.insert(g);
+            by.extend(self.bases_of(g, memo));
+        }
+        bs.iter().all(|b| by.contains(b))
+    }
+    /// R-11: an expression that waits itself, not through a name it reads: an `await`, or a part of a JS result that holds.
+    fn waits_here(&self, n: Node<'a>, env: EId) -> bool {
+        if let Node::E(x) = n {
+            match &x.k {
+                ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Peek(_) | ExprKind::Latest(_) | ExprKind::Pending(_) => return false,
+                ExprKind::Await { .. } => return true,
+                ExprKind::Member { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } if self.held_field(x, env).is_some_and(|h| h.1) => return true,
+                _ => {}
+            }
+        }
+        children(n, false).into_iter().any(|c| self.waits_here(c, env))
+    }
+    /// R-11: the values `t` can be held through: the sources an action writes and the values that wait on a question,
+    /// that it is or reads plainly.
+    fn bases_of(&mut self, t: SId, memo: &mut HashMap<SId, Vec<SId>>) -> Vec<SId> {
+        if let Some(m) = memo.get(&t) {
+            return m.clone();
+        }
+        memo.insert(t, vec![]);
+        let mut out = vec![];
+        let own = if self.syms[t].kind == SymKind::Source {
+            self.action_written.contains(&t) || self.sym_rows(t).contains("pending")
+        } else {
+            self.syms[t].expr.is_some_and(|(e, env)| self.waits_here(Node::E(e), env))
+        };
+        if own {
+            out.push(t);
+        }
+        if self.syms[t].kind == SymKind::Eq {
+            if let Some((e, env)) = self.syms[t].expr {
+                for u in self.plain_syms(e, env) {
+                    for b in self.bases_of(u, memo) {
+                        if !out.contains(&b) {
+                            out.push(b);
+                        }
+                    }
+                }
+            }
+        }
+        memo.insert(t, out.clone());
+        out
+    }
+    /// R-11: why `t`'s value can be held, or `None`.
+    fn hold_of(&mut self, t: SId, memo: &mut HashMap<SId, Option<String>>) -> Option<String> {
+        if let Some(r) = memo.get(&t) {
+            return r.clone();
+        }
+        memo.insert(t, None);
+        let mut r = None;
+        if self.syms[t].kind == SymKind::Source && self.action_written.contains(&t) {
+            r = Some("an action writes it".to_string());
+        } else if self.sym_rows(t).contains("pending") {
+            r = Some("it waits on a question".to_string());
+        } else if self.syms[t].kind == SymKind::Eq {
+            if let Some((e, env)) = self.syms[t].expr {
+                for u in self.plain_syms(e, env) {
+                    if self.hold_of(u, memo).is_some() {
+                        r = Some(format!("it is computed from {}, which can be held", self.syms[u].name));
+                        break;
+                    }
+                }
+            }
+        }
+        memo.insert(t, r.clone());
+        r
+    }
+    /// R-11: the equations and sources `e` reads plainly (outside closures, `peek` and probes), in the order of the walk.
+    fn plain_syms(&self, e: &'a Expr, env: EId) -> Vec<SId> {
+        let mut out = vec![];
+        self.plain_syms_walk(Node::E(e), env, &mut out);
+        out
+    }
+    fn plain_syms_walk(&self, n: Node<'a>, env: EId, out: &mut Vec<SId>) {
+        if let Node::E(x) = n {
+            match &x.k {
+                ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Peek(_) | ExprKind::Latest(_) | ExprKind::Pending(_) => return,
+                ExprKind::Id(name) => {
+                    if let Some(t) = self.lookup(env, name).filter(|&t| matches!(self.syms[t].kind, SymKind::Eq | SymKind::Source)) {
+                        if !out.contains(&t) {
+                            out.push(t);
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+        for c in children(n, false) {
+            self.plain_syms_walk(c, env, out);
         }
     }
     /// CN-3e: the keys of a `loading on(…)`: the names its `on` reads, and for props the field read (`on(props.selected)`

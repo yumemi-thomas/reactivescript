@@ -74,16 +74,12 @@ export default component App() {
 | instant | action              | frame     |
 | ------- | ------------------- | --------- |
 | 0       | mount               | `x 1`     |
-| 1       | handler `save()`    | `x 1`     |
+| 1       | handler `save()`    | `x 2`     |
 | 2       | resolve "save" 0    | `x 2`     |
 
-The plain read of `k`, which the action holds, makes the pass the hold's
-work (R-11; Solid D-25): the probe beside it does not let it show ahead.
-
-## Divergences (DV-21)
-
-- oracle "Variant: an equation probes `n` and reads another held value plainly" instant 1: `x 2`
-
-Solid ruled this in #4695 (D-25, S-49 and S-50, ruled, not built): today one
-probe in a pass makes the whole pass a display-ahead reader, so the plain read
-of `k` is served the screen's `0` and the equation shows now.
+The pass probes `n`, so it reads ahead as a whole (R-11; Solid D-25 as Solid
+runs it): its plain read of `k`, which the action holds, is the screen's `0`,
+and `x` shows `1 + 0 + 1` now; at the commit `1 + 1 + 0`. Solid's ruling of
+2026-11-05 said the plain read of `k` made the pass the hold's work (`x 1`
+until the commit); it was never built (DV-21, closed 2026-11-27: the language
+follows Solid).

@@ -882,6 +882,8 @@ class Checker {
   private uses: Use[] = [];   // name: the context's key
   // R-f: recorded during the walk, resolved after it (every symbol's thunks exist by then)
   private readers: { region: Region; e: Expr; env: Env; line: number }[] = [];
+  private eqSites: { name: string; e: Expr; env: Env; line: number }[] = [];   // R-11 (99, PROBE_BESIDE_HELD_READ): the equations, each a computation
+  private actionWritten = new Set<Sym>();                                      // R-11: the sources an action's body writes (`:=`): their writes can be held
   // CN-3e: `loading on(…)` regions (the region made, its `on`) and effect inputs, by where they are
   private loadOns: { region: Region; e: Expr; env: Env; line: number }[] = [];
   private effectIns: { region: Region; e: Expr; env: Env; line: number }[] = [];
@@ -932,9 +934,101 @@ class Checker {
     this.retained(); this.viewsStored();
     this.resolveTree();
     this.loadingOnOutside();
+    this.probeBesideHeld();
     this.guessWhileLoading();
     this.keptPeekCheck();
     this.litCheck();
+  }
+
+  // ---- R-11 (99): a computation that reads ahead beside a plain read of a value that can be held ----
+  /** `PROBE_BESIDE_HELD_READ`, advice (DV-21 closed 2026-11-27: Solid's posture, followed). Solid makes a pass that reads
+   *  ahead anywhere — a `latest`, a `pending?`, or a read of an equation that does — a reader ahead for every held read in
+   *  it, and the next pass too. A computation (an equation, or a reader: `{…}`, an attribute, an `if` condition, a `for`
+   *  list, `loading on`, `portal to`) that reads ahead and also reads plainly a value an open change can hold — a source an
+   *  action writes, a value that waits on a question, or one computed from either — shows that value as the screen has
+   *  it and waits for none of its changes, whatever each read says alone. Not advised: a plain read of a name the same
+   *  computation probes where it is always evaluated (`[pending? x, x]` is one answer either way), a value computed from a
+   *  probe (its own computation is the one advised), reads inside a closure or `peek`, and a read under `pending? x ? … :
+   *  e` or `pending? x || e` that can be held only through what `x` is held through (read only once `x` is not held). */
+  private probeBesideHeld() {
+    const hold = new Map<Sym, string | null>();
+    const plainSyms = (e: Expr, env: Env): Sym[] => {
+      const out: Sym[] = [];
+      const go = (x: Expr): void => {
+        if (x.k === "fn" || x.k === "serverfn" || x.k === "peek" || x.k === "latest" || x.k === "pending") return;
+        if (x.k === "id") { const t = env.lookup(x.name); if (t && (t.kind === "eq" || t.kind === "source") && !out.includes(t)) out.push(t); return; }
+        subExprs(x).forEach(go);
+      };
+      go(e); return out;
+    };
+    /** Why `t`'s value can be held, or null. */
+    const holdOf = (t: Sym): string | null => {
+      if (hold.has(t)) return hold.get(t)!;
+      hold.set(t, null);
+      let r: string | null = null;
+      if (t.kind === "source" && this.actionWritten.has(t)) r = "an action writes it";
+      else if (t.rows?.().has("pending")) r = "it waits on a question";
+      else if (t.kind === "eq" && t.expr && t.env) { const u = plainSyms(t.expr, t.env).find(u => holdOf(u) !== null); if (u) r = `it is computed from ${u.name}, which can be held`; }
+      hold.set(t, r); return r;
+    };
+    /** An expression that waits itself, not through a name it reads: an `await`, or a part of a JS result that holds. */
+    const waitsHere = (e: Expr, env: Env): boolean => {
+      const go = (x: Expr): boolean => {
+        if (x.k === "fn" || x.k === "serverfn" || x.k === "peek" || x.k === "latest" || x.k === "pending") return false;
+        if (x.k === "await") return true;
+        if ((x.k === "member" || x.k === "index" || x.k === "call") && this.heldField(x, env)?.[1]) return true;
+        return subExprs(x).some(go);
+      };
+      return go(e);
+    };
+    /** The values `t` can be held through: the sources an action writes and the values that wait on a question, that
+     *  it is or reads plainly. */
+    const basesMemo = new Map<Sym, Sym[]>();
+    const basesOf = (t: Sym): Sym[] => {
+      const m = basesMemo.get(t); if (m) return m;
+      const out: Sym[] = []; basesMemo.set(t, []);
+      if ((t.kind === "source" && this.actionWritten.has(t)) || (t.kind === "source" ? !!t.rows?.().has("pending") : !!t.expr && !!t.env && waitsHere(t.expr, t.env))) out.push(t);
+      if (t.kind === "eq" && t.expr && t.env) for (const u of plainSyms(t.expr, t.env)) for (const b of basesOf(u)) if (!out.includes(b)) out.push(b);
+      basesMemo.set(t, out); return out;
+    };
+    const rootOf = (x: Expr): string | undefined => x.k === "id" ? x.name : x.k === "member" || x.k === "index" || x.k === "latest" ? rootOf(x.k === "latest" ? x.e : x.o) : undefined;
+    const sites = [...this.eqSites.map(q => ({ ...q, name: q.name as string | undefined })), ...this.readers.map(r => ({ ...r, name: undefined as string | undefined }))];
+    for (const site of sites) {
+      const env = site.env;
+      let ahead: string | undefined; const always = new Set<Sym>(); const plain: Sym[] = [];
+      /** `pending? x ? … : e`, `pending? x || e`: `e` is read only where `x` answered `false`; a read there that can be
+       *  held only through `x` is not held when it is read. */
+      const guardOf = (c: Expr): Sym | undefined => { if (c.k !== "pending") return undefined; const r = rootOf(c.e); return r === undefined ? undefined : env.lookup(r); };
+      const guarded = (t: Sym, guards: Sym[]): boolean => { const bs = basesOf(t); if (!bs.length) return false; const by = new Set(guards.flatMap(g => [g, ...basesOf(g)])); return bs.every(b => by.has(b)); };
+      const go = (x: Expr, cond: boolean, guards: Sym[] = []): void => {
+        switch (x.k) {
+          case "fn": case "serverfn": case "peek": return;
+          case "latest": case "pending": {
+            const r = rootOf(x.e); const t = r === undefined ? undefined : env.lookup(r);
+            ahead ??= `\`${x.k === "latest" ? "latest" : "pending?"}${r === undefined ? "" : ` ${r}`}\``;
+            if (t && !cond) always.add(t);
+            return;
+          }
+          case "id": {
+            const t = env.lookup(x.name); if (!t || (t.kind !== "eq" && t.kind !== "source")) return;
+            if (t.rows?.().has("lane")) { ahead ??= `through ${t.name}, which is computed from a probe`; return; }
+            if (!plain.includes(t) && !(guards.length && guarded(t, guards))) plain.push(t);
+            return;
+          }
+          case "if": { const g = guardOf(x.c); go(x.c, cond, guards); go(x.t, true, guards); go(x.f, true, g ? [...guards, g] : guards); return; }
+          case "bin": { const g = x.op === "||" ? guardOf(x.l) : undefined; go(x.l, cond, guards); go(x.r, cond || x.op === "&&" || x.op === "||" || x.op === "??", g ? [...guards, g] : guards); return; }
+          case "catch": go(x.e, cond, guards); go(x.alt, true, guards); return;
+        }
+        subExprs(x).forEach(y => go(y, cond, guards));
+      };
+      go(site.e, false);
+      if (ahead === undefined) continue;
+      const n = plain.find(t => !always.has(t) && holdOf(t) !== null);
+      if (!n) continue;
+      const subj = site.name !== undefined ? `the equation ${site.name}` : "this reader", short = site.name ?? "it";
+      this.line = site.line;
+      this.advise("PROBE_BESIDE_HELD_READ", "R-11", `${subj} reads ahead (${ahead}) and reads ${n.name} plainly, which can be held (${holdOf(n)}): Solid reads ahead with the whole of a computation that reads ahead anywhere — with the pass after it too, and with what reads it — so ${n.name} is read as the screen shows it, and ${short} does not wait for ${n.name}'s held change. That is right where it is meant; for ${n.name} to wait for its change while the probe shows ahead, read it in a computation of its own that reads no probe and nothing computed from one — its own \`{…}\` or equation, apart from this one up to the screen`);
+    }
   }
 
   // ---- AC-3a: a guess a click can make while its value loads a new question ----
@@ -1593,7 +1687,7 @@ class Checker {
           if (ps) { if (made) made.updater = ps; if (d.exported) this.err("DRAFT_ESCAPES", "MO-10i", `${d.name} is a draft callback: it is used only where it is given to the function that hands it a draft, in this module — an importer would call it with something that is no draft; export an action that calls the setter`); } }
         if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.callMarks(call.f, call.args, env); this.ioGiven(call, env, false); this.jsGiven(call, f, env);   /* W2: an instantiation runs where it is written, in reactive scope */ this.markCallbacks(call.args, f.cbs); if (f.foreign !== undefined && f.foreign !== "comp") this.unplaced(call.args, env, f);   /* MO-11s, MO-11u */ this.snapshotArgs(call, f, env); this.hookCalls.push({ region: env.region, fn: f, line: this.line, display: `${d.e.f.name}()` });   /* RG-7b, MO-12b: a hook reads its context where it is called */ call.args.forEach((a, i) => { if (f.params![i]?.ref) this.keep(a, env); });   /* E-5a: a ref argument is kept */ this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
         if (ctx.lifted) { this.expr(d.e, env, { ...reactive, lifted: true }); this.rowCheck(d.name, d.type, env); return; }   // E-9b: a part of the fn's result, no equation of its own
-        this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); return;
+        this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.keep(d.e, env); this.rowCheck(d.name, d.type, env); this.eqSites.push({ name: d.name, e: d.e, env, line: d.line }); return;
       }
       case "provide": {
         this.comp("provide", env, { name: d.name }, () => { this.ownCtx.push(d.name); try { this.expr(d.e, env, reactive); } finally { this.ownCtx.pop(); } }); this.keep(d.e, env);
@@ -3075,6 +3169,7 @@ class Checker {
           }
           else {
             target = this.resolve(s.target.name, env, ctx);
+            if (ctx.inAction && s.k === "write" && target?.kind === "source") this.actionWritten.add(target);   // R-11: an action holds its writes until its body returns
             if (target?.jsDraft && s.k === "write" && s.target.path.length) {                  // MO-10i: a path of a library's draft: the library's write, not a source's
               this.draftHere(target, s.target.name);
               if (s.e.k === "fn" && !s.e.stmts && s.e.params.length === 1) this.updaters.add(s.e);   // W-6: an updater is applied in place, as this statement

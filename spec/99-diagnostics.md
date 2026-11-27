@@ -189,7 +189,20 @@ The third row, `GUESS_AFTER_AWAIT` (06 AC-3): an action's first guess
 written after a statement-level `await` — the guess is ahead of nothing,
 and shows once that has answered — once per action, on the guess.
 `bench/tasks/optimistic-todo`. `EFFECT_RELAY_TEAR` (02 C-3a) and
-`DISPOSER_DROPPED` (02 EF-5a) are the fourth and the fifth.)
+`DISPOSER_DROPPED` (02 EF-5a) are the fourth and the fifth. The sixth,
+`PROBE_BESIDE_HELD_READ` (04 R-11, 2026-11-27): a computation — an
+equation or a reader — that reads ahead (a `latest` or `pending?` outside
+closures and `peek`, or a plain read of a name whose rows hold `lane`) and
+reads plainly a source or equation that can be held: a source an action's
+body writes (`:=`), a value whose rows hold `pending`, or an equation that
+reads such a value plainly. Not advised: a name the computation probes
+where the probe is always evaluated (not under a branch of `?:`, the right
+of `&&`, `||`, `??`, or a `catch` answer), a name whose rows hold `lane`,
+and a read under `pending? x ? … : e` (in `e`) or `pending? x || e` that can
+be held only through what `x` is held through (`pending? cart ? "…" :
+count` with `count` computed from `cart`: read only where `cart` is not
+held). Once per computation, on its line. S-posture-1,
+`guide/diagnostics.md`.)
 
 Under CN-1a there is no warning tier, so an S row is a compile error or it
 is not a diagnostic. `ASYNC_WATERFALL`, `HUGE_FAN_IN`, `HUGE_FAN_OUT`,

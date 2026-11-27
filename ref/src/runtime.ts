@@ -79,7 +79,9 @@ export class Node {
   plainTaint = new Set<number>();                      // R-11: the open changes this pass's plain reads derive from (a lane value carries these, not its lane's)
   probed = new Set<Node>();                            // R-11 / Solid D-25: the nodes this pass read ahead (`latest`, `pending?`)
   plainAhead = new Set<Node>();                        // R-11: held nodes this pass read plainly and was given the in-flight value
-  screenFor: Set<Node> | null = null;                  // R-11: a re-run pass's probed nodes — a plain read of one is the screen's
+  verdict = false;                                     // R-11 (Solid D-25, as Solid runs it): this pass is a display-ahead reader — it probes, or its last pass did
+  carried = false;                                     // R-11: the pass is one only because its last pass probed (S-solid-50's carry-over)
+  probes = false; lastProbes = false; passInstant = -1;   // R-11: this pass probed (`latest`, `pending?`, or read an equation whose last pass did); its last pass did; the instant of its last pass
   deferred = false; lagging = false;                   // V-16 / D-40: declared lag — re-asks never hold; readers keep the shown answer
   question = false;                                    // ST-5: `source x = e` — an equation until written
   guess: unknown = undefined; hasGuess = false; guessBy: number | null = null; corrected = false; guessPaths: Path[] = [];
@@ -715,7 +717,7 @@ export class Runtime {
       }
       case "loading": case "errored": {
         // D-17: `on` read a probe → the fallback shows now; otherwise the display follows settle once nothing under it is held on an open change
-        if ((i.k === "loading" && i.onNode?.lane && this.onAhead(i.onNode)) || i.laneAttached || !this.openChanges.has(this.find(i.armedBy))) i.committedFallback = i.showingFallback;
+        if ((i.k === "loading" && (i.onNode?.lane || i.onNode?.verdict) && this.onAhead(i.onNode)) || i.laneAttached || !this.openChanges.has(this.find(i.armedBy))) i.committedFallback = i.showingFallback;
         this.patchLanes(i.content); if (i.committedFallback) this.patchLanes(i.fallback); return;
       }
       case "text": return;
@@ -752,16 +754,20 @@ export class Runtime {
       const prevTracking = this.tracking; this.tracking = n; const prevFlight = n.flight;
       n.triggered = notified;
       let v: unknown;
-      n.screenFor = null;
+      // R-11 (Solid D-25 as Solid runs it, followed — DV-21 closed 2026-11-27): posture is the pass's. A pass that probes anywhere
+      // in it is a display-ahead reader for every held read in it, and so is the next pass of a node whose last pass probed
+      // (one pass, the carry-over: Solid sets its verdict bit at a pass's end from that pass's probes). Its plain reads of held
+      // values are the screen's and it joins no hold. The pass learns that it probes only by running, so a pass that probed
+      // after a plain held read runs once more as a reader ahead (Solid restarts it: "its reads agree in either order").
+      if (n.passInstant !== this.instant) { n.carried = n.lastProbes; n.passInstant = this.instant; }
+      n.verdict = n.carried;
       for (;;) {
-        n.lane = false; n.lanes = new Set(); n.inLanes = new Set(); n.flight = null; n.taint = new Set(); n.plainTaint = new Set(); n.taintFrom = new Set(); n.served = new Set(); n.probed = new Set(); n.plainAhead = new Set();
+        n.lane = false; n.lanes = new Set(); n.inLanes = new Set(); n.flight = null; n.taint = new Set(); n.plainTaint = new Set(); n.taintFrom = new Set(); n.served = new Set(); n.probed = new Set(); n.plainAhead = new Set(); n.probes = false;
         try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
-        // R-11 (Solid D-25, decision 1 of #4695): posture is per read. A plain read of a node this same pass also read ahead is
-        // the screen's (`[x, pending? x]` in an equation is `[committed, true]` now, either order: Solid S-27's memo case). The pass
-        // learns what it probes only by running, so a pass that did both is run once more with those nodes on the screen.
-        if (n.screenFor || n.kind !== "eq" || ![...n.plainAhead].some(b => n.probed.has(b))) break;
-        n.screenFor = new Set(n.probed); this.unsubscribe(n);
+        if (n.verdict || !n.probes || (n.plainAhead.size === 0 && n.served.size === 0)) break;
+        n.verdict = true; this.unsubscribe(n);
       }
+      n.lastProbes = n.probes;
       this.tracking = prevTracking;
       const landed = n.landing && !(v instanceof PendingVal); n.landing = false;   // a new answer, even one equal to the truth the guess was made over: it is compared with the guess (D-34)
       this.subscribe(n);
@@ -860,8 +866,18 @@ export class Runtime {
   /** H-6, R-11 (Solid D-17, decision 1 of #4695): a re-arm shows its fallback now iff every held value its `on` pass read, it read
    *  ahead. A plain read of another held value — served, or derived from an open change — makes the pass the hold's work. */
   private onAhead(n: Node) {
-    if ([...n.served].some(b => !n.probed.has(b))) return false;
+    if (!n.verdict && [...n.served].some(b => !n.probed.has(b))) return false;   // R-11: a pass ahead read every held value as the screen's
     return ![...n.taint].some(t => t === this.instant || this.groupOpen(t));
+  }
+  /** R-11: whether a pass ahead reads `b` as the screen's. A held value: written by an open change, or derived from one.
+   *  The instant's own writes are held only once the instant is: a probing pass is settled again after the hold decision
+   *  (it is in a lane), so it may take them as held now; a pass ahead only by the carry-over is not settled again, and reads
+   *  a write of this instant as the screen's only where an action already holds the instant. */
+  private aheadOf(b: Node, carried: boolean) {
+    const now = this.find(this.instant);
+    const heldNow = !carried || [...this.openActions].some(a => a.change !== null && this.find(a.change) === now);
+    const open = (c: number | null) => c !== null && (this.groupOpen(c) || (this.find(c) === now && heldNow));
+    return open(b.heldBy) || [...b.taint].some(open);
   }
   /** H-7: a reader keeps what it showed while one of the lanes it is in is held or frozen. */
   private laneHeld(n: Node) { return [...n.inLanes].some(l => this.heldLanes.has(l) || this.frozen(l)); }
@@ -874,16 +890,16 @@ export class Runtime {
         return b.guess;
       }
       if (b.lane && this.tracking && this.demandMode) { this.tracking.lane = true; for (const l of b.lanes) this.addLane(l, b.inLanes.has(l)); }   // R-10: lane flows through equations
+      if (b.lastProbes && this.tracking && this.demandMode && !this.probing) this.tracking.probes = true;   // R-11 (Solid: "a verdict reader is one while it probes or reads a memo that does"): a pass that reads an equation whose last pass read ahead reads ahead
       if (this.tracking && this.demandMode) {
         const held = b.heldBy !== null && (b.heldBy === this.instant || this.groupOpen(b.heldBy));
         const future = ((b.kind === "source" || b.question) && b.heldBy !== this.instant && !(b.value instanceof PendingVal)) || b.value instanceof PendingVal;   // a landed answer is consumed, not served; own writes are read
         const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
+        const heldRead = !this.probing && b.hasCommitted && (held || [...b.taint].some(t => t === this.instant || this.groupOpen(t)));
+        if (heldRead && this.tracking.verdict && !b.lane && !armed && this.aheadOf(b, this.tracking.carried)) return b.committed;   // R-11: a reader ahead reads a held value as the screen shows it, and joins nothing
         if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
         if (this.probing) this.tracking.probed.add(b);
-        else if (b.hasCommitted && (held || [...b.taint].some(t => t === this.instant || this.groupOpen(t)))) {
-          if (this.tracking.screenFor?.has(b)) return b.committed;                                   // R-11: the plain twin of a probe in this pass reads the screen
-          this.tracking.plainAhead.add(b);
-        }
+        else if (heldRead) this.tracking.plainAhead.add(b);
         if (!this.probing) { this.tracking.taintFrom.add(b); for (const t of (b.lane ? b.plainTaint : b.taint)) { this.tracking.taint.add(t); this.tracking.plainTaint.add(t); } }   // probes and lane work are the lane's, not the instant's (F-6); a lane value carries the holds of its plain reads (R-11, Solid D-25)
       }
       if (this.latestOver && v instanceof PendingVal && b.hasCommitted) return b.committed;
@@ -983,7 +999,7 @@ export class Runtime {
       case "latest": {                                                 // R-9 probe: the value an update is moving toward, else the committed value
         const ln = this.nodeOf(e.e, region, env);
         const ahead = !!ln?.hasGuess;                                  // DV-10: `latest` of a guess reads ahead of the guess's held lane (Solid #4284)
-        if (this.tracking) { this.tracking.lane = true; if (ln) { this.addLane(ln, !ahead); this.tracking.probed.add(ln); } }
+        if (this.tracking) { this.tracking.lane = true; this.tracking.probes = true; if (ln) { this.addLane(ln, !ahead); this.tracking.probed.add(ln); } }
         if (this.committedView && ln && ln.hasCommitted) { this.track(ln, ""); return ln.committed; }   // D-25: an outsider shows what is on screen
         if (ln && e.e.k === "id" && ln.hasGuess && ln.answerCorrected && ln.guessShown && this.frozen(ln)) { this.track(ln, ""); return ln.shownGuess; }   // D-22, D-34 (Solid decision 3; DV-19): an answer corrected the graph, but the slot still displays the guess: `latest` keeps it until the hold commits
         const whole = e.e.k !== "id" && !ln;                              // R-9: `latest` of an expression is the expression over the latest value of each thing it reads — one still asked reads what it last answered
@@ -994,7 +1010,7 @@ export class Runtime {
       }
       case "pending": {                                                // R-9 / H-9 verdict
         this.verdicts++; try { return (() => {
-        if (this.tracking) this.tracking.lane = true;
+        if (this.tracking) { this.tracking.lane = true; this.tracking.probes = true; }
         const n = this.nodeOf(e.e, region, env);
         if (!n) {                                                      // composite: the verdict of the reads inside it (Solid S-29)
           const prev = this.probeReads; const reads = new Set<Node>(); this.probeReads = reads;

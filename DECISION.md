@@ -2201,3 +2201,89 @@ runner: finding 5's programs, decision c's.
   themselves at its last instant, not reduced. `eq/effect-store-input` (an effect whose input is a store, at the
   mount: the interpreter runs it an instant later) is older and not in the review's list: not fixed.
 - **New Solid bugs**: none found. (DV-28b, DV-21, DV-22, DV-27 stand; their repros are where their memos say.)
+
+## DV-21 closed: posture is the pass's (2026-11-27)
+
+The user's decision: DV-21 is closed by following Solid, as F-3 was (DV-25). Solid closed solidjs/solid#4698 and #4699
+not planned on 2026-11-06; the ruling they asked to build (#4695 decision 1, "posture is per read") is not what Solid
+does, and the language now says what Solid does. Probes, logs and the census are outside the tree, in
+`rx-fix.noindex/probes/dv21`, `dv21b`, `dv21rx`, `out/dv21`, `census2`.
+
+### What Solid does (read at the pin, 50a4bfdde; the same on 2.0.4)
+
+- **Pass-wide.** A node's verdict bit is set at the end of each pass from that pass's probes (`core.ts`, the config
+  reset after `shadowSeatClose`: "a verdict reader is one only while it probes or reads a memo that does"). A pass that
+  reads a held value plainly and then probes restarts as a reader ahead (`verdict.ts`, #4777: "its reads agree in
+  either order"). So every held read of a pass that probes anywhere is served the screen, and the pass joins no hold
+  (`seat.ts`, "D-25 pass-wide posture (S-49, S-50)", the expected/actual rows).
+- **Carry-over, one pass.** The bit set by the last pass is the posture of the next pass from its start; at that
+  pass's end it is set again from that pass's own probes (`seat.ts`, "D-25 carry-over (S-50)"). Probe `s50-inline`
+  with a third write shows it ending: the second pass without a probe is the hold's work again (`m 2 k 1` at the
+  `k := 2` instant, every runner).
+- **Through an equation — not in the brief, found by the probes.** A pass that reads a memo whose bit is set reads
+  ahead too (`core.ts` ~1905, the `_flags |= el._config & CONFIG_VERDICT` of a memo's read; a render effect re-run by
+  one, `scheduler.ts` `laneDirty`). So the form the brief expected to give per-read results — the `latest` read in an
+  equation of its own — gives Solid's frames, not the ruling's: `s49-split`, `s50-split`, `s27-split`, `view-split`
+  are the same as their inline forms on the oracle and both emitters (and, after the change, the interpreter). Only
+  two computations kept apart up to the screen give each read its own posture (`view-sep`, `eq-sep`, S-posture-1).
+  This is followed (plain Solid's behaviour), and the advice says what does work.
+
+### The change
+
+| | before (98738e21) | now |
+| --- | --- | --- |
+| interpreter (`ref/src/runtime.ts`) | per read: a re-run of an *equation* that read its own probe's twin (`screenFor`) | a node's pass reads ahead when it probes (`latest`, `pending?`), reads a node whose last pass did, or its own last pass did (`lastProbes`, carried once per instant: `passInstant`); such a pass reads a held value as `committed` and takes no taint (`aheadOf`: a carried pass treats this instant's writes as held only where an open action holds the instant, since it is not settled again after the hold decision); a pass that probed after a plain held read runs again as a reader ahead, readers and `on` included; `onAhead` and the `loading` re-arm read the pass's posture |
+| oracle, emitters, server | Solid's frames, recorded as DV-21 | unchanged (they are Solid); the four recorded rows are gone (oracle: 8 recorded divergences → 4) |
+| scenarios | S-solid-27 v2 `x 1`, S-solid-49 `p1 c1`, S-solid-50 `m 2 k 0`, with `## Divergences (DV-21)` | Solid's frames, no divergence: `x 2`, `p1 [fallback]` (instants 3–4), `m 2 k 1`; S-solid-50 gets the one-pass variant; S-posture-1 (new): inline, own equation, kept apart, twin |
+| spec | 04 R-11 "posture is per read", 05 H-6, H-7, the header, 00 V-12 | R-11 "posture is the pass's", with the history dependence and the reach through an equation; H-6, H-7, V-12, the 05 header; DV-21 a closed record like DV-25 (history kept); proposals/32 a section of its own; 99 the sixth advisory row |
+| checkers | — | `PROBE_BESIDE_HELD_READ` (advice, rule R-11), both alike; nothing newly refused or accepted |
+
+### The advice: `PROBE_BESIDE_HELD_READ`
+
+A computation — an equation, or a reader (`{…}`, an attribute that is not a handler, an `if` condition, a `for` list,
+`loading on`, `portal to`) — that
+
+1. reads ahead: a `latest e` or `pending? e` outside closures and `peek`, or a plain read of a name whose rows hold
+   `lane`; and
+2. reads plainly (outside probes, closures, `peek`) a source or equation that can be held: a source an action's body
+   writes with `:=`, a value whose rows hold `pending`, or an equation that reads such a value plainly;
+3. not counting: a name the computation probes where the probe is always evaluated (not under a branch of `?:`, the
+   right of `&&`/`||`/`??`, a `catch` answer) — `[pending? x, x]`; a name whose rows hold `lane` (its own computation
+   is the one advised); a read under `pending? x ? … : e` (in `e`) or `pending? x || e` that can be held only through
+   what `x` is held through (`bases`: the action-written sources and the values that await themselves).
+
+Once per computation, on its line; the message names the probe, the read and why it can be held, says the program is
+right, and says what to write for a per-read result (two computations apart up to the screen; for `on`, `on(filter)`).
+Props, contexts and imports' values are not counted as holdable (the module cannot see their holds): a missed advice,
+never a wrong one. The guard exemption (3, last clause) was added after the first sample: it flagged `examples/users.rx`'s
+`status` (`pending? users ? "loading…" : …total…`, `total = len(users)`) and `examples/cart.rx`'s `disabled={pending? cart || count
+=== 0}`, where the read is reached only once the probe said `false`, so no frame can differ.
+
+### Census
+
+Before = 98738e21 (`rx-fix.noindex/base98`, built on the same pin), after = this tree; `census2/run.mjs` as
+"Outside review of 15db0404" ran it (`scripts/matrix.mjs` in chunks of 400): the interpreter, the oracle, both emitters,
+both checkers alike, both lowerings, on both revisions; the filled sets served and hydrated in both emitters, on both
+revisions this time.
+
+| census | result |
+| --- | --- |
+| the review sets: 72 folders, 18,798 programs | **every verdict the same in every folder; nothing newly refused; no program every runner agrees on, before and after, shows something else.** `same` and `lower`: all, both revisions (but `op-o1f`'s 22 whose frames the harness cannot read, as before). No program of the sets has a DV-21 shape: their probes are in handlers (`let k = latest seq + 1`), or read props, view parameters and contexts, in a `{…}` of their own |
+| served and hydrated: 24 folders, 6,185 programs | every verdict the same, both revisions |
+| the advice over the review sets (the reference checker, every program and variant) | **0** of 18,776 files (15,461 programs accepted). Over the 238 scenarios: 6, all the DV-21 shapes and S-posture-1's (S-solid-27's variant, S-solid-49, S-solid-50 and its variant, S-posture-1's program and its own-equation variant) |
+| `examples/`, `std/`, `bench/tasks` (1,670 `.rx`, `rxc check`) | 4, both checkers alike: `cart.rx:21` and `shop/main.rx:9` (`latest discount` beside `subtotal`, which a question and the cart feed), `cart.rx:71` (`orderError`, an action's write, behind `pending? cart`), `signup.rx:55` (`submitted`, an action's write, beside `valid`, which probes). Each names a value the module shows can be held, so none is false; in two of them the program happens to make no frame differ, which the row cannot see: in `cart.rx:71` the action that holds `orderError` also makes `pending? cart` true, and in `signup.rx:55` a held `submitted` is `false` on screen, so `submitted && …` is `false` either way. The first sample also flagged `users.rx`'s `status` and `cart.rx:70`; the guard clause removed them |
+| probes (`probes/dv21`, `dv21b`: 22 programs × interpreter, oracle, both emitters, both servers) | all agree, after the interpreter change; before it, the four split forms differed (the interpreter alone) |
+| scenarios (`scripts/quick`: both checkers and their parity, the interpreter, the oracle, both emitters, served and hydrated, the crate) | all; the oracle's recorded divergences 8 → 4 (DV-21's four rows) |
+| `examples/rx-packages` `check.mjs` | `check.json` unchanged byte for byte; no advice row |
+| the full `scripts/ci`, uncached, with the Vite plugin fork (`SOLID_VITE_PLUGIN`), on the tree before this file's last edit | **48 of 48 passed**, nothing kept from before, no step skipped (470 s) |
+
+Strictness: nothing dropped, nothing refused anew; the change is frames of the interpreter (to Solid's) and one
+advisory row.
+
+### Left, and said
+
+- The advice counts only what the module shows can be held. A prop, a context or an import's value is not counted
+  (a missed advice, never a wrong one), and neither is a closure's read.
+- `cart.rx:71`-like flags: the row cannot see that the action that holds the read also makes the probe true.
+- Solid's own rule documents still say "S-49, S-50 ruled, not built"; the language follows the code and the closed
+  issues. If Solid builds the ruling one day, DV-21 opens again the other way.

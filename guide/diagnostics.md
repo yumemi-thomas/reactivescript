@@ -770,6 +770,46 @@ export default component Todos() {
 }
 ```
 
+### PROBE_BESIDE_HELD_READ
+
+Advice, not an error: the program is accepted and does what Solid does. A computation — an equation, a `{…}`, an
+attribute, an `if` condition, a `for` list, a `loading on(…)` — reads ahead (`latest`, `pending?`, or an equation
+that does) and also reads plainly a value that an open change can hold: a source an action writes, a value that waits
+on a question, or one computed from either. Solid makes a computation that reads ahead anywhere read ahead as a
+whole (R-11): the plain read shows what is on screen, and the computation does not wait for that value's change. The
+same goes for a computation that reads such an equation, and for the pass right after one that probed — so what it
+shows can depend on whether it probed last time, not only on what it reads now.
+
+```rx advice
+import { send } from "./api.js"
+export default component Save() {
+  source n := 0
+  source k := 0
+  action save() { try { n := 5; k := 1; await send() } catch {} }
+  <p>{str(pending? n) + "," + str(k)}</p>    // advice: `true,0` while the action runs — k does not wait
+}
+```
+
+If that is what you want, nothing needs to change. If `k` should wait for its change while the probe shows ahead,
+read the two in computations kept apart up to the screen. An equation of its own for the probe is not enough: what
+reads it reads ahead too.
+
+```rx after
+import { send } from "./api.js"
+export default component Save() {
+  source n := 0
+  source k := 0
+  action save() { try { n := 5; k := 1; await send() } catch {} }
+  <p>{pending? n ? "saving" : "saved"}</p> <p>{k}</p>
+}
+```
+
+For a `loading on(…)`: `on([latest id, filter])` re-arms at once on `id`'s change, `filter` held or not; write
+`on(filter)` (or `on(id)`) for a re-arm that lands with the change. A plain read of the very name the computation
+probes, where the probe is always evaluated (`[pending? x, x]`), is the screen's either way and is not advised; nor is
+a read that only happens once the probe said `false` and can be held only through what it probed (`pending? users ?
+"loading…" : total` with `total = len(users)`).
+
 ## Actions, guesses and holds
 
 ### HELD_WRITE
