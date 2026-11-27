@@ -299,8 +299,8 @@ export class Oracle {
     const classes = this.classValues(c.classes, scope);
     return r.then(v => v, err => { if (!isA(err, classes)) throw err; return { __rxCaught: err }; });
   }
-  private hoistAwaits(name: string | null, e: Expr, scope: Scope, tail = true) {
-    for (const h of nonTailAwaits(e, tail)) {
+  private hoistAwaits(name: string | null, e: Expr, scope: Scope, tail = true, rootCatch = true) {
+    for (const h of nonTailAwaits(e, tail, rootCatch)) {   // rootCatch: an `await … catch` result lowered in place (the eq forms below), else hoisted and settled
       const c = h.caught;
       const lv = h.node.init ? { loadingValue: untrack(() => this.ev(h.node.init!, scope)) } : undefined;
       const m = createMemo(() => {
@@ -399,7 +399,7 @@ export class Oracle {
         }
         case "source": {
           if (d.question) {                                             // ST-5: createSignal(fn) / createOptimistic(fn) / createStore(fn, seed)
-            this.hoistAwaits(d.name, d.init, scope);
+            this.hoistAwaits(d.name, d.init, scope, true, false);
             const compute = this.computeOf(d.name, d.init, scope);
             if (this.optimisticTargets.has(d.name) && this.pathTargets.has(d.name) && this.plainTargets.has(d.name)) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
               const derive = async (draft: any) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; return landDraft(draft, v, d.key); };
@@ -444,7 +444,7 @@ export class Oracle {
           for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x);
           if (scope.givens.get(d.name)?.held) { scope.vars.set(d.name, { k: "memo", get: this.held(d.e, scope) }); break; }
           if (this.foreign(d, scope)) break;
-          if (d.e.k !== "draft") this.hoistAwaits(d.name, d.e, scope);
+          if (d.e.k !== "draft") this.hoistAwaits(d.name, d.e, scope, true, !(this.optimisticTargets.has(d.name) && !d.deferred) && !d.key);
           if (d.e.k === "draft") {                                      // ST-3: createProjection((draft) => …, seed)
             const seedE = d.e.seed; if (seedE.k !== "pre" || seedE.name !== d.name || !seedE.init) throw new Unsupported("draft seed must be `pre self -> seed`");
             const seed = untrack(() => this.ev(seedE.init!, scope));
@@ -480,14 +480,14 @@ export class Oracle {
             const alt = (err: unknown) => { const en = new Map<string, unknown>(); if (c.name) en.set(c.name, err); return this.ev(c.alt, scope, en); };
             const inner = (d.deferred ? createDeferred : createMemo)(((prev: unknown) => { const r0 = compute(prev); const r = r0 instanceof Flight ? r0.first : r0; return r instanceof Promise ? r.then(v => v, err => { if (isA(err, classes)) return { __rxCaught: err }; throw err; }) : r; }) as any, this.loadingValue(c.e, scope) as any);
             const get = createMemo(() => { const v = inner() as unknown; return v !== null && typeof v === "object" && "__rxCaught" in (v as object) ? alt((v as { __rxCaught: unknown }).__rxCaught) : v; });   // R-f-4a: the answer is computed by the reader, outside the await
-            scope.vars.set(d.name, { k: "memo", get });
+            scope.vars.set(d.name, { k: "memo", get, truth: inner } as any);   // AC-4: `refresh` re-asks the inner memo, the flight
             break;
           }
           if (d.e.k === "catch" && !d.deferred) {                      // R-f-4 over a tail await: the equation's flight is an inner memo, read through a boundary
             const c = d.e; const classes = this.classValues(c.classes, scope);
             const inner = createMemo(this.computeOf(d.name, c.e, scope) as any, this.loadingValue(c.e, scope) as any);
             const get = boundaryRead(() => inner(), err => isA(err, classes), err => { const en = new Map<string, unknown>(); if (c.name) en.set(c.name, err); return this.ev(c.alt, scope, en); });
-            scope.vars.set(d.name, { k: "memo", get });
+            scope.vars.set(d.name, { k: "memo", get, truth: inner } as any);   // AC-4: `refresh` re-asks the inner memo
             break;
           }
           const compute = this.computeOf(d.name, d.e, scope);

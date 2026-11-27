@@ -2983,13 +2983,22 @@ class Checker {
   }
   /** AC-4: whether an equation's own expression asks — an `await`, a context, a server fn, or a call the module's text
    *  does not show the inside of (a fn, JavaScript's, a prop's). */
-  private asksItself(e: Expr, env: Env): boolean {
+  private asksItself(e: unknown, env: Env, local: Set<string> = new Set(), seen: Set<Sym> = new Set()): boolean {
     const go = (x: unknown): boolean => {
       if (!x || typeof x !== "object") return false;
       if (Array.isArray(x)) return x.some(go);
       const o = x as { k?: string; f?: Expr };
       if (o.k === "await" || o.k === "use" || o.k === "serverfn") return true;
-      if (o.k === "call" && o.f && (o.f.k === "id" ? !!env.lookup(o.f.name) : this.opaque(o.f, env))) return true;
+      if (o.k === "call" && o.f) {
+        if (o.f.k !== "id") { if (this.opaque(o.f, env)) return true; }
+        else if (local.has(o.f.name)) return true;                                           // a parameter's or a local of a fn's body: what it is, the body does not show
+        else {
+          const t = env.lookup(o.f.name);
+          // AC-4 (2026-11-27, the claims hunt): a fn of this module asks where its body does (`shown = pick(ans)` re-asks nothing)
+          if (t?.kind === "fn" && t.fnDecl && t.declEnv) { if (!seen.has(t)) { seen.add(t); const fd = t.fnDecl; const loc = new Set<string>([...fd.params.map(p => p.name), ...fd.decls.flatMap(d => "name" in d ? [(d as { name: string }).name] : [])]); if (this.asksItself([fd.decls.flatMap(d => d.k === "eq" ? [d.e] : []), fd.tail], t.declEnv, loc, seen)) return true; } }
+          else if (t) return true;
+        }
+      }
       return Object.values(x).some(go);
     };
     return go(e);
@@ -3387,7 +3396,7 @@ class Checker {
           if (s.k === "action") { this.comp("action", env, { name: "(inline)" }, () => this.stmts(s.body, env, { scope: "imperative", inAction: true })); this.actions.push({ name: "(inline)", body: s.body, env, line: this.line }); this.runChecks(s.body, env, true, []); break; }
           if (s.k === "affects") { const t = this.resolve(s.name, env, ctx); this.model.write(t, "affects"); if (t) this.changed.add(t); if (t && !reactiveKinds.has(t.kind)) this.err("INVALID_AFFECTS_TARGET", "AC-5", `${s.name} is not reactive`); break; }
           { const t = this.resolve(s.name, env, ctx); this.model.write(t, "refresh"); if (t) this.changed.add(t); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`);
-            else if (t?.kind === "eq" && !t.imported && t.foreign === undefined && !t.factory && t.expr && t.env && !this.asksItself(t.expr, t.env)) {
+            else if ((t?.kind === "eq" || t?.kind === "source") && !t.imported && t.foreign === undefined && !t.factory && t.expr && t.env && !this.asksItself(t.expr, t.env)) {   // a source with a question too (2026-11-27: `source issues = ans == null ? [] : ans`)
               // AC-4 (2026-11-27): an equation that asks nothing itself re-asks nothing — the question is the one it reads
               const from = this.questionsOf(t, new Set());
               this.err("INVALID_REFRESH_TARGET", "AC-4", from.length ? `${s.name} asks nothing itself: it is computed from ${from.join(", ")}, which ${from.length > 1 ? "ask" : "asks"} — \`refresh ${from[0]}\` re-asks it, and ${s.name} follows` : `${s.name} has no question to re-ask: it awaits nothing, and reads nothing that does`);

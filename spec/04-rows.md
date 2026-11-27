@@ -408,7 +408,14 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
     the catch's answer from that; so nothing is read after an `await` (Solid's
     `UNTRACKED_READ_AFTER_AWAIT`), and no boundary stands between the reader
     and what it reads (05 H-4: the reader of a catch's answer holds as the
-    reader of any answer does). S-fail-9.
+    reader of any answer does). S-fail-9. Wherever the checker takes it —
+    a source with a question (`source x = await f() catch …`), an arm of an
+    equation (`c ? 0 : (await f() catch …)`), an equation a guess sits over,
+    a keyed or deferred one — it is lowered so: only a plain equation's own
+    result has a form in place (an inner memo, the flight, read through a
+    boundary; `refresh` re-asks the inner memo, AC-4); every other is hoisted
+    and settled (2026-11-27: the build had refused them with a compiler's
+    message, after the checker and the editor took them; S-catch-lowered).
     A `catch` after anything but an `await` is `CATCH_NOT_ON_AWAIT` (bin S;
     ruled 2026-11-19, Ryan: "only for things with await"). Principle: a
     failure belongs to its own section. A value that failed is shown by an

@@ -1009,7 +1009,9 @@ export default component App() {
 `refresh x` re-asks `x`'s question (AC-4), so `x` is an equation that awaits or a source declared with `=`. A source
 seeded with `:=` has nothing to re-ask: write it instead. An equation that asks nothing itself has nothing to re-ask
 either: `issues = ans == null ? [] : ans` over `source ans = await … -> null` is computed from the question, so
-refresh that one, `refresh ans` (the message names it).
+refresh that one, `refresh ans` (the message names it). The same holds for a source declared with `=` whose
+expression asks nothing (`source issues = ans == null ? [] : ans`), and for a call of a `fn` whose body asks nothing
+(`shown = pick(ans)`).
 
 ```rx before
 export default component App() {

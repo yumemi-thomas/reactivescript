@@ -1306,10 +1306,13 @@ impl<'p> Gen<'p> {
         let name = d.name().unwrap();
         let b = self.frames[env].vars.get(name).unwrap().clone();
         let mut out = match d {
-            Decl::Source { question: true, init, .. } => self.hoist(Some(name), init, env, true)?,
-            Decl::Eq { e, .. } if !matches!(&e.k, ExprKind::Draft { .. }) => {
+            // (an `await … catch` result is lowered in place only by a plain equation's form, value1's: elsewhere its await is
+            // hoisted and settled)
+            Decl::Source { question: true, init, .. } => self.hoist_in(Some(name), init, env, true, false)?,
+            Decl::Eq { e, key, deferred, .. } if !matches!(&e.k, ExprKind::Draft { .. }) => {
                 self.updater_closure(name, d.line(), e, env);
-                let mut v = self.hoist(Some(name), e, env, true)?;
+                let rc = !self.guessed_eq(name, e, *deferred) && key.is_none() && !*deferred;
+                let mut v = self.hoist_in(Some(name), e, env, true, rc)?;
                 v.append(&mut self.hoist_catches(name, e, env)?);
                 v
             }
@@ -1321,8 +1324,11 @@ impl<'p> Gen<'p> {
     /// 07 §3 / R-1: each `await` that is not the equation's result is its own async memo, asked only while the conditions that
     /// reach it hold (E-11, awaits.rs); the equation reads it where the `await` was.
     fn hoist(&mut self, name: Option<&str>, e: &Expr, env: Env, tail: bool) -> R<Vec<S>> {
+        self.hoist_in(name, e, env, tail, true)
+    }
+    fn hoist_in(&mut self, name: Option<&str>, e: &Expr, env: Env, tail: bool, root_catch: bool) -> R<Vec<S>> {
         let mut out = vec![];
-        for h in non_tail_awaits(e, tail) {
+        for h in crate::awaits::non_tail_awaits_in(e, tail, root_catch) {
             let v = format!("a${}${}", name.unwrap_or(""), self.hoist_seq);
             self.hoist_seq += 1;
             let mut guards = vec![];
@@ -1533,7 +1539,8 @@ impl<'p> Gen<'p> {
                             b.js.clone(),
                             rtc(
                                 "catchMemo",
-                                vec![thunk(read), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&pn], a)],
+                                // AC-4: `refresh` re-asks the inner memo
+                                vec![thunk(read), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&pn], a), id(i.clone())],
                             ),
                         ),
                     ];

@@ -511,6 +511,16 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   nothing (Solid's `refresh` of a memo that awaits nothing), so the message
   names what to refresh, `refresh ans`. It was accepted and did nothing
   (found by an author following guide/async.md §1 then §3). S-check-1.
+  A call of a fn of the module asks where its body does (`shown = pick(ans)`
+  with `fn pick(x) => x` asks nothing); a parameter or a local of a fn's
+  body called there may be anything, and asks. A source with a question is
+  read the same way (`source issues = ans == null ? [] : ans`): both were
+  accepted and re-asked nothing (2026-11-27, the claims hunt). An equation
+  whose answer is caught where it is awaited (`base = await f(id) catch
+  (e) => 0`, R-f-4) is re-asked through its inner flight: the compiled
+  code and the oracle re-ran the catching layer, which asks nothing, so a
+  retry after a caught failure never recovered (the apps hunt; the
+  interpreter re-asked). S-refresh-catch.
   An awaited `refresh x` resolves when the re-ask lands (not in `ref/`).
 - **AC-5 (affects).** `affects x`, in imperative scope anywhere, declares
   that work now in flight will change `x`: `pending? x` is `true` until

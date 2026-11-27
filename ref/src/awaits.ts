@@ -12,7 +12,10 @@ export type HoistedCatch = { node: Extract<Expr, { k: "catch" }>; guards: Guard[
 
 /** `tail = false`: every await of `root` — a reader of a view, an effect's input or a provision, whose expression is not an
  *  equation's own memo, so even its result-position `await` is a flight of its own (07 §3). */
-export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
+/** `rootCatch = false` (2026-11-27): `root` is a `catch` whose await the caller does not lower in place (a question source's, a
+ *  guessed, keyed or deferred equation's) — it is hoisted and settled as a nested one is. A `catch` that is not `root` (inside
+ *  an `if` arm: `c ? 0 : (await f() catch (e) => -1)`) always is: only an equation's own result has the in-place form. */
+export function nonTailAwaits(root: Expr, tail = true, rootCatch = true): Hoisted[] {
   const out: Hoisted[] = [];
   const walk = (x: Expr, tail: boolean, g: Guard[], caught?: Extract<Expr, { k: "catch" }>): void => {
     switch (x.k) {
@@ -25,7 +28,7 @@ export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
         else if (x.op === "??") walk(x.r, false, [...g, { e: x.l, nullish: true }]);
         else walk(x.r, false, g);
         return;
-      case "catch": walk(x.e, tail, g, x.e.k === "await" ? x : undefined); walk(x.alt, false, g); return;
+      case "catch": walk(x.e, tail && x === root && rootCatch, g, x.e.k === "await" ? x : undefined); walk(x.alt, false, g); return;
       case "fn": case "draft": return;                                  // a closure's body runs later; a draft's statements are its own
       default:
         for (const v of Object.values(x as object)) {

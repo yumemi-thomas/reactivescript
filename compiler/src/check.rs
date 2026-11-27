@@ -8067,21 +8067,49 @@ impl<'a> Checker<'a> {
     /// AC-4: whether an equation's own expression asks — an `await`, a context, a server fn, or a call the module's text
     /// does not show the inside of (a fn, JavaScript's, a prop's).
     fn asks_itself(&self, n: Node, env: EId) -> bool {
+        self.asks_in(n, env, &HashSet::new(), &mut vec![])
+    }
+    /// `local`: a fn body's parameters and locals — what they are, the body does not show; `seen`: the fns entered
+    fn asks_in(&self, n: Node, env: EId, local: &HashSet<String>, seen: &mut Vec<SId>) -> bool {
         if let Node::E(e) = n {
             match &e.k {
                 ExprKind::Await { .. } | ExprKind::Use(_) | ExprKind::ServerFn { .. } => return true,
-                ExprKind::Call { f, .. } => {
-                    if match &f.k {
-                        ExprKind::Id(n) => self.lookup(env, n).is_some(),
-                        _ => self.opaque(f, env, 0),
-                    } {
-                        return true;
+                ExprKind::Call { f, .. } => match &f.k {
+                    ExprKind::Id(n) if local.contains(n) => return true,
+                    ExprKind::Id(n) => {
+                        if let Some(t) = self.lookup(env, n) {
+                            // AC-4 (2026-11-27, the claims hunt): a fn of this module asks where its body does
+                            if let (SymKind::Fn, Some(Decl::Fn { params, decls, tail, .. }), Some(de)) = (self.syms[t].kind, self.syms[t].fn_decl, self.syms[t].decl_env) {
+                                if !seen.contains(&t) {
+                                    seen.push(t);
+                                    let mut loc: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+                                    for d in decls {
+                                        if let Some(n) = d.name() {
+                                            loc.insert(n.to_string());
+                                        }
+                                    }
+                                    let body = decls.iter().filter_map(|d| if let Decl::Eq { e, .. } = d { Some(e) } else { None }).chain(std::iter::once(tail));
+                                    for x in body {
+                                        if self.asks_in(Node::E(x), de, &loc, seen) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            } else {
+                                return true;
+                            }
+                        }
                     }
-                }
+                    _ => {
+                        if self.opaque(f, env, 0) {
+                            return true;
+                        }
+                    }
+                },
                 _ => {}
             }
         }
-        children(n, true).into_iter().any(|c| self.asks_itself(c, env))
+        children(n, true).into_iter().any(|c| self.asks_in(c, env, local, seen))
     }
     /// …the questions an equation that asks nothing is computed from: the sources with a question and the equations that
     /// ask, through the equations between.
@@ -9217,7 +9245,8 @@ impl<'a> Checker<'a> {
                             let k = self.syms[t].kind;
                             if !(k == SymKind::Eq || (k == SymKind::Source && self.syms[t].question)) {
                                 self.err("INVALID_REFRESH_TARGET", "AC-4", format!("{} has no question to re-ask", name));
-                            } else if k == SymKind::Eq && self.syms[t].imported.is_none() && self.syms[t].foreign.is_none() && self.syms[t].factory.is_none() {
+                            } else if (k == SymKind::Eq || k == SymKind::Source) && self.syms[t].imported.is_none() && self.syms[t].foreign.is_none() && self.syms[t].factory.is_none() {
+                                // (a source with a question too, 2026-11-27: `source issues = ans == null ? [] : ans`)
                                 // AC-4 (2026-11-27): an equation that asks nothing itself re-asks nothing — the question is the one it reads
                                 if let Some((x, xe)) = self.syms[t].expr.filter(|&(x, xe)| !self.asks_itself(Node::E(x), xe)) {
                                     let _ = (x, xe);

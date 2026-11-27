@@ -504,7 +504,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** An imperative read sees σ (H-10): a pending value is a value; a snapshot of an error throws it (R-f-7). */
     snapshot(get: Acc) { return untrack(get); },   // H-10: the committed value; R-8a: of a value that has never had one it throws, as `latest` does (R-12; Solid F-9: nothing to serve) — it handed Solid's pending mark on, and `got := x + "!"` wrote `#pending!`
     // ---- failures (R-f) ----
-    errorClass, isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
+    errorClass, isA, PANIC, tryCatch, catchRead,
+    /** R-f-4 over a tail await: the boundary an equation is read through; `truth`, the inner memo that asks — what `refresh` re-asks (AC-4) */
+    catchMemo: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown, truth?: Acc) => { const acc = catchAcc(f, match, alt) as Acc; if (truth) truthOf.set(acc, truth); return acc; },
     throw: (e: unknown): never => { throw e; },
     eq: storeEq,
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),

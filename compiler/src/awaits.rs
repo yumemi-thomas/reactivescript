@@ -29,20 +29,26 @@ fn with<'a>(g: &[Guard<'a>], x: Guard<'a>) -> Vec<Guard<'a>> {
 /// `tail = false`: every await of `root` — a reader of a view, an effect's input or a provision, whose expression is not an
 /// equation's own memo, so even its result-position `await` is a flight of its own (07 §3).
 pub fn non_tail_awaits(root: &Expr, tail: bool) -> Vec<Hoisted<'_>> {
+    non_tail_awaits_in(root, tail, true)
+}
+/// `root_catch = false` (2026-11-27): `root` is a `catch` whose await the caller does not lower in place (a question source's,
+/// a guessed, keyed or deferred equation's) — hoisted and settled as a nested one is. A `catch` that is not `root` always is
+/// (`nonTailAwaits` in `ref/src/awaits.ts`).
+pub fn non_tail_awaits_in(root: &Expr, tail: bool, root_catch: bool) -> Vec<Hoisted<'_>> {
     let mut out = vec![];
-    walk(Node::E(root), tail, &[], &mut out, None);
+    walk(Node::E(root), tail, &[], &mut out, None, (root, root_catch));
     out
 }
 
-fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>, caught: Option<&'a Expr>) {
+fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>, caught: Option<&'a Expr>, root: (&'a Expr, bool)) {
     let g0 = |e| Guard { e, neg: false, nullish: false };
     if let Node::E(x) = n {
         match &x.k {
             ExprKind::Await { e, init, .. } => {
                 // one inside another's question first: the outer one reads it
-                walk(Node::E(e), false, g, out, None);
+                walk(Node::E(e), false, g, out, None, root);
                 if let Some(i) = init {
-                    walk(Node::E(i), false, g, out, None);
+                    walk(Node::E(i), false, g, out, None, root);
                 }
                 if !tail {
                     out.push(Hoisted { node: x, guards: g.to_vec(), caught });
@@ -50,25 +56,25 @@ fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>
                 return;
             }
             ExprKind::If { c, t, f } => {
-                walk(Node::E(c), false, g, out, None);
-                walk(Node::E(t), tail, &with(g, g0(c)), out, None);
-                walk(Node::E(f), tail, &with(g, Guard { e: c, neg: true, nullish: false }), out, None);
+                walk(Node::E(c), false, g, out, None, root);
+                walk(Node::E(t), tail, &with(g, g0(c)), out, None, root);
+                walk(Node::E(f), tail, &with(g, Guard { e: c, neg: true, nullish: false }), out, None, root);
                 return;
             }
             ExprKind::Bin { op, l, r } => {
-                walk(Node::E(l), false, g, out, None);
+                walk(Node::E(l), false, g, out, None, root);
                 match op.as_str() {
-                    "&&" => walk(Node::E(r), false, &with(g, g0(l)), out, None),
-                    "||" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: true, nullish: false }), out, None),
-                    "??" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: false, nullish: true }), out, None),
-                    _ => walk(Node::E(r), false, g, out, None),
+                    "&&" => walk(Node::E(r), false, &with(g, g0(l)), out, None, root),
+                    "||" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: true, nullish: false }), out, None, root),
+                    "??" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: false, nullish: true }), out, None, root),
+                    _ => walk(Node::E(r), false, g, out, None, root),
                 }
                 return;
             }
             ExprKind::Catch { e, alt, .. } => {
                 let takes = matches!(e.k, ExprKind::Await { .. }).then_some(x);
-                walk(Node::E(e), tail, g, out, takes);
-                walk(Node::E(alt), false, g, out, None);
+                walk(Node::E(e), tail && std::ptr::eq(x, root.0) && root.1, g, out, takes, root);
+                walk(Node::E(alt), false, g, out, None, root);
                 return;
             }
             // a closure's body runs later; a draft's statements are its own
@@ -77,7 +83,7 @@ fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>
         }
     }
     for c in children(n, false) {
-        walk(c, false, g, out, None);
+        walk(c, false, g, out, None, root);
     }
 }
 

@@ -353,15 +353,16 @@ class Gen {
     }
     const b = env.vars.get((d as { name: string }).name)!;
     if (d.k === "eq" && d.e.k !== "draft") this.updaterClosure(d.name, d.line, d.e, env);
-    const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad) : d.k === "eq" && d.e.k !== "draft" ? [this.hoist(d.name, d.e, env, pad), this.hoistCatches(d.name, d.e, env, pad)].filter(Boolean).join("\n") : "";
+    // (an `await … catch` result is lowered in place only by a plain equation's form, value1's: elsewhere its await is hoisted and settled)
+    const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad, true, false) : d.k === "eq" && d.e.k !== "draft" ? [this.hoist(d.name, d.e, env, pad, true, !this.guessedEq(d) && !d.key && !d.deferred), this.hoistCatches(d.name, d.e, env, pad)].filter(Boolean).join("\n") : "";
     if (hoist) return hoist + "\n" + this.value1(d, env, ind, b);
     return this.value1(d, env, ind, b);
   }
   /** 07 §3 / R-1: each `await` that is not the equation's result is its own async memo, asked only while the conditions that
    *  reach it hold (E-11, ref/src/awaits.ts); the equation reads it where the `await` was. */
   private hoisted = new Map<Expr, string>(); private hoistSeq = 0; private settled = new Map<Expr, string>();
-  private hoist(name: string | null, e: Expr, env: Env, pad: string, tail = true): string {
-    return nonTailAwaits(e, tail).map(h => {
+  private hoist(name: string | null, e: Expr, env: Env, pad: string, tail = true, rootCatch = true): string {
+    return nonTailAwaits(e, tail, rootCatch).map(h => {
       const v = `a$${name ?? ""}$${this.hoistSeq++}`;
       const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
       const body0 = this.expr(h.node.e, env, { imp: false, tail: true }); const body1 = h.node.stream ? body0 : `__rt.awaited(${body0})`;
@@ -425,7 +426,7 @@ class Gen {
       const c = d.e; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
       const x = this.expr(c.e, env, { imp: false, tail: true, self: d.name }); const m = `(__e) => __rt.isA(__e, ${this.classes(c.classes, env)})`, a = `(${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })}`;
       const body = c.e.k === "await" ? `__rt.settle(() => ${x}, ${m})` : x;                       // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary; the answer is computed by its reader (R-f-4a)
-      return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${body}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchMemo(() => ${c.e.k === "await" ? `__rt.caught(i$${d.name}(), ${a})` : `i$${d.name}()`}, (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});${reg}`;
+      return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${body}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchMemo(() => ${c.e.k === "await" ? `__rt.caught(i$${d.name}(), ${a})` : `i$${d.name}()`}, (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })}, i$${d.name});${reg}`;   // AC-4: `refresh` re-asks the inner memo
     }
     const fn = d.deferred ? "deferred" : "memo";
     return `${pad}const ${b.js} = __rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(d.e, env)});${reg}`;
