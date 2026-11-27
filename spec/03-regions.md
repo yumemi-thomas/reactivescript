@@ -154,7 +154,24 @@ A component is a function from a props value to a region whose tail is a view.
   for every runner (`str(props.children)` was accepted, and the interpreter
   showed `#error` where compiled code threw; `{if props.children { …
   {props.children} … }}` of markup failed to hydrate). A spread of the whole
-  props does not count as giving them on (`<input {...props} />`). A type the
+  props onto an element is not refused for them (`<input {...props} />`), and
+  gives them on as Solid's spread does: they are the element's content where
+  it writes none of its own (07 §4; the interpreter and the oracle showed
+  nothing there, 2026-11-27). *Children that are a value (2026-11-27).* Two
+  cases are not a view. Children declared a value's type that is read —
+  `number`, and now a list, a record or a function of such types (`children:
+  number[]`, `children: (x: number) => number`) — are the value written
+  between the tags, the one `{…}` or the text, given as it is and not as
+  content to show (`len(props.children)` over `{[1, n]}` is 2: it was 5, the
+  length of the text it was formatted to, and 0 in the interpreter). And
+  children nobody declares, in a component the module does not export, that
+  the component uses as a value (it calls them, gives them to an attribute,
+  computes with them) where every application of it — all in this module —
+  gives a value between the tags (one `{…}`, text alone, nothing), are that
+  value, as before W4: `<Each>{(x: number) => x * n}</Each>` with
+  `props.children(2)` (W4 refused it; every runner agreed on it). Where a
+  caller is not seen (an exported component) or gives markup, W4 stands, and
+  the component says what its children are. A type the
   checkers do not read (an alias imported from JavaScript) is left as it was:
   its children may be a function of state the component hands to its own
   JavaScript. A component only shows a view it is

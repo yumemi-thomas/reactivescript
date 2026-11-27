@@ -286,9 +286,12 @@ class Proj {
       const key = this.modPath(d.from) + ".ts"; let s = this.jsStubs.get(key); if (!s) this.jsStubs.set(key, (s = new Set())); for (const n of rest) s.add(n.name); from = d.from;
     }
     void names; void dflt;
-    const parts = rest.filter(n => n.name !== "default").map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);
-    const def = rest.find(n => n.name === "default")?.alias;
-    this.w.emit(`${ind}import ${def ? def + (parts.length ? ", " : "") : ""}${parts.length ? `{ ${parts.join(", ")} }` : ""} from "${from}";`, d.line);
+    // MO-6e: a name the module also imports to use it (`import { A }` beside `export { A }`) is bound by that import
+    const plain = new Set(d.reexport ? (this.set.programs.get(this.path)?.decls ?? []).flatMap(x => x.k === "import" && !x.reexport ? x.names.map(n => n.alias) : []) : []);
+    const mine = rest.filter(n => !plain.has(n.alias));
+    const parts = mine.filter(n => n.name !== "default").map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);
+    const def = mine.find(n => n.name === "default")?.alias;
+    if (def || parts.length) this.w.emit(`${ind}import ${def ? def + (parts.length ? ", " : "") : ""}${parts.length ? `{ ${parts.join(", ")} }` : ""} from "${from}";`, d.line);
     if (d.reexport) this.w.emit(`${ind}export { ${rest.map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`).join(", ")} } from "${from}";`, d.line);   // MO-6e: a package's entry, as TypeScript reads it
   }
   /** A JS import's module, from the program's root (where the stubs are written). */

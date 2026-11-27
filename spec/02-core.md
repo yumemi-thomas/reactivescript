@@ -127,7 +127,13 @@ Function application `f(e…)` covers both language functions and FFI imports;
   A JavaScript component is what its declaration says (09 MO-10g):
   `handler` on the prop's type; with no declaration, `ref` is no handler.
   S-view-10.
-- **SC-4c What a `ref` reads (2026-11-26, revised the same day).** A `ref`'s
+- **SC-4c What a `ref` reads (2026-11-26, revised the same day; 2026-11-27).**
+  *A `ref` reads the values its element was made with.* For an element made
+  under a hold (an `if` branch or a row a held change opens) those are the
+  hold's values, and what its `ref` writes is the hold's: it shows when the
+  element does, and a branch the hold drops never calls it (Solid's rule,
+  #4767, kept by #5110; S-hold-8). A `ref`'s write at the mount is in the
+  mount's frame, before an effect's (EF-2). Otherwise a `ref`'s
   closure is a handler's (SC-4), and reads the screen as a handler does
   (H-10): the `ref`s of the elements one pass makes — on an element, or given
   to a component written in `.rx` (SC-4b), in a `for` row, an `if`, a view
@@ -136,10 +142,13 @@ Function application `f(e…)` covers both language functions and FFI imports;
   the elements; a region those writes make (an `if` that becomes true) is a
   later pass, whose `ref`s read them. So `made := made + 1` in each row of a
   `for` counts one, and `made := m => m + 1` counts the rows (W-6: functional
-  writes compose). Nothing is refused. This is Solid's behaviour until
-  2.0.0-rc.21, rendered and hydrated alike; Solid since rc.22 shows an earlier
-  `ref`'s write to a `ref` in a row or an `if` when rendering, and to one in
-  an `if` when hydrating, rebuilding it (10 DV-28: Solid's bug, not followed).
+  writes compose). Nothing is refused. Solid makes a `for` row, and an `if`
+  or a view block written after the writer, in a later pass of the same
+  frame, so its `ref` there reads the write (deliberate: #4768, a `ref`
+  reads what its element was built for — the same principle, over Solid's
+  own order of passes, which the language does not transcribe: 10 DV-28a);
+  hydrating, Solid reads the screen in a row and rebuilds an `if` (10
+  DV-28b: Solid's bug).
   What depends on two `ref`s' elements is read once the view is made — an
   equation, an effect — and is the same on every Solid. S-server-8.
   (A first version refused such a read, `REF_READS_REF_WRITE`, because

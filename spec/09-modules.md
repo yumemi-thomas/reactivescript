@@ -176,7 +176,12 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   declared by its declaration file and imported); a name re-exported twice
   under one alias is `DUPLICATE_DECLARATION`, as two imports of one name are
   (2026-11-26: the second was taken in silence); a cycle of re-exports is
-  `MODULE_CYCLE`. S-module-50.
+  `MODULE_CYCLE`. *Used here and given on (2026-11-27):* `import { A } from
+  "./a.rx"` beside `export { A } from "./a.rx"` is one binding — both name
+  one export of one module under one name (it was `DUPLICATE_DECLARATION`,
+  whose message told the author to rename what is the same thing). Under
+  two names, or from two modules, it is still a duplicate, and the message
+  says which. S-module-50.
 - **MO-6f (A package's entry that re-exports; 2026-11-26).** A module's
   printed signature (MO-3) says where each name it re-exports is declared,
   `export { ThemeProvider as Root, theme } from "../theme.rx"`, by the path

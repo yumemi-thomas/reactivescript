@@ -33,8 +33,6 @@ const ANSWERS_PLAIN = new Set(["push", "unshift", "includes", "indexOf", "lastIn
   "toFixed", "toPrecision", "toString", "toLocaleString", "hasOwnProperty"]);
 /** A method of plain data, by name (MO-10i's lists): what a value of a shape that is not known is called with. */
 const plainMethod = (m: string) => DRAFT_METHODS.has(m) || DRAFT_CALLBACKS.has(m);
-/** The language's functions that answer a primitive (`names.ts`). */
-const SCALAR_FNS = new Set(["len", "str", "sum", "every", "indexOf"]);
 const DRAFT_CALLBACKS = new Set(["forEach", "map", "filter", "find", "findIndex", "findLast", "findLastIndex", "some", "every", "flatMap", "reduce", "reduceRight", "sort", "toSorted"]);
 /** W-1a: an Array's methods that change it in place. */
 const ARRAY_MUTATORS = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]);
@@ -112,7 +110,7 @@ export function calledPaths(d: { params: { name: string }[]; decls: Decl[]; tail
         const o = x.f.k === "member" ? x.f.o : x.args[0], rest = x.f.k === "member" ? x.args : x.args.slice(1);
         if (m !== undefined && o && ITEM_OF.has(m)) return all(pathsOf(o, names), "*");
         if (m !== undefined && o && SAME_ITEMS.has(m)) { all(pathsOf(o, names)); if (GIVEN_ITEMS.has(m)) for (const a of rest) all(pathsOf(a, names), "?"); return r; }
-        if (m !== undefined && (ANSWERS_PLAIN.has(m) || (x.f.k === "id" && SCALAR_FNS.has(m)))) return r;
+        if (m !== undefined && (ANSWERS_PLAIN.has(m) || (x.f.k === "id" && scalar(m, false)))) return r;
         return mentions(x, names, r);
       }
       case "lit": case "tpl": case "un": case "pending": case "throw": case "stylemap": case "serverfn": case "use": return r;
@@ -2553,7 +2551,7 @@ class Checker {
             if (cb.k === "fn" && !cb.stmts) { const b = this.actionParts(cb.body, this.closureEnv(cb, env, [[...items()]], cl), cl); add(b, "*"); if (m === "flatMap") add(partsAt(b, "*"), "*"); return out; }
             add(partsAt(go(cb), "()"), "*"); return items().size ? out.add("?") : out;
           }
-          if (ANSWERS_PLAIN.has(m) || (f.k === "id" && SCALAR_FNS.has(m))) return out;
+          if (ANSWERS_PLAIN.has(m) || (f.k === "id" && scalar(m, false))) return out;
         }
         if (f.k === "id" && (!fs || this.opaque(f, env))) return out;         // the language's, JavaScript's, an action's: its declaration says
         add(partsAt(go(f), "()"));

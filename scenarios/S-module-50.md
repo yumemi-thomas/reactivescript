@@ -65,3 +65,21 @@ import { sel } from "./kit/index.rx"
 import { sel } from "./kit/root.rx"
 export default component App() { <p>{(use sel).value}</p> }
 ```
+
+```rx
+-- reject: DUPLICATE_DECLARATION
+import { sel } from "./kit/root.rx"
+export { Root as sel } from "./kit/root.rx"
+export default component App() { <p>x</p> }
+```
+
+## Accepted variants
+
+A name used here and given on: one export of one module, under one name.
+
+```rx
+-- accept
+import { sel } from "./kit/root.rx"
+export { sel } from "./kit/root.rx"
+export default component App() { <p>{(use sel).value}</p> }
+```

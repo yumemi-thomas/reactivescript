@@ -489,6 +489,13 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   (S-solid-27's second equation variant), and an equation that probed once
   publishes the plain write that re-ran it beside the held value (S-solid-50
   instant 2: `m 2 k 1`). The spec frames are Solid's ruled ones.
+  *Memo (2026-11-27).* Still so on Solid main 50a4bfdde and on 2.0.4, in
+  plain Solid in a browser (`rx-review.noindex/solid-check`, `dv-21`): S-49
+  shows `p1 [fallback]` where the ruling says `p1 c1`, S-50 `m 2 k 1` where
+  it says `m 2 k 0`; Solid's own tests for both are `it.fails`. Its two
+  issues, solidjs/solid#4698 and #4699, were closed as not planned on
+  2026-11-06 with no comment. The ruled frames are kept; whether Solid still
+  holds the ruling is a question for its maintainers.
 - **DV-22 (`pending?` under a new question under a guess) — Solid's ruling,
   not built** (#4695, S-44). An outside input change under a guess reads
   `pending? x` `false` (S-solid-44 instant 3); the ruled verdict is `true`.
@@ -498,6 +505,12 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   `disabled={pending? x}` there does not disable (found by the eval board,
   2026-11-14: `eval/results/r15prep/repro/pending-probe-inside-held-region.*`,
   plain Solid in its `.spec.tsx`).
+  *Memo (2026-11-27).* The core fault still reproduces on Solid main
+  50a4bfdde and on 2.0.4 (`rx-review.noindex/solid-check`, `dv-22`): S-44
+  shows `3 9 9 false` where the ruling says `true`, and Solid's test is
+  `it.fails`. The held-region symptom no longer does: `disabled={pending? x}`
+  inside a `loading on(sel)` region disables on both versions, and the probe
+  outside reads the same — the eval repro of 2026-11-14 is fixed.
 - **DV-23 (a born-held branch under a display-ahead condition) — Solid's
   ruling, built in 2.0.0-rc.22, no longer recorded** (#4695, decision 4: D-1; S-46's plain row). A branch a
   probe opens whose content read the held write plainly attaches with its

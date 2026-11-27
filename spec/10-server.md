@@ -340,7 +340,25 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   30e7805eb, `1/2/5`). Released 2.0.4 and earlier still have it.
 
 - **DV-28 (a `ref` reads an earlier `ref`'s write in the same pass) —
-  Solid's, a regression in 2.0.0-rc.22, 2026-11-26** (S-server-8; the
+  two things, split 2026-11-27.** *DV-28a, rendered — Solid's rule, at a
+  grain the language does not transcribe.* #4768 is deliberate (agreed with
+  Solid's maintainer): a `ref` runs in the pass that builds its element and
+  reads what the element was built for; #5110 (ruling of 2026-11-20) makes
+  its other reads the screen's and keeps #4767's (a `ref` born into a hold
+  reads the hold's values). 02 SC-4c states that principle and follows both
+  halves a program can name: the hold's values for an element made under a
+  hold, the screen for the elements one pass makes. What is left differs
+  only in *which pass* makes a nested region: Solid makes a `<For>` row, and
+  a `<Show>` written after the writer, after the writer's write has landed,
+  and a `<Show>` written before it in the writer's own pass — an order of
+  its compiler's output and of `lowerShow`, not of the program. The
+  interpreter makes the regions of one instant together. Recorded as an
+  `oracle` divergence, not as a bug. *DV-28b, hydrated — Solid's bug*: a
+  row's `ref` reads the screen where the same row rendered reads the write,
+  and a `<Show>`'s served content is thrown away and made again, its `ref`
+  called twice (draft 5). Recorded as a `hydrated` divergence. The text
+  below is the record of 2026-11-26, which took both for one regression:
+  Solid's, a regression in 2.0.0-rc.22, 2026-11-26 (S-server-8; the
   plain-Solid issue is drafted, not posted:
   `solid-main.noindex/drafts/5-hydration-rebuilds-show`, which supersedes
   draft 4). A `ref` reads the screen as the pass found it (02 SC-4c), as

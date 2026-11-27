@@ -766,8 +766,15 @@ impl Proj<'_> {
             }
         }
         let mut at = sp.start as usize;
-        let def = rest.iter().find(|n| n.name == "default").map(|n| self.name(&n.alias, sp, &mut at));
-        let parts: Vec<Code> = rest
+        // MO-6e: a name the module also imports to use it (`import { A }` beside `export { A }`) is bound by that import
+        let plain: HashSet<String> = if *reexport {
+            self.set.programs.get(self.path).map(|p| p.decls.iter().flat_map(|x| match x { Decl::Import { names, reexport: false, .. } => names.iter().map(|n| n.alias.clone()).collect::<Vec<_>>(), _ => vec![] }).collect()).unwrap_or_default()
+        } else {
+            HashSet::new()
+        };
+        let mine: Vec<&ImportName> = rest.iter().copied().filter(|n| !plain.contains(&n.alias)).collect();
+        let def = mine.iter().find(|n| n.name == "default").map(|n| self.name(&n.alias, sp, &mut at));
+        let parts: Vec<Code> = mine
             .iter()
             .filter(|n| n.name != "default")
             .map(|n| {
@@ -791,10 +798,13 @@ impl Proj<'_> {
         // (TY-4c: `x.rx.d.ts`, beside it), so its specifier is that module's, and maps nowhere
         // MO-6e: a package's entry, as TypeScript reads it
         let again = reexport.then(|| format!("{ind}export {{ {} }} from ", rest.iter().map(|n| if n.name == n.alias { n.name.clone() } else { format!("{} as {}", n.name, n.alias) }).collect::<Vec<_>>().join(", ")));
+        let bound = !mine.is_empty();
         if let (Some(r), false) = (resolved, crate::modules::is_rx(from)) {
             let spec = js_str(&crate::modules::relative_module(&self.path, r));
             c = c.t(" from ").t(&spec).t(";");
-            self.w.emit(c, *line);
+            if bound {
+                self.w.emit(c, *line);
+            }
             if let Some(a) = again {
                 self.w.emit(Code::of(&a).t(&spec).t(";"), *line);
             }
@@ -803,7 +813,9 @@ impl Proj<'_> {
         let q = js_str(from);
         let fa = self.find(&q[1..q.len() - 1], sp, at).map(|a| a - 1).filter(|a| self.src[*a..].starts_with(&q));
         c = c.t(" from ").at(&q, fa).t(";");
-        self.w.emit(c, *line);
+        if bound {
+            self.w.emit(c, *line);
+        }
         if let Some(a) = again {
             self.w.emit(Code::of(&a).t(&q).t(";"), *line);
         }

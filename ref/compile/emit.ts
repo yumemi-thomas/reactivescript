@@ -6,7 +6,7 @@
 import { inPrelude, language, scalar } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { instantiates, keptParts, localsOf, ownUses, usesNow } from "../src/ast.ts";
-import { singleModule, isRx, madeComponent, ViewProps, typeOnly, given, defaulted, bindGiven, viewsOf, viewCtx, shownIn, usedIn, shown, typesOf, type Given, type ModuleSet } from "../src/modules.ts";
+import { singleModule, isRx, madeComponent, ViewProps, typeOnly, given, defaulted, bindGiven, viewsOf, viewCtx, shownIn, usedIn, shown, typesOf, takesView, type Given, type ModuleSet } from "../src/modules.ts";
 export { madeComponent };
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
@@ -183,7 +183,12 @@ class Gen {
   depVar(path: string) { return `__m${this.modIndex(path)}`; }
   /** An imported name's binding, from the exporting module's declaration (MO-3: a source is read-only here, so an accessor). */
   /** RG-4c: a component whose children are a view or plain content. */
-  private plain(d: Extract<Decl, { k: "component" }>, path: string): { plain?: true } { return shown(d, typesOf(this.mods?.set, path)).get("children")?.mixed ? { plain: true } : {}; }
+  private plain(d: Extract<Decl, { k: "component" }>, path: string): { plain?: true; kidsValue?: true } {
+    const types = typesOf(this.mods?.set, path);
+    // RG-4c: children that are a value — declared a value's type (`children: number[]`), or used as one where every caller
+    // gives one (`kidsValue`) — are given as the value written between the tags, not as content to show
+    return { ...(shown(d, types).get("children")?.mixed ? { plain: true as const } : {}), ...(d.kidsValue || takesView(d.propsType, types, "children", d.tparams) === false ? { kidsValue: true as const } : {}) };
+  }
   /** Whether `name` is a type of the module at `path` (it binds nothing). */
   isType(path: string, name: string): boolean { return !!this.mods!.set.programs.get(path)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(path)?.exports.get(name)?.kind === "type"; }
   /** MO-6e: the JavaScript name an imported name is bound to. */
@@ -792,7 +797,8 @@ class Gen {
   }
   /** RG-4c: a component's content, a block of the caller's names that is made where it is shown. One `{e}` that asks
    *  nothing of its place (no `use`, no `await`), or is one closure, is given as the value it is: a function prop is one. */
-  private content(kids: Markup[], env: Env, ind: number): string {
+  private content(kids: Markup[], env: Env, ind: number, value = false): string {
+    if (value && kids.length === 1 && kids[0].k === "read") return `{${this.expr(kids[0].e, env, { imp: false })}}`;   // children that are a value: the value
     if (kids.length === 1 && kids[0].k === "read" && (kids[0].e.k === "fn" || !placed(kids[0].e))) return this.child(kids[0], env, ind);
     return `{__rt.slot(${this.regionFn([], kids, env, ind)})}`;   // asked whether it was given, it is not made
   }
@@ -825,7 +831,7 @@ class Gen {
           const props = attrs + named.map(v => ` ${v.prop}={${this.regionFn(v.decls, v.body, env, ind + 1, b.shape === "comp" ? v.params.map(mg).join(", ") : viewParam(v), e => { for (const p of v.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}`).join("");
           const view = b.shape === "comp" ? undefined : kids.length === 1 && kids[0].k === "mview" ? kids[0] : kids.length && "plain" in b && b.plain ? { k: "mview" as const, params: [], decls: [], body: kids } : undefined;   // RG-4c: what is given as plain content where a view is taken is one that asks nothing
           if (view) return `<${b.js}${props}>{${this.regionFn(view.decls, view.body, env, ind + 2, viewParam(view), e => { for (const p of view.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}</${b.js}>`;
-          return kids.some(c => c.k !== "text" || c.s.trim()) ? `<${b.js}${props}>${this.content(kids, env, ind + 1)}</${b.js}>` :   // RG-4c: content is a block of the caller's names, made and owned where it is shown
+          return kids.some(c => c.k !== "text" || c.s.trim()) ? `<${b.js}${props}>${this.content(kids, env, ind + 1, !!(b as { kidsValue?: boolean }).kidsValue)}</${b.js}>` :   // RG-4c: content is a block of the caller's names, made and owned where it is shown
             kids.length ? `<${b.js}${props}>${kids.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : `<${b.js}${props} />`;   // MO-11: a JS component gets JSX's own <X />
         }
         let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");

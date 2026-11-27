@@ -1674,8 +1674,6 @@ fn answers_plain(m: &str) -> bool {
 fn plain_method(m: &str) -> bool {
     DRAFT_METHODS.contains(&m) || DRAFT_CALLBACKS.contains(&m)
 }
-/// The language's functions that answer a primitive (`names.rs`).
-const SCALAR_FNS: [&str; 5] = ["len", "str", "sum", "every", "indexOf"];
 fn is_index(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit())
 }
@@ -1975,7 +1973,7 @@ pub fn called_paths_of(params: &[String], decls: &[Decl], tail: &Expr, i: usize,
                                 }
                             }
                         }
-                        (Some(m), _) if answers_plain(m) || (id && SCALAR_FNS.contains(&m)) => {}
+                        (Some(m), _) if answers_plain(m) || (id && scalar(m, false)) => {}
                         _ => self.mentions(x, names, &mut r),
                     }
                 }
@@ -7286,7 +7284,7 @@ impl<'a> Checker<'a> {
                             }
                             return out;
                         }
-                        if answers_plain(m) || (!member && SCALAR_FNS.contains(&m)) {
+                        if answers_plain(m) || (!member && scalar(m, false)) {
                             return out;
                         }
                     }

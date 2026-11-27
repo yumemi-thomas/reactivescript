@@ -50,7 +50,7 @@ component P(props) {
   c = props.children
   <b>{str(c)}</b>
 }
-export default component App() { <P>x</P> }
+export default component App() { <P><i>x</i></P> }
 ```
 
 ```rx

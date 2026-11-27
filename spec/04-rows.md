@@ -54,6 +54,40 @@ and where they may not go.
   `[inc].map((g) => g)`, `len([inc])`, a fn that keeps its parameter. Open:
   an io value inside a value whose type is not read (a prop typed `any`),
   and one given to JavaScript that calls it at once (bugs/05). S-check-6.
+  **R-io-3d** *The fact follows the value (2026-11-27).* What a value holds
+  is a fact about the value, whatever form made it: the checkers read every
+  form of an expression, and a form they do not read gives the value
+  everything it was made from. The forms that are read keep the paths: a
+  name, a field, an item (an index that is not written out is any item, a
+  key that is not written out any field), a list or record literal with its
+  spreads (a spread adds, it removes nothing), a choice, `??` `||` `&&`,
+  `latest`, `peek`, a `catch`'s two answers, a rest of a record; the methods
+  of a list that answer an item (`at`, `find`, `findLast`, `pop`, `shift`),
+  the same items (`filter`, `slice`, `toSorted`, `toReversed`, `concat`,
+  `flat`, `with`, …) or a list a closure makes of them (`map`, `flatMap`);
+  and a closure of an expression, which answers what its body holds
+  (`mk = () => inc`, `mk()()`). The methods of plain data that answer a
+  primitive answer nothing that can be called. Every other form — a call of
+  a fn of `.rx` with what it was given (a parameter its result can reach), a
+  method that is in none of those lists, a closure called with arguments —
+  answers a value that *may* hold io somewhere (`?`): calling it, a field of
+  it or an item of it in reactive scope is `ACTION_CALLED_IN_OWNED_SCOPE`
+  too (`pick(fs)()`, `fs.reduce((a, f) => f)()`), but for a method of plain
+  data (`total(rows).toFixed(1)`, `names.join(",")`). The callee of a call
+  is read in whatever form it is written (`(a > 2 ? inc : dec)()`,
+  `fs.at(0)()`, `(fs[5] ?? fs[0])()`), and so are the paths of a parameter
+  a fn calls (`calls(xs.?)`: somewhere in it). A callee that is a closure
+  the module writes — by a name, or a field or an item of a literal — calls
+  what its body calls of what it is given (`run = (f) => f()`, `run(inc)`).
+  A closure written among the arguments of a call of `.rx` may be handed
+  the other arguments, and a fn given there by name that calls its
+  parameter may be handed them too: what they call of it, the others must
+  not hold (`each((h) => h(), inc)`, `each(callIt, inc)`). What the module's
+  text does not make — JavaScript's, a prop's, a context's, a source's — is
+  its declaration's to say (MO-10b), as before. Giving a value on is never
+  refused by this rule: only a call is. Still open, and said: an expression
+  closure kept in a record or a list and later handed an io value by a fn
+  that is only given both; a source that is written an io value. S-check-9.
   *An action a value carries (2026-11-24).* What a name, a field, an item
   or a fn's result holds is followed through the literals that say it: an
   action handed back by a fn (`{ n: n, set: set }`, `[n, set]`, `set`), of
@@ -291,6 +325,17 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
     lands `null`. In imperative scope it follows a statement-level `await`
     (AC-1); `try`/`catch` (AC-7) takes any other failure there, a snapshot
     read's included (R-f-7).
+    **R-f-4a** *The answer is an expression of its reader (ruled 2026-11-27).*
+    `alt` is reactive scope like the rest of the expression it is written in:
+    it reads its sources where the `await` is read, not inside the `await`.
+    `{await load(s) catch (e) => "none" + t}` shows `none5` after `t := 5`,
+    in the result form (`x = await … catch …`) and anywhere else. The `await`
+    is settled where it is awaited, to its answer or to the failure it
+    caught — a failure of computing its operand too —, and the reader computes
+    the catch's answer from that; so nothing is read after an `await` (Solid's
+    `UNTRACKED_READ_AFTER_AWAIT`), and no boundary stands between the reader
+    and what it reads (05 H-4: the reader of a catch's answer holds as the
+    reader of any answer does). S-fail-9.
     A `catch` after anything but an `await` is `CATCH_NOT_ON_AWAIT` (bin S;
     ruled 2026-11-19, Ryan: "only for things with await"). Principle: a
     failure belongs to its own section. A value that failed is shown by an

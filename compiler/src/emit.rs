@@ -8,7 +8,7 @@ use crate::ast::{instantiates, kept_parts, Decl, Expr, ExprKind, Field, Lit, Mar
 use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
-use crate::modules::{defaulted, given, shown, shown_in, type_only, types_of, views_of, Given, ModuleSet, Types};
+use crate::modules::{defaulted, given, shown, shown_in, takes_view, type_only, types_of, views_of, Given, ModuleSet, Types};
 use crate::names::{in_prelude, language, scalar, Lang};
 use crate::parse::{JsDecl, Part, Shape as FShape};
 use crate::signature::ExportSig;
@@ -79,6 +79,8 @@ struct Bind {
     shows: Vec<(String, bool)>,
     /// RG-4c: a component whose children are a view or plain content
     plain: bool,
+    /// RG-4c: a component whose children are a value
+    kids_value: bool,
     w: Option<String>,
     f: Option<FnRef>,
     prev: Option<String>,
@@ -106,8 +108,13 @@ struct Bind {
 fn takes_plain(d: &Decl, types: &Types) -> bool {
     matches!(d, Decl::Component { props, props_type, decls, view, tparams, .. } if shown(props, props_type.as_deref(), decls, view, types, tparams.as_deref()).get("children").is_some_and(|v| v.mixed))
 }
+/// RG-4c: children that are a value — declared a value's type (`children: number[]`), or used as one where every caller
+/// gives one (`kids_value`) — are given as the value written between the tags, not as content to show.
+fn kids_as_value(d: &Decl, types: &Types) -> bool {
+    matches!(d, Decl::Component { props_type, tparams, kids_value, .. } if *kids_value || takes_view(props_type.as_deref(), types, "children", tparams.as_deref()) == Some(false))
+}
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), given: None, view_ctx: false, shows: vec![], plain: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![], sub: None, shared: None }
+    Bind { kind, js: js.into(), given: None, view_ctx: false, shows: vec![], plain: false, kids_value: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![], sub: None, shared: None }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -895,6 +902,7 @@ impl<'p> Gen<'p> {
                 Decl::Component { name, .. } => {
                     let mut b = bind(Kind::Comp, cm(name));
                     b.plain = takes_plain(d, &self.types(&self.file));
+                    b.kids_value = kids_as_value(d, &self.types(&self.file));
                     self.set(env, name, b)
                 }
                 Decl::Action { name, .. } => self.set(env, name, bind(Kind::Act, mg(name))),
@@ -1227,6 +1235,7 @@ impl<'p> Gen<'p> {
             Decl::Component { .. } => {
                 let mut b = bind(Kind::Comp, cm(alias));
                 b.plain = takes_plain(d, &self.types(path));
+                b.kids_value = kids_as_value(d, &self.types(path));
                 b
             }
             Decl::Action { .. } => bind(Kind::Act, js),
@@ -2645,6 +2654,7 @@ impl<'p> Gen<'p> {
                     return fail(format!("unknown component {tag}"));
                 }
                 let plain = matches!(&b, Some(Some(b)) if b.plain);
+                let kids_value = matches!(&b, Some(Some(b)) if b.kids_value);
                 let (name, shape) = match (&member, b.flatten()) {
                     (Some((o, m)), _) => (JsxName::Member(o.clone(), m.clone()), Some(FShape::Comp)),
                     (None, Some(b)) => (JsxName::Ident(b.js), b.shape),
@@ -2695,8 +2705,14 @@ impl<'p> Gen<'p> {
                     return Ok(Some(el(name, xs, vec![Child::Expr(rtc("slot", vec![f]))], false))); // asked whether it was given, it is not made
                 }
                 let mut kids = vec![];
-                for c in rest {
-                    kids.extend(self.child(c, env)?);
+                match &rest[..] {
+                    // children that are a value: the value
+                    [Markup { kind: MarkupKind::Read(e), .. }] if kids_value => kids.push(Child::Expr(self.expr(e, env, &reactive())?)),
+                    _ => {
+                        for c in rest {
+                            kids.extend(self.child(c, env)?);
+                        }
+                    }
                 }
                 el(name, xs, kids, false)
             }
