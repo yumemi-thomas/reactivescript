@@ -1105,6 +1105,11 @@ same code at run time. An action a context provides is one too: with `context ca
 `provide cart = { add: add }`, `{c.add(id)}` in a view and `onClick={c.add(id)}` are this code (a function a prop is
 given, declared to answer nothing, is `IO_IN_REACTIVE`: the type does not say it is an action).
 
+An action, or a closure of statements, kept in a list or a record is followed wherever the value goes: `fs[0]()`,
+`(a > 2 ? fs[0] : fs[1])()`, `fs.at(0)()`, `[...fs][0]()` are this code too, and so is a call of what a fn answers of
+what it was given (`pick(fs)()`): the message then says the value *may be* io, because no form says where it went.
+Giving such a value on is free — `onClick={pick(fs)}`, `{for h in fs { <button onClick={h}>…</button> }}`.
+
 ```rx before
 export default component App() {
   source n := 1

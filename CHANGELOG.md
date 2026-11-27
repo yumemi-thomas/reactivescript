@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+**After an outside review** (DECISION.md, "Outside review of 15db0404")
+
+- **Changed: an action or a statement closure kept in a value is followed through every form** (spec/04 R-io-3d).
+  `(a > 2 ? fs[0] : fs[1])()`, `fs.at(0)()`, `[...fs][0]()`, `pick(fs)()` in an equation or the markup were accepted
+  and wrote while the view computed (Solid throws `REACTIVE_WRITE_IN_OWNED_SCOPE`); they are
+  `ACTION_CALLED_IN_OWNED_SCOPE`. **If a program of yours is refused after this**: call it from a handler
+  (`onClick={() => { pick(fs)() }}`) or give it on (`onClick={pick(fs)}`).
+- **Fixed: a `catch`'s answer reads its sources** (R-f-4a): `await load(s) catch (e) => "none" + t` showed a stale
+  `t` in compiled code. The runtime's `settle` takes two arguments now, and `caught` is new: compiler and runtime
+  go together.
+- **Fixed: children that are a value arrive as the value.** `children: number[]` given `{[1, n]}` was handed the text
+  `[1,1]`; a function given as children to a component with no props type, and called, is accepted again.
+- **Fixed: `import { A }` beside `export { A }` from one module** is one binding (it was `DUPLICATE_DECLARATION`, and
+  compiled code declared it twice).
+- **Changed: `@reactivescript/runtime`'s Solid peer is `>2.0.4`.** Its test does not pass on npm's 2.0.4 since the
+  runtime follows Solid's main branch; `runtime/npm.mjs` holds the range against npm.
+- **Fixed (interpreter)**: an `await` that is not an equation's result is a flight of its own (two in one reader are
+  asked together); a `ref` of an element made under a hold reads the hold's values; `latest (a + n)`; a spread's
+  `children` on an element.
+
 **A write beside a shown error fallback** (spec/05 H-4, Solid's F-3)
 
 - **Changed: an `await … catch` inside an expression, a view's reader or a condition holds the next question**, as the
