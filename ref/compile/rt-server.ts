@@ -145,6 +145,10 @@ export function slot<T>(make: () => T): T {
   try { return getOwner() !== a.owner ? make() : make as T; } finally { ASK.on = a; }
 }
 function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conformance?: boolean; request?: Request } = {}) {
+  // SV-4 (2026-11-27, the apps hunt): Solid reads the request event as a Fetch API Request (`headers.get`); Node's own request
+  // crashed the render deep inside Solid (`headers.get is not a function`)
+  if (opts.request !== undefined && typeof (opts.request as { headers?: { get?: unknown } })?.headers?.get !== "function")
+    throw new TypeError("createApp({ request }): request is a Fetch API Request (`new Request(url, { headers })`) — Node's http request is not one: `new Request(new URL(req.url, `http://${req.headers.host}`), { method: req.method, headers: Object.entries(req.headers).flatMap(([k, v]) => [v].flat().map(x => [k, String(x)])) })`");
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const registry = new Map<string, Entry[]>();

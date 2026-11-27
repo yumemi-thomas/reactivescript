@@ -30,11 +30,12 @@ URL from it) sees the request being served:
 import { createApp, generateHydrationScript } from "@reactivescript/runtime";   // the server build
 import main from "./app.rx";
 
-const app = createApp({ request });   // one app per request
+const app = createApp({ request });   // one app per request: a Fetch API `Request`
 app.stream(main(app), { write: chunk => res.write(chunk), end: () => res.end() });
 ```
 
-`compiler/test/ssr-router.mjs` serves `examples/router` this way and hydrates
+`request` is a Fetch API `Request` (what Solid's request event holds; `createApp` refuses anything else, saying so).
+Node's `http` gives its own request object: make one, ``new Request(new URL(req.url, `http://${req.headers.host}`), { method: req.method, headers })``. `compiler/test/ssr-router.mjs` serves `examples/router` this way and hydrates
 it in Chromium.
 
 With Vite, `solid({ ssr: true })` compiles `.rx` for each side: build the
@@ -72,6 +73,11 @@ export const getPerson = query(sendErrors(fetchPerson), "person");
 
 It marks only instances of classes the rendering app declares, during its request; on the client it is the function
 itself. Without it the router's cache sends the error redacted.
+
+What crosses from the server to the page is what the program declares (spec/12 SF-6b): a failure of a class the
+module declares (`export error NotFound(id)`) arrives as itself, with its fields; anything else — a plain `Error("db
+down")` thrown by the server's code — reaches the page as a failure whose message is `Internal Server Error` (Solid's
+redaction: a server's own messages are not the page's to show). Declare the classes a page shows.
 
 A JS host can render `.rx` components itself (spec/11 CP-4d): import the
 module with `?rx-lib` and import its components:

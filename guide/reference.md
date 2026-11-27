@@ -73,6 +73,8 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
   have no value yet (first load) or may have failed must handle that: a `try`, a first value on the equation
   (`await e -> v`), the element inside that value's `loading` and `errored` regions, or `disabled={…}` reading it
   (R-8). For a failure, the region or the `disabled` must read the value itself: `pending? x` takes no failure.
+  A control that submits a value still being checked (a coupon validated as it is typed) submits what is committed,
+  not what the input shows: disable it while the check is out, `disabled={pending? check}`.
 
 ## Holds (what the screen shows while work is out)
 

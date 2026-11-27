@@ -15,8 +15,10 @@ import * as Select from "./select.rx"      // its parts by one name: <Select.Roo
 export default component App() { … }       // the entry module's default component is mounted
 ```
 
-`./api`, spelled so, is the app's injected API, `createApp({ api: { fetchUser, saveUser } })`, and no file. A module of
-your own is imported with its extension (`"./api.js"`), and needs nothing given.
+`./api`, spelled so, is the app's injected API, `createApp({ api: { fetchUser, saveUser } })`, and no file to run.
+Its types are a file: `api.d.ts` beside the module (`export declare function fetchUser(id: number): Promise<User>`),
+which `rx-tsc`, the editor and `vite build`'s type check read — without it they stop at `TS2307: Cannot find module
+'./api'`. A module of your own is imported with its extension (`"./api.js"`), and needs nothing given.
 
 A Solid library (solid-primitives and the like) is declared once in a `.d.rx` and then used like .rx: `libraries.md`.
 

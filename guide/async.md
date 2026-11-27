@@ -208,8 +208,8 @@ A guess belongs to its action, and the screen it guessed on waits for that actio
   (D-34), so the change doesn't show until the re-ask lands. Keep the control out until the value is shown (under
   its `loading` boundary, or `disabled={pending? x}`); the compiler flags a control that can guess while its value
   loads (`GUESS_WHILE_LOADING`). A control under the boundary is enough, even while a held `loading on(sel)` keeps
-  it on screen. Don't skip a guess because `pending? x` reads `true` in the handler: it is also `true` while a
-  refresh or another write's hold is out (R-9), and a guess skipped there leaves the row unchanged until the server
+  it on screen. Don't skip a guess because `pending? x` reads `true` in the handler: it is also `true` while
+  another write's hold on `x` is out (R-9; a `refresh` is quiet and leaves it `false`, AC-4), and a guess skipped there leaves the row unchanged until the server
   answers.
 - **Don't rebuild guesses by hand** (a plain list of pending ids with your own revert) to end them one by one: it
   loses the revert and the hold that keep the screen consistent.
