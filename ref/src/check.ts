@@ -1102,7 +1102,7 @@ class Checker {
       for (const d of decls) {
         if (d.k !== "action") continue;
         const sym = env.vars.get(d.name)!; if (sym.outlasts) continue;
-        if (actionJoins(d.body, n => { if (d.params.includes(n)) return false; const t = env.lookup(n); return t?.kind === "action" && t.outlasts !== false; }) !== undefined) { sym.outlasts = true; changed = true; }
+        if (actionJoins(d.body, n => { if (d.params.includes(n)) return false; const t = env.lookup(n); return t?.kind === "action" && t.outlasts === true; }) !== undefined) { sym.outlasts = true; changed = true; }   // only what is known to outlast: an action of another module (MO-3) adds nothing here
       }
     }
     // MO-10k: what a fn or an action of this module may give back, by mention (every name of the block is bound now)

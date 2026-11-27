@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+**An action that answers at the call** (spec/06 AC-1i; S-answer-1)
+
+- **New: `action mint(): number { … return n }`** — an action that declares what it answers gives that value at the
+  call, not a promise (a `.tsx` caller gets a number). Its body is a handler's run with a name: its writes land in the
+  caller's instant. It never waits: an `await`, `refresh`, `affects` or `guess` in its own statements (a local closure
+  it calls by name included) is `ACTION_ANSWER_HELD`. It may launch an action that waits, by a call or an inline
+  `action { … }`. It is still an action: a view or an equation cannot call it while it computes. Compiled to a plain
+  function: a package that uses it needs `@reactivescript/runtime` of this version (`now`).
+- **Changed: `STALE_NEXT_READ` sees an action that launches one that waits.** A counter in a handler beside a call of
+  an action that never waits itself but launches one that does (a call, or an inline `action { … }`), or beside an
+  inline `action { … }` that waits, is held with that change, and the next click mints the same id again. Both
+  checkers had taken such an action to settle as it returns. **If a program of yours is refused after this:** read the
+  counter with `latest`, write it functionally, or give it its own instant with `onFlush`, as the message says.
+
 **A write beside a shown error fallback** (spec/05 H-4, Solid's F-3)
 
 - **Changed: an `await … catch` inside an expression, a view's reader or a condition holds the next question**, as the

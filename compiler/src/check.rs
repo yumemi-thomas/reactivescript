@@ -3518,7 +3518,8 @@ impl<'a> Checker<'a> {
                 if self.syms[s].outlasts == Some(true) {
                     continue;
                 }
-                let out = |n: &str| !params.iter().any(|p| p == n) && self.lookup(env, n).is_some_and(|t| self.syms[t].kind == SymKind::Action && self.syms[t].outlasts != Some(false));
+                // only what is known to outlast: an action of another module (MO-3: its signature does not say) adds nothing here
+                let out = |n: &str| !params.iter().any(|p| p == n) && self.lookup(env, n).is_some_and(|t| self.syms[t].kind == SymKind::Action && self.syms[t].outlasts == Some(true));
                 if action_joins(body, &out).is_some() {
                     self.syms[s].outlasts = Some(true);
                     changed = true;
