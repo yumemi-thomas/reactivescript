@@ -2469,7 +2469,7 @@ Before = 41142a46 (`rx-fix.noindex/base41`, built on the same pin), after = this
 | the probe sets, before → after (`out/b`) | `gwl` 3 differ → 6 agree, `gwl4` 3 differ → 8 agree (R-11a); `snr` 7 accepted → refused (AC-1h; the `latest` forms, a functional write and a counter whose caller launches nothing stay accepted); `rf` 6 differ → agree, 3 → refused with the name to refresh; `cat` 19 not compiled → 19 agree on eight runners; `lon` 3 differ → agree (H-6a, A2); `mut` 4 → refused, 3 accepted alike; `r1m` refused → agree; `c4` 3 differ → 4 agree and DV-30 |
 | `examples/rx-packages` | `check.json` unchanged byte for byte; `build.mjs`: every package builds (the A6 widening had refused Kobalte's collapsible and radio — withdrawn) |
 | `bench/run.mjs --check --strict` (in the full ci) | `bench/scorecard.txt` unchanged |
-| the full `scripts/ci`, uncached, with the Vite plugin fork (`SOLID_VITE_PLUGIN`) | first run 47 of 48: `leaks` — the app-level maps `refresh` reads (`resetOf`, and the catch boundaries now in `truthOf`) kept every unmounted instance; they are `WeakMap`s. Then **48 of 48 passed**, nothing kept from before, no step skipped (409 s); and again on the final tree (below) |
+| the full `scripts/ci`, uncached, with the Vite plugin fork (`SOLID_VITE_PLUGIN`) | first run 47 of 48: `leaks` — the app-level maps `refresh` reads (`resetOf`, and the catch boundaries now in `truthOf`) kept every unmounted instance; they are `WeakMap`s. Then **48 of 48 passed**, nothing kept from before, no step skipped (409 s); on the final tree (e22ff483, before this line): **48 of 48** (443 s) |
 
 ### Left, and said
 
