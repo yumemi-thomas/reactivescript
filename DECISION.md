@@ -1144,7 +1144,7 @@ inline write's the same). `scenarios/S-answer-1` (new) holds the form, its refus
 | `examples/rx-std`: `build.mjs`, `run.sh` | `summary.mjs` byte for byte as the ecosystem step's run |
 | `examples/rx-ui-sdk`: `build.mjs`, `check/run.mjs`, `app/test.mjs` | builds; both columns as the ecosystem census; 44 of 44, original and rewrite |
 | `std/test/browser.mjs` | 39 of 39 |
-| bench `--check --strict`, the full `scripts/ci` uncached with the Vite plugin fork | CI_RESULT |
+| bench `--check --strict`, the full `scripts/ci` uncached with the Vite plugin fork | bench as the scorecard: good 44 of 44, types 188 of 188, runtime 282 of 282, bad caught 249 of 249, unrepresentable 13 of 13. ci: 47 of 47 passed, nothing kept from before (1,007 s). Scenarios 245 of 245 in the oracle, compiled and served runners, 0 skipped; `t-vite-hosts` ran all six comparisons, npm's plugin's included; `t-vite-watch` and `t-vite` ran |
 
 The only new acceptances are B10's form (and an inline action inside it); the new refusals are the closure case of
 `ACTION_ANSWER_HELD` and the three `STALE_NEXT_READ` shapes above. None of those shapes occurs in any census program.
