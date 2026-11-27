@@ -392,6 +392,7 @@ re!(NAME_BEFORE, r"([A-Za-z_$][A-Za-z0-9_$.]*)\s*$");
 re!(ARROW_BEFORE, r"=>\s*[A-Za-z_$][A-Za-z0-9_$.]*\s*$");
 // `e as T`: TypeScript's assertion, which the language does not have (2026-11-27)
 re!(AS_CAST, r#"^as\s+\S|^=[^=>].*[\w$)\]"'`]\s+as\s+["'`(\[{A-Za-z_$]"#);
+re!(COMPUTED_KEY, r"[{,]\s*\[[^\]\n]+\]\s*:");
 re!(OP_ASSIGN, r"^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*/%])=)");
 
 /// What a parse failure at `i` most likely meant, when the line reads like JavaScript, React or Solid: its code and the
@@ -411,6 +412,10 @@ pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
     }
     if rest.starts_with('=') && !rest[1..].starts_with('=') && !rest[1..].starts_with('>') && IN_PARAMS.is_match(before) {
         return Some(("PARSE", format!("a parameter has no default: give every argument at the call, and say what an absent one means in the body, `{} ?? …` (E-9, AC-1f)", name)));
+    }
+    // R2 (2026-11-27): a computed key is a field no rule can name
+    if (msg.starts_with("field") && rest.starts_with('[')) || COMPUTED_KEY.is_match(line) {
+        return Some(("PARSE", "a record's keys are names in .rx (07 §2): a key computed while it runs is a field no check can follow (paths, rows, the type) — write the one entry instead, `x[k] := v` or `guess x[k] := v` (a path write, ST-2), or build the record in a JavaScript fn".into()));
     }
     if AS_CAST.is_match(rest.split('\n').next().unwrap_or("")) {
         return Some(("PARSE", "`as` is not .rx: a value has the type it was made with — give the type where the value is declared (`source s: T := …`, a parameter, a fn's result), or narrow it with a fn, `fn asT(v: string): T => …` (07 §2)".into()));
@@ -3731,13 +3736,16 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
             c.expect("=>")?;
             c.ws(true);
             if c.peek() == '{' {
-                let at = c.i;
+                // (an editor's parse notes what it skips: what this attempt noted is moot when the body is a record — C8,
+                // 2026-11-27: `its => { ...its, name: n }` was a record to the compiler and four PARSE errors to rx-tsc)
+                let (at, noted) = (c.i, c.errors.len());
                 if let Ok(stmts) = parse_block(c) {
                     if stmts.iter().any(|st| !matches!(&st.k, StmtKind::Expr(Expr { k: ExprKind::Id(_), .. }))) {
                         return Ok(ex(start, ExprKind::Fn { params, body: Box::new(Expr::made(ExprKind::Lit(Lit::Undefined))), stmts: Some(stmts), ptypes: ptypes.clone() }, c));
                     }
                 }
                 c.i = at;
+                c.errors.truncate(noted);
             }
             let body = parse_expr(c)?;
             return Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None, ptypes }, c));
@@ -4537,6 +4545,15 @@ mod recovering {
 
     fn names(p: &Program) -> Vec<String> {
         p.decls.iter().filter_map(|d| d.name().map(|n| n.to_string())).collect()
+    }
+
+    #[test]
+    fn an_arrow_whose_braces_are_a_record_notes_nothing() {
+        // C8 (2026-11-27): the block attempt's notes were kept when the body was read as a record, so rx-tsc said PARSE
+        let src = "export default component App() {\n  source items := { name: \"a\" }\n  <button onClick={() => { items := its => { ...its, name: \"b\" } }}>{items.name}</button>\n}\n";
+        let (_, errs) = parse_program_recovering(src);
+        assert!(errs.is_empty(), "{errs:?}");
+        assert!(parse_program(src).is_ok());
     }
 
     #[test]

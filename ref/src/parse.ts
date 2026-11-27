@@ -24,6 +24,8 @@ export function hint(src: string, i: number, msg: string): [string, string] | nu
     return ["REACTIVE_WRITE_IN_OWNED_SCOPE", `an arrow that writes takes a braced body, \`() => { ${name} := … }\`: an expression-bodied arrow is a pure function (SC-3)`];
   if (/^=(?![=>])/.test(rest) && /\b(fn|action)\s+[A-Za-z_$][\w$]*\s*\([^)]*$/.test(before))
     return ["PARSE", `a parameter has no default: give every argument at the call, and say what an absent one means in the body, \`${name} ?? …\` (E-9, AC-1f)`];
+  if ((msg.startsWith("field") && rest.startsWith("[")) || /[{,]\s*\[[^\]\n]+\]\s*:/.test(line))   // R2 (2026-11-27): a computed key is a field no rule can name
+    return ["PARSE", "a record's keys are names in .rx (07 §2): a key computed while it runs is a field no check can follow (paths, rows, the type) — write the one entry instead, `x[k] := v` or `guess x[k] := v` (a path write, ST-2), or build the record in a JavaScript fn"];
   if (AS_CAST.test(rest.split("\n")[0]))
     return ["PARSE", "\`as\` is not .rx: a value has the type it was made with — give the type where the value is declared (\`source s: T := …\`, a parameter, a fn's result), or narrow it with a fn, \`fn asT(v: string): T => …\` (07 §2)"];
   if (/^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*\/%])=|=(?![=>]))/.test(rest))
