@@ -11418,24 +11418,29 @@ impl<'a> Checker<'a> {
                 submit_buttons(kids, &mut submits);
             }
             // the bodies the click runs: the handler, and the actions it calls by name
+            // — and the actions those call, which the click launches too (2026-11-27, the claims hunt: `rename2(t) { rename(t) }`)
             let mut bodies: Vec<(Node<'a>, EId, Option<String>)> = vec![(Node::E(h), env, None)];
-            let mut stack = vec![Node::E(h)];
-            while let Some(n) = stack.pop() {
+            let mut stack: Vec<(Node<'a>, EId, Option<String>)> = vec![(Node::E(h), env, None)];
+            let mut entered: Vec<usize> = vec![];
+            while let Some((n, at, via)) = stack.pop() {
                 if let Node::E(Expr { k: ExprKind::Call { f, .. }, .. }) = n {
                     if let ExprKind::Id(name) = &f.k {
-                        if let Some(a) = self.lookup(env, name) {
+                        if let Some(a) = self.lookup(at, name) {
                             if self.syms[a].kind == SymKind::Action {
                                 let l = self.syms[a].line;
-                                for (an, al, body, aenv) in &acts {
-                                    if an == name && *al == l {
-                                        bodies.extend(body.iter().map(|st| (Node::S(st), *aenv, Some(name.clone()))));
+                                for (ai, (an, al, body, aenv)) in acts.iter().enumerate() {
+                                    if an == name && *al == l && !entered.contains(&ai) {
+                                        entered.push(ai);
+                                        let v = via.clone().unwrap_or_else(|| name.clone());
+                                        bodies.extend(body.iter().map(|st| (Node::S(st), *aenv, Some(v.clone()))));
+                                        stack.extend(body.iter().map(|st| (Node::S(st), *aenv, Some(v.clone()))));
                                     }
                                 }
                             }
                         }
                     }
                 }
-                stack.extend(children(n, false));
+                stack.extend(children(n, false).into_iter().map(|k| (k, at, via.clone())));
             }
             // what the click is about: the names those bodies read, outside their own writes and guesses
             let mut inputs: Vec<SId> = vec![];

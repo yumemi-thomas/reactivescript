@@ -1129,16 +1129,17 @@ class Checker {
       const submits: { name: string; e: Expr }[][] = [];
       if (hr.what === "<form> onSubmit") submitButtons(hr.kids, submits);
       // the bodies the click runs: the handler, and the actions it calls by name
+      // — and the actions those call, which the click launches too (2026-11-27, the claims hunt: `rename2(t) { rename(t) }`)
       const bodies: { root: N; env: Env; via?: string }[] = [{ root: hr.h, env: hr.env }];
-      const stack: N[] = [hr.h];
+      const stack: { n: N; env: Env; via?: string }[] = [{ n: hr.h, env: hr.env }]; const entered = new Set<unknown>();
       while (stack.length) {
-        const n = stack.pop()!;
+        const { n, env: at, via } = stack.pop()!;
         if (n.k === "call" && (n as Extract<Expr, { k: "call" }>).f.k === "id") {
           const name = ((n as Extract<Expr, { k: "call" }>).f as Extract<Expr, { k: "id" }>).name;
-          const a = hr.env.lookup(name);
-          if (a?.kind === "action") for (const act of this.actions) if (act.name === name && act.line === a.line) bodies.push(...act.body.map(st => ({ root: st as N, env: act.env, via: name })));
+          const a = at.lookup(name);
+          if (a?.kind === "action") for (const act of this.actions) if (act.name === name && act.line === a.line && !entered.has(act)) { entered.add(act); const v = via ?? name; bodies.push(...act.body.map(st => ({ root: st as N, env: act.env, via: v }))); stack.push(...act.body.map(st => ({ n: st as N, env: act.env, via: v }))); }
         }
-        stack.push(...kidsOf(n));
+        stack.push(...kidsOf(n).map(k => ({ n: k, env: at, via })));
       }
       // what the click is about: the names those bodies read, outside their own writes and guesses
       const inputs: Sym[] = [];

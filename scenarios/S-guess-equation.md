@@ -121,3 +121,24 @@ A click can guess `likes` while it loads a new question about `id`, which
 the click reads too (AC-3a): the guess sits on the old answer and the new
 one replaces it. Put the button inside the `loading` region that shows
 `likes`, or disable it on `pending? likes`.
+
+```rx
+-- reject: GUESS_WHILE_LOADING
+export default component App() {
+  source id := 1
+  likes = await fetch("likes:" + id) catch (e) => 0
+  action send() {
+    try {
+      guess likes := likes + 1
+      await fetch("like:" + id)
+      refresh likes
+    } catch (e) {}
+  }
+  action send2() { send() }
+  <button onClick={() => { id := id + 1 }}>next</button>
+  <button onClick={() => { send2() }}>{likes}</button>
+}
+```
+
+The same guess, launched through another action (2026-11-27, the claims hunt: it was accepted, and the page waited
+on the rename with no sign). The click's bodies are the handler and every action it reaches by name.
