@@ -227,10 +227,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
         const k = key(x.name, x.k === "use"); const ws = st.written.get(k);
         if (ws?.some(w => overlaps(w, path))) report("STALE_OWN_READ", k);
         seen.add(k);
-        if (x.k === "id") for (const d of opts.eqDeps?.(x.name) ?? []) {                  // AC-1d (2026-11-27): an equation reads its sources as committed
-          if (st.written.get(d.k)?.some(w => overlaps(w, d.path))) report("STALE_OWN_READ", d.k, undefined, x.name);
-          seen.add(d.k);
-        }
+        if (x.k === "id") for (const d of opts.eqDeps?.(x.name) ?? []) seen.add(d.k);   // AC-1h: an equation reads its sources as committed (not AC-1d's: comparing with the value before a write through an equation is common and right — kobalte's collapsible, radio)
         return;
       }
       if (x !== e) { read(x); return; }

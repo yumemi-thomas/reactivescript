@@ -1,6 +1,6 @@
 # S-answer-2 — a counter minted by an action that answers, or read through an equation, is the caller's stale read
 
-Rules: AC-1h, AC-1i, AC-1d.
+Rules: AC-1h, AC-1i.
 
 Found by the claims hunt and the apps hunt at 41142a46: `ACTION_ANSWER_HELD`'s own suggested fix (`mint` reading
 `seq + 1`, then `send`) sent `a1` twice for two quick clicks, and so did a counter read through an equation
@@ -116,17 +116,5 @@ export default component App() {
 }
 ```
 
-the run's own write read through an equation (AC-1d):
-
-```rx
--- reject: STALE_OWN_READ
-export default component App() {
-  source count := 1
-  doubled = count * 2
-  <button onClick={() => { count := count + 1; log("doubled " + str(doubled)) }}>{count}</button>
-}
-```
-
-It would log `doubled 2`. Reading `doubled` before the write, or a key of a source the run did not write
-(`s.a := 1; log(b2)` with `b2 = s.b * 2`), is accepted. A functional write in the action that answers (`seq := v => v +
+A functional write in the action that answers (`seq := v => v +
 1`) reads nothing now and is accepted too; so is a counter in `mint` whose caller launches nothing that waits.

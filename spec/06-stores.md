@@ -253,11 +253,14 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   the value came from (`let n = count + 1; count := n; … n`) or a functional
   write (S-infer-5). The local fixes this run only: when the change is held
   (an action, or a run that calls one), the next run still reads the old
-  value until the change settles, which is AC-1h. A read of an equation is
-  a read of the sources it is computed from, at their paths (2026-11-27,
-  the apps hunt: `count := count + 1; report(doubled)` with `doubled =
-  count * 2` sent the old `doubled`, unrefused); AC-1h reads equations the
-  same way. S-answer-2.
+  value until the change settles, which is AC-1h. A read of an equation
+  computed from a source the run wrote is not refused (2026-11-27: taken,
+  then withdrawn the same day — `count := count + 1; report(doubled)` sends
+  the old `doubled`, the apps hunt's A6, but comparing a new value with the
+  one before a write through an equation is common and right: Kobalte's
+  collapsible, `mine := next` then `next.length != picked.length`, and its
+  radio group were refused; AC-1h reads equations, where the read is the
+  next run's).
 - **AC-1e (Stale write-back).** [taken by default 2026-10-28] In any
   imperative run, a plain value write `x := e` after an `await`, where `e`
   is computed from a read of `x` taken before that `await` — directly, or

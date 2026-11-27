@@ -9,7 +9,7 @@
   `GUESS_WHILE_LOADING` suggests it again.
 - **Changed: a counter minted through an action that answers, or read through an equation, is `STALE_NEXT_READ`**
   (06 AC-1h): `let id = mint(); send(id)` and `let n = nextId; seq := n` sent one id twice. Read `latest seq` in the
-  action. A run's own write read through an equation is `STALE_OWN_READ` (AC-1d).
+  action.
 - **Changed: `refresh` that re-asks nothing is refused through a fn and a question source** (`shown = pick(ans)`;
   `source issues = ans == null ? [] : ans` where nothing writes it).
 - **Fixed: `refresh x` over `x = await f() catch (e) => alt` re-asks** (it asked nothing, so a retry after a caught

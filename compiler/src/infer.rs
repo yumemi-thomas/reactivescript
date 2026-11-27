@@ -605,12 +605,10 @@ impl<'o> Walker<'o> {
                 self.report(Code::StaleOwnRead, k.clone());
             }
             self.seen.insert(k);
-            // AC-1d (2026-11-27): an equation reads its sources as committed
+            // AC-1h: an equation reads its sources as committed (not AC-1d's: comparing with the value before a write through
+            // an equation is common and right — kobalte's collapsible, radio)
             if let ExprKind::Id(n) = &x.k {
-                for (dk, dp) in self.eq_deps.and_then(|f| f(n)).unwrap_or_default() {
-                    if st.written.get(&dk).is_some_and(|ws| ws.iter().any(|w| overlaps(w, &dp))) {
-                        self.report_at(Code::StaleOwnRead, dk.clone(), None, Some(n.clone()));
-                    }
+                for (dk, _) in self.eq_deps.and_then(|f| f(n)).unwrap_or_default() {
                     self.seen.insert(dk);
                 }
             }
