@@ -248,7 +248,7 @@ pub enum Decl {
     Fn { name: String, params: Vec<Param>, decls: Vec<Decl>, tail: Expr, line: usize, span: Span, ret: Option<String>, exported: bool, tparams: Option<String>, named: bool },
     /// `tparams`: `<T>`, as text (07 §2)
     Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, no_props: bool, exported: bool, is_default: bool, tparams: Option<String>, /** RG-4c: children nobody declares, used as a value and given one by every caller (set by the loader) */ kids_value: bool },
-    Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, /** AC-1f: how many of them a call must pass, where the last ones may be left out (`by?`) */ required: Option<usize>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
+    Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, /** AC-1f: how many of them a call must pass, where the last ones may be left out (`by?`) */ required: Option<usize>, /** AC-1i (B10): the value it answers at the call, declared */ ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Server { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
     Provide { name: String, e: Expr, line: usize, span: Span },
     Context { name: String, ty: Option<String>, source: bool, dflt: Option<Expr>, line: usize, span: Span, exported: bool },
@@ -662,7 +662,8 @@ impl Scoped<'_> {
                 match d {
                     Decl::Source { ty, .. } | Decl::Eq { ty, .. } | Decl::Context { ty, .. } => self.ty(ty.iter_mut()),
                     Decl::TypeDecl { text, .. } => self.ty([text]),
-                    Decl::Error { ptypes, .. } | Decl::Action { ptypes, .. } => self.ty(ptypes.iter_mut().flatten()),
+                    Decl::Error { ptypes, .. } => self.ty(ptypes.iter_mut().flatten()),
+                    Decl::Action { ptypes, ret, .. } => self.ty(ptypes.iter_mut().flatten().chain(ret.iter_mut())),
                     Decl::Server { ptypes, ret, .. } => self.ty(ptypes.iter_mut().flatten().chain(ret.iter_mut())),
                     Decl::Fn { params, ret, tparams, .. } => self.ty(params.iter_mut().filter_map(|p| p.ty.as_mut()).chain(ret.iter_mut()).chain(tparams.iter_mut())),
                     Decl::Component { props_type, tparams, .. } => self.ty(props_type.iter_mut().chain(tparams.iter_mut())),
@@ -1011,12 +1012,13 @@ impl Decl {
                 ("isDefault", flag(*is_default)),
                 ("tparams", os(tparams)),
             ]),
-            Decl::Action { name, params, ptypes, required, body, line, exported, .. } => obj(vec![
+            Decl::Action { name, params, ptypes, required, ret, body, line, exported, .. } => obj(vec![
                 ("k", s("action")),
                 ("name", s(name)),
                 ("params", Some(strs(params))),
                 ("ptypes", Some(ostrs(ptypes))),
                 ("required", required.map(|n| json!(n))),
+                ("ret", os(ret)),
                 ("body", Some(stmts_json(body))),
                 ("line", num(*line)),
                 ("exported", flag(*exported)),

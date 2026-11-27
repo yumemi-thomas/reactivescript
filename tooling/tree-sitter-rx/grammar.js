@@ -433,6 +433,7 @@ module.exports = grammar(tsx, {
       'action',
       field('name', $._binding_name),
       field('parameters', $.formal_parameters),
+      optional(field('return_type', $.type_annotation)),   // AC-1i (B10): it answers at the call
       field('body', $.statement_block),
     ),
 

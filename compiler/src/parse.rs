@@ -3193,9 +3193,10 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             c.ws(true);
         }
         c.expect(")")?;
+        let ret = opt_type(c, true)?; // AC-1i: `action add(t: string): number { … }` answers at the call
         c.ws(true);
         let body = parse_block(c)?;
-        return Ok(Decl::Action { name, params, ptypes, required, body, line, span: Span::NONE, exported: false });
+        return Ok(Decl::Action { name, params, ptypes, required, ret, body, line, span: Span::NONE, exported: false });
     }
     if SERVER_DECL.is_match(c.rest()) {
         c.keyword("server");

@@ -120,3 +120,35 @@ An action whose only `await` is in a loop's body waits as much as one that
 awaits at its top: the handler's write joins its change, and the next
 click reads the committed `seq` (both checkers took it, until 2026-11-26,
 for an action that settles as it returns).
+
+```rx
+-- reject: STALE_NEXT_READ
+export default component App() {
+  source seq := 0
+  source done := ""
+  action save(id: number) {
+    let r = await fetch(str(id)) catch (e) => ""
+    done := r
+  }
+  action note(id: number) {
+    save(id)
+  }
+  <button onClick={() => { let n = seq + 1; seq := n; note(n) }}>{seq}:{done}</button>
+}
+```
+
+`note` never waits, but it launches `save`, which does, and the change it launches is the handler's too (AC-1, D-7):
+an action outlasts its call when it launches one that does. Both checkers took `note` for one that settles as it
+returns until 2026-11-27 (found re-checking B10, S-answer-1).
+
+```rx
+-- reject: STALE_NEXT_READ
+export default component App() {
+  source seq := 0
+  source done := ""
+  <button onClick={() => { let n = seq + 1; seq := n; action { let r = await fetch(str(n)) catch (e) => ""; done := r } }}>{seq}:{done}</button>
+}
+```
+
+An inline `action { … }` that waits holds the handler's writes as a call of a declared one does (AC-1). Missed the
+same way until 2026-11-27.

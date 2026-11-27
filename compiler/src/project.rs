@@ -662,9 +662,11 @@ impl Proj<'_> {
                     let ps = self.params(params, ptypes, required, sp, &mut at);
                     let r = match d {
                         Decl::Server { ret: Some(r), .. } => Code::of(": Promise<").c(self.ty(r, sp, &mut at)).t(">"),
+                        Decl::Action { ret: Some(r), .. } => Code::of(": ").c(self.ty(r, sp, &mut at)), // AC-1i: answers at the call
                         _ => Code::new(),
                     };
-                    self.w.emit(Code::of(ind).t(ex(d)).t("async function ").c(nm).t("(").c(ps).t(")").c(r).t(" {"), *line);
+                    let kw = if matches!(d, Decl::Action { ret: Some(_), .. }) { "function " } else { "async function " };
+                    self.w.emit(Code::of(ind).t(ex(d)).t(kw).c(nm).t("(").c(ps).t(")").c(r).t(" {"), *line);
                     self.stmts(body, &format!("{ind}  "));
                     self.w.emit(Code::of(&format!("{ind}}}")), *line);
                     if matches!(d, Decl::Server { .. }) {

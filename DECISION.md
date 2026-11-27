@@ -1050,6 +1050,106 @@ a rejected variant. Census, every program's diagnostics before and after (`censu
 accepted variant, bench, rx-packages, rx-std, the UI SDK, std, the examples and eval's 340 .rx files, 1,593 programs): none
 differs; the only newly refused program is the new variant. Not a Solid matter.
 
+### Step 9: B10 — an action that answers at the call (built as a prototype on `proto-b10`; merged onto PR #1 on 2026-11-27, below)
+
+*The test the roadmap set:* can the difference from Solid's `action()` be said in two sentences? Yes: *an action that
+never waits gives `action()` nothing to hold — AC-1 already calls such a body an ordinary instant, AC-1g has no answer
+to guard and AC-1h no held write of its own. So the only thing lost is the promise, and with it a caller's way to wait
+for a change that has already settled when the call returns.* So the form was built (06 AC-1i): `action show(t:
+string): number { … return id }` answers that value at the call (a `.tsx` caller gets a number); an `await`,
+`refresh`, `affects`, a guess or an inline `action { … }` in its own statements is `ACTION_ANSWER_HELD`; its body is
+checked as a handler's run (AC-1h's run form applies: a counter it writes before calling an action that waits is
+`STALE_NEXT_READ`); it is still an action (refused while a view computes; R-f-6, no failure out). Lowered to a plain
+function (`__rt.now`) in both emitters; the interpreter runs it as a handler's body and answers its result; the oracle
+drives its body to the end at once; both projections type it `function f(…): T`. Not shaped by any Solid bug: it is
+Solid's documented `action()` that is left out, because there is nothing for it to do.
+
+| | |
+| --- | --- |
+| programs (`mk9.py`: the answer in a handler, twice; one that answers calls another; a branch, a loop, an early return; a type alias as the result; `: void`; a counter beside it, not held; one inside a waiting action; from another module; the seven held words, in a branch and a loop too; called while a view computes, twice; a stale counter before a waiting action it calls; a failure let out; three type mistakes) | 23: 11 refused by both checkers, 3 refused by the type pass, 9 accepted, each as named; both checkers, lowered, projected alike |
+| the 9 with frames, the interpreter, the oracle, both emitters | alike; served and hydrated in both servers, 9 of 9 |
+| quick on the branch | 21 of 21 |
+
+*Left, for the user, then:* whether to merge it (the brief: a prototype only); the user merged it (below). Known edges: R-f-6's message says "a handler
+cannot (it does not await the action)", which reads oddly for one that answers at once; the printed `.d.rx` row is still
+`export action show` (the type is the projection's, which is what a `.tsx` caller and an `.rx` importer's type pass
+read); `@reactivescript/runtime` gains `now`, so a package using the form needs the runtime of its version (MO-13i).
+
+### Step 9, merged onto PR #1 (2026-11-27, the user's decision)
+
+`proto-b10` (eb5b910d) merged onto 15db0404: no textual conflict. The nine commits since its base touched none of B10's
+lines but DECISION's. `tooling/tree-sitter-rx/src/{parser.c,grammar.json,node-types.json}` (the 224k-line part of
+the diff) were regenerated from the merged `grammar.js` with tree-sitter-cli 0.27.2: byte for byte B10's;
+`tree-sitter test` 101 of 101. `runtime/dist` and the WebAssembly builds were rebuilt, not merged.
+
+*Re-checked under the rules that landed after its base.* 47 programs more (`rx-pin.noindex/b10/sets/mk10.py`,
+outside the tree, with `ck.py`, `pairs.py` and `fill.py` beside it). Each interaction is written twice, through an
+action that answers and with the same statements in the handler. Every runner must show the pair alike.
+
+| rule | what was probed | found |
+| --- | --- | --- |
+| SC-4c, `ref`s of one pass | an action that answers called in a `ref`: one element, two of one pass, the rows of a `for` with a functional count | each pair alike in the four runners; served (a server calls no `ref`, SV-2) and hydrated alike, both servers. Nothing here depends on SC-4c's wording: a `ref` runs the action's statements as it runs its own, whatever a `ref` reads |
+| H-4 as F-3 | S-hold-7's shape (a write beside a shown error fallback), its `catch`-answer variant, reading a `catch` answer, reading an errored equation in a `try` | pairs alike, served and hydrated alike |
+| an `await … catch` settled where it is awaited | the same programs (the form's own body may not `await`) | nothing to settle in the body; a reader of a `catch` answer holds the change the action writes, as the handler's |
+| the pin's store engine (`$PROXY`/`$RECORD`) | the answer is a store's whole value, one of its rows, a path write's old value, a keyed list (`key id`, ST-4a) the handler writes back | pairs alike in every runner and both servers |
+| called while computing (the outside review's finding on 15db0404) | the answer in an equation, content, an attribute, an `if`, a `for` row and collection, an effect's input, `pre`, `peek`, `latest`, a source's initializer and question, a template, a record, a fn, a prop, a key; and the review's indirections | every direct position refused, both checkers alike. The review's indirections (ternary, `??`, `.at`, a fn that answers the action) are accepted for a plain action too: B10 adds no shape. What it changes is the outcome: such a call of a plain action launches it, while one that answers writes at once and Solid throws `REACTIVE_WRITE_IN_OWNED_SCOPE`. The review's fixer has the class |
+| `ACTION_ANSWER_HELD`'s list | an `await` or `refresh` in a local closure the body calls, nested, in a `try`; a closure that is an action of its own; one made and not called; `await` in a `return` and a write; an inline `action { … }` with and without an `await` | **two changes**, below |
+| AC-1h beside the form | a counter in a handler beside an action that answers and launches one that waits; the same with a plain action; an inline action that waits, in a handler and in the form's body | **a gap**, below |
+
+What changed, in both checkers (`same` alike on every program here and below):
+
+- **A local closure the body calls by name is its own statements** (AC-1b reads them so): `let w = () => { let r =
+  await … }; w()` in an action that answers waited in no runner and answered at once, while the same handler is an
+  action that holds. It is `ACTION_ANSWER_HELD` now (`held_word`/`heldWord` follow the closures `inferred_action` follows).
+  The list is otherwise as built: `await`, `refresh`, `affects`, a guess, each of which holds an action's change.
+- **An inline `action { … }` is no longer refused.** It is its own run (AC-1b), launched as a call of a declared action
+  is: with no `await` it is an ordinary instant, and with one it is what a call of a waiting action is, which the form
+  allowed. The prototype's refusal refused correct code (mk9's `no-held-inline`, now accepted, alike in every runner).
+- **An action outlasts its call when its own statements launch one that does** (AC-1h). That is a call by name of an
+  action known to outlast, a local closure that is an action of its own and waits, or an inline action that waits;
+  `action_joins`/`actionJoins` compute it to a fixed point over a block's actions. The form had been declared never to
+  outlast (`outlasts = ret.is_none() && …`), so `let n = seq + 1; seq := n; note(n)`, with `note` answering and
+  launching `save`, held `seq` in every runner and minted one id twice, unrefused. A plain action that only launches
+  `save` was missed the same way before B10, and so was a handler's inline action that waits. All three are
+  `STALE_NEXT_READ` now (S-answer-1, S-infer-8). An action of another module counts only as what is known: its signature
+  says nothing of its body (MO-3). A first version counted it as outlasting and refused a correct `action go(n) { log(n) }`
+  over an imported `log` that never waits. Caught by the census probes (`b10/sets/pi`) before any census, and changed.
+
+Programs: mk9's 23 again (11 refused, 3 refused by the type pass, 9 accepted as before, and `no-held-inline` accepted on
+purpose); mk10's 47 (11 refused, as named; 36 accepted, alike in the four runners, 11 pairs alike); 33 of them filled,
+served and hydrated in both servers, 33 of 33 (the four `effect` programs filled with their chained instant, the
+inline write's the same). `scenarios/S-answer-1` (new) holds the form, its refusals and an accepted inline action.
+
+*Not B10's, found by its probes, recorded and not changed:*
+
+- **X15: a run that reads an equation whose question has not answered yet.** The interpreter drops the whole run (`n
+  := 1; got := A + "!"` writes neither), while the oracle and both emitters write Solid's `NotReadyError` sentinel
+  through (`#pending!`). Handler and action that answers alike (`b10/sets/pend`). It needs a ruling on what a run reads
+  of a question never answered; until then the runners differ there.
+- **A counter beside a direct call of an imported action is `STALE_NEXT_READ` whether or not it waits** (15db0404 and
+  now, `b10/sets/pi`): an `.rx` import's signature does not say whether an action outlasts its call. It now reaches an
+  imported action that answers too. That refuses correct code; the fix is a word in the module signature (printed in
+  `.d.rx`, so `DECLARATION_VERSION`). Left for the user.
+- **A counter inside a declared action that launches a waiting one is not checked** (the walker reads a declared
+  action's own `await`s only; its writes join the launched change, D-7). The form's body is a run and is checked.
+
+*Census* (before = 15db0404, `rx-pin.noindex/head/rs`, built on the same pin; after = this tree):
+
+| census | result |
+| --- | --- |
+| scenarios (`scripts/matrix.mjs scenarios`, both revisions: interpreter, oracle, both emitters, both checkers, lowered, projected, the type pass) | 0 agree in both and show something else. Moved: `S-answer-1` (new: on 15db0404 a parse error) and `S-infer-8`'s two new rejected variants (accepted on 15db0404) |
+| the review sets, as "Review sets on 3395c64e" ran them (`b10/rsets`: `run.mjs`, `merge.mjs`, `table.mjs`, the sets read from `rx-t3.noindex/sets`): 72 folders, 18,798 programs, before and after; filled sets served and hydrated after | **nothing moved**: "moved: none" and "output changed: 0" in all 72, and every column (verdicts, `same`, `lower`, served) as the pin's census |
+| `proposals/check.mjs` | 190 verdicts over 78 documents, all as stated |
+| `examples/rx-packages`: `build.mjs`, `check.mjs` | 65 built; `check.json` unchanged byte for byte |
+| `examples/rx-std`: `build.mjs`, `run.sh` | `summary.mjs` byte for byte as the ecosystem step's run |
+| `examples/rx-ui-sdk`: `build.mjs`, `check/run.mjs`, `app/test.mjs` | builds; both columns as the ecosystem census; 44 of 44, original and rewrite |
+| `std/test/browser.mjs` | 39 of 39 |
+| bench `--check --strict`, the full `scripts/ci` uncached with the Vite plugin fork | bench as the scorecard: good 44 of 44, types 188 of 188, runtime 282 of 282, bad caught 249 of 249, unrepresentable 13 of 13. ci: 47 of 47 passed, nothing kept from before (1,007 s). Scenarios 245 of 245 in the oracle, compiled and served runners, 0 skipped; `t-vite-hosts` ran all six comparisons, npm's plugin's included; `t-vite-watch` and `t-vite` ran |
+
+The only new acceptances are B10's form (and an inline action inside it); the new refusals are the closure case of
+`ACTION_ANSWER_HELD` and the three `STALE_NEXT_READ` shapes above. None of those shapes occurs in any census program.
+No Solid bug shaped any of it, and none was found.
+
 ### Read again under the user's rule of 2026-11-26: no rule bent around a Solid bug
 
 The rule: a Solid bug is never a reason to refuse correct code or to shape a language rule; it is recorded as a DV

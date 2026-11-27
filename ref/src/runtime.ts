@@ -947,7 +947,7 @@ export class Runtime {
           return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return f.named ? this.withLocals(f, home, en) : this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
-        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
+        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); a.params.forEach((p, i) => en.set(p, args[i])); if (a.ret !== undefined) return this.startRun(a.body, home, en, false); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1i: an action that answers at once runs as a handler's body, and its answer is the call's   // AC-1: an action is io; its body is lexical (its declaration's names)
         { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return v; }   // R-f-7: a snapshot of an error throws it
       }
       case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); return v[e.p]; }

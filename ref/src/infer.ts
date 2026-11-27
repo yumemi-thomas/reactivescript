@@ -89,6 +89,65 @@ export function guessFacts(stmts: Stmt[], hook: (n: string) => boolean): GuessFa
  *  in a branch, a `try` or a loop's body (a loop's was missed until 2026-11-26: an action that waits in a `for` was taken as
  *  one that settles as it returns, and a handler beside it could mint one id twice, AC-1h's fault). */
 export const actionWaits = (ss: Stmt[]): boolean => ss.some(s => stmtAwait(s) || s.k === "refresh" || s.k === "affects" || (s.k === "sif" && (actionWaits(s.t) || actionWaits(s.f))) || (s.k === "for" && actionWaits(s.body)) || (s.k === "try" && (actionWaits(s.body) || actionWaits(s.handler ?? []) || actionWaits(s.fin ?? []))));
+/** AC-1i: the first word of a body that makes its change outlive the call — an \`await\`, \`refresh\`, \`affects\`, a guess —
+ *  in its own statements as AC-1b reads them: a branch, a \`try\`, a loop, and the local closures the body calls by name (a
+ *  call runs the closure's statements in this run), not other closures and not an inline \`action { … }\` (its own run,
+ *  launched as a call of a declared action is: what it holds is AC-1h's); with its statement's line. */
+export const heldWord = (stmts: Stmt[]): { word: string; line?: number } | undefined => {
+  const seen = new Set<Fn>();
+  const go = (ss: Stmt[], cl: Closures): { word: string; line?: number } | undefined => {
+    const local = new Map(cl);
+    for (const s of ss) {
+      const c = closureOf(s); if (c) { local.set((s as { name: string }).name, c); continue; } else if (s.k === "let") local.delete(s.name);
+      const called = (s.k === "expr" || s.k === "let") ? calledClosure(s.e, local) : null;
+      if (called && !seen.has(called)) { seen.add(called); const r = go(called.stmts!, local); if (r) return { word: r.word, line: (s as { line?: number }).line || r.line }; }
+      const w = stmtAwait(s) ? "await" : s.k === "refresh" ? "refresh" : s.k === "affects" ? "affects" : s.k === "optimistic" ? "guess" : undefined;
+      if (w) return { word: w, line: (s as { line?: number }).line };
+      const inner = s.k === "sif" ? [s.t, s.f] : s.k === "for" ? [s.body] : s.k === "try" ? [s.body, s.handler ?? [], s.fin ?? []] : [];
+      for (const b of inner) { const r = go(b, local); if (r) return r; }
+    }
+    return undefined;
+  };
+  return go(stmts, new Map());
+};
+/** AC-1h, AC-1 (D-7): the action a run launches whose change outlasts the call — so the run's own writes join that change
+ *  and are held with it: a call by name of an action \`outlasting\` says outlasts (a declared one that waits, or one that
+ *  launches such an action itself), a local closure that is an action of its own and waits, or an inline \`action { … }\`
+ *  that waits. Own statements, as AC-1b reads them (through the local closures the body calls by name); a name a \`let\`,
+ *  a loop or a \`catch\` of the block binds is not the action's. */
+export function actionJoins(stmts: Stmt[], outlasting: (n: string) => boolean): string | undefined {
+  const seen = new Set<Fn>();
+  type Out = (n: string) => boolean;
+  const callIn = (n: Expr | Stmt, out: Out): string | undefined => {
+    if (n.k === "fn" || n.k === "serverfn") return undefined;
+    if (n.k === "call" && n.f.k === "id" && out(n.f.name)) return n.f.name;
+    if ((n.k === "write" || n.k === "optimistic")) for (const seg of n.target.path) if (typeof seg !== "string") { const r = callIn(seg, out); if (r) return r; }
+    for (const c of subExprs(n as Expr)) { const r = callIn(c, out); if (r) return r; }
+    return undefined;
+  };
+  const go = (ss: Stmt[], cl: Closures, acts0: Set<string>, outer: Out): string | undefined => {
+    const local = new Map(cl); const acts = new Set(acts0);
+    const lets = new Set(ss.flatMap(s => s.k === "let" || s.k === "for" ? [s.name] : s.k === "try" && s.catchName ? [s.catchName] : []));
+    for (const s of ss) {
+      if (s.k === "let") { acts.delete(s.name); if (s.e.k === "fn" && s.e.stmts && inferredAction(s.e.stmts) && (actionWaits(s.e.stmts) || go(s.e.stmts, local, acts, outer) !== undefined)) acts.add(s.name); }
+      const c = closureOf(s); if (c) { local.set((s as { name: string }).name, c); continue; } else if (s.k === "let") local.delete(s.name);
+      const called = (s.k === "expr" || s.k === "let") ? calledClosure(s.e, local) : null;
+      if (called) { if (!seen.has(called)) { seen.add(called); const r = go(called.stmts!, local, acts, outer); if (r) return r; } continue; }
+      const out: Out = n => acts.has(n) || (!lets.has(n) && outer(n));
+      let r: string | undefined;
+      switch (s.k) {
+        case "action": if (actionWaits(s.body) || go(s.body, local, acts, outer) !== undefined) return "action { … }"; break;
+        case "sif": r = callIn(s.c, out) ?? go(s.t, local, acts, out) ?? go(s.f, local, acts, out); break;
+        case "for": r = callIn(s.e, out) ?? go(s.body, local, acts, out); break;
+        case "try": r = go(s.body, local, acts, out) ?? (s.handler ? go(s.handler, local, acts, out) : undefined) ?? (s.fin ? go(s.fin, local, acts, out) : undefined); break;
+        default: r = callIn(s, out);
+      }
+      if (r) return r;
+    }
+    return undefined;
+  };
+  return go(stmts, new Map(), new Set(), outlasting);
+}
 export const triggerText = (t: Trigger): string => t === "write+await" ? "it writes and awaits" : `it has \`${t === "optimistic" ? "guess" : t}\``;
 
 export type Finding = { code: "HELD_WRITE" | "STALE_OWN_READ" | "STALE_WRITE_BACK" | "STALE_CAPTURE" | "STALE_NEXT_READ"; name: string; via?: string };
@@ -223,7 +282,10 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
           else Object.assign(st, end);
           break;
         }
-        case "action": case "refresh": case "affects": break;            // an inline action is its own run, checked on its own
+        // an inline action is its own run, checked on its own; AC-1 (D-7): one that waits is launched as a declared one is,
+        // and the run's writes join its change
+        case "action": if (!action && !joins && (actionWaits(s.body) || actionJoins(s.body, n => !!opts.isAction?.(n)) !== undefined)) joins = "action { … }"; break;
+        case "refresh": case "affects": break;
       }
     }
     return st;

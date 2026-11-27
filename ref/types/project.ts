@@ -253,7 +253,9 @@ class Proj {
       }
       if (d.k === "action" || d.k === "server") {
         const ps = d.params.map((n, i) => `${n}${d.k === "action" && d.required !== undefined && i >= d.required ? "?" : ""}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
-        this.w.emit(`${ind}${ex(d)}async function ${d.name}(${ps})${d.k === "server" && d.ret ? `: Promise<${d.ret}>` : ""} {`, d.line); this.stmts(d.body, ind + "  "); this.w.emit(`${ind}}`, d.line);
+        if (d.k === "action" && d.ret !== undefined) this.w.emit(`${ind}${ex(d)}function ${d.name}(${ps}): ${d.ret} {`, d.line);   // AC-1i: answers at the call
+        else this.w.emit(`${ind}${ex(d)}async function ${d.name}(${ps})${d.k === "server" && d.ret ? `: Promise<${d.ret}>` : ""} {`, d.line);
+        this.stmts(d.body, ind + "  "); this.w.emit(`${ind}}`, d.line);
         if (d.k === "server") this.w.emit(`${ind}__.wire(${d.name}, true);`, d.line);   // SF-6a, statically where the types are known
       }
     }

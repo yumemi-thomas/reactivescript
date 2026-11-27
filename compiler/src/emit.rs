@@ -1075,12 +1075,14 @@ impl<'p> Gen<'p> {
             }
         }
         for d in decls {
-            let Decl::Action { name, params, body, .. } = d else { continue };
+            let Decl::Action { name, params, body, ret, .. } = d else { continue };
             let n0 = out.len();
             let penv = self.params(env, params);
-            let body = self.stmts(body, penv, &Ctx { imp: true, gen: true, ..Ctx::default() }, false)?;
-            let gen = E::Func(Box::new(Func { name: None, params: params.iter().map(|p| P::Id(mg(p))).collect(), directives: vec![], body, is_async: false, generator: true }));
-            out.push(konst(mg(name), rtc("action", vec![gen])));
+            // AC-1i (B10): an action that answers at the call is a plain function, its body a handler's
+            let now = ret.is_some();
+            let body = self.stmts(body, penv, &Ctx { imp: true, gen: !now, ..Ctx::default() }, false)?;
+            let gen = E::Func(Box::new(Func { name: None, params: params.iter().map(|p| P::Id(mg(p))).collect(), directives: vec![], body, is_async: false, generator: !now }));
+            out.push(konst(mg(name), rtc(if now { "now" } else { "action" }, vec![gen])));
             out.extend(self.reg(name, vec![("value", id(mg(name)))]));
             at(&mut out, n0, d.line());
         }

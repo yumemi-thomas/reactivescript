@@ -290,6 +290,156 @@ pub struct RunOpts<'o> {
     pub is_action: Option<&'o dyn Fn(&str) -> bool>,
 }
 
+/// AC-1i: the first word of a body that makes its change outlive the call — an `await`, `refresh`, `affects`, a guess — in
+/// its own statements as AC-1b reads them: a branch, a `try`, a loop, and the local closures the body calls by name (a
+/// call runs the closure's statements in this run), not other closures and not an inline `action { … }` (its own run,
+/// launched as a call of a declared action is: what it holds is AC-1h's); with its statement's line.
+pub fn held_word(ss: &[Stmt]) -> Option<(&'static str, u32)> {
+    fn go<'a>(ss: &'a [Stmt], cl: &Closures<'a>, seen: &mut HashSet<*const Expr>) -> Option<(&'static str, u32)> {
+        let mut local = cl.clone();
+        for s in ss {
+            if let Some(c) = closure_of(s) {
+                if let StmtKind::Let { name, .. } = &s.k {
+                    local.insert(name.clone(), c);
+                }
+                continue;
+            } else if let StmtKind::Let { name, .. } = &s.k {
+                local.shift_remove(name);
+            }
+            let called = match &s.k {
+                StmtKind::Expr(e) | StmtKind::Let { e, .. } => called_closure(e, &local),
+                _ => None,
+            };
+            if let Some(c) = called {
+                if seen.insert(c as *const Expr) {
+                    if let Some((w, at)) = go(fn_parts(c).1, &local, seen) {
+                        return Some((w, if s.line > 0 { s.line } else { at }));
+                    }
+                }
+            }
+            let w = if stmt_await(s) {
+                Some("await")
+            } else {
+                match &s.k {
+                    StmtKind::Refresh(_) => Some("refresh"),
+                    StmtKind::Affects(_) => Some("affects"),
+                    StmtKind::Optimistic { .. } => Some("guess"),
+                    _ => None,
+                }
+            };
+            if let Some(w) = w {
+                return Some((w, s.line));
+            }
+            let inner: Vec<&[Stmt]> = match &s.k {
+                StmtKind::Sif { t, f, .. } => vec![t, f],
+                StmtKind::For { body, .. } => vec![body],
+                StmtKind::Try { body, handler, fin, .. } => vec![body, handler.as_deref().unwrap_or(&[]), fin.as_deref().unwrap_or(&[])],
+                _ => vec![],
+            };
+            for b in inner {
+                if let Some(r) = go(b, &local, seen) {
+                    return Some(r);
+                }
+            }
+        }
+        None
+    }
+    go(ss, &IndexMap::new(), &mut HashSet::new())
+}
+/// AC-1h, AC-1 (D-7): the action a run launches whose change outlasts the call — so the run's own writes join that change
+/// and are held with it: a call by name of an action `outlasting` says outlasts (a declared one that waits, or one that
+/// launches such an action itself), a local closure that is an action of its own and waits, or an inline `action { … }`
+/// that waits. Own statements, as AC-1b reads them (through the local closures the body calls by name); a name a `let`,
+/// a loop or a `catch` of the block binds is not the action's.
+pub fn action_joins(ss: &[Stmt], outlasting: &dyn Fn(&str) -> bool) -> Option<String> {
+    fn call_in(n: crate::check::Node, out: &dyn Fn(&str) -> bool) -> Option<String> {
+        if let crate::check::Node::E(e) = n {
+            match &e.k {
+                ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return None,
+                ExprKind::Call { f, .. } => {
+                    if let ExprKind::Id(name) = &f.k {
+                        if out(name) {
+                            return Some(name.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        crate::check::children(n, true).into_iter().find_map(|c| call_in(c, out))
+    }
+    fn go<'a>(ss: &'a [Stmt], cl: &Closures<'a>, acts: &HashSet<String>, seen: &mut HashSet<*const Expr>, outer: &dyn Fn(&str) -> bool) -> Option<String> {
+        let mut local = cl.clone();
+        let mut acts = acts.clone();
+        let lets: HashSet<&str> = ss.iter().filter_map(|s| match &s.k {
+            StmtKind::Let { name, .. } | StmtKind::For { name, .. } => Some(name.as_str()),
+            StmtKind::Try { catch_name, .. } => catch_name.as_deref(),
+            _ => None,
+        }).collect();
+        for s in ss {
+            if let StmtKind::Let { name, e, .. } = &s.k {
+                acts.remove(name);
+                if let ExprKind::Fn { stmts: Some(b), .. } = &e.k {
+                    if inferred_action(b).is_some() && (action_waits(b) || go(b, &local, &acts, seen, outer).is_some()) {
+                        acts.insert(name.clone());
+                    }
+                }
+            }
+            if let Some(c) = closure_of(s) {
+                if let StmtKind::Let { name, .. } = &s.k {
+                    local.insert(name.clone(), c);
+                }
+                continue;
+            } else if let StmtKind::Let { name, .. } = &s.k {
+                local.shift_remove(name);
+            }
+            let called = match &s.k {
+                StmtKind::Expr(e) | StmtKind::Let { e, .. } => called_closure(e, &local),
+                _ => None,
+            };
+            if let Some(c) = called {
+                if seen.insert(c as *const Expr) {
+                    if let Some(r) = go(fn_parts(c).1, &local, &acts, seen, outer) {
+                        return Some(r);
+                    }
+                }
+                continue;
+            }
+            let out = |n: &str| acts.contains(n) || (!lets.contains(n) && outer(n));
+            match &s.k {
+                StmtKind::Action(b) => {
+                    if action_waits(b) || go(b, &local, &acts, seen, outer).is_some() {
+                        return Some("action { … }".into());
+                    }
+                }
+                StmtKind::Sif { c, t, f } => {
+                    if let Some(r) = call_in(crate::check::Node::E(c), &out).or_else(|| go(t, &local, &acts, seen, &out)).or_else(|| go(f, &local, &acts, seen, &out)) {
+                        return Some(r);
+                    }
+                }
+                StmtKind::For { e, body, .. } => {
+                    if let Some(r) = call_in(crate::check::Node::E(e), &out).or_else(|| go(body, &local, &acts, seen, &out)) {
+                        return Some(r);
+                    }
+                }
+                StmtKind::Try { body, handler, fin, .. } => {
+                    for b in [Some(body), handler.as_ref(), fin.as_ref()].into_iter().flatten() {
+                        if let Some(r) = go(b, &local, &acts, seen, &out) {
+                            return Some(r);
+                        }
+                    }
+                }
+                _ => {
+                    if let Some(r) = call_in(crate::check::Node::S(s), &out) {
+                        return Some(r);
+                    }
+                }
+            }
+        }
+        None
+    }
+    go(ss, &IndexMap::new(), &HashSet::new(), &mut HashSet::new(), outlasting)
+}
 /// AC-1h: whether an action's change can outlast its call — its body (not a closure's) awaits, re-asks, or declares `affects`,
 /// in a branch, a `try` or a loop's body (a loop's was missed until 2026-11-26).
 pub fn action_waits(ss: &[Stmt]) -> bool {
@@ -725,7 +875,16 @@ impl<'o> Walker<'o> {
                         None => end,
                     };
                 }
-                StmtKind::Action(_) | StmtKind::Refresh(_) | StmtKind::Affects(_) => {}
+                // AC-1 (D-7): an inline action that waits is launched as a declared one is, and the run's writes join its change
+                StmtKind::Action(b) => {
+                    if !self.action && self.joins.is_none() {
+                        let out = |n: &str| self.is_action.is_some_and(|a| a(n));
+                        if action_waits(b) || action_joins(b, &out).is_some() {
+                            self.joins = Some("action { … }".into());
+                        }
+                    }
+                }
+                StmtKind::Refresh(_) | StmtKind::Affects(_) => {}
             }
         }
         st

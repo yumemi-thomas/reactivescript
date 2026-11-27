@@ -9,7 +9,7 @@
 use crate::parse::JsTrim;
 use crate::ast::*;
 use crate::content::{carried_by, misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE, USE};
-use crate::infer::{action_waits, inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
+use crate::infer::{action_joins, action_waits, held_word, inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::{other_mention, shown, shown_in, takes_view, view_uses, ModuleSet, Shown};
 use crate::names::{harness_reason, language, scalar, Lang};
@@ -3789,11 +3789,11 @@ impl<'a> Checker<'a> {
                     sym.question = *question;
                     sym.row_key = key.clone(); // ST-4d: what its rows are keyed by
                 }
-                Decl::Action { params, required, body, .. } => {
+                Decl::Action { params, required, ret, body, .. } => {
                     sym.io = true; // R-io-2: an action is io
                     sym.arity = Some(params.len()); // AC-1f: its parameters
                     sym.arity_min = *required; // …at least, where its last ones may be left out (`by?`)
-                    sym.outlasts = Some(action_waits(body)); // AC-1h
+                    sym.outlasts = Some(ret.is_none() && action_waits(body)); // AC-1h; AC-1i: one that answers at once never waits
                 }
                 Decl::Fn { params, decls: fdecls, tail, named, .. } => {
                     sym.params = Some(params.iter().map(|p| SigParam { name: p.name.clone(), r#ref: p.r#ref, ty: p.ty.clone(), opt: p.opt }).collect());
@@ -3866,6 +3866,27 @@ impl<'a> Checker<'a> {
         }
         self.server_io(decls, env);
         self.prop_interfaces(decls, env);
+        // AC-1h, AC-1 (D-7): an action that launches one whose change outlasts the call outlasts it too — its writes join
+        // that change (an action that answers at the call included, AC-1i: it waits for nothing itself)
+        loop {
+            let mut changed = false;
+            for d in decls {
+                let Decl::Action { name, params, body, .. } = d else { continue };
+                let s = self.envs[env].vars[name.as_str()];
+                if self.syms[s].outlasts == Some(true) {
+                    continue;
+                }
+                // only what is known to outlast: an action of another module (MO-3: its signature does not say) adds nothing here
+                let out = |n: &str| !params.iter().any(|p| p == n) && self.lookup(env, n).is_some_and(|t| self.syms[t].kind == SymKind::Action && self.syms[t].outlasts == Some(true));
+                if action_joins(body, &out).is_some() {
+                    self.syms[s].outlasts = Some(true);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
         // MO-10k: what a fn or an action of this module may give back, by mention (every name of the block is bound now)
         for d in decls {
             let mut names = IndexSet::new();
@@ -5008,7 +5029,7 @@ impl<'a> Checker<'a> {
                 let own = self.own_source_writes(inputs, body, env);
                 self.relay_writes(inputs, body, env, &own);
             }
-            Decl::Action { name, params, ptypes, body, line, .. } => {
+            Decl::Action { name, params, ptypes, ret, body, line, .. } => {
                 let region = self.reg(env);
                 let inner = self.env(Some(env), region);
                 for p in params {
@@ -5016,6 +5037,20 @@ impl<'a> Checker<'a> {
                 }
                 self.comp("action", env, Some(name.clone()), None, |c| c.stmts(body, inner, Ctx { in_action: true, ..Ctx::imperative() }));
                 self.actions.push(ActionRec { name: name.clone(), body, env: inner, line: *line as i64 });
+                if let Some(ret) = ret {
+                    // AC-1i (B10): an action that answers at the call never waits — its writes land as a handler's
+                    // do, so nothing would hold a change, and its body is checked as a handler's run
+                    if let Some((w, at)) = held_word(body) {
+                        let line0 = self.line;
+                        if at > 0 {
+                            self.line = at as i64;
+                        }
+                        self.err("ACTION_ANSWER_HELD", "AC-1i", format!("action {name} declares what it answers (`: {ret}`), so it answers at the call and never waits; `{w}` would make its change outlive the call, and the answer would come before its writes settle: leave the result out (a caller then gets a promise, which settles with the change), or move the waiting part to an action the caller launches after it"));
+                        self.line = line0;
+                    }
+                    self.run_checks_with(body, inner, false, params, false, vec![], false, Some(inner));
+                    return;
+                }
                 let ptypes: Vec<Option<String>> = ptypes.iter().map(|t| t.as_ref().map(|t| if self.scalar_aliases.contains(t.js_trim()) { "string".to_string() } else { t.clone() })).collect();
                 self.run_checks_with(body, inner, true, params, false, ptypes, true, None);
             }

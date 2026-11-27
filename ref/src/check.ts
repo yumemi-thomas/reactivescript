@@ -11,7 +11,7 @@ import { closes, splitTop, fieldRows, instance, isGenerated, isViewType, type Js
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, USE, carriedBy, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
 import { scopeFacts, scoped } from "./scope.ts";
-import { actionWaits, guessFacts, inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
+import { actionJoins, actionWaits, guessFacts, heldWord, inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 /** MO-10i (closed 2026-11-22): what is called on a draft is a method of plain data, by name — an Array's, a Map's, a Set's,
  *  a string's or a number's. `DRAFT_CALLBACKS` are the ones that call a function they are given, now, with parts of the data. */
@@ -1177,7 +1177,7 @@ class Checker {
       if (d.k === "server") sym.params = d.params.map(name => ({ name, ref: false }));
       if (d.k === "source") sym.question = !!d.question;
       if ((d.k === "source" || d.k === "eq") && d.key !== undefined) sym.rowKey = d.key;   // ST-4d: what its rows are keyed by
-      if (d.k === "action") { sym.io = true; sym.arity = d.params.length; if (d.required !== undefined) sym.arityMin = d.required; sym.outlasts = actionWaits(d.body); }                 // R-io-2: an action is io; AC-1f: its parameters
+      if (d.k === "action") { sym.io = true; sym.arity = d.params.length; if (d.required !== undefined) sym.arityMin = d.required; sym.outlasts = d.ret === undefined && actionWaits(d.body); }                 // R-io-2: an action is io; AC-1f: its parameters
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = instantiates(d); sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); sym.compRegion.key = `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${sym.compRegion.id}` : ""}`; }   // E-5a
       if (d.k === "eq") sym.eqDecl = d;
@@ -1188,6 +1188,16 @@ class Checker {
     }
     this.serverIo(decls, env);
     this.propInterfaces(decls, env);
+    // AC-1h, AC-1 (D-7): an action that launches one whose change outlasts the call outlasts it too — its writes join that
+    // change (an action that answers at the call included, AC-1i: it waits for nothing itself)
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const d of decls) {
+        if (d.k !== "action") continue;
+        const sym = env.vars.get(d.name)!; if (sym.outlasts) continue;
+        if (actionJoins(d.body, n => { if (d.params.includes(n)) return false; const t = env.lookup(n); return t?.kind === "action" && t.outlasts === true; }) !== undefined) { sym.outlasts = true; changed = true; }   // only what is known to outlast: an action of another module (MO-3) adds nothing here
+      }
+    }
     // MO-10k: what a fn or an action of this module may give back, by mention (every name of the block is bound now)
     for (const d of decls) {
       if (d.k !== "fn" && d.k !== "action") continue;
@@ -1628,6 +1638,14 @@ class Checker {
         for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line });
         this.comp("action", env, { name: d.name }, () => this.stmts(d.body, inner, { scope: "imperative", inAction: true }));
         this.actions.push({ name: d.name, body: d.body, env: inner, line: d.line });
+        if (d.ret !== undefined) {
+          // AC-1i (B10): an action that answers at the call never waits — its writes land as a handler's do, so
+          // nothing would hold a change, and its body is checked as a handler's run (AC-1h's form for a run, not an action's)
+          const h = heldWord(d.body);
+          if (h) { const line0 = this.line; if (h.line) this.line = h.line; this.err("ACTION_ANSWER_HELD", "AC-1i", `action ${d.name} declares what it answers (\`: ${d.ret}\`), so it answers at the call and never waits; \`${h.word}\` would make its change outlive the call, and the answer would come before its writes settle: leave the result out (a caller then gets a promise, which settles with the change), or move the waiting part to an action the caller launches after it`); this.line = line0; }
+          this.runChecks(d.body, inner, false, d.params, false, { isAction: n => { const t = inner.lookup(n); return t?.kind === "action" && t.outlasts !== false; } });
+          return;
+        }
         this.runChecks(d.body, inner, true, d.params, false, { ptypes: (d.ptypes ?? d.params.map(() => undefined)).map(t => t && this.scalarAliases.has(t.trim()) ? "string" : t), answered: n => { const t = inner.lookup(n); return !!t && t.kind === "source" && !!t.question; }, stateful: n => { const t = inner.lookup(n); return !!t && (t.kind === "source" || t.kind === "eq"); } });
         return;
       }

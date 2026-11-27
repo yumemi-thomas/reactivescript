@@ -45,6 +45,7 @@ fn slope(a: Point, b: Point) {                       // and one that names what 
   run == 0 ? 0 : rise / run
 }
 action save(n: string) { … }               // writes and awaits (async.md)
+action mint(): number { … }                // answers at the call, never waits (async.md, AC-1i)
 component Row(props: { item: Item }) { … }
 error NotFound(id: number) => `no issue ${id}`       // an error class; `NotFound(3)` makes one
 type Item = { id: number; name: string }
