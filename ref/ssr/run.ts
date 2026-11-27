@@ -217,7 +217,11 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   await wait(40);
   // after hydration the client is Solid's client: the spec's frame, or Solid's where an oracle divergence is recorded
   const framesOf = (r: Row) => { const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return div ? [norm(r.frame), norm(div.frame)] : [norm(r.frame)]; };
-  const matches = (r: Row, got: string) => framesOf(r).some(w => w === got || redactedMatch(w, got));
+  // PT-3: hydrating, what is under a portal is made once hydration has settled, and a boundary outside the portal that
+  // has settled keeps its content (Solid's `portal-async-content`): until an answer lands the page is the shell, where a
+  // client render shows the boundary's fallback
+  const shell = shellOf(sc, src);
+  const matches = (r: Row, got: string) => framesOf(r).some(w => w === got || redactedMatch(w, got)) || (shell !== undefined && r.action === "mount" && got === shell);
   // a `hydrated` divergence, or a `## Hydration window` frame (SV-3b, ruled): what the client shows there once it has taken
   // over a served page — from there the rows cannot be followed (a question the scenario lands was never asked), so the run stops with it
   const known = (r: Row) => !scope && sc.divergences.find(d => d.runner === "hydrated" && d.table === t.title && d.instant === r.instant);
@@ -310,6 +314,16 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   return ok;
 }
 
+/** PT-3: the shell of a program with a portal — its mount with nothing in its portals (Solid's server skips a `<Portal>`'s
+ *  subtree); undefined where the program has none. */
+function shellOf(sc: Scenario, src: string): string | undefined {
+  try {
+    const set = moduleSet(sc, src); let any = false;
+    const empty = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string; body?: unknown[]; decls?: unknown[] }; if (o.k === "portal" && Array.isArray(o.body)) { o.body = []; o.decls = []; any = true; return; } Object.values(x).forEach(empty); };
+    for (const p of set.programs.values()) empty(p);
+    return any ? norm(new Runtime(set).step([])[0]?.frame ?? "").split(" » ")[0] : undefined;
+  } catch { return undefined; }   // the client's frame stands
+}
 /** SV-1 over a client table: its mount and landings, served; the server's frames, deduplicated, must be the client's in order. */
 async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scenario["tables"][number] | undefined, lines: string[]): Promise<boolean> {
   const src = t.program ?? sc.program;
@@ -336,13 +350,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   // PT-3: …and waits for nothing under it, shows no fallback for it and no failure of it: the shell is the mount of the
   // program with nothing in its portals (Solid's server skips a `<Portal>`'s subtree), which the client's mount frame
   // does not say where what is under the portal reached a boundary outside it (`tw`, `tbad`, a held mount)
-  let shell: string | undefined;
-  if (t === base && !refMount && /\bportal\b/.test(src)) try {
-    const set = moduleSet(sc, src); let any = false;
-    const empty = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string; body?: unknown[]; decls?: unknown[] }; if (o.k === "portal" && Array.isArray(o.body)) { o.body = []; o.decls = []; any = true; return; } Object.values(x).forEach(empty); };
-    for (const p of set.programs.values()) empty(p);
-    if (any) shell = norm(served1(new Runtime(set).step([])[0]?.frame ?? ""));
-  } catch { /* the client's frame stands */ }
+  const shell = t === base && !refMount ? shellOf(sc, src) : undefined;
   const frameOf = (r: Row) => { if (refMount && r.action === "mount") return norm(served1(refMount.frame)); if (shell !== undefined && r.action === "mount" && !sc.divergences.some(d => (d.runner === "server" || d.runner === "oracle") && d.table === t.title && d.instant === r.instant)) return shell; const sv = !scope && sc.divergences.find(d => d.runner === "server" && d.table === t.title && d.instant === r.instant); if (sv) return norm(sv.frame); const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return norm(served1(div ? div.frame : r.frame)); };
   const want = served.slice(from).flatMap(c => c.map(frameOf));
   const res = await serve(sc, src, served.map(c => c[0]), t.title, lines);

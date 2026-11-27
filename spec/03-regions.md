@@ -381,7 +381,14 @@ fragment they are inert wrappers.
 - **PT-3 (Client-only).** The server renders nothing for a portal; the
   browser renders it once it has taken the page over. So a client question
   read inside a portal is held by it (SV-7b), and data that should come from
-  the server is read above the portal and passed in.
+  the server is read above the portal and passed in. The server waits for
+  nothing under a portal and shows no fallback and no failure for it: its
+  shell is the mount of the program with nothing in its portals. Taking
+  that page over, what is under the portal is made once hydration has
+  settled, and a boundary outside the portal that has settled keeps its
+  content: until an answer lands the page is the shell, where a client
+  render shows that boundary's fallback (Solid's rule, its
+  `portal-async-content` test; 2026-11-27).
 - **PT-4 (Its place).** For the content model (10 SV-7d) a portal's view is
   at the end of `<body>`: a `<tr>` there is refused.
 

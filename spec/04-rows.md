@@ -191,8 +191,9 @@ and where they may not go.
     applies it. (Found by the desk9 reference's fuzz seed 11, eval/results/desk9-reference-2026-11-13:
     `add-label` sat in a region of its own reading only `pending? shown`.)
   **R-8a** *What such a read does (ruled 2026-11-27; X15).* The check
-  above is not enforced, so a run can reach the read: a button outside the
-  region that waits, pressed before the first answer. A run's read of a
+  above is the compiler's (`UNGUARDED_SNAPSHOT`, when an app is built); the
+  reference checker does not make it, and a scenario's handler row runs
+  whatever is covered. So a run can reach the read. A run's read of a
   value that has never had one fails there, as `latest` of it does (R-12;
   Solid's rule: a node with no committed value has nothing to serve): the
   statement throws, what the run wrote before it stands, what follows does

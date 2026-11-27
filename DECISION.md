@@ -2024,3 +2024,179 @@ a3d680dc has them.
 | the full `scripts/ci`, uncached, with the Vite plugin fork | 47 of 47 passed (588 s), bench `--check --strict` and `generated` among them, `t-vite-hosts` run |
 | `bench/run.mjs --write` | no file changed |
 | a missing words build (`RX_WORDS_WASM` absent) | `bench/run.mjs` and `bench/generated.mjs` exit 1 and name the build command |
+
+## Outside review of 15db0404: findings and rulings (2026-11-27)
+
+An outside reviewer checked the two days before 15db0404 (`rx-review.noindex/notes`: probes, logs, a README). Each
+finding was reproduced on this tree first (`rx-fix.noindex/out/base`), then ruled and fixed. The probes — the
+reviewer's 12 sets and five of mine (`io2`, `io3`, `aw`, `aw2`, `kids`) — and every log are outside the tree, in
+`rx-fix.noindex/probes`, `out` and `census`. Both checkers stay equal on every program below (`same`), and both
+emitters print the same text (`lower`).
+
+### The table
+
+| | finding | ruling | change | census |
+| --- | --- | --- | --- | --- |
+| 1 | an io value is called while an equation computes (`(a > 2 ? fs[0] : fs[1])()`, `fs.at(0)()`, `pick(fs)()`, … 11 shapes new since 19171dc2, and the action form at the base too) | **R-io-3d: the fact follows the value, with a default.** A form the checkers read keeps the paths; any other form gives the value everything it was made from (`?`: somewhere in it). The callee of a call is read in whatever form it is written | both checkers, alike: `actionParts`/`parts_of` read every form of an expression (no `default: nothing`); `calledPaths`/`called_paths` the same for a fn's parameter (`calls(xs.?)`); a closure the module writes is read as a callee; a closure or a fn given beside an io value may be handed it. 04 R-io-3d, S-check-9 | the reviewer's `t1` (the 11 shapes) and `t1c` (18, the action form): every one refused, by both. Mine: `io2` 33 refused, 16 accepted and alike in every runner; `io3` (another module, through the signature) 6 refused, 3 accepted. Newly refused elsewhere: see *Census* |
+| 2 | `await … catch (e) => "none" + t`: after `t := 5` compiled code shows `none0` | **R-f-4a (decision d): a `catch` answer is an expression of its reader.** It reads its sources where the `await` is read | the `await` is settled to its answer or to the failure it caught, marked (`__rt.settle`), a failure of computing its operand too; the reader computes the answer (`__rt.caught`), with no boundary of its own. The three runtimes, the oracle, both emitters, in both forms. 04 R-f-4a, S-fail-9 | `pin/catch-alt-reads`, `-eq`: every runner, served and hydrated. `f3` 21 and `f3b` 16: see 7 |
+| 3 | a `ref` on an element made under a hold: the interpreter showed the write at once, with the old value | **Followed: Solid's rule** (#4767, kept by #5110). An element a hold makes is made with the hold's values; its `ref` reads them, and what it writes is the hold's | the interpreter calls such a `ref` with the staged values and joins its writes to the hold; one whose region the hold drops is never called. 02 SC-4c, S-hold-8 | `pin/ref-born-held`, `x6b/hold-born`, `-plain`, `-other`: every runner |
+| 4 | `{...props}` gives undeclared children on in both emitters, not in the interpreter or the oracle | **The emitters are right: a spread is Solid's** (07 §4), and Solid's spread gives `children` on. W4's sentence said what the checkers do (nothing is refused), not what is shown | the interpreter and the oracle show the children a spread carries where the element writes none of its own. 03 RG-4c, 07 §4, S-region-9 | `w4/spread-all`, `w4b/spread-any`, `kids/spread-*` (5): every runner |
+| 5 | W4 refuses correct code: a function given as children to an untyped component and called; `title={props.children}` of text | **Children nobody declares are a value where the module shows they are**: a component it does not export, that uses them as a value, every application of which gives a value (one `{…}`, text, nothing). Else W4 stands | the loader marks the component (`kidsValue`, as `named` on a fn), so both checkers and every runner share it; the givers hand such children as the value they are. 03 RG-4c, S-region-9, S-check-8 | `w4` and `kids`: the four the reviewer names accepted again and alike everywhere; markup given, or an exported component: refused as before |
+| 6a | the oracle stores the function of a functional write to a path | a defect | `setPath` applies it | `pin/path-fn`, `x6b/store-path-fn*` |
+| 6b | the emitters print a fn's local closure differently | a defect of the reference emitter (parentheses) | a closure that stands where its name was is parenthesised only where it is called | `t1` lowered 40 of 40 |
+| 6c | a `ref`'s write at the mount beside an effect is an instant of its own | a defect | the `ref`s' writes fold into the mount's frame, the effect's are the next | `pin/ref-effect-mount` |
+| 7 | older differences, interpreter against Solid | see *Finding 7* | | |
+
+### Finding 1: why a default, and what it costs
+
+The hole was not eleven shapes but one sentence of the old rule: "as far as their literals say". `actionParts` had a
+`default: nothing`, so every form it did not list lost the fact. The fix turns the default over: the checkers now name
+every form of an expression, and a form they do not read answers `?` — the value holds, somewhere, what it was made
+from. A list of shapes cannot leak the next one, because the next one is `?`.
+
+*Decided.* (a) `?` is a call too: `pick(fs)()`, `wrap(inc).f()`. The one exception is a method of plain data
+(`total(rows).toFixed(1)`, `names.join(",")`): by name it is the data's own method, and where the path is known a
+record's own field of that name is still followed (`{ map: inc }.map()` is refused, as before). (b) Giving on is never
+refused by this rule — only a call. In the closure mode of B3 (where a statement closure may *go*) `?` refuses
+nothing: `<button {...merge(base, { onClick: () => { … } })}>` must stay accepted, and B3's giver check is as it was.
+(c) A spread of a record no longer forgets the fields written before it (`{ go: inc, ...rest }.go()` was accepted).
+(d) What the module's text does not make — JavaScript's, a prop's, a context's, a source's — is its declaration's to
+say, as before: a `?` there would refuse `table.getRowModel().rows.map(r => r.getValue("x"))` for a handler in the
+table's options. (e) Higher order: a callee that is a closure the module writes (by a name, a field or an item of a
+literal) is read for what it calls; a closure written among the arguments of a call of `.rx` may be handed the other
+arguments (`each((h) => h(), inc)`), and a fn given there by name that calls its parameter may too.
+
+*Not taken.* Refusing every call of a function the checker cannot read with an argument that holds io:
+`{for row in rows { for col in cols { <td>{col.render(row)}</td> } }}` with handlers in the rows is ordinary table
+code, and a `render` that is a closure of a literal is read anyway.
+
+*Still open, and said* (04 R-io-3d): an expression closure kept in a record or a list and later handed an io value by a
+fn that is only given both (`all([(h) => h()], inc)`), and a source that is written an io value. Both were open
+before; neither is new.
+
+*The signature.* A path may now be `*`, `?` or `()` (`{ *: io; … }`, `calls(xs.?)`): the two readers take them. No
+word is added: both are derived marks of a printed signature, as `calls(…)` is.
+
+### Finding 7: the older differences
+
+| difference | whose | change |
+| --- | --- | --- |
+| two awaits in one reader; a nested await; `(await f(s)) + t` with `t` written during the hold; a reader's own `await` | ours: the interpreter evaluated an `await` that is not an equation's result inline in its reader, one flight after the other; 07 §3 says each is a flight of its own, and the compilers hoist them | the interpreter makes each a node of its own where it is first reached (`awaits.ts`, the same list the compilers read). A stale change group in the hold decision, found by `aw/eq-two` (a group's members were left open after it committed, and the next instant's fresh write was committed with it), fixed |
+| `(await … catch …) + t`, `t` written during the hold: the interpreter showed it, compiled code held it | ours: the lowering made a boundary on every run of the reader | gone with 2 (no boundary) |
+| `latest (A + n)` with `n` written during the hold | ours | `latest` of an expression reads each input's last answer where it is still asked (R-9) |
+| `children: number[]` with `len(props.children)` over `{[1, n]}`: 0 in the interpreter, 5 in Solid | ours, both: the giver formatted the value as content (5 is the length of `[1,1]`, the text it was formatted to), the interpreter gave a view | a list, a record and a function type with no name that is not read are a value's type (`valueType`), and such children are given as the value: 2 everywhere. Stricter: a view given to a prop of such a type is now refused, as one given to `number` was |
+| an `if` condition or a `for` list that reads a held value and a source written during the hold (`aw/if-await-t`, `aw2/if-plain-t`, `for-plain-t`) | **left**: Solid's condition is a computation and takes the write into the hold; the interpreter's is a display and shows it. A first fix broke two scenarios and was withdrawn | recorded here; not a Solid bug, not fixed |
+
+### The four design decisions
+
+- **a. DV-28 and SC-4c: split, and the rule restated on Solid's own principle.** Read: #4767 (a `ref` born into a
+  hold), #4768 (deliberate: a `ref` runs in the pass that builds its element, "agreed with Ryan"), #5098, #5110 (the
+  ruling of 2026-11-20: a `ref` reads the screen like an event handler; #4767's arm is kept). So "a regression in
+  rc.22" was wrong for the rendered half. SC-4c now says what those four say: *a `ref` reads the values its element
+  was made with* — the hold's for an element made under a hold (finding 3, followed), the screen for the elements one
+  pass makes. DV-28a (rendered) is no longer called a bug: what is left is *which pass* makes a nested region, which
+  in Solid depends on the kind of region and its place (a `<For>` row always after the writer; a `<Show>` after it
+  only when written after it; `lowerShow` moves it). That is an order of Solid's compiler, not of the program, and the
+  language does not transcribe it: stating it would make `if` and `for` differ for no reason a program can name.
+  DV-28b (hydrated: a row reads the screen, a `<Show>` is rebuilt) stays Solid's bug. "No case left that differs with
+  no Solid bug" is withdrawn. No advisory row: it would mark every `ref` that reads what another wrote, right on every
+  runner in the four shapes that agree; the divergence and its memo say what to write instead. The X6 refusal stays gone.
+- **b. Supported release: the peer is raised, and a job holds it.** `runtime/test.mjs` was run on npm's 2.0.4
+  (`RX_SOLID_FROM`): it fails there — typed boundaries on the client pass every sent error on, a primitive is called
+  tracked, cleanups run in another order. So `^2.0.4` was a wrong claim since the pin moved to Solid main. The peer is
+  `>2.0.4`, and `runtime/npm.mjs` (the `runtime-npm` step, and the runtime workflow) runs the same test on npm's
+  newest Solid: in the range, every check must pass; out of it, the test must fail there, or the job fails and says to
+  lower the peer. It turns over by itself on the day Solid releases.
+- **c. Use and re-export: one binding.** `import { A } from "./a.rx"` beside `export { A } from "./a.rx"` is accepted
+  where both name one export of one module under one name (through a chain of re-exports too: the loaders resolve
+  both to the declaring module). The emitters bound it twice (`Identifier 'V$A' has already been declared`) and the
+  type projection imported it twice: both bind it once. Two names, or two modules, is still `DUPLICATE_DECLARATION`,
+  and the message now says which two places.
+- **d. A `catch` answer** is an expression of its reader (finding 2).
+
+### After the merge of B10 (34c28a0b): the two items its step 9 left
+
+- **Finding 1 covers an action that answers.** `(a > 2 ? mint : mint)()`, `(fs[5] ?? fs[0])()`, `fs.at(0)()`,
+  `pick(fs)()`, `(a > 2 ? r : r).go()` with `mint` an action that answers (AC-1i), and the same with a plain action:
+  all `ACTION_CALLED_IN_OWNED_SCOPE`, both checkers (`probes/b10io`, 9 refused; the same call in a handler accepted).
+  An action is io whatever it answers, so the fact is the same fact.
+- **X15, ruled and fixed (04 R-8a).** A run's read of a value that has never had one fails at its statement, as
+  `latest` of it does (R-12; Solid's F-9: a node with no committed value has nothing to serve): what the run wrote
+  before stands, a `try` takes it. A built app does not reach it (R-8's check, `UNGUARDED_SNAPSHOT`, is made when the
+  crate compiles an app: a button outside the region that waits is refused there); the reference checker does not
+  make that check and a scenario's handler row runs whatever is covered, so the runners could be driven there, and
+  differed: the interpreter dropped the whole run, compiled code and the oracle put Solid's pending mark on the
+  screen (`#pending!`). The three runtimes' `snapshot` and the
+  oracle's no longer swallow the failure; the interpreter throws at the read. `pending? x` reads no value and is
+  untouched (S-solid-28). S-await-3, `probes/x15`.
+- **A counter in a declared action that launches a waiting one: refused** (`STALE_NEXT_READ`, 06 AC-1h). It was
+  accepted and wrong: `action note() { let n = seq + 1; seq := n; save(n) }` held `seq` through two calls and
+  minted one id twice (the oracle on the unchecked program: `0 / 0 / 0 / 1 a`). `runFindings`/`run_findings` read a
+  launch in a declared action as in a plain run. S-infer-8, `probes/launch`.
+- Not touched, as told: an imported action that never waits counted as outlasting (a word of `.d.rx`, the user's).
+
+### The added scope (the research agent's three cases, `rx-review.noindex/solid-check`)
+
+- **Portal programs of the 505: ours, in `ref/ssr/run.ts`.** (1) The expected server shell was the client's mount
+  frame cut at ` » `; where what is under the portal reached a boundary outside it (`tw`, `tbad`, a held mount) the
+  client's frame has no ` » ` and is not the shell. The shell is now the mount of the program with nothing in its
+  portals (the interpreter, on the program with its portal bodies emptied): Solid's server skips a `<Portal>`'s
+  subtree. (2) "asked again" counted every question the browser asked; it now counts those the server asked. A
+  question first asked under a portal is the browser's own, and the late check takes the page over where the stream
+  has ended and the landing is not the server's. (3) Found by the rerun: hydrating, Solid makes what is under a portal
+  once hydration has settled, and a boundary outside the portal that has settled keeps its content, so until an
+  answer lands the page is the shell (`t`) where a client render shows the boundary's fallback (`tw`): Solid's rule
+  (its `portal-async-content` test), written into 03 PT-3, and the hydrated mount of a portal program may be its
+  shell. The 14 then pass, served and hydrated, in both emitters. The portal and X14 attributions of those 14 programs in "Review sets
+  on 3395c64e" and "F-3 followed" above are wrong and are corrected in place.
+- **DV-21**: still Solid's on 50a4bfdde and 2.0.4; #4698 and #4699 closed as not planned on 2026-11-06 with no
+  comment. In the memo (05); the ruled frames are kept.
+- **DV-22**: the core fault still reproduces; the held-region symptom does not. In the memo (05).
+
+### Census
+
+Before = 15db0404 (`rx-review.noindex/rs`, the reviewed head, built on the same pin); after = this tree, with B10
+merged (34c28a0b). `census/run.mjs` runs the review sets as "Review sets on 3395c64e" did (`scripts/matrix.mjs`, in
+chunks of 400): the interpreter, the oracle, both emitters, both checkers alike, both lowerings, on both revisions;
+the filled sets served and hydrated in both emitters, on this tree.
+
+| census | result |
+| --- | --- |
+| the review sets: 72 folders, 18,798 programs, before → after | **nothing newly refused; nothing agreed that now differs.** 70 folders: every verdict the same. Moved: `p5_g-store-path`, in the 635 and in the 3,802 (one program, two copies): differ → agree (6a, the oracle's functional write to a path). Two programs every runner agrees on, before and after, show something else: `review-nameddata` and `second-nameddata` (`<Wrap>{0}</Wrap>` to `children: number`, `p.children ? 1 : 0`): `yes` → `no` in every runner — the children are the number 0 now, they were the text `"0"` (finding 7's row on value children; the frame written in the set records the old text). `same` and `lower`: all, both revisions (but the 22 of `o1f` whose frames the harness cannot read, as before) |
+| the same, served and hydrated (the filled sets) | 24 folders, 6,185 programs: all served and hydrated alike in both emitters but three, each as before — `p3-err-aw-ifinner-app` (DV-26) and `v1-aw-loop-app`/`-part` (X14). **The 505's filled set: 333 of 333** (it was 319: the 14 portal programs, see *The added scope*). `o1f`: 107 of 107 readable (22 stopped, their frames have a `\|`, as before). Programs a set holds that the checkers refuse are refused as before (9 of the 979, 19 of `t1f`/`t2f`, 4 and 9 of the astra sets, 1 of `m1f`) |
+| the reviewer's 12 sets and my 8, every runner, served and hydrated (`out/r5`) | `same` and `lower`: every program of every set. The findings' programs: 1 — `t1` 26 refused, `t1c` 18 of 18, `io2` 34 refused (33 mine and one for another rule) and 15 alike, `io3` 6 and 3, `b10io` 10 of 10; 2 — `f3b` 16 of 16 alike, `f3` 20 of 21; 3 — `pin` 5 of 6 alike; 4, 5 — `w4` 13 alike, `w4b` 4, `kids` 17 alike and 2 refused; 7 — `aw` 12 of 13, `aw2` 4 of 6, `t1b` 8 of 9; c — `m1` 8 alike. What still differs is listed under *Left* |
+| scenarios (`scripts/quick`: both checkers and their parity, the interpreter, the oracle, both emitters, served and hydrated, the type pass, the crate's lowering and projection) | all; 7 new or changed: S-check-9, S-fail-9, S-hold-8, S-region-9, S-await-3 (new), S-check-8 (a variant gives markup now: with text it is accepted, and alike in every runner), S-module-50 and S-infer-8 (variants added) |
+| `bench/run.mjs --check --strict`, `proposals/check.mjs` | as the scorecard; all verdicts as stated (the full ci below) |
+| `examples/rx-packages`: `build.mjs`, `check.mjs` | 65 of 65 built; `check.json` unchanged byte for byte |
+| `examples/rx-std`: `build.mjs`; `std/test/browser.mjs` | 13 built; 39 checks ok, none failed |
+| `examples/rx-ui-sdk` | its sources build as `rx-packages/packages/ui-sdk` does (built); `build.mjs` here needs the UI SDK's own workspace beside it, which this worktree does not have: it compiled the four modules to the same JavaScript byte for byte (`dist/*.js` unchanged) and stopped at the declarations. `check/run.mjs` and `app/test.mjs` were not run |
+| the runtime on npm (`runtime/npm.mjs`) | npm's solid-js is 2.0.4, outside `>2.0.4`; the test fails there (12 checks), as the range says |
+
+Strictness: nothing dropped. Raised: R-io-3d (finding 1), a view given to a prop typed a list, a record or a function
+(finding 7), `STALE_NEXT_READ` in a declared action that launches (B10's item). Accepted again, each alike in every
+runner: finding 5's programs, decision c's.
+
+### Left, and said
+
+- **A control reader that reads a held value and a source written during the hold** (`aw/if-await-t`, `aw2/if-plain-t`,
+  `for-plain-t`): Solid holds the write, the interpreter shows it. Ours to fix in the interpreter; the first attempt
+  broke S-ai2-search and S-app-users and was withdrawn.
+- **R-io-3d's two open ends** (04): an expression closure kept in a record or a list and handed an io value by a fn
+  that is only given both; a source that is written an io value. And what was open before: a prop or a context of a
+  type that is not read, an io value given to JavaScript that calls it at once.
+- **Children as a value across modules**: an exported component with no props type that uses its children as a value
+  is refused (W4), with the message that asks for the type; only a component the module does not export is read with
+  its callers.
+- **Harness rows**: a scenario row that calls a module's fn, or an import's alias, by name is not found by the compiled
+  harness (`t1/loc-in-handler`, `t1b/handler-oneline-fn`, `m1/both-paths`: "unbound area", "unbound inc2"). Not the
+  language's; not fixed.
+- **`f3/e-nested-errored`** (an `errored` inside an `errored`, a change beside the outer fallback): one instant —
+  the interpreter shows the outer fallback an instant before compiled code does. Not in the review's list; not
+  reduced.
+- **`probes/x15`'s rows without a `try`**: every runner writes `n` and fails at the read; the compiled harness
+  reports a row whose handler throws as an error, the interpreter's shows the frame. The harness's, as for `latest`.
+- **`x6`, `x6b`**: the `ref` programs that differ are DV-28a (a nested region made in a later pass) and DV-27, each
+  recorded; `pin/ref-asks` (a row's `ref` writes what a question reads) differs between the oracle and the emitters
+  themselves at its last instant, not reduced. `eq/effect-store-input` (an effect whose input is a store, at the
+  mount: the interpreter runs it an instant later) is older and not in the review's list: not fixed.
+- **New Solid bugs**: none found. (DV-28b, DV-21, DV-22, DV-27 stand; their repros are where their memos say.)
