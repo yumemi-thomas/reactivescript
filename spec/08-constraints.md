@@ -106,7 +106,10 @@ runtime check.
   variant, S-solid-19). That is `LOADING_ON_OUTSIDE_HOLD` (bin S). Readers
   are views and effect inputs; a read under `latest`, `pending?` or `peek`
   holds nothing, and neither does a reader under another region that
-  re-arms on the same change (it shows that region's fallback). Keys are
+  re-arms on the same change (it shows that region's fallback), nor that
+  region's own `on` (2026-11-27, the apps hunt: two sibling `loading on(id)`
+  regions over a source with a question were refused, each `on(id)` counted
+  outside the other; S-loading-siblings). Keys are
   the names `on` reads, and for a prop the field (`on(props.selected)` keys
   on `selected`). Checked within a component: a read through a prop in
   another component is left to Solid's run-time report. The fix is

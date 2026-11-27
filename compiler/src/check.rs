@@ -11626,6 +11626,10 @@ impl<'a> Checker<'a> {
                 if self.inside(rd.region, lo.region) || std::ptr::eq(rd.e, lo.e) || self.regions[rd.region].component != self.regions[lo.region].component || rearmed(rd.region) {
                     continue;
                 }
+                // 2026-11-27 (the apps hunt): a sibling region's own `on` over the same key re-arms it with the same change
+                if self.load_ons.iter().enumerate().any(|(oi, o)| oi != li && std::ptr::eq(rd.e, o.e) && all_keys[oi].iter().any(|k| keys.contains(k))) {
+                    continue;
+                }
                 let held = self.held_reads(rd.e, rd.env);
                 if let Some(&t) = waits.iter().find(|&&t| held.contains(&t)) {
                     found.push((rd.line, self.syms[t].name.clone(), show(lo.e)));

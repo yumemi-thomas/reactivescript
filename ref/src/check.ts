@@ -1258,6 +1258,7 @@ class Checker {
       }
       for (const rd of [...this.readers, ...this.effectIns]) {
         if (inside(rd.region, lo.region) || rd.e === lo.e || rd.region.component !== lo.region.component || rearmed(rd.region)) continue;
+        if (this.loadOns.some((o, oi) => oi !== li && rd.e === o.e && allKeys[oi].some(k => keys.some(q => sameKey(k, q))))) continue;   // 2026-11-27 (the apps hunt): a sibling region's own `on` over the same key re-arms it with the same change — it holds nothing of this one's
         const held = heldReads(rd.e, rd.env);
         const t = waits.find(w => held.includes(w));
         if (t) found.push({ line: rd.line, name: t.name, on: show(lo.e) });
