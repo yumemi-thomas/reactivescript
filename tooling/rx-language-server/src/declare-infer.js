@@ -83,6 +83,8 @@ function asks(line, row) {
   });
   return handlers;
 }
+/** The word `ref` in a row: before a type (`: ref T`, `[ref T`) or a parameter's name (`(ref x: T`), not a field of that name. */
+const REF_WORD = /(?:^|[^\w$.])ref\s+(?![:?])/;
 const pkgRoot = f => { for (let d = path.dirname(f); ; d = path.dirname(d)) { if (require("node:fs").existsSync(path.join(d, "package.json"))) return d; if (path.dirname(d) === d) return d; } };
 
 const notMade = (result, name) => /^(?:Promise\b|\(\s*\)\s*=>\s*(?:void|undefined)\s*$|VoidFunction\s*$)/.test(result) ? "it hands back a promise, or what undoes the call: called in a handler or an effect as well" : /^[A-Z]/.test(name) ? "a component's name" : undefined;
@@ -107,11 +109,28 @@ function acts(result, path) {
   return false;
 }
 
+/** Whether `text` is one function type in parentheses and nothing else: `((x: T) => U)`. `((x: T) => U) | undefined`, a
+ *  function that may be absent, is not (a part that may be absent is no bare function). */
+function wrappedFn(text) {
+  if (text[0] !== "(" || text[text.length - 1] !== ")") return false;
+  let d = 0;
+  for (let k = 0; k < text.length; k++) {
+    const ch = text[k];
+    if (ch === '"' || ch === "'" || ch === "`") { const q = ch; k++; while (k < text.length && text[k] !== q) { if (text[k] === "\\") k++; k++; } continue; }
+    if (ch === "=" && text[k + 1] === ">") { k++; continue; }
+    if ("([{<".includes(ch)) d++; else if (")]}>".includes(ch)) { d--; if (d === 0 && k < text.length - 1) return false; }
+  }
+  const inner = text.slice(1, -1).trim();
+  return fnTypeAt(inner, 0, inner.length) || wrappedFn(inner);
+}
+
 /** MO-10b (2026-11-26): where in `result` the function type of the part at `path` begins — the whole result, an item of
  *  its tuple or a field of its record — or -1: no function type is written there for a word to stand before. */
 function fnPartAt(result, path) {
   const lead = result.length - result.trimStart().length, t = result.trim(), ro = /^readonly\s+/.exec(t)?.[0].length ?? 0, body = t.slice(ro);
-  const at = (text, from) => fnTypeAt(text, 0, text.length) ? from : -1;
+  // a function type written out, or one in parentheses (a whole result is drafted `((x: T) => U)`): the word stands
+  // before either, and both checkers read it there (`io ((x: T) => U)`)
+  const at = (text, from) => fnTypeAt(text, 0, text.length) || wrappedFn(text) ? from : -1;
   if (!path.length) return ro ? -1 : at(t, lead);
   if (path.length > 1) return -1;
   if (body[0] === "[" && body.endsWith("]")) { const x = split(body, 1, body.length - 1, ",")[Number(path[0])]; if (!x) return -1; const l = /^[\w$]+\??:\s*/.exec(x.text)?.[0].length ?? 0; return at(x.text.slice(l), lead + ro + x.from + l); }
@@ -208,7 +227,8 @@ function apply(spec, from, lines, why, more = {}) {
     for (const [pos, text] of ins.sort((a, b) => b[0] - a[0])) line = line.slice(0, pos) + text + line.slice(pos);
     if (took.includes("pure")) line = line.replace(/^export\s+((?:(?:server|client)\s+)*)fn\b/, (_, w) => `export ${w}pure fn`);
     // a call that hands back a promise, or what undoes it, is made in an action or an effect too; a capital is a component's (07 §4)
-    const makes = row.kind === "fn" && !/\binstantiates\b/.test(line) && (more.written || !/\bref\b/.test(line));
+    // (the word `ref`, before a type or a parameter's name: a field may be named `ref`, `{ ref: (el: T) => void }`)
+    const makes = row.kind === "fn" && !/\binstantiates\b/.test(line) && (more.written || !REF_WORD.test(line));
     if (makes && f.instantiates) {
       const not = notMade(result, row.name);
       const ok = f.instantiates.ok && !not;
@@ -216,7 +236,7 @@ function apply(spec, from, lines, why, more = {}) {
       if (ok) { line = `${line} instantiates`; took.push("instantiates"); count.instantiates++; }
     }
     // an effect with no `instantiates` beside it belongs to no one: the row says neither
-    if (took.includes("pure") && f.pure.owned && !/\b(instantiates|ref)\b/.test(line)) { line = line.replace(/^export\s+((?:(?:server|client)\s+)*)pure fn\b/, (_, w) => `export ${w}fn`); took.splice(took.indexOf("pure"), 1); count.pure--; note(row.name, "pure", false, "it makes an effect or a cleanup, and the row does not say it is made once"); }
+    if (took.includes("pure") && f.pure.owned && !/\binstantiates\b/.test(line) && !REF_WORD.test(line)) { line = line.replace(/^export\s+((?:(?:server|client)\s+)*)pure fn\b/, (_, w) => `export ${w}fn`); took.splice(took.indexOf("pure"), 1); count.pure--; note(row.name, "pure", false, "it makes an effect or a cleanup, and the row does not say it is made once"); }
     if (!/\b(uses|provides)\(/.test(line.slice(row.close + 1))) {
       const must = (f.uses ?? []).filter(c => ownCtx(c) && provided.has(c.key));
       if (must.length) { const ns = must.map(c => nameCtx(c, row.name)); line = `${line.replace(/ instantiates$/, "")} uses(${ns.join(", ")})`; if (took.includes("instantiates")) { took.splice(took.indexOf("instantiates"), 1); count.instantiates--; } for (const n of ns) { took.push(`uses(${n})`); count.uses++; } note(row.name, `uses(${ns.join(", ")})`, true, must.map(c => `useContext(${c.name}) on every path, with no default to answer${placed(c)}`).join("; ")); }

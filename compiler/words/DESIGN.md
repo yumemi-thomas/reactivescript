@@ -84,6 +84,74 @@ itself while a call of it runs**. That is two proofs:
 What only computes is what the ECMAScript text says of its own built-ins, unchanged: a *program* that replaces them
 (`Array.prototype.map = …`) is every tool's to give up on; a file the import loads that does leaves no word. No other assumption is made.
 
+## What each word costs where it is false, and what was added on 2026-11-28
+The benchmark's declarations held 78 words written by hand that a correct program is refused without and the code did not
+prove (bench/needed.txt: 38 `pure`, 25 `instantiates`, 10 `handler`, 4 `provides`, 1 `rejects`). Each group was read for a
+rule that is general and sound; this is what was found, with what was run.
+
+**`instantiates`: "on every path" is the word's meaning to a checker, not a margin.** Both checkers were run on rows with and
+without it (2026-11-28): a row with the word is refused wherever nothing owns the call — a handler, an action, an effect's
+block (`INSTANTIATION_NOT_BOUND`), and unbound in a view — and its value arguments are frozen (`SNAPSHOT_ARGUMENT`); a row
+with neither it nor `pure` is refused in a component (`IO_IN_REACTIVE`). So the word is false of a fn one returning path of
+which needs no owner: a call there is a correct program, and the word refuses it. The paths `place.rs` gives up on (a
+loop, a `try`, a branch whose test it does not know) are given up on, not counted as passing. The 25 misses name 20 fns;
+`probes/no-owner.mjs` calls each with no owner under Solid's development build in a DOM, with the controls beside them
+(Solid reports an effect, a render effect, `onCleanup`, a context read; it reports no signal, memo, store or `onSettled`):
+**19 run in silence, 1 throws** (`ward`, a context read; its code is another under each host and is no function written
+out). The 19 guard their cleanup (`getOwner() ? onCleanup(f) : f`; production's `onCleanup` with no owner does nothing, run
+too), make signals, stores or instances alone, or make nothing. No rule may write the word for them: `rx-verify` would
+report each as a mismatch. The word that is true of such a fn is `pure` — the call only computes — with what it answers
+that does something marked `io`; the two rules below write that where it was not written.
+An owner test read as a test (`getOwner() ? … : …`) was tried and is not written: with `getOwner` taken as free
+(unsound, to bound it) 8 rows more of 8,211 turn `pure`, and a test alone does not show that what such a fn answers is
+the same wherever it was called (`createCallback` keeps the owner it found for later).
+
+**A function a fn answers, in parentheses (`declare-infer.js`).** A whole result that is a function type is drafted in
+parentheses, `((x: T) => U)`, and the `io` mark (09 MO-10b) was written only before a function type that began the text:
+a fn whose own call only computes, and which answers one function not shown to only compute, lost `pure` for want of a
+place to say so. The mark is now written before the parentheses too — whole result, tuple's item, record's field — where
+both checkers read it (`io ((x: T) => U)`: `IO_IN_REACTIVE` in a view, accepted in a handler; `test/words.js`). *Sound:*
+nothing is proven that was not: `pure` is the same reading of the fn's own call, and the function it answers is said to do
+something, the notation's own word for *not shown to only compute* — it is never said to be a read. A function that may be
+absent (`((x: T) => U) | undefined`) has no mark and the fn no `pure`, as before. Over the 281 modules of the census: 51
+rows turn `pure`; over the adversarial packages 12 do, each of which answers a function that counts, ticks or sets.
+
+**A result the module names, by its parts (`declare.js`).** 09 MO-8o: a result the library names is written by that name
+unless its parts say what the checker reads. A type the module itself exports (`FilePicker`) kept its name even then, so no
+part of it could carry `ref` or `io` and a call of a part that answers nothing was accepted in a view. It is now written a
+step at a time, as a type of another module's is, where **the types alone** show a part the checker reads: an accessor
+the library names one (Solid's `Accessor`), or a function that answers nothing or a promise; and where no part of it needs
+an `any` of the draft's or is said by place. *Sound:* every part is the library's own type (the row is held to it, 13
+TY-6), and no word is written off a shape: a part only shaped as an accessor (`() => T`) is no evidence and is the
+function it is (valibot's `reference: () => Schema` keeps its schema's name), a `ref` is the types' `Accessor` as it is
+for a whole result, and an unmarked function part says nothing more than its type. 41 rows of the census change (their
+accessors are read as values, `picker.files`, as every drafted accessor is); 2 of them turn `pure`.
+
+**The word `ref`, and a field of that name (`declare-infer.js`).** A row with a `ref` part instantiates (MO-10a), so its
+`instantiates` is not written twice. The test took a record's field *named* `ref` (`{ ref: (el: T) => void }`) for the
+word, and a proven `instantiates` was left off such a row. It reads the word alone now.
+
+**What no sound rule covers** (the reasons `pure` is not proven, over the census's 8,211 rows; what stands in the way):
+- *An object of the module that code may change or let go* (137 rows; `INTERNAL_OPTIONS`, which `@solid-primitives/utils`
+  exports, alone stops 30, valibot's 33): whoever has it may write it, and what it holds is read by the call. A frozen
+  literal is read already; nothing else shows that no one writes.
+- *A context read* (93) is a hook: `instantiates` is proven, `pure` is not asked.
+- *What the call answers is Solid's own, or is changed by a function beside it* (97, 85): a store's proxy, a schema whose
+  `~run` and `reference` are functions under names a row cannot write. There is no part to mark.
+- *An argument that may run code* (`toString`, a method that is not the language's, a value not shown to be a function or
+  a list: 216): the row's type is `any`, a type parameter or an object of the library's; MO-8j gives the caller what its
+  own getters do, not what a method the fn chooses to call does.
+- *The app's own fetchers* (`pure fn fetchPerson(…) rejects(NotFound)`, 8 rows): they count in a global, wait on a timer
+  and throw a class the module exports. `pure` there is the author's claim about a server's answer, and what a promise
+  rejects with is not read (five false `rejects` were written when it was).
+- `provides(c)`, and with it every `uses(c)` and context row (the largest part of the words written by hand in the
+  tasks): a real provider hands its props to `merge` and `omit` and spreads what is left into a component of the
+  library's (`Polymorphic`, a `rootScope(…)`), so whether a view it is given is rendered below the provider is that
+  component's to show, and the one it renders. Following components is not done here: the third review found 16 false
+  `provides` in the reading that tried.
+- `handler` (10): the callback's record goes to the same `merge`, `omit` and spread (504 rows of the census), to a `.bind`
+  of a function that is not known, or the package is not read (a built-in changed, a `umd` condition).
+
 ## Not read, each on purpose
 `this` outside a class's own code; `arguments`; generators; `Date`; `Symbol()`; a getter, a setter, a spread of an object
 that has one; `__proto__`, `prototype`, `constructor`; `.call`/`.apply`/`.bind`; tags; `import()`; `import.meta`; a class with

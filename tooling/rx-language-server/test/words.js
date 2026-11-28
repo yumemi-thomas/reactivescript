@@ -263,5 +263,64 @@ console.log("a function of nothing is `ref` where the code shows that calling it
   ok("…and is where the code's exports are not read to their end, or not read", names(run("./open.js")) === "Brand,T,alias,go,gone,held" && names(run("./lib.js", "--no-infer")) === "Brand,T,alias,go,gone,held", run("./open.js"));
 }
 
+console.log("a function a fn answers: `io` before the whole result (MO-10b), read by both checkers; a result the module names, by its parts where the types show them");
+{
+  const app = path.join(ws, "parts"); fs.mkdirSync(app, { recursive: true });
+  fs.writeFileSync(path.join(app, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true, noEmit: true, allowJs: true, checkJs: false, module: "ESNext", moduleResolution: "Bundler", target: "ES2022", jsx: "preserve", jsxImportSource: "@solidjs/web", skipLibCheck: true }, include: ["*.rx"] }));
+  fs.symlinkSync(path.join(ws, "node_modules"), path.join(app, "node_modules"), "dir");
+  fs.writeFileSync(path.join(app, "kit.js"), [
+    "import { createSignal, createEffect, onCleanup } from \"solid-js\";",
+    "let n = 0;",
+    // a fn that only makes a function, which does something: `pure`, its whole result `io`
+    "export function emitter(props) { return function (name) { props.on(name); return true; }; }",
+    "export function counter() { return () => n++; }",
+    // …and one whose own call does something keeps no word
+    "export function bump() { n++; return () => n; }",
+    // a result the module names: accessors the types name, and functions that answer nothing
+    "export function createPicker() { const [files, setFiles] = createSignal(0); return { files, clear: () => { setFiles(0); } }; }",
+    // …one whose parts are only shaped as accessors: its name
+    "export function schema() { return { kind: \"schema\", reference: schema }; }",
+    // a field named `ref` is no `ref` word: the row keeps the `instantiates` its code proves
+    "export function useItem() { onCleanup(() => {}); return { ref: node => {}, index: 0 }; }",
+    "",
+  ].join("\n"));
+  fs.writeFileSync(path.join(app, "kit.d.ts"), [
+    "import type { Accessor } from \"solid-js\";",
+    "export declare function emitter(props: { on: (name: string) => void }): (name: string) => boolean;",
+    "export declare function counter(): () => number;",
+    "export declare function bump(): () => number;",
+    "export interface Picker { files: Accessor<number>; clear: () => void }",
+    "export declare function createPicker(): Picker;",
+    "export interface Schema { kind: \"schema\"; reference: () => Schema }",
+    "export declare function schema(): Schema;",
+    "export interface Item { ref: (node: Element | null) => void; index: number }",
+    "export declare function useItem(): Item;",
+    "",
+  ].join("\n"));
+  const d = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./kit.js", "--out", "kit.d.rx"], { cwd: app, encoding: "utf8", env: { ...process.env, RX_DECLARE_INFER: "1" } });
+  const text = fs.existsSync(path.join(app, "kit.d.rx")) ? fs.readFileSync(path.join(app, "kit.d.rx"), "utf8") : d.stderr;
+  if (process.env.VERBOSE) console.log(text);
+  const has = s => text.split("\n").includes(s);
+  ok("a fn that only makes a function which does something is `pure`, and its whole result is marked `io`", has("export pure fn emitter(props: { on: (name: string) => void }): io ((name: string) => boolean)") && has("export pure fn counter(): io (() => number)"), text);
+  ok("…one whose own call does something has neither word", has("export fn bump(): (() => number)"), text);
+  ok("a result the module names is written by its parts where the types show what the checker reads: an `Accessor`, a function that answers nothing", has("export pure fn createPicker(): { files: ref number; clear: () => void }"), text);
+  ok("…and by its name where a part is only shaped as an accessor: no type says it only reads", has("export fn schema(): Schema"), text);
+  ok("a field named `ref` is no `ref` word: the row keeps the `instantiates` its code proves", has("export pure fn useItem(): { ref: (node: Element | null) => void; index: number } instantiates"), text);
+  const judge = (file, body) => {
+    fs.writeFileSync(path.join(app, file), ["import { emitter, createPicker } from \"./kit.js\"", "export default component App() {", ...body, "}", ""].join("\n"));
+    const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--noEmit", "-p", "tsconfig.json"], { cwd: app, encoding: "utf8" });
+    const r = spawnSync(process.execPath, ["--experimental-strip-types", "--no-warnings", path.join(repo, "bench/ref-check.ts"), path.join(app, file)], { cwd: app, encoding: "utf8" });
+    fs.rmSync(path.join(app, file));
+    let ref; try { ref = JSON.parse(r.stdout); } catch { ref = { error: r.stdout + r.stderr }; }
+    return { crate: t.stdout + t.stderr, ref: ref.error ? `error: ${ref.error}` : ref.diagnostics.map(x => x.code).join(" ") };
+  };
+  const good = judge("good.rx", ["  source last := \"\"", "  emit = emitter({ on: (name: string) => {} })", "  picker = createPicker()", "  <p>{picker.files} {last}</p>", "  <button onClick={() => { emit(\"a\"); picker.clear() }}>go</button>"]);
+  ok("both checkers accept the fn called in a component, its function called from a handler, the accessor read as a value", !/error/.test(good.crate) && good.ref === "", JSON.stringify(good));
+  const bad = judge("bad.rx", ["  emit = emitter({ on: (name: string) => {} })", "  <p>{emit(\"a\")}</p>"]);
+  ok("…and refuse the marked function called in a view (IO_IN_REACTIVE), both", /IO_IN_REACTIVE/.test(bad.crate) && /IO_IN_REACTIVE/.test(bad.ref), JSON.stringify(bad));
+  const bad2 = judge("bad2.rx", ["  picker = createPicker()", "  <p>{picker.clear()}</p>"]);
+  ok("…and a part that answers nothing called in a view, where the row was a name and said nothing", /IO_IN_REACTIVE/.test(bad2.crate) && /IO_IN_REACTIVE/.test(bad2.ref), JSON.stringify(bad2));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

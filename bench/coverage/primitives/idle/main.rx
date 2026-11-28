@@ -4,5 +4,5 @@ import { createIdleTimer } from "@solid-primitives/idle"
 export default component App() {
   source woke := 0
   idle = createIdleTimer({ idleTimeout: 300, promptTimeout: 100, onActive: () => { woke := n => n + 1 } })
-  <p>{idle.isIdle() ? "idle" : idle.isPrompted() ? "about to idle" : "active"}, woke {woke}</p>
+  <p>{idle.isIdle ? "idle" : idle.isPrompted ? "about to idle" : "active"}, woke {woke}</p>
 }

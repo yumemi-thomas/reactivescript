@@ -7,6 +7,7 @@ export context queryClient
 export type InvalidateOptions = import("@tanstack/solid-query").InvalidateOptions
 export type InvalidateQueryFilters<TQueryKey extends QueryKey = QueryKey> = import("@tanstack/solid-query").InvalidateQueryFilters<TQueryKey>
 export type QueryKey = import("@tanstack/solid-query").QueryKey
-export component QueryClientProvider(props: { client: import("@tanstack/solid-query").QueryClient; children?: View }) provides(queryClient)
+export type QueryClientProviderProps = import("@tanstack/solid-query").QueryClientProviderProps
+export component QueryClientProvider(props: QueryClientProviderProps) provides(queryClient)
 export fn useQueryClient(queryClient?: import("@tanstack/solid-query").QueryClient): { invalidateQueries: (filters?: InvalidateQueryFilters<QueryKey>, options?: InvalidateOptions) => Promise<void> } uses(queryClient)
 export fn useMutation<TData = unknown, TVariables = void>(ref options: { mutationFn: (v: TVariables) => Promise<TData>; onSuccess?: handler () => void }): { mutate: (v: TVariables) => Promise<TData>; isPending: boolean; status: string; reset: () => void } uses(queryClient)

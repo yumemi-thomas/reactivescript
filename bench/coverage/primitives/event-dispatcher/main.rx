@@ -2,7 +2,7 @@
 import { createEventDispatcher } from "@solid-primitives/event-dispatcher"
 
 component Rating(props: { onPick?: (event: CustomEvent<number>) => void }) {
-  dispatch = createEventDispatcher(peek props)
+  dispatch = createEventDispatcher(props)
   <button onClick={() => { dispatch("pick", 4) }}>four stars</button>
 }
 export default component App() {

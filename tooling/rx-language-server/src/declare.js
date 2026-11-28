@@ -42,6 +42,27 @@ const plain = s => (s.replace(/"[^"]*"|'[^']*'/g, "").match(/\b[A-Z][A-Za-z0-9_$
 const present = (checker, t, at) => at && checker.getNonNullableType(t) !== t ? `NonNullable<${at}>` : at;
 /** Whether a type has no plain text: what a draft wrote `any` for before it named the library's types (MO-8m). */
 const unsaid = (ts, checker, t) => !isJsxElement(ts, checker, t) && !(checker.isArrayType(t) && isJsxElement(ts, checker, checker.getTypeArguments(t)[0])) && !plain(checker.typeToString(t, undefined, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.InTypeAlias));
+/** A type the module itself exports under a name (`FilePicker`): its text is plain, and its parts may still say what the
+ *  checker reads (MO-8o): it is looked at a step at a time as a type of another module's is. */
+const ownNamed = (ts, checker, t) => !isJsxElement(ts, checker, t) && !checker.isArrayType(t) && !!(checker.getNonNullableType(t).flags & ts.TypeFlags.Object) && evident(ts, checker, t);
+/** Whether a part of an object type is one the types alone show the checker how to read (MO-10b): an accessor the library
+ *  names one (Solid's `Accessor`), or a function that answers nothing or a promise. A part only shaped as an accessor
+ *  (`() => T`) is no evidence: it is a reader only where the code shows one, which no type says. */
+function evident(ts, checker, t) {
+  const u = checker.getNonNullableType(t);
+  if (u.getCallSignatures().length || u.getConstructSignatures().length || checker.isTupleType(u)) return false;
+  return u.getProperties().some(q => {
+    if (!/^[A-Za-z_$][\w$]*$/.test(q.name) || q.name.startsWith("_")) return false;
+    // (a field that may be left out says so itself, `stop?: () => void`; one that may be another value is its type's own text)
+    const q0 = checker.getTypeOfSymbol(q), qt = q.flags & ts.SymbolFlags.Optional ? checker.getNonNullableType(q0) : q0;
+    if (checker.getNonNullableType(qt) !== qt || qt.flags & ts.TypeFlags.Union) return false;
+    if (accessorOf(ts, checker, qt)) return q0 === qt && named(ts, checker, qt);
+    if (!isFn(checker, qt)) return false;
+    const nothing = r => !!(r.flags & ts.TypeFlags.Void) || /^Promise</.test(checker.typeToString(r)) || (!!(r.flags & ts.TypeFlags.Union) && r.types.every(nothing));
+    const sigs = qt.getCallSignatures();
+    return sigs.length > 0 && sigs.every(g => nothing(g.getReturnType()));
+  });
+}
 /** A type's text with no `any` in it, or undefined. */
 const whole = (ts, checker, t, at, node) => { const s = text(ts, checker, t, at, node); return introduced(s) ? undefined : s; };
 /** A function type that is an exported function's own (`typeof import("lib").string`, where a schema keeps the function
@@ -959,7 +980,10 @@ function resultText(ts, checker, t, generic = false, here, node) {
     // accessors are the functions they are)
     // what the type does not say as text (it names the library's own types) is said a step at a time
     // MO-8o: a result the library names is written by that name, unless its parts say what the checker reads
-    if (unsaid(ts, checker, t)) { const st = structural(ts, checker, t, 0, here, !nullish(ts, t)); if (st && !(CTX.decl && !introduced(s) && (introduced(st) || (CTX.whole && byPlace(st)) || (!EVIDENCE.test(st) && (!byPlace(s) || byPlace(st)))))) { s = st + nullish(ts, t); } }
+    // (a type the module names itself has a text of its own in every reading: it gives way to its parts only where they
+    // say what the checker reads, and nothing is said by place or with an `any` of the draft's for it)
+    const own = !unsaid(ts, checker, t);
+    if (!own || ownNamed(ts, checker, t)) { const st = structural(ts, checker, t, 0, here, !nullish(ts, t)); if (st && (own ? EVIDENCE.test(st) && !introduced(st) && !byPlace(st) : !(CTX.decl && !introduced(s) && (introduced(st) || (CTX.whole && byPlace(st)) || (!EVIDENCE.test(st) && (!byPlace(s) || byPlace(st))))))) { s = st + nullish(ts, t); } }
   }
   return s;
 }
@@ -989,7 +1013,7 @@ function shapeOf(row) {
   const di = require("./declare-infer.js"); const r = di.parseRow(row); if (!r) return row;
   const ps = r.params.map((part, i) => { const p = di.named(row, part); if (!p) return `${i}:?`; const k = p.rest ? "rest" : di.fnTypeAt(row, p.type, p.end) ? "fn" : di.records(row, p.type, p.end).some(fs => fs.some(fp => { const q = di.named(row, fp); return q && (di.fnTypeAt(row, q.type, q.end) || /^(?:handler|ref)\b/.test(row.slice(q.type))); })) ? "record" : /^Component\b/.test(row.slice(p.type)) ? "component" : ""; return k || p.words.trim() ? `${i}:${p.words.trim()}${k}` : ""; }).filter(Boolean);
   const tail = row.slice(r.close + 1).replace(/^\s*:\s*/, "");
-  const ret = /^ref\b/.test(tail) ? "ref" : /^Promise</.test(tail) ? "promise" : /^void\b/.test(tail) ? "void" : /^Component\b/.test(tail) ? "component" : /^\(/.test(tail) ? "fn" : /^[[{]/.test(tail) ? (/\bref\b/.test(tail) ? "parts-ref" : "parts") : "value";
+  const ret = /^ref\b/.test(tail) ? "ref" : /^Promise</.test(tail) ? "promise" : /^void\b/.test(tail) ? "void" : /^Component\b/.test(tail) ? "component" : /^\(/.test(tail) ? "fn" : /^[[{]/.test(tail) ? (/(?:^|[^\w$.])ref\s+(?![:?])/.test(tail) ? "parts-ref" : "parts") : "value";
   return `${ps.join(",")}|${ret}|${/\binstantiates\b/.test(tail) ? "i" : ""}`;
 }
 /** @returns {string} the draft `.d.rx` for `spec`, imported from `from` (a directory). */

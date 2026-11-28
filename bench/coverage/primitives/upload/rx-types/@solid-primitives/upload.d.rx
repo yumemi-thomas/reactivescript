@@ -1,4 +1,5 @@
 //@ for @solid-primitives/upload ^1.0.0
 export type FilePickerOptions = import("@solid-primitives/upload").FilePickerOptions
 export type FilePicker = import("@solid-primitives/upload").FilePicker
-export pure fn createFilePicker(options?: FilePickerOptions): FilePicker
+export type UploadFile = import("@solid-primitives/upload").UploadFile
+export pure fn createFilePicker(options?: FilePickerOptions): { files: ref UploadFile[]; error: ref unknown; isLoading: ref boolean; selectFiles: (callback?: ((files: UploadFile[]) => void | Promise<void>)) => void; removeFile: (fileName: string) => void; clearFiles: () => void }

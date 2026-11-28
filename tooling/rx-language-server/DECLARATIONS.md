@@ -626,6 +626,17 @@ standing of a JSX handler (compiler/words/DESIGN.md, *A listener*); the two fals
 alone or on one path (no owner is needed there), `pure` fns that read `getOwner`, register `onSettled`, make a class in the
 call, or read a module object that something else can write.
 
+**What changed on 2026-11-28** (compiler/words/DESIGN.md, *What each word costs where it is false*). Three things in what
+writes the rows; the reading of the code is as it was. `io` is written before a function type in parentheses too (a whole
+result is drafted `((x: T) => U)`), so a fn that only makes a function which does something keeps its `pure`. A result's
+type that the module itself names is written by its parts where the types alone show what the checker reads (an
+`Accessor`, a function that answers nothing or a promise), and by its name otherwise. A field named `ref` is no `ref`
+word, and no longer takes a proven `instantiates` off its row. Over the census's 281 modules (8,211 rows): `pure` 160 →
+213, `io` 40 → 94, `ref` parts 616 → 650, questions 1,776 → 1,719; `instantiates` 152 → 146 (a row with a `ref` part
+says it by that part). Over the 3,411 adversarial packages 13 rows change, none to a word its package's fact refutes.
+`instantiates` itself gained nothing, on purpose: 19 of the 20 fns the benchmark's declarations mark by hand run with no
+owner under Solid's development build in silence (`compiler/words/probes/no-owner.mjs`), so the word is false of them.
+
 Executable: `test/words.js` (the rows, the questions, `--why`, both checkers, `rx-verify` over rows that claim what their
 code does not do), `test/words-audit.js`, and `test/words-cases.js` over `test/words/cases.json` (516 functions the old
 reading's four tests had, refused and proven), `test/words/adversarial.json` (1,661 packages, 475 of them about a listener; facts found by running where a run can show them)

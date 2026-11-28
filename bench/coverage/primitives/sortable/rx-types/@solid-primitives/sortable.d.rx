@@ -5,4 +5,4 @@ export type CreateSortedOptions = import("@solid-primitives/sortable").CreateSor
 // computes (sort.js). It was declared `pure` by hand until the code was read (09 MO-8w, `rx-declare --audit`); an app
 // that wants the sorted copy calls it from a module of its own that never asks for that (sorted.js).
 export fn createSorted<T>(ref list: T[], ref comparator?: Comparator<T>, options?: CreateSortedOptions): ref T[]
-export pure fn by<T, K>(accessor: (item: T) => K, comparator?: (a: K, b: K) => number): ((a: T, b: T) => number)
+export pure fn by<T, K>(accessor: (item: T) => K, comparator?: (a: K, b: K) => number): io ((a: T, b: T) => number)

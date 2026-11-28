@@ -387,7 +387,12 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     A parameter whose type is a function type generic in itself is its
     name (`schedule: ScheduleCallback`): taken apart it is another type,
     and the checker reads a parameter's function type only marked
-    `handler`. Types are read from the library's declaration, not its
+    `handler`. A result's type that the module itself names (`FilePicker`)
+    is written by its parts, as any named type is, where the types alone
+    show a part the checker reads — an accessor the library names one
+    (Solid's `Accessor`), a function that answers nothing or a promise —
+    and by its name otherwise: a part only shaped as an accessor is no such
+    evidence (2026-11-28). Types are read from the library's declaration, not its
     source: a declaration `tsc` emitted is the source's types (the census,
     `bench/any-census.txt`: every `any` left is written the same in the
     source at the release's tag, where it was looked for).
@@ -505,7 +510,8 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   A `pure` fn's answer may hold functions: each is proven to only compute, or
   the row is an instantiation and the part is one MO-10b refuses in a view, or
   the row writes the part a function type and the draft marks it `io` (MO-10b,
-  2026-11-26). A row TypeScript does
+  2026-11-26; before the parentheses too, where a whole result's function
+  type is drafted in them, 2026-11-28). A row TypeScript does
   not hold (13 TY-6) is left out of a draft.
   Another name of the object is the object (2026-11-24): `t = toast`,
   `{ success } = t` and a field of a record written here call the same
@@ -622,7 +628,8 @@ export component Search(props: { start: boolean, q: string }) {
     promise *awaited* is a question asked, and allowed; a promise of nothing
     is not); one the row marks **`io`** — the word before its type, `write:
     io (text: string) => boolean`, at the whole result, an item of its tuple
-    or a field of its record — is io whatever it answers; one that answers a
+    or a field of its record, and before a function type in parentheses the
+    same (`io ((x: T) => U)`) — is io whatever it answers; one that answers a
     value and is not marked is a read, called anywhere: the row's promise is
     that it only computes. So a fn that makes a thing with a function that
     does something keeps its `pure` (calling the fn only computes): `pure fn
