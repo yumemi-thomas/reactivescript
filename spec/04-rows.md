@@ -388,7 +388,8 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
     content: `A` and `B`. `fallback(e)` or a bare `fallback` discharges
     every class. At run time a failure of another class passes the boundary
     to the next one up — the boundary does not show its fallback for it, and
-    re-decides when the failure it shows changes class (S-fail-1 instant 6).
+    re-decides when the failure it shows changes class (S-fail-1 instant 6),
+    after a pending answer as well (S-fail-10; Solid keeps it, 05 DV-31).
   - `await e catch (x: A | B) => alt`, at the `await` only: when the
     promise rejects with `A` or `B` the answer is `alt`, with `x` the error;
     other failures and pending pass through untouched. `catch (x) => alt`

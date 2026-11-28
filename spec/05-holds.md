@@ -592,6 +592,32 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   now states F-3 and what still holds. Changed on the user's decision of
   2026-11-26: F-3 is Solid's deliberate rule, not a bug, so the language
   follows it (a Solid bug would have stayed a DV with a memo).
+- **DV-31 (an outer boundary keeps a rethrown failure after the inner one
+  takes the next) — a Solid bug; open, 2026-11-28**
+  (`ref/oracle/repros/dv31-rethrow-then-caught.mjs async own effect`, plain
+  Solid; S-fail-10). Nested typed boundaries, `errored(e: NotFound) {
+  errored(e: TooLong) { u } }`: `u` fails with `NotFound`, which the inner
+  boundary's fallback throws on to the outer one (R-f-4). A change asks
+  again, and the answer makes `u` fail with `TooLong`, the inner boundary's
+  class. R-f-4 says the outer boundary re-decides and the inner one shows
+  `TooLong`, as the interpreter does. Solid keeps the outer's `NotFound`
+  fallback until a value lands. Three things together make it stick: the
+  answer is pending in between (the synchronous form hands over); the inner
+  boundary is made inside the outer one's content and handed out unread,
+  as JSX nests `<Errored>` (made beside it and read in the content, it
+  hands over); and the failing read is a render effect's, as `insert`'s is.
+  With `createErrorBoundary` or `<Errored>`, two levels or three, the same.
+  Main 510bb8d01 and npm 2.0.4 alike. The oracle and both emitters lower a
+  typed boundary as Solid's own `<Errored>`, whose fallback throws another
+  class (the lowering DV-7's fix allowed). They show it as Solid does,
+  recorded as an `oracle` divergence. The served runner shows it too. Not
+  worked around: DV-7's old lowering (the fallback hands the failure out,
+  a memo around the boundary throws it) changes the boundary's structure
+  for every program to hide a bug in one. Earlier repro runs said plain
+  Solid recovered "in every form tried". Every form tried read the inner
+  boundary eagerly in the outer's content, which hides it. *Memo:* the
+  user's to file; no draft, the repro is the plain-Solid program to start
+  from.
 - **DV-30 (a guess on an optimistic store holds no switch once a refresh of
   it has landed) — a Solid bug; open, 2026-11-27; reduced 2026-11-28**
   (`ref/oracle/repros/dv30-refresh-then-guess.mjs`, the reduced form;

@@ -2658,10 +2658,10 @@ No Solid repro, no DV: none is Solid's.
   Plain Solid (`ref/oracle/repros/dv31-rethrow-then-caught.mjs`, with modes for async, a later answer, `<Errored>` with
   the fallback's memo, a derived memo, three levels, the read in a render effect) recovers in every form tried. So it
   is not shown to be Solid's. The two lowerings that agree are separate code over the same Solid, and the difference is
-  not reduced further. The test reaches `/e/long` from a page that shows no failure.
+  not reduced further. The test reaches `/e/long` from a page that shows no failure. (Decided in the next section: Solid's, DV-31.)
 - **`runtime-resolve`'s "hoisted" dev server** misses its first click on a loaded machine (`button.counter` not found
   for 30 s right after load). On 061fb6ca itself 1 of 3 runs, the same with this tree's runtime, front end or binding
-  swapped back. Not this change's, not fixed.
+  swapped back. Not this change's, not fixed. (Fixed in the next section: the dev server's watcher.)
 
 ### Census and ci
 
@@ -2674,3 +2674,33 @@ Strictness: nothing dropped. Raised: a module with a `server fn` built without S
 (it shipped its body). `DUPLICATE_WIRE_ID` covers a module's error classes (no program of the sets meets it). Nothing
 correct newly refused (every census verdict as before). Both checkers changed alike (the module's wire id, in both
 loaders), and every runner agrees as before on the sets. **New Solid bugs: none.**
+
+## The nest-class difference is Solid's (DV-31), and runtime-resolve's flake is the watcher (2026-11-28)
+
+Both items "found, not decided" in the section above.
+
+- **Nested typed boundaries after a pending answer: Solid's, DV-31 (new, open).** The two lowerings agreed because
+  both lower a typed boundary to the same plain Solid: `<Errored>`, whose fallback throws another class (R-f-4). The
+  program was reduced over the test renderer with ReactiveScript taken out piece by piece, and it stayed stuck. It
+  was stuck in plain `@solidjs/signals` once the inner boundary was made *inside* the outer one's content and handed
+  out unread, as JSX nests `<Errored>`. `dv31-rethrow-then-caught.mjs` has that as `own`: `async own effect` is
+  `STUCK` and `sync own effect`, `async effect` and `async own` are ok. The same on main 510bb8d01 and npm 2.0.4. The
+  repro's earlier modes all read the inner boundary eagerly in the outer's content, which hides it: that was the
+  ground for "not shown to be Solid's". The rule is unchanged: R-f-4 re-decides on a change of class, after a pending
+  answer too (04 R-f-4 names S-fail-10). Not worked around. DV-7's old lowering (the failure handed out of the
+  fallback, a memo around the boundary throwing it) would change every typed boundary's structure to hide one bug
+  (solid-bugs rule: a DV and a memo). *Memo:* the user's to file. spec/05 DV-31, repros/README.
+- **S-fail-10 (new)**: the three forms of the probe. Three levels with a pending answer (`Frames`), the same
+  synchronously (`Variant: synchronous`, every runner agrees), and two typed levels only, the fetch's rejection
+  answered at the `await` (`Variant: two typed boundaries`). It has `oracle` divergence rows at instants 3 and 4 of
+  the pending forms. Interpreter, oracle, compiled (both emitters, `RX_CRATE=1`), served and hydrated (both
+  emitters) and types pass it.
+- **`runtime-resolve`'s flake: ours, the test's dev server watched the files it had just written.** With the dev
+  server's log on (`RR_LOG=1`, kept), every failing run showed `vite.config.mjs changed, restarting server…` within
+  ~250 ms of `listening`. Chokidar over macOS FSEvents reports each file of the project, written a moment before, as
+  changed once it starts. A restart during the first render drops it: Vite's error overlay (`transport was
+  disconnected, cannot call "fetchModule"`, now in the failure's message) covers the page and the click times out. A
+  restart before the render passed, hence 1 in 3. `server.watch: null` in the test's dev server: nothing in it edits
+  a file under a running server, and every check is the same. The first request's retry (5 × 1 s on `fetch failed`)
+  hid the same restart: it is asked once now. Under 20 threads of CPU load: before, 4 of 5 runs failed (all
+  `hoisted`, all the overlay); after, 10 of 10 passed.

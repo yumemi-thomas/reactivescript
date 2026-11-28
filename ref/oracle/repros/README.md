@@ -27,7 +27,7 @@ node --conditions=browser --conditions=development repros/pin-4906-target.mjs
 node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
 node --conditions=browser --conditions=development repros/keyed-guess-refresh-tear.mjs [fresh]   # DV-30, open
 node --conditions=browser repros/dv30-refresh-then-guess.mjs [nokey|key] [guess|noguess] [norefresh]   # DV-30 reduced
-node --conditions=browser --conditions=development repros/dv31-rethrow-then-caught.mjs [sync|async] [later] [component] [derived] [typed] [three] [effect]   # recovers in every form: the open nest-class difference is not shown to be Solid's (DECISION.md)
+node --conditions=browser --conditions=development repros/dv31-rethrow-then-caught.mjs [sync|async] [later] [component] [derived] [typed] [three] [effect] [own]   # DV-31, open: STUCK with `async own effect`
 ```
 
 The hydration repros are each one `app.jsx`, compiled by Solid's own
@@ -445,7 +445,7 @@ node --conditions=browser --conditions=development repros/pin-4906-target.mjs
 node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
 node --conditions=browser --conditions=development repros/keyed-guess-refresh-tear.mjs [fresh]   # DV-30, open
 node --conditions=browser repros/dv30-refresh-then-guess.mjs [nokey|key] [guess|noguess] [norefresh]   # DV-30 reduced
-node --conditions=browser --conditions=development repros/dv31-rethrow-then-caught.mjs [sync|async] [later] [component] [derived] [typed] [three] [effect]   # recovers in every form: the open nest-class difference is not shown to be Solid's (DECISION.md)
+node --conditions=browser --conditions=development repros/dv31-rethrow-then-caught.mjs [sync|async] [later] [component] [derived] [typed] [three] [effect] [own]   # DV-31, open: STUCK with `async own effect`
 ```
 
 #4906 runs stores on the thin engine and deletes the deep one, whose record a proxy answered as `store[$TARGET]`.
@@ -478,6 +478,20 @@ add's guess is out and `filter` is switched. **Expected** (H-11, Solid D-34; wha
 switch joins the guess's hold — `all | a,x,z` until the action ends, then `open | o,z`. **Actual** at 50a4bfdde:
 `open | a,x,z` for the whole action. Found by the claims hunt at 41142a46 (finding 4). Not filed here. The same at
 510bb8d01.
+
+## DV-31 — an outer boundary keeps a rethrown failure after the inner one takes the next (open, 2026-11-28)
+
+`dv31-rethrow-then-caught.mjs async own effect` prints `| outer:nf | outer:nf | ok0 STUCK`. **Expected**: R-f-4
+and D-41 (a value replaces the error) give `| outer:nf | inner:toolong | ok0`. The inner boundary takes `TooLong`
+and its fallback throws anything else. The outer takes what reaches it. `which` 1 throws `NotFound` and the outer
+shows it. `which` 2 throws `TooLong` after its answer lands: the inner fallback returns a value, and the outer stays
+on `outer:nf`. All three of these are needed, and any other mode can be added. `async`: the answer is pending in
+between (`sync own effect` is ok). `own`: the inner boundary is made inside the outer one's content and handed out
+unread, as JSX nests `<Errored>`, so the reader resolves the accessors (made beside and read in the content, `async
+effect`, it is ok). `effect`: the failing read is a render effect's, as `insert`'s is (`async own` is ok).
+`component` (`<Errored>` with the typed fallback's memo, as `TypedErrored` is) and `three` (an untyped boundary
+above) stick alike. The same on 510bb8d01 and npm 2.0.4. It was first run here in the forms without `own`, all of
+which recover, and was taken as "not shown to be Solid's". scenarios/S-fail-10 and spec/05 DV-31. Not filed here.
 
 ## The pin move to 510bb8d01 (2026-11-28)
 
