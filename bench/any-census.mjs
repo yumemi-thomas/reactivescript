@@ -46,7 +46,9 @@ function draft(m) {
     let so = "", se = "", killed = null; const t0 = Date.now();
     c.stdout.on("data", d => { so += d; }); c.stderr.on("data", d => { se += d; });
     const iv = setInterval(() => { const s = (Date.now() - t0) / 1000, r = rssOf(c.pid); if (s > WALL_S) killed = `wall ${WALL_S}s`; else if (r > RSS_MB) killed = `rss ${Math.round(r)}MB`; if (killed) { try { process.kill(-c.pid, "SIGKILL"); } catch { /* gone */ } } }, 500);
-    c.on("close", code => { clearInterval(iv); writeFileSync(file(m, ".d.rx"), so); resolve({ code, killed, stderr: se.slice(-2000), secs: (Date.now() - t0) / 1000 }); });
+    // 09 MO-8x: the draft is classified written out (an alias of the file is a shorter spelling of its rows: an `any` in
+    // one is placed where each row reads it), and kept as written beside it
+    c.on("close", code => { clearInterval(iv); let expanded; try { expanded = JSON.parse(readFileSync(causes, "utf8")).expanded; } catch { /* no causes */ } writeFileSync(file(m, ".d.rx"), expanded ?? so); writeFileSync(file(m, ".written.d.rx"), so); resolve({ code, killed, stderr: se.slice(-2000), secs: (Date.now() - t0) / 1000 }); });
   });
 }
 if (!args.includes("--classify-only")) {
@@ -57,5 +59,5 @@ if (!args.includes("--classify-only")) {
   if (runaway) { console.error(`census: stopped on a runaway draft — ${runaway}`); process.exit(1); }
   const failed = list.filter(m => m.run.code !== 0); for (const m of failed) console.error(`census: ${m.key} exited ${m.run.code}: ${m.run.stderr.split("\n").slice(-3).join(" | ")}`);
 }
-writeFileSync(path.join(out, "modules.json"), JSON.stringify(list.map(m => ({ key: m.key, spec: m.spec, from: m.from, by: [...m.by], draft: file(m, ".d.rx"), causes: file(m, ".causes.json"), secs: m.run?.secs, code: m.run?.code })), null, 1) + "\n");
+writeFileSync(path.join(out, "modules.json"), JSON.stringify(list.map(m => ({ key: m.key, spec: m.spec, from: m.from, by: [...m.by], draft: file(m, ".d.rx"), written: file(m, ".written.d.rx"), causes: file(m, ".causes.json"), secs: m.run?.secs, code: m.run?.code })), null, 1) + "\n");
 console.log(`census: ${list.length} modules drafted into ${out}`);

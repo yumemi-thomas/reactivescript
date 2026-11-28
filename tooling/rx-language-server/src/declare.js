@@ -127,6 +127,10 @@ function cause(ts, checker, t) {
 /** What a draft is made in: the module, where it is imported from, the type parameters its row declares (`scope`),
  *  whether types are named where the library declares them (`refs`). */
 let CTX = { refs: false, scope: new Set() };
+/** MO-8x: a function type's text → the name of the library's alias TypeScript printed it from (`RenderProp`): what an
+ *  alias the draft writes for it once is named (declare-alias.js). One draft's. */
+let HINTS = new Map();
+const hint = (ts, checker, t, x) => { const a = checker.getNonNullableType(t).aliasSymbol ?? t.aliasSymbol; if (a?.name && x) HINTS.set(x.replace(MARK, ""), a.name); return x; };
 
 const isLibFile = f => /[\\/]lib\.[\w.]+\.d\.ts$/.test(f);
 /** The exports of the module `spec` resolves to from where the draft is made: each exported symbol (an alias followed
@@ -667,7 +671,7 @@ function propText(ts, checker, p, at, precise = false, obj, field = false) {
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return `${p.name}${opt}: Component`;
   if (checker.getNonNullableType(t).isUnion?.() && !isElement(ts, checker, t) && checker.getNonNullableType(t).types.some(u => isComponent(ts, checker, u)) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.StringLike) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.String || (u.flags & ts.TypeFlags.Intersection && u.types.some(x => x.flags & ts.TypeFlags.String)))) return `${p.name}${opt}: string | Component`;   // a polymorphic \`as\`: a tag or a component (MO-11c)
   if (isElement(ts, checker, t)) return `${p.name}${opt}: View`;
-  if (isFn(checker, t)) return `${p.name}${opt}: ${(precise && fnText(ts, checker, t)) || callbackText(ts, checker, t, here, "callback", annotation(ts, p), field)}`;   // a callback (MO-10g)
+  if (isFn(checker, t)) return `${p.name}${opt}: ${hint(ts, checker, t, (precise && fnText(ts, checker, t)) || callbackText(ts, checker, t, here, "callback", annotation(ts, p), field))}`;   // a callback (MO-10g)
   // MO-11c (2026-11-24): a record or a list of components — each component in the literal the prop is given is applied there
   if (obj !== undefined || CTX.decl) { const held = heldComponents(ts, checker, t, at); if (held) { const all = `${p.name}${opt}: ${held.all}`; HELD_ONLY.set(all.replace(MARK, ""), `${p.name}${opt}: ${held.only}`); return all; } }
   return `${p.name}${opt}: ${text(ts, checker, t, here, annotation(ts, p))}`;
@@ -996,6 +1000,7 @@ function declare(spec, from, options = {}, how = {}) {
 function draft(T, spec, from, how) {
   const { ts, checker, program, mod, imp, entry, sf } = T;
   CTX = { refs: false, scope: new Set(), T, sf, mod, spec, entry, program, resolve: T.resolve, exports: new Map() };
+  HINTS = new Map();
   const shapedBy = new Map();   // an export → the parts of its result that are only shaped as accessors
   if (!mod) throw new Error(`${spec}: no TypeScript types found from ${from}`);
   // the library's own file: what its rows name is resolved from here (MO-8o), not from the app's folder
@@ -1306,7 +1311,16 @@ function draft(T, spec, from, how) {
     if (!bad?.size) break;
     lines = lines.map(l => { const n = l.startsWith("export ") && exportedIn(l); const why = n && (bad.get(n) ?? bad.get(n.split(".")[0])); if (why && how.unheld) how.unheld[n] = why; return why ? `// left out, TypeScript does not hold it against the module (TY-6): ${l}` : l; });
   }
-  return [...out, ...lines].join("\n") + "\n";
+  const text = [...out, ...lines].join("\n") + "\n";
+  // MO-8x: a type written again and again is written once, an alias of the file, where the crate reads every row as before
+  // and TypeScript holds the draft as it held this one; `how.factored`: the draft written out, and the aliases
+  if (how.refs === false || how.aliases === false || how.written) return text;
+  const why = [];
+  const f = require("./declare-alias.js").factorDraft(out, lines, { hints: HINTS, file: path.join(from, "__rx_declare__.d.rx"), why, check: (t, first, rs) => { try { return require("./declare-check.js").failing(t, first, rs, spec, from, opts, lib); } catch (e) { return new Map([["*", String(e.message ?? e).slice(0, 200)]]); } } });
+  if (how.notes) for (const w of why) how.notes.push(`aliases (MO-8x): ${w}`);
+  if (!f) return text;
+  if (how.factored) Object.assign(how.factored, { expanded: text, aliases: f.aliases });
+  return f.text;
 }
 
 module.exports = { declare, isElement, isComponent, givesElement };

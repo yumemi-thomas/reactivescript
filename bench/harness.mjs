@@ -681,11 +681,14 @@ export function draftOf(spec, from, flags = []) {
 function draftNow(spec, from, flags) {
   const r = tool("draft", ["--conditions=browser"], "declare.js", [spec, ...flags], { cwd: from, file: path.join(ws, `.causes-${process.pid}.json`) }); r.keep(r.status === 0 && r.extra !== undefined);
   const inherited = new Map(), caused = new Map(), why = new Map();
-  let said = {}, anyRows = [];
-  try { const j = JSON.parse(r.extra); said = j.inferred ?? {}; anyRows = j.rows ?? []; } catch { /* no draft */ }
+  let said = {}, anyRows = [], j = {};
+  try { j = JSON.parse(r.extra); said = j.inferred ?? {}; anyRows = j.rows ?? []; } catch { /* no draft */ }
+  // 09 MO-8x: the draft is measured written out — an alias of the file is a shorter spelling of the same rows, and no
+  // number may move by spelling — and as written beside it (`whole.written`)
+  const text = r.status === 0 ? j.expanded ?? r.stdout : "";
   try { for (const c of JSON.parse(r.extra).causes) { if (!c.name) continue; caused.set(c.name, (caused.get(c.name) ?? 0) + 1); if (c.cause === "vendor-any") inherited.set(c.name, (inherited.get(c.name) ?? 0) + 1); else why.set(c.name, [...(why.get(c.name) ?? []), c.cause]); } } catch { /* no draft */ }
-  const lines = r.status === 0 ? code(r.stdout).map(l => l.trim()).filter(Boolean) : [];
-  lines.vendorAt = r.status === 0 ? vendorPlaces(r.stdout, anyRows) : new Map();
+  const lines = r.status === 0 ? code(text).map(l => l.trim()).filter(Boolean) : [];
+  lines.vendorAt = r.status === 0 ? vendorPlaces(text, anyRows) : new Map();
   // 09 MO-8v, MO-8w: the words the draft read from the code that runs (said beside the draft, not in it: `--causes`),
   // by export and by kind; and the questions it still asks (its `// TODO` lines), by export and by kind
   const todoBy = new Map(), inferredBy = {}, todosBy = {};
@@ -704,7 +707,9 @@ function draftNow(spec, from, flags) {
   for (const [n, k] of anyBy) { const own = k - (inherited.get(n) ?? 0); if (own > 0) rows.push({ name: n, introduced: own, causes: [...new Set([...(why.get(n) ?? [])])] }); }
   const any = [...anyBy.values()].reduce((a, b) => a + b, 0), introduced = rows.reduce((a, x) => a + x.introduced, 0);
   const count = o => Object.values(o).reduce((a, b) => a + b, 0);
-  lines.whole = { rows: lines.length, any, vendor: any - introduced, introduced, places, introducedRows: rows, inferred: count(inferredBy), inferredBy, todos: count(todosBy), todosBy, drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
+  const as = r.status === 0 ? code(r.stdout).map(l => l.trim()).filter(Boolean) : [];
+  const written = { rows: as.length, bytes: as.join("\n").length, any: as.reduce((n, l) => n + anysIn(l), 0), places: as.reduce((n, l) => n + tokens(l).filter(t => PLACE.has(t)).length, 0), aliases: (j.aliases ?? []).length };
+  lines.whole = { rows: lines.length, bytes: lines.join("\n").length, written, any, vendor: any - introduced, introduced, places, introducedRows: rows, inferred: count(inferredBy), inferredBy, todos: count(todosBy), todosBy, drafted: r.status === 0, error: r.status === 0 ? undefined : String(r.stderr ?? "").trim().split("\n").pop()?.slice(0, 300) };
   return lines;
 }
 /** 09 MO-8q, place by place: for each row of a draft, how many of the `any`s at each place a type is written

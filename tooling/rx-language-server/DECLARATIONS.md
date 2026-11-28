@@ -464,6 +464,67 @@ how the checker reads an `on…` prop, and taking it apart is another
 type. Rows of zag's `normalizeProps` (one per element) and a router's
 methods are said by place where their parameters are computed types.
 
+## A type written once: the file's aliases (MO-8x, 2026-11-28)
+
+The census found most of the library's `any`s in one text written again
+and again: ui-sdk's `render` prop, `(props: Record<string, any>, state:
+S) => View`, spelled out in every part because the checker reads it (a
+function answering a `View` is a render prop). The checkers read a row's
+text and opened no name, an `export type` of the file included, so the
+text had to stand in each row. Now both read every row with the file's
+own aliases written out first (09 MO-8x), and `rx-declare` writes such a
+text once, at the end of the draft, and names it where it stood:
+`render?: RenderProp<{ open: boolean; nested: boolean }>`.
+
+*Why written out, before any reader.* There are some thirty places a
+checker reads a row's type (prop kinds, `shape_of`, `callbacks`, the
+`ty_*` steps, `decl_prim`, `ty_list`, `ty_undoes`, ref/ mirrors each).
+Teaching each to look through a name would be thirty chances to read an
+alias otherwise than its text; the parser instead puts each alias's text
+in its place where it takes a row's type (a parameter's, a result's, a
+prop's, a const's, a component's props), and every reader after it sees
+what it saw before. So a row that names an alias is, by construction, the
+row that writes it out — the same facts, the same verdicts — and a word
+before an alias (`onOpenChange?: handler Change`) stands before the
+function type it names, as if written there. A word inside an alias is
+refused: the word is a row's, and TypeScript, which holds the alias's
+text, has no such word.
+
+*Why local.* An alias another file declares, or another module's type
+named `import("lib").X`, stays a name: a `.d.rx` declares one module, is
+found and pinned on its own, and its rows mean what its text says. A row
+whose reading moved when another file did — or with which copy of a
+package npm hoisted — would undo that.
+
+*Generic, nested, recursive.* Type arguments are put in for the alias's
+parameters, a missing one by its default; an alias of an alias is
+followed to the end; a self-reference TypeScript defers (inside a record,
+a list, a function, a type argument, a conditional's branch: a route
+tree's `children?: RouteDefinition[]`, `@solidjs/router`'s
+`RouteParams<S>`) stays a name after one step. A cycle with nothing
+between is an error, not a loop, and so is a wrong number of type
+arguments.
+
+*What the draft factors, and when it keeps it.* A text after a `:` that
+the draft writes in several places, or that differs in one type after a
+`:` inside it (a generic alias of one parameter), when the alias saves
+more than it costs. A text with a word in it, or naming a row's own type
+parameter, is left where it is. It is named as the library names it,
+where TypeScript printed the text from one of the library's aliases
+(`RenderProp`), else for the field it is written for (`ClassOf`,
+`StyleOf`). Then the draft is read back twice: by the crate (its `rows`,
+each row's facts and the type at every place, must be the same as the
+written-out draft's, the aliases' own rows aside) and by TypeScript (the
+factored draft must hold where the other did, TY-6). An alias that
+changes either is dropped; with none left, the draft is written out.
+`--no-aliases` writes it out regardless.
+
+*Counting.* A count must not move by spelling, so the benchmark and the
+census count the draft written out — `rx-declare --causes` gives it
+beside the draft (`expanded`) — and report the draft as written next to
+it: `bench/any-census.txt`, *As written*; `scorecard.txt`, *Whole
+drafts*.
+
 ## A module of the app's own (MO-8s)
 
 It is drafted as any module is: the words its code proves, and no word copied from another row (a word copied off a row

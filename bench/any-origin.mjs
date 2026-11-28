@@ -149,6 +149,18 @@ for (const [k, v] of tally(r => `${r.pkg} · ${r.place} · ${r.frag}`).slice(0, 
 const unres = perModule.filter(m => m.unresolved?.length);
 lines.push("", `Modules whose package's declaration files name something TypeScript cannot resolve: ${unres.length}`);
 for (const m of unres) lines.push(`  ${m.key}: ${m.unresolved.slice(0, 2).join(" · ")}${m.unresolved.length > 2 ? ` (+${m.unresolved.length - 2})` : ""}`);
+// 09 MO-8x: the drafts as written — each type a draft writes again and again written once, as an alias of the file — beside
+// the same drafts written out, which every count above is of (an alias is a shorter spelling: no `any` moves by it)
+{
+  const rowsOf = t => t.split("\n").map(l => l.replace(/\/\/.*$/, "").trim()).filter(Boolean);
+  const anyIn = l => (l.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, "").replace(/^export\s+(?:(?:pure|server|client)\s+)*(?:fn|component|const|type|context|error)\s+[\w$.]+/, "").match(/\bany\b/g) ?? []).length;
+  const by = mods.map(m => { let e = "", w = ""; try { e = readFileSync(m.draft, "utf8"); w = m.written ? readFileSync(m.written, "utf8") : e; } catch { /* not drafted */ } const er = rowsOf(e), wr = rowsOf(w); let aliases = 0; try { aliases = JSON.parse(readFileSync(m.causes, "utf8")).aliases?.length ?? 0; } catch { /* none */ } return { key: m.key, pkg: m.key.startsWith("@") ? m.key.split("/").slice(0, 2).join("/") : m.key.split(/[/:]/)[0], rows: [er.length, wr.length], bytes: [er.join("\n").length, wr.join("\n").length], any: [er.reduce((n, l) => n + anyIn(l), 0), wr.reduce((n, l) => n + anyIn(l), 0)], aliases }; });
+  const sum = (xs, k, i) => xs.reduce((n, x) => n + x[k][i], 0);
+  const say = (what, xs) => `  ${what}: ${xs.reduce((n, x) => n + x.aliases, 0)} aliases in ${xs.filter(x => x.aliases).length} of ${xs.length} drafts; rows ${sum(xs, "rows", 0)} → ${sum(xs, "rows", 1)}, characters of rows ${sum(xs, "bytes", 0)} → ${sum(xs, "bytes", 1)} (${(100 * (1 - sum(xs, "bytes", 1) / Math.max(1, sum(xs, "bytes", 0)))).toFixed(1)}% fewer), \`any\` written ${sum(xs, "any", 0)} → ${sum(xs, "any", 1)}`;
+  lines.push("", "As written (09 MO-8x) — the counts above are of the drafts written out; written, each type a draft writes again and again is an alias of the file:");
+  lines.push(say("all", by));
+  for (const pkg of [...new Set(by.filter(x => x.aliases).map(x => x.pkg))].sort()) lines.push(say(pkg, by.filter(x => x.pkg === pkg)));
+}
 writeFileSync(path.join(dir, "origin.txt"), lines.join("\n") + "\n");
 console.log(lines.join("\n"));
 

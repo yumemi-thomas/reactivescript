@@ -109,7 +109,9 @@ text`, `--jobs n`); `node bench/any-origin.mjs --in dir [--tags dir]` then says 
 library's own where it stands in its row (what the checker reads there), where it comes from (the package's own
 declaration files, another package's, TypeScript's printer), and whether the package's TypeScript source writes it too
 — the source it ships, or (`--tags`) checkouts of its repository at the git tag of the installed version. It also
-places the parts said by place. `bench/any-census.txt` is the last run; what it showed is in
+places the parts said by place. Every count is of the drafts written out — an alias a draft writes for a type it repeats
+(09 MO-8x) is a shorter spelling of the same rows, and no `any` moves by it — and the drafts as written are reported
+beside them (*As written*; the scorecard's *Whole drafts* likewise). `bench/any-census.txt` is the last run; what it showed is in
 `tooling/rx-language-server/DECLARATIONS.md`, *What the `any`s left are*.
 
 ## The coverage suite

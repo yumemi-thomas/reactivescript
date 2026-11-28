@@ -551,6 +551,35 @@ fs.writeFileSync(path.join(ws, "sched.d.ts"), [
   check("a parameter typed by a function type generic in itself is written by its name, and the row keeps its callback and result", has("export fn leading<A extends unknown[]>(schedule: Schedule, callback: (...args: A) => void, wait?: number): Handle<A>"), r.stdout + r.stderr);
   check("…and a component's prop of that type keeps a function type (an unmarked one is pure there, MO-10g)", /^export component Timer\(props: .*onTick: \(/m.test(r.stdout), r.stdout);
 }
+// MO-8x (2026-11-28): a type a draft writes again and again — a UI kit's render prop in each of its parts — is written
+// once, an alias of the file, under the library's own name for it, and each row names it; the crate reads every row as
+// it reads the draft written out (`rows`), and rx-tsc holds it against the same types.
+{
+  const parts = ["Root", "Trigger", "Panel", "Title", "Close", "Footer"];
+  fs.writeFileSync(path.join(ws, "kit.js"), parts.map(p => `export const ${p} = () => null;`).join("\n") + "\n");
+  fs.writeFileSync(path.join(ws, "kit.d.ts"), [
+    "import type { JSX } from \"@solidjs/web\";",
+    "type RenderProp<State = {}> = (props: Record<string, any>, state: State) => JSX.Element;",
+    ...parts.map((p, i) => `export declare function ${p}(props: { ${p.toLowerCase()}Id?: string; render?: RenderProp<{ open: boolean; part${i}: number }>; onPick${p}?: (value: string, index: number) => void }): JSX.Element;`),
+    "",
+  ].join("\n"));
+  const plain = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./kit.js", "--no-infer", "--no-aliases"], { cwd: ws, encoding: "utf8" });
+  const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./kit.js", "--no-infer"], { cwd: ws, encoding: "utf8" });
+  if (process.env.VERBOSE) console.log(r.stdout);
+  // (named as the library names it, `RenderProp`, where the draft has no row of that name: here it names the library's
+  // own alias, `export type RenderProp<State> = import("./kit.js").RenderProp<State>`, which the checker does not open)
+  const alias = /^export type (\w+)<T> = \(props: Record<string, any>, state: T\) => View$/m.exec(r.stdout)?.[1];
+  check("a render prop written in every part is an alias of the draft, and each part names it", !!alias && r.stdout.includes(`render?: ${alias}<{ open: boolean; part3: number; }>`), r.stdout + r.stderr);
+  check("…a repeated type with no part that changes is one too", /^export type \w+ = \(value: string, index: number\) => void$/m.test(r.stdout), r.stdout);
+  const { rows } = require("../src/rxc.js");
+  const reading = t => JSON.stringify(rows(path.join(ws, "x.d.rx"), t).rows.filter(x => x.kind !== "type").map(({ line, end, ...x }) => x));
+  check("…and the crate reads every row as it reads the draft written out", reading(r.stdout) === reading(plain.stdout) && !plain.stdout.includes("MO-8x"), `${r.stdout}\n----\n${plain.stdout}`);
+  fs.writeFileSync(path.join(ws, "kit.d.rx"), r.stdout);
+  fs.writeFileSync(path.join(ws, "kit-app.rx"), ["import { Root, Panel } from \"./kit.js\"", "export default component App() {", "  <Root>{view render (p, s) { <p>{s.open}</p> }}</Root>", "  <Panel panelId=\"a\" />", "}", ""].join("\n"));
+  fs.writeFileSync(path.join(ws, "tsconfig.kit-alias.json"), JSON.stringify({ extends: "./tsconfig.json", include: ["kit-app.rx"] }));
+  const tk = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "-p", "tsconfig.kit-alias.json"], { cwd: ws, encoding: "utf8" });
+  check("…and rx-tsc holds the factored draft against the library's types (TY-6)", tk.status === 0, tk.stdout + tk.stderr);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

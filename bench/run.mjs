@@ -69,7 +69,7 @@ async function runTask(id, entry) {
   // the declarations, against rx-declare's draft of the same modules (before anything is edited)
   try { res.decl = declarations(dir, task.declare ?? {}); } catch (e) { res.decl = { words: 0, inferred: 0, todos: 0, claims: { total: 0, run: 0, code: 0, unverified: 0, mismatch: 0 }, contradicted: [], unproven: [], problems: [`the declarations were not measured (${String(e.message ?? e).slice(0, 300)})`], any: 0, inherited: 0, introduced: 0, places: 0, files: [] }; }
   // a coverage entry: each module of its packages drafted whole (09 MO-8q), whether its program imports it or not
-  if (task.modules) res.modules = task.modules.map(spec => { const w = draftOf(spec, dir, (task.declare ?? {})[spec] ?? []).whole; return { spec, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, inferred: w.inferred, inferredBy: w.inferredBy, todos: w.todos, todosBy: w.todosBy, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; });
+  if (task.modules) res.modules = task.modules.map(spec => { const w = draftOf(spec, dir, (task.declare ?? {})[spec] ?? []).whole; return { spec, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, bytes: w.bytes, written: w.written, inferred: w.inferred, inferredBy: w.inferredBy, todos: w.todos, todosBy: w.todosBy, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; });
   if (entry) Object.assign(res, { entry, pkgs: task.pkgs ?? [], uses: task.uses ?? [], server: task.server, hydrates: task.hydrates, note: task.note });
 
   // (b) TYPES: rx-tsc is clean with the library's own types, the program wrote no `any`, and each probe — a mistake
@@ -189,7 +189,7 @@ if (one) {
 // gives a process several that took little time: what they cost was the process), each writing its own result
 const runDraft = async spec => {
   const id = `draft-${spec.replace(/[^\w.-]+/g, "_")}`;
-  let r; try { const dir = path.join(ws, "tasks", id); mkdirSync(dir, { recursive: true }); const w = draftOf(spec, dir).whole; r = { spec, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, inferred: w.inferred, inferredBy: w.inferredBy, todos: w.todos, todosBy: w.todosBy, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; } catch (e) { r = { spec, crash: e.stack ?? String(e) }; }
+  let r; try { const dir = path.join(ws, "tasks", id); mkdirSync(dir, { recursive: true }); const w = draftOf(spec, dir).whole; r = { spec, rows: w.rows, vendor: w.vendor, introduced: w.introduced, places: w.places, bytes: w.bytes, written: w.written, inferred: w.inferred, inferredBy: w.inferredBy, todos: w.todos, todosBy: w.todosBy, drafted: w.drafted, error: w.error, introducedRows: w.introducedRows }; } catch (e) { r = { spec, crash: e.stack ?? String(e) }; }
   return [id, r];
 };
 const runCover = async entry => { const id = `cover-${entry.replaceAll("/", "-")}`; return [id, await runTask(id, entry).catch(e => ({ id, entry, crash: e.stack ?? String(e) }))]; };
@@ -267,12 +267,13 @@ const allowLines = introducedRows.map(x => `  ${x.id}/${x.file} · ${x.name}: ${
 // 09 MO-8q over whole drafts: every export of each module a task declares, as rx-declare drafts it now
 const wholeFiles = results.filter(r => !r.crash).flatMap(r => r.decl.files.filter(f => f.drafted).map(f => ({ id: r.id, ...f })));
 const wholeSum = k => wholeFiles.reduce((n, f) => n + f.whole[k], 0);
+const wholeWritten = k => wholeFiles.reduce((n, f) => n + (f.whole.written?.[k] ?? 0), 0);   // 09 MO-8x: the drafts as written, their aliases kept
 const wholeLines = wholeFiles.map(f => `  ${f.id} · ${f.spec}: ${f.whole.rows} rows, ${f.whole.vendor} \`any\` the library's own, ${f.whole.introduced} introduced${f.whole.introducedRows.length ? ` (${f.whole.introducedRows.map(x => `${x.name}: ${x.introduced}, ${x.causes.join("/")}`).join("; ")})` : ""}, ${f.whole.places} by place`);
 const wholeAllowed = (id, spec, name) => allowDrafts.find(a => a.task === id && a.draft === spec && a.name === name);
 const allowAll = JSON.parse(readFileSync(path.join(here, "any-allowlist.json"), "utf8")).allow;
 const allowDrafts = allowAll.filter(a => a.draft);
 const wholeRows = wholeFiles.flatMap(f => f.whole.introducedRows.map(x => ({ id: f.id, spec: f.spec, ...x, entry: wholeAllowed(f.id, f.spec, x.name) })));
-const wholeCard = wholeFiles.length ? `\n\nWhole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; ${wholeFiles.length} drafts, ${wholeSum("rows")} rows): ${wholeSum("vendor")} \`any\` the libraries' own, ${wholeSum("introduced")} introduced, ${wholeSum("places")} by place\n${wholeLines.join("\n")}${wholeRows.length ? `\n  introduced, row by row:\n${wholeRows.map(x => `    ${x.id} · ${x.spec} · ${x.name}: ${x.introduced} (${x.causes.join(", ")}) — ${x.entry ? `allowed (${x.entry.count}): ${x.entry.reason} Blocked by: ${x.entry.blocked}` : "NOT ON bench/any-allowlist.json"}`).join("\n")}` : ""}` : "";
+const wholeCard = wholeFiles.length ? `\n\nWhole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; ${wholeFiles.length} drafts, ${wholeSum("rows")} rows): ${wholeSum("vendor")} \`any\` the libraries' own, ${wholeSum("introduced")} introduced, ${wholeSum("places")} by place — counted written out; as written (09 MO-8x: ${wholeWritten("aliases")} aliases of a file), ${wholeWritten("bytes")} characters of rows for ${wholeSum("bytes")}, ${wholeWritten("any")} \`any\` written for ${wholeSum("vendor") + wholeSum("introduced")}\n${wholeLines.join("\n")}${wholeRows.length ? `\n  introduced, row by row:\n${wholeRows.map(x => `    ${x.id} · ${x.spec} · ${x.name}: ${x.introduced} (${x.causes.join(", ")}) — ${x.entry ? `allowed (${x.entry.count}): ${x.entry.reason} Blocked by: ${x.entry.blocked}` : "NOT ON bench/any-allowlist.json"}`).join("\n")}` : ""}` : "";
 // 09 MO-8v: the words read from the code that runs — in the rows the tasks keep (each run by rx-verify against what the
 // reading claims, where it has arguments to call with) and over the whole drafts — and the questions the drafts still ask
 const okr = results.filter(r => !r.crash);
