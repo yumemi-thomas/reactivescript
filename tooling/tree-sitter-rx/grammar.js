@@ -733,6 +733,7 @@ module.exports = grammar(tsx, {
       $.import_type,
       $.ref_type,
       $.callback_type,
+      $.io_type,
       $.row_type,
       $.catches_type,
     ),
@@ -774,6 +775,10 @@ module.exports = grammar(tsx, {
 
     // `onSubmit: handler (e: Event) => void`: called later, outside any computation (MO-10g)
     callback_type: $ => seq(field('kind', 'handler'), $.function_type),
+
+    // `write: io (text: string) => boolean`, `): io ((name: string) => boolean)`: a function part of a result that does
+    // something, whatever it answers (MO-10b) — before its type, or before the parentheses a whole result's is drafted in
+    io_type: $ => seq(field('kind', 'io'), choice($.function_type, $.parenthesized_type)),
 
     // rows before a type: a result's `ref` part, `data: pending fails(Error) ref T` (MO-10l); a field of an `.rx`
     // component's prop, `query: { data: pending fails(Error) T }` (MO-10f)

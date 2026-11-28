@@ -9247,6 +9247,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "io_type"
+        },
+        {
+          "type": "SYMBOL",
           "name": "row_type"
         },
         {
@@ -15971,6 +15975,32 @@
         {
           "type": "SYMBOL",
           "name": "function_type"
+        }
+      ]
+    },
+    "io_type": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "kind",
+          "content": {
+            "type": "STRING",
+            "value": "io"
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "function_type"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "parenthesized_type"
+            }
+          ]
         }
       ]
     },

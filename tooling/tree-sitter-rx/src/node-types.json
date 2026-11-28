@@ -528,6 +528,10 @@
         "named": true
       },
       {
+        "type": "io_type",
+        "named": true
+      },
+      {
         "type": "member_expression",
         "named": true
       },
@@ -4214,6 +4218,36 @@
       "types": [
         {
           "type": "type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "io_type",
+    "named": true,
+    "fields": {
+      "kind": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "io",
+            "named": false
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "function_type",
+          "named": true
+        },
+        {
+          "type": "parenthesized_type",
           "named": true
         }
       ]

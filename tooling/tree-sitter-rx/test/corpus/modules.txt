@@ -2149,3 +2149,87 @@ export { ThemeProvider as Root, theme } from "../theme.rx"
           name: (identifier)))
       source: (string
         (string_fragment)))))
+
+========================================
+Declaration file rows: a function part of a result that does something
+========================================
+
+export pure fn emitter(props: { on: (name: string) => void }): io ((name: string) => boolean)
+export pure fn makeClipboard(): { read: () => string; write: io (t: string) => boolean }
+export pure fn pair(): [() => string, io ((t: string) => boolean)]
+
+---
+
+(program
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (function_type
+                    (formal_parameters
+                      (required_parameter
+                        (identifier)
+                        (type_annotation
+                          (predefined_type))))
+                    (predefined_type))))))))
+      (type_annotation
+        (io_type
+          (parenthesized_type
+            (function_type
+              (formal_parameters
+                (required_parameter
+                  (identifier)
+                  (type_annotation
+                    (predefined_type))))
+              (predefined_type)))))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters)
+      (type_annotation
+        (object_type
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (function_type
+                (formal_parameters)
+                (predefined_type))))
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (io_type
+                (function_type
+                  (formal_parameters
+                    (required_parameter
+                      (identifier)
+                      (type_annotation
+                        (predefined_type))))
+                  (predefined_type)))))))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters)
+      (type_annotation
+        (tuple_type
+          (function_type
+            (formal_parameters)
+            (predefined_type))
+          (io_type
+            (parenthesized_type
+              (function_type
+                (formal_parameters
+                  (required_parameter
+                    (identifier)
+                    (type_annotation
+                      (predefined_type))))
+                (predefined_type)))))))))
