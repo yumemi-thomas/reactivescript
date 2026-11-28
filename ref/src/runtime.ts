@@ -145,7 +145,7 @@ function catching(b: BoundaryItem | null, err: unknown): BoundaryItem | null { f
 /** H-12: a `loading` above an error fallback that is armed (re-armed by its `on`): the pending content under the fallback is its. */
 function armedAbove(eb: BoundaryItem): BoundaryItem | null { for (let x = eb.parent; x; x = x.parent) if (x.k === "loading") return x.armed ? x : null; return null; }
 /** An `errored` above that is showing its fallback: everything under it is behind it (H-4). */
-function erroredShowing(b: BoundaryItem | null): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === "errored" && x.showingFallback) return x; return null; }
+function erroredShowing(b: BoundaryItem | null): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === "errored" && x.showingFallback && x.committedFallback) return x; return null; }
 
 // ---------------------------------------------------------------- runtime
 /** E-9b: a name of a fn's body, in a call of it. */

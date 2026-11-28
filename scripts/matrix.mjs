@@ -126,7 +126,12 @@ async function runAll(name, programs) {
 }
 
 // ---- what a report says a program shows ----
-function shows(runner, x) {
+/** The instants a runner's report gives a frame for: the oracle and the compiled runners make a row and the `(effect)` and
+ *  `(flush)` rows after it one step (EF-8; ref/oracle/run.ts), so the frame before such a row is the interpreter's alone —
+ *  an instant one runner reports (passed or not) and another has no step for is not compared. */
+const instants = x => x ? new Set([...x.slice(1).join(" ").matchAll(/[✗✓] Frames instant (\d+):/g)].map(m => m[1])) : null;
+const skipped = (t, only) => only ? [...t.matchAll(/instant (\d+): expected .*?got '/g)].filter(m => !only.has(m[1])).length : 0;
+function shows(runner, x, only = null) {
   if (!x) return "?";
   const [v, ...lines] = x, t = lines.join(" ");
   if (v === "STOPPED") return `STOPPED:${t.slice(0, 60)}`;
@@ -134,8 +139,8 @@ function shows(runner, x) {
   if (t.includes("refused by the checker")) return "REF";
   if (t.includes("not compiled") || t.includes("not lowered")) return "NC";
   let m = /server frame '(.*?)' is not/.exec(t); if (m) return m[1];
-  const ms = [...t.matchAll(/got '(.*?)' effects \[(.*?)\]/g)];
-  if (ms.length) return ms.map(m => m[1] + (m[2] ? `|${m[2]}` : "")).join(" / ") + (t.split("✗").length - 1 > ms.length ? ` / ERR:${t.slice(t.lastIndexOf("✗") + 1).slice(0, 60)}` : "");
+  const ms = [...t.matchAll(/(?:instant (\d+): expected .*?)?got '(.*?)' effects \[(.*?)\]/g)].filter(m => !only || m[1] === undefined || only.has(m[1]));
+  if (ms.length) return ms.map(m => m[2] + (m[3] ? `|${m[3]}` : "")).join(" / ") + (t.split("✗").length - 1 > ms.length + skipped(t, only) ? ` / ERR:${t.slice(t.lastIndexOf("✗") + 1).slice(0, 60)}` : "");
   m = /\b([A-Z]+_[A-Z_]+)\b/.exec(t); if (m && runner === "interp") return "REF";
   m = /(no provision for \w+|call of non-function|hydrat\w+[^|]{0,60}|mismatch[^|]{0,60})/.exec(t); if (m) return `THROW:${m[1].slice(0, 40)}`;
   return v === "SKIP" || v === "PASS" ? v : `ERR:${t.slice(0, 80)}`;
@@ -143,7 +148,9 @@ function shows(runner, x) {
 const CORE = ["interp", "oracle", "js", "rust"], SERVER = ["ssr", "ssr-rust"], PAIR = ["same", "lower", "project", "types"];
 /** What the runners, together, say of a program: `refused`, `not compiled`, `agree` (and what they show), `same error`, `differ`, `server differs`, `stopped`. */
 function verdict(res, n) {
-  const of = ks => ks.filter(k => res[k]).map(k => shows(k, res[k][n])), core = of(CORE), srv = of(SERVER);
+  // compared on the instants every core runner gives a frame for (an `(effect)` row's step: `instants`)
+  const sets = CORE.filter(k => res[k]).map(k => instants(res[k][n])).filter(s => s && s.size), only = sets.length > 1 ? new Set([...sets[0]].filter(i => sets.every(s => s.has(i)))) : null;
+  const of = ks => ks.filter(k => res[k]).map(k => shows(k, res[k][n], only)), core = of(CORE), srv = of(SERVER);
   if ([...core, ...srv].some(x => x.startsWith("STOPPED"))) return ["stopped", null];
   if (core.includes("REF")) return ["refused", null];
   if ([...core, ...srv].includes("NC")) return ["not compiled", null];
@@ -151,7 +158,8 @@ function verdict(res, n) {
   if (new Set(said).size !== 1 || said.length !== core.length) return ["differ", null];
   if (/^(ERR|THROW)/.test(said[0])) return ["same error", said[0]];
   const first = said[0].split(" / ")[0].split("|")[0], unportaled = first.split(" » ")[0];   // 03 PT-3: the server renders nothing for a portal (what follows ` » ` in a frame)
-  return srv.some(x => !["PASS", "SKIP", said[0], first, unportaled].includes(x)) ? ["server differs", said[0]] : ["agree", said[0]];
+  const mount = res.interp ? shows("interp", res.interp[n]).split(" / ")[0].split("|")[0] : first;   // the mount's frame, before an `(effect)` row: the interpreter's alone
+  return srv.some(x => !["PASS", "SKIP", said[0], first, unportaled, mount, mount.split(" » ")[0]].includes(x)) ? ["server differs", said[0]] : ["agree", said[0]];
 }
 
 // ---- run ----

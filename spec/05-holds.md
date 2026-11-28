@@ -329,7 +329,8 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 - **H-12 (Errors).** [F-12, D-41] An error value reaching a reader under
   `errored` sends that region to its fallback, which is then the display
-  (H-4: readers behind it hold nothing and keep no change open). An error
+  (H-4: readers behind it hold nothing and keep no change open — once it is the display: a fallback staged with a held
+  change is not yet, and what is read beside the failed reader still holds that change; S-hold-10). An error
   is an answer: a held rejection is staged like a value and reveals with
   its frame — the fallback moves with the frame of the change whose answer
   caused it, and so does a recovery (S-solid-42: `1 | 1 | 1` stays until
@@ -700,7 +701,8 @@ on-screen probe in a held lane of `latest` readers keeps what it showed
 ports show the probe only where it is not in the held lane.
 
 Scenario actions gain `resolve x v` and `reject x e`, which land the current
-flight of equation `x`. Frames list, per instant, the screen and the probe
+flight of equation `x`. A plain `await` takes one answer of a flight: landing a
+flight again is a stream's landing, which only `await*` takes (ST-6; S-hold-11). Frames list, per instant, the screen and the probe
 verdicts a reader of `pending? x` would show.
 
 - `S-hold-1`: first load reaches a boundary; later update is held; `latest`

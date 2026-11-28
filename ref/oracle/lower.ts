@@ -526,7 +526,7 @@ export class Oracle {
       try {
         const body = e.k === "await" ? e.e : e;
         const v = this.ev(body, s2);
-        return v;
+        return e.k === "await" && !e.stream && v instanceof Flight ? v.first : v;   // a plain tail `await` has one answer, as compiled code's (__rt.awaited): the flight's later landings are a stream's (`await*`) — found by x6b/ref-asks, a flight resolved twice
       } finally { this.currentEq = was; }
     };
   }
