@@ -222,8 +222,134 @@ export type JsDecl =
 /** MO-11a: a declared JS component's prop — its TypeScript type, what the component discharges for it, and whether it takes a
  *  component value (MO-11c: its type is `Component`). */
 export type JsProp = { name: string; optional: boolean; type?: string; catches?: string[] | "*"; component: boolean; components?: boolean; render?: boolean; callback?: boolean; pure?: boolean; view?: boolean };   // components: MO-11c (2026-11-24), its type holds a `Component` inside a record or an array (`builtins: { Heading?: Component }`): each component in the literal given to it is applied there   // view: MO-11t, it takes a view (typed `View`, not `children`): a component given to it by name is applied there   // render: MO-11k, a function giving a View; callback: MO-10g, any other function
+// ---- MO-8x (2026-11-28): the file's own type aliases, followed wherever a row's type is read ----------------------------
+// An `export type N<P = D> = body` of a declaration file is a shorter spelling of its body: every row's type text is read
+// with each reference to one written out in its place (its type arguments put in for its parameters), before any reader
+// sees it. compiler/src/parse.rs `collect_aliases`, `expand_aliases`.
+export type Aliases = Map<string, { params: [string, string | undefined][]; body: string }>;
+const ALIAS_LIMIT = 1 << 20;
+const ALIAS_WORD = /(?:^|[^A-Za-z0-9_$.])(?:(?:handler|draft|ref|io|pending)\s+[A-Za-z_$({\["'`]|(?:fails|catches)\()/;
+const wordCh = (ch: string | undefined) => !!ch && /[A-Za-z0-9_$]/.test(ch);
+/** The token before a place in a type's text (it ends `before`): "" at the start, `=>`, a word, or one character. */
+function tokenBefore(before: string): string {
+  const t = before.trimEnd(); if (!t) return ""; if (t.endsWith("=>")) return "=>";
+  let k = t.length; while (k > 0 && wordCh(t[k - 1])) k--;
+  return k < t.length ? t.slice(k) : t[t.length - 1];
+}
+/** The token a place in a type's text is followed by (`after` starts there): "" at the end, `=>`, a word, or one character. */
+function tokenAfter(after: string): string {
+  const t = after.trimStart(); if (!t) return ""; if (t.startsWith("=>")) return "=>";
+  let k = 0; while (k < t.length && wordCh(t[k])) k++;
+  return k > 0 ? t.slice(0, k) : t[0];
+}
+/** What binds a type's text at its top: how it is put where a reference stood. */
+function binds(t0: string): "fn" | "cond" | "union" | "inter" | "prefix" | "atom" {
+  const t = t0.trim(); let depth = 0, arrow = false, cond = false, union = false, inter = false;
+  for (let i = 0; i < t.length;) {
+    if (depth === 0) {
+      if (t.startsWith("=>", i)) arrow = true;
+      else if (t[i] === "|") union = true;
+      else if (t[i] === "&") inter = true;
+      else if (t[i] === "?") cond = true;
+      else if (wordCh(t[i]) && (i === 0 || !wordCh(t[i - 1]))) { let j = i; while (j < t.length && wordCh(t[j])) j++; if (t.slice(i, j) === "extends") cond = true; i = j; continue; }
+    }
+    depth += nests(t, i); i = tokenEnd(t, i);
+  }
+  const first = tokenAfter(t);
+  return arrow || first === "new" || first === "abstract" ? "fn" : cond ? "cond" : union ? "union" : inter ? "inter" : ["keyof", "typeof", "unique", "readonly", "infer", "asserts"].includes(first) ? "prefix" : "atom";
+}
+const OPEN = new Set(["", ":", ",", "(", "<", "[", "{", ";", "=", "=>", "handler", "io", "ref", "pending"]);
+const CLOSE = new Set(["", ",", ";", ")", ">", "]", "}", "="]);
+/** Whether `x`, put where a reference stood between `before` and `after`, is written in parentheses: only where it would
+ *  otherwise bind to what is around it. */
+function needsParens(x: string, before: string, after: string): boolean {
+  const k = binds(x); if (k === "atom") return false;
+  const p = tokenBefore(before), n = tokenAfter(after), open = OPEN.has(p), close = CLOSE.has(n);
+  if (open && close) return false;
+  if (k === "union") return !((open || p === "|") && (close || n === "|"));
+  if (k === "inter" || k === "prefix") return !((open || p === "|" || p === "&") && (close || n === "|" || n === "&"));
+  return true;
+}
+/** Whether a name at this place is no reference to a type: a field's or parameter's name, a method's, a member of a
+ *  qualified name, or what `typeof` and `infer` take. */
+function notAReference(before: string, after: string): boolean {
+  const b = before.trimEnd(), a = after.trimStart();
+  return (b.endsWith(".") && !b.endsWith("...")) || ["typeof", "infer"].includes(tokenBefore(before)) || (a.startsWith(":") && !b.endsWith("?")) || a.startsWith("?:") || a.startsWith("?(") || a.startsWith("(");
+}
+function rewriteNames(t: string, put: (w: string, before: string, t: string, j: number, inside: boolean) => [string, number] | undefined): string {
+  let out = "", i = 0, kept = 0, depth = 0, branch = false;
+  while (i < t.length) {
+    if (!/[A-Za-z_$]/.test(t[i]) || (i > 0 && wordCh(t[i - 1]))) { branch ||= depth === 0 && t[i] === "?"; depth += nests(t, i); i = tokenEnd(t, i); continue; }
+    let j = i; while (j < t.length && wordCh(t[j])) j++;
+    if (!notAReference(t.slice(0, i), t.slice(j))) {
+      const r = put(t.slice(i, j), t.slice(0, i), t, j, depth > 0 || branch);
+      if (r) { out += t.slice(kept, i) + r[0]; if (out.length > ALIAS_LIMIT) throw new Error("it expands past 1 MB (MO-8x)"); kept = i = r[1]; continue; }
+    }
+    i = j;
+  }
+  return out + t.slice(kept);
+}
+const putParams = (body: string, vals: [string, string][]) => rewriteNames(body, (w, before, t, j) => { const v = vals.find(([p]) => p === w)?.[1]; return v === undefined ? undefined : [needsParens(v, before, t.slice(j)) ? `(${v})` : v, j]; });
+const plural = (n: number) => n === 1 ? "" : "s";
+function expandIn(t: string, al: Aliases, stack: string[]): string {
+  return rewriteNames(t, (w, before, t, j, inside) => {
+    const a = al.get(w); if (!a) return undefined;
+    const gap = t.slice(j).length - t.slice(j).trimStart().length;
+    let args: string | undefined, end = j;
+    if (t.startsWith("<", j + gap)) { const e = closes(t, j + gap); if (e === undefined) throw new Error(`${w}<…: its type arguments are not closed (MO-8x)`); args = t.slice(j + gap + 1, e - 1); end = e; }
+    if (t.slice(end).trimStart().startsWith("(")) return undefined;   // a method's name
+    if (stack.includes(w) && (inside || tokenAfter(t.slice(end)) === "[")) return undefined;   // `children?: RouteDefinition[]`: what TypeScript defers — it stays its name
+    if (stack.includes(w)) throw new Error(`${w} names itself: ${stack.join(" → ")} → ${w} with nothing between to defer it (a record's field, a list's element, a function's part, a type argument, a conditional's branch): written out, it has no end (MO-8x)`);
+    if (stack.length > 64) throw new Error(`${w}: aliases nested deeper than 64 (MO-8x)`);
+    const given = args === undefined ? [] : splitTop(args, ",").map(x => expandIn(x.trim(), al, stack));
+    if (given.length > a.params.length) throw new Error(`${w} takes ${a.params.length} type argument${plural(a.params.length)}, and is given ${given.length} (MO-8x)`);
+    const vals: [string, string][] = [];
+    a.params.forEach(([p, d], k) => {
+      if (k < given.length) vals.push([p, given[k]]);
+      else if (d !== undefined) vals.push([p, putParams(d, vals)]);
+      else throw new Error(`${w} is given ${given.length} type argument${plural(given.length)}: its parameter ${p} has no default (MO-8x)`);
+    });
+    const body = putParams(a.body, vals);
+    stack.push(w); const x = expandIn(body, al, stack); stack.pop();
+    return [needsParens(x, before, t.slice(end)) ? `(${x})` : x, end];
+  });
+}
+/** A row's type text with every reference to an alias of the file written out. */
+export function expandAliases(t: string, al: Aliases): string { return al.size ? expandIn(t, al, []) : t; }
+function expanded(c: Cursor, al: Aliases, t: string): string { if (!al.size) return t; try { return expandAliases(t, al); } catch (e) { return c.fail((e as Error).message); } }
+/** `<S = {}, const T extends X = Y>`: each parameter's name and its default. */
+function aliasParams(tp: string): [string, string | undefined][] {
+  return splitTop(tp.slice(1, -1), ",").flatMap(p => {
+    let rest = p.trim(); for (let m; (m = ["const ", "in ", "out "].find(x => rest.startsWith(x)));) rest = rest.slice(m.length).trimStart();
+    let k = 0; while (k < rest.length && wordCh(rest[k])) k++;
+    if (!k) return [];
+    let def: string | undefined;
+    for (let i = k, depth = 0; i < rest.length; i = tokenEnd(rest, i)) { if (depth === 0 && rest[i] === "=" && !rest.startsWith("=>", i)) { def = rest.slice(i + 1).trim(); break; } depth += nests(rest, i); }
+    return [[rest.slice(0, k), def] as [string, string | undefined]];
+  });
+}
+/** The aliases a declaration file declares, each checked whole. */
+export function collectAliases(src: string): Aliases {
+  const al: Aliases = new Map(); const order: [string, number][] = []; const c = new Cursor(src);
+  for (let i = 0, depth = 0; i < src.length;) {
+    if (depth === 0 && src.startsWith("export", i) && (i === 0 || !wordCh(src[i - 1]))) {
+      c.i = i;
+      if (c.keyword("export")) { c.ws(); if (c.keyword("type")) { c.ws(); const name = c.ident(); if (name) { c.ws(); const tp = typeParams(c); c.ws(); if (c.eat("=")) { c.ws();
+        const body = parseType(c, false, true); const end = c.i; c.i = i;
+        if (ALIAS_WORD.test(maskedStrings(body))) c.fail(`type ${name}: a word (\`handler\`, \`draft\`, \`ref\`, \`io\`, \`pending\`, \`fails(…)\`, \`catches(…)\`) is a row's, not an alias's — it is written where a row names the alias, \`onChange?: handler ${name}\` (MO-8x)`);
+        if (al.has(name)) c.fail(`type ${name} is declared twice (MO-8x)`);
+        al.set(name, { params: tp ? aliasParams(tp) : [], body }); order.push([name, i]); i = end; continue; } } } }
+      i += "export".length; continue;
+    }
+    depth += nests(src, i); i = tokenEnd(src, i);
+  }
+  for (const [name, at] of order) { try { expandIn(al.get(name)!.body, al, [name]); } catch (e) { if (e instanceof ParseError) throw e; c.i = at; c.fail(`type ${name}: ${(e as Error).message}`); } }
+  return al;
+}
+
 export function parseDeclarations(src: string): JsDecl[] {
   const c = new Cursor(src); const out: JsDecl[] = [];
+  const al = collectAliases(src);   // MO-8x
   const hosts: [string, string, number][] = [];   // MO-11u: each `renders(H)` — the fn, H, and where the word's `(` is
   const members: [string, number][] = [];   // MO-8t: each fn named as a method (`toaster.show`), and where its name ends
   for (;;) {
@@ -272,12 +398,12 @@ export function parseDeclarations(src: string): JsDecl[] {
       if (c.eat("(")) { const t0 = c.i, shut = closes(c.src, t0 - 1); c.i = shut ?? c.src.length; fields = splitTop(c.src.slice(t0, shut === undefined ? c.i : shut - 1), ",").map(f => f.split(":")[0].replace(/\s+/g, "")).filter(f => f && f !== "?"); }   // an optional field keeps its `?` (`code?`): an instance may come without it
       out.push({ kind: "error", name, line, ...(fields?.length ? { fields } : {}) }); continue;
     }
-    if (c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("const name"); c.ws(false); const type = c.eat(":") ? (c.ws(), parseType(c, false, true)) : undefined; out.push({ kind: "value", name, line, ...(type ? { type } : {}) }); continue; }   // MO-8g
+    if (c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("const name"); c.ws(false); const type = c.eat(":") ? (c.ws(), expanded(c, al, parseType(c, false, true))) : undefined; out.push({ kind: "value", name, line, ...(type ? { type } : {}) }); continue; }   // MO-8g
     if (c.keyword("context")) { c.ws(); const name = c.ident() ?? c.fail("context name");   // MO-12a
       const save = c.i; c.ws(false); let from: string | undefined;
       if (c.keyword("from")) { c.ws(false); const m = parsePrimary(c); if (m.k !== "lit" || typeof m.v !== "string") c.fail("export context c from \"<module>\": the module whose declaration declares the context (MO-12e)"); from = (m as { v: string }).v; } else c.i = save;   // MO-12e
       out.push({ kind: "context", name, line, ...(from !== undefined ? { from } : {}) }); continue; }
-    if (c.keyword("component")) { out.push(parseJsComponent(c, line)); continue; }
+    if (c.keyword("component")) { out.push(parseJsComponent(c, line, al)); continue; }
     const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only
     const pure = c.keyword("pure"); c.ws();
     if (!c.keyword("fn")) c.fail("fn");
@@ -289,11 +415,11 @@ export function parseDeclarations(src: string): JsDecl[] {
     const opts: boolean[] = [];
     const draftArgs: number[] = [];   // MO-10i (2026-11-22): `draft list: T[]` — a parameter the fn changes in place, now, and does not keep: a draft is given to it as it is
     while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r);
-      { const sd = c.i; if (!r && c.keyword("draft")) { c.ws(); if (/^[A-Za-z_$]/.test(c.peek())) draftArgs.push(refs.length - 1); else c.i = sd; } }   /* a parameter named draft stays a name */ const rest = !r && c.eat("...");   /* MO-8h: a rest parameter, `...items: T[]` */ params.push((rest ? "..." : "") + (c.ident() ?? c.fail("param"))); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
+      { const sd = c.i; if (!r && c.keyword("draft")) { c.ws(); if (/^[A-Za-z_$]/.test(c.peek())) draftArgs.push(refs.length - 1); else c.i = sd; } }   /* a parameter named draft stays a name */ const rest = !r && c.eat("...");   /* MO-8h: a rest parameter, `...items: T[]` */ params.push((rest ? "..." : "") + (c.ident() ?? c.fail("param"))); c.ws(false); opts.push(c.eat("?")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), expanded(c, al, parseType(c, false, true))) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     if (pure && draftArgs.length) c.fail(`${name}: a fn that changes what it is given (\`draft ${params[draftArgs[0]]}\`) is not \`pure\` (MO-10i)`);
     const save = c.i; c.ws(false); let ret: string | undefined; let retIo: string | undefined; let shape: Shape | undefined; let held: [string, boolean, string[]][] | undefined; let waits: [boolean, string[]] | undefined;
-    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bcalls\(|\bprovides\(|\bnests\(|\bunder\(|\bjoins\(|\bmethods\(|(?<=[\w$)\]}>"'`]\s+)(renders|carries|trusted|forwards)\b/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`) */ if (/(^|[:,\[{]\s*)holds\s+[A-Za-z_$({\["']/.test(r ? t.slice(0, r.index) : t)) c.fail(gone("holds")); const fr = typeWords(r ? t.slice(0, r.index) : t, "result"); if (!fr) c.fail(gone("pending"));   /* MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r 2026-11-23) they are refused by name, wherever in the result they are written */ held = fr.held; waits = fr.whole; shape = fr.parts ? shapeOf(fr.parts) : undefined; ret = fr.text || undefined; retIo = fr.marked; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
+    if (c.peek() === ":" ) { c.i++; c.ws(); const line0 = c.src.slice(c.i).split("\n")[0]; const t = codeOf(line0); const r = /\brejects\(|\binstantiates\b|\buses\(|\bcalls\(|\bprovides\(|\bnests\(|\bunder\(|\bjoins\(|\bmethods\(|(?<=[\w$)\]}>"'`]\s+)(renders|carries|trusted|forwards)\b/.exec(masked(t));   /* row words only at the row's top level: not in a string literal or inside brackets (`: "renders"`, `: { renders: boolean }`) */ if (/(^|[:,\[{]\s*)holds\s+[A-Za-z_$({\["']/.test(r ? t.slice(0, r.index) : t)) c.fail(gone("holds")); const fr = typeWords(al.size ? expanded(c, al, (r ? t.slice(0, r.index) : t).trim()) : r ? t.slice(0, r.index) : t, "result");   /* MO-8x */ if (!fr) c.fail(gone("pending"));   /* MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r 2026-11-23) they are refused by name, wherever in the result they are written */ held = fr.held; waits = fr.whole; shape = fr.parts ? shapeOf(fr.parts) : undefined; ret = fr.text || undefined; retIo = fr.marked; c.i += r ? r.index : line0.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
     let written = false; let uses: string[] | undefined; let provides: string[] | undefined; let nests: { kids: string; inside: string } | undefined; let renders: string | undefined;
@@ -529,8 +655,44 @@ const cutWords = (t: string | undefined, re: RegExp) => { if (t === undefined) r
 const stripHandler = (t: string | undefined) => cutWords(t, new RegExp(`${TYPE_AT}handler\\s+(?=\\()`, "g"));
 const stripDraft = (t: string | undefined) => cutWords(t, /\bdraft\s+(?=[A-Za-z_$][\w$]*\s*[?:,)])/g);
 
+/** MO-8o: a component's props — a type the library declares, then the record of the fields that carry words, or the record
+ *  alone. MO-8x: props that are an alias of the file are read as its text is written in their place. */
+function propsOf(c: Cursor, al: Aliases, props: JsProp[]): string | undefined {
+  let pt: string | undefined;
+  if (!c.startsWith("{") || !closesProps(c.src, c.i)) {
+    const t = propsTypeOf(c), x = expanded(c, al, t);
+    if (x !== t && c.peek() === ")") { const s = new Cursor(`${x})`); try { return propsOf(s, al, props); } catch (e) { return c.fail(`the props, as the file's types write them out: ${(e as Error).message}`); } }
+    pt = x;
+  }
+  if (c.eat("{")) propFields(c, al, props);
+  return pt;
+}
+/** MO-11a: the fields of a component's props record, after its `{`. */
+function propFields(c: Cursor, al: Aliases, props: JsProp[]): void {
+  for (;;) {
+    c.ws(); if (c.eat("}")) break;
+    { const at = c.i; if (c.keyword("readonly")) { c.ws(false); if (c.startsWith("?") || c.startsWith(":")) c.i = at; } }   // MO-10b: `readonly` is a modifier of the field, not its name (a prop may be named `readonly`)
+    const fname = c.ident() ?? c.fail("a prop name"); c.ws(false); const optional = c.eat("?"); c.ws(false);
+    let type: string | undefined; let catches: string[] | "*" | undefined;
+    if (c.eat(":")) {
+      c.ws(false);
+      if (c.keyword("catches")) { c.ws(false); c.expect("("); c.ws(); if (c.eat("*")) catches = "*"; else catches = parseClasses(c) ?? "*"; c.ws(); c.expect(")"); c.ws(false); }
+      const t0 = c.i; let depth = 0;
+      while (!c.eof()) {
+        const ch = c.peek(); if (depth === 0 && (ch === ";" || ch === "," || ch === "}" || ch === "\n" || c.startsWith("//"))) break;
+        depth += nests(c.src, c.i); c.i = tokenEnd(c.src, c.i);
+      }
+      const t = c.src.slice(t0, c.i).trim(); type = t ? expanded(c, al, t) : undefined;
+    }
+    if (type && /^renders\s+/.test(type)) c.fail(gone("renders(later)"));   // MO-11o, withdrawn (MO-8r, 2026-11-23): `router: renders any`
+    if (type && TRACKED_WORD.test(maskedStrings(type))) c.fail(gone("tracked"));
+    let handler = false; if (type && /^handler\s+/.test(type)) { handler = true; type = type.replace(/^handler\s+/, "") || undefined; if (!type || !fnType(type)) c.fail(`\`handler\` on prop ${fname}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`); }
+    props.push({ name: fname, optional, ...(type ? { type } : {}), ...(catches ? { catches } : {}),  component: !!type && isComponentType(type), ...(type && holdsComponent(type) ? { components: true } : {}), ...(fname !== "children" && type && isViewType(type) ? { view: true } : {}), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && handler && !isComponentType(type) && fnType(type) ? { callback: true } : type && !isComponentType(type) && fnType(type) ? { pure: true } : {}) });   // pure: MO-10g, a function type without `handler`: the declaration decides, whatever the prop's name
+    c.ws(false); if (!c.eat(";") && !c.eat(",") && c.peek() !== "\n") { c.ws(); c.expect("}"); break; }   // a newline separates fields too, as in TypeScript
+  }
+}
 /** MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`. */
-function parseJsComponent(c: Cursor, line: number): JsDecl {
+function parseJsComponent(c: Cursor, line: number, al: Aliases): JsDecl {
   c.ws(); let name = c.ident() ?? c.fail("component name");
   while (c.peek() === ".") { c.i++; name += "." + (c.ident() ?? c.fail("a member component's name: `component Dialog.Root(…)`")); }   // MO-11q
   c.ws(); const tparams = typeParams(c);   // MO-8d: `component Select<Option, G = never>(…)`, TypeScript's, for TY
@@ -538,29 +700,7 @@ function parseJsComponent(c: Cursor, line: number): JsDecl {
   const props: JsProp[] = []; let propsType: string | undefined;
   if (!c.startsWith(")")) {
     if (c.ident() !== "props") c.fail("a component's props: `(props: { … })`"); c.ws(); c.expect(":"); c.ws();
-    if (!c.startsWith("{") || !closesProps(c.src, c.i)) propsType = propsTypeOf(c);   // MO-8o: `props: import("kit").SelectProps<Option> & { onChange?: handler (v: Option) => void }`
-    if (c.startsWith("{")) { c.expect("{");
-    for (;;) {
-      c.ws(); if (c.eat("}")) break;
-      { const at = c.i; if (c.keyword("readonly")) { c.ws(false); if (c.startsWith("?") || c.startsWith(":")) c.i = at; } }   // MO-10b: `readonly` is a modifier of the field, not its name (a prop may be named `readonly`)
-      const fname = c.ident() ?? c.fail("a prop name"); c.ws(false); const optional = c.eat("?"); c.ws(false);
-      let type: string | undefined; let catches: string[] | "*" | undefined;
-      if (c.eat(":")) {
-        c.ws(false);
-        if (c.keyword("catches")) { c.ws(false); c.expect("("); c.ws(); if (c.eat("*")) catches = "*"; else catches = parseClasses(c) ?? "*"; c.ws(); c.expect(")"); c.ws(false); }
-        const t0 = c.i; let depth = 0;
-        while (!c.eof()) {
-          const ch = c.peek(); if (depth === 0 && (ch === ";" || ch === "," || ch === "}" || ch === "\n" || c.startsWith("//"))) break;
-          depth += nests(c.src, c.i); c.i = tokenEnd(c.src, c.i);
-        }
-        type = c.src.slice(t0, c.i).trim() || undefined;
-      }
-      if (type && /^renders\s+/.test(type)) c.fail(gone("renders(later)"));   // MO-11o, withdrawn (MO-8r, 2026-11-23): `router: renders any`
-      if (type && TRACKED_WORD.test(maskedStrings(type))) c.fail(gone("tracked"));
-      let handler = false; if (type && /^handler\s+/.test(type)) { handler = true; type = type.replace(/^handler\s+/, "") || undefined; if (!type || !fnType(type)) c.fail(`\`handler\` on prop ${fname}: it goes before a function type, one the library calls later, outside any computation (MO-10g)`); }
-      props.push({ name: fname, optional, ...(type ? { type } : {}), ...(catches ? { catches } : {}),  component: !!type && isComponentType(type), ...(type && holdsComponent(type) ? { components: true } : {}), ...(fname !== "children" && type && isViewType(type) ? { view: true } : {}), ...(type && /=>\s*View\s*$/.test(type) ? { render: true } : type && handler && !isComponentType(type) && fnType(type) ? { callback: true } : type && !isComponentType(type) && fnType(type) ? { pure: true } : {}) });   // pure: MO-10g, a function type without `handler`: the declaration decides, whatever the prop's name
-      c.ws(false); if (!c.eat(";") && !c.eat(",") && c.peek() !== "\n") { c.ws(); c.expect("}"); break; }   // a newline separates fields too, as in TypeScript
-    } }
+    propsType = propsOf(c, al, props);
     c.ws();
   }
   c.expect(")");

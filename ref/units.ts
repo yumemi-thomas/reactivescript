@@ -233,7 +233,7 @@ export const units: [string, () => void][] = [
   ["a_component_row_may_name_its_props_type", () => {   // MO-8o: `props: Kit.SelectProps<Option> & { … }` — the library's type, and the record of the fields that carry words
     const decls = parseDeclarations("export type PickerProps<O> = { value?: O; options: O[]; onPick?: (v: O) => void; label?: string }\nexport component Picker<Option>(props: PickerProps<Option> & { onPick?: handler (v: Option) => void; item?: Component }) uses(kit)\nexport component Kit.Row(props: import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>)\nexport component Plain(props: { id: string })\nexport context kit\n");
     const comps = decls.filter((d): d is Extract<typeof decls[number], { kind: "comp" }> => d.kind === "comp");
-    deepStrictEqual(comps.map(d => d.propsType), ["PickerProps<Option>", "import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>", undefined]);
+    deepStrictEqual(comps.map(d => d.propsType), ["{ value?: Option; options: Option[]; onPick?: (v: Option) => void; label?: string }",   /* MO-8x: the file's own alias, written out */ "import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>", undefined]);
     deepStrictEqual(comps[0].props.map(p => [p.name, !!p.callback, p.component]), [["onPick", true, false], ["item", false, true]]);
     deepStrictEqual(comps[0].uses, ["kit"]);
     deepStrictEqual(comps[1].props, []);

@@ -1730,8 +1730,109 @@ fn is_component_type(t: &str) -> bool {
         None => false,
     }
 }
+/// MO-8o: a component's props — a type the library declares, then the record of the fields that carry words (`props:
+/// Kit.SelectProps<Option> & { onChange?: handler (v: Option) => void }`), or the record alone. MO-8x: props that are an
+/// alias of the file are read as its text is written in their place.
+fn props_of(c: &mut Cursor, al: &Aliases, props: &mut Vec<JsProp>) -> R<Option<String>> {
+    let mut pt = None;
+    if !c.starts_with("{") || !closes_props(c.src, c.i) {
+        let t = props_type_of(c)?;
+        let x = expanded(c, al, t.clone())?;
+        if x != t && c.peek() == ')' {
+            let src = format!("{x})");
+            let mut s = Cursor::new(&src);
+            return props_of(&mut s, al, props).or_else(|e| c.fail(&format!("the props, as the file's types write them out: {}", e.0)));
+        }
+        pt = Some(x);
+    }
+    if c.eat("{") {
+        prop_fields(c, al, props)?;
+    }
+    Ok(pt)
+}
+/// MO-11a: the fields of a component's props record, after its `{`.
+fn prop_fields(c: &mut Cursor, al: &Aliases, props: &mut Vec<JsProp>) -> R<()> {
+    loop {
+        c.ws(true);
+        if c.eat("}") {
+            break;
+        }
+        // MO-10b: TypeScript's `readonly` is a modifier of the field, not its name (`readonly id?: string`); a prop
+        // may be named `readonly` (an input's)
+        let at = c.i;
+        if c.keyword("readonly") {
+            c.ws(false);
+            if c.starts_with("?") || c.starts_with(":") {
+                c.i = at;
+            }
+        }
+        let fname = c.ident_or("a prop name")?;
+        c.ws(false);
+        let optional = c.eat("?");
+        c.ws(false);
+        let (mut ty, mut catches) = (None, None);
+        if c.eat(":") {
+            c.ws(false);
+            if c.keyword("catches") {
+                c.ws(false);
+                c.expect("(")?;
+                c.ws(true);
+                catches = Some(if c.eat("*") { None } else { parse_classes(c)? });
+                c.ws(true);
+                c.expect(")")?;
+                c.ws(false);
+            }
+            let t0 = c.i;
+            let mut depth = 0i32;
+            while !c.eof() {
+                let ch = c.peek();
+                if depth == 0 && (matches!(ch, ';' | ',' | '}' | '\n') || c.starts_with("//")) {
+                    break;
+                }
+                depth += nests(c.src, c.i) as i32;
+                c.i = token_end(c.src, c.i);
+            }
+            let t = js_trim(&c.src[t0..c.i]);
+            ty = if t.is_empty() { None } else { Some(expanded(c, al, t.to_string())?) };
+        }
+        // MO-11o, withdrawn (MO-8r, 2026-11-23): `router: renders any`
+        if ty.as_deref().is_some_and(|t| t.strip_prefix("renders").is_some_and(|r| r.starts_with(js_ws))) {
+            return c.fail(gone("renders(later)"));
+        }
+        if ty.as_deref().is_some_and(tracked_word) {
+            return c.fail(gone("tracked"));
+        }
+        // MO-10g: `valueChange: handler (v: number) => void` — called later, outside any computation: a handler
+        let mut handler = false;
+        if let Some(t) = ty.clone() {
+            if let Some(rest) = t.strip_prefix("handler ") {
+                handler = true;
+                let rest = js_trim(rest);
+                if !is_fn_type(rest) {
+                    return c.fail(&format!("`handler` on prop {}: it goes before a function type, one the library calls later, outside any computation (MO-10g)", fname));
+                }
+                ty = Some(rest.to_string());
+            }
+        }
+        let component = ty.as_deref().is_some_and(is_component_type);
+        let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
+        let callback = handler && !render && !component && ty.as_deref().is_some_and(is_fn_type);
+        let pure = !callback && !render && !component && ty.as_deref().is_some_and(is_fn_type);
+        let view = fname != "children" && ty.as_deref().is_some_and(is_view_type);
+        let components = ty.as_deref().is_some_and(|t| holds_component(t, false, 0));
+        props.push(JsProp { name: fname, optional, ty, catches, component, components, render, callback, pure, view });
+        // a newline separates fields too, as in TypeScript
+        c.ws(false);
+        if !c.eat(";") && !c.eat(",") && c.peek() != '\n' {
+            c.ws(true);
+            c.expect("}")?;
+            break;
+        }
+    }
+    Ok(())
+}
 /// MO-11a: `component A(props: { href: string; children?: View }) fails(…) shape(…)`.
-fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
+fn parse_js_component(c: &mut Cursor, line: usize, al: &Aliases) -> R<JsDecl> {
     c.ws(true);
     let mut name = c.ident_or("component name")?;
     while c.peek() == '.' {
@@ -1754,91 +1855,7 @@ fn parse_js_component(c: &mut Cursor, line: usize) -> R<JsDecl> {
         c.ws(true);
         c.expect(":")?;
         c.ws(true);
-        // MO-8o: `props: import("kit").SelectProps<Option> & { onChange?: handler (v: Option) => void }`
-        if !c.starts_with("{") || !closes_props(c.src, c.i) {
-            props_type = Some(props_type_of(c)?);
-        }
-        let record = c.eat("{");
-        loop {
-            if !record {
-                break;
-            }
-            c.ws(true);
-            if c.eat("}") {
-                break;
-            }
-            // MO-10b: TypeScript's `readonly` is a modifier of the field, not its name (`readonly id?: string`); a prop
-            // may be named `readonly` (an input's)
-            let at = c.i;
-            if c.keyword("readonly") {
-                c.ws(false);
-                if c.starts_with("?") || c.starts_with(":") {
-                    c.i = at;
-                }
-            }
-            let fname = c.ident_or("a prop name")?;
-            c.ws(false);
-            let optional = c.eat("?");
-            c.ws(false);
-            let (mut ty, mut catches) = (None, None);
-            if c.eat(":") {
-                c.ws(false);
-                if c.keyword("catches") {
-                    c.ws(false);
-                    c.expect("(")?;
-                    c.ws(true);
-                    catches = Some(if c.eat("*") { None } else { parse_classes(c)? });
-                    c.ws(true);
-                    c.expect(")")?;
-                    c.ws(false);
-                }
-                let t0 = c.i;
-                let mut depth = 0i32;
-                while !c.eof() {
-                    let ch = c.peek();
-                    if depth == 0 && (matches!(ch, ';' | ',' | '}' | '\n') || c.starts_with("//")) {
-                        break;
-                    }
-                    depth += nests(c.src, c.i) as i32;
-                    c.i = token_end(c.src, c.i);
-                }
-                let t = js_trim(&c.src[t0..c.i]);
-                ty = (!t.is_empty()).then(|| t.to_string());
-            }
-            // MO-11o, withdrawn (MO-8r, 2026-11-23): `router: renders any`
-            if ty.as_deref().is_some_and(|t| t.strip_prefix("renders").is_some_and(|r| r.starts_with(js_ws))) {
-                return c.fail(gone("renders(later)"));
-            }
-            if ty.as_deref().is_some_and(tracked_word) {
-                return c.fail(gone("tracked"));
-            }
-            // MO-10g: `valueChange: handler (v: number) => void` — called later, outside any computation: a handler
-            let mut handler = false;
-            if let Some(t) = ty.clone() {
-                if let Some(rest) = t.strip_prefix("handler ") {
-                    handler = true;
-                    let rest = js_trim(rest);
-                    if !is_fn_type(rest) {
-                        return c.fail(&format!("`handler` on prop {}: it goes before a function type, one the library calls later, outside any computation (MO-10g)", fname));
-                    }
-                    ty = Some(rest.to_string());
-                }
-            }
-            let component = ty.as_deref().is_some_and(is_component_type);
-            let render = ty.as_deref().is_some_and(|t| RENDER_TYPE.is_match(t));
-            let callback = handler && !render && !component && ty.as_deref().is_some_and(is_fn_type);
-            let pure = !callback && !render && !component && ty.as_deref().is_some_and(is_fn_type);
-            let view = fname != "children" && ty.as_deref().is_some_and(is_view_type);
-            let components = ty.as_deref().is_some_and(|t| holds_component(t, false, 0));
-            props.push(JsProp { name: fname, optional, ty, catches, component, components, render, callback, pure, view });
-            // a newline separates fields too, as in TypeScript
-            c.ws(false);
-            if !c.eat(";") && !c.eat(",") && c.peek() != '\n' {
-                c.ws(true);
-                c.expect("}")?;
-                break;
-            }
-        }
+        props_type = props_of(c, al, &mut props)?;
         c.ws(true);
     }
     c.expect(")")?;
@@ -1955,6 +1972,333 @@ fn context_names(c: &mut Cursor) -> R<Vec<String>> {
 pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
     parse_declaration_rows(src).map(|r| r.0)
 }
+
+// ---- MO-8x (2026-11-28): the file's own type aliases, followed wherever a row's type is read ----------------------------
+// An `export type N<P = D> = body` of a declaration file is a shorter spelling of its body: every row's type text is read
+// with each reference to one written out in its place (its type arguments put in for its parameters), before any reader
+// sees it — prop kinds, fields, function types and the words before them, result parts, primitives, lists, disposers. A
+// row that names an alias reads as the row that writes it out does. `ref/src/parse.ts` `collectAliases`, `expandAliases`.
+
+/// An alias of the file: its type parameters, each with its default, and its body (TypeScript's text).
+#[derive(Debug, Clone)]
+pub struct Alias {
+    pub params: Vec<(String, Option<String>)>,
+    pub body: String,
+}
+#[derive(Debug, Clone, Default)]
+pub struct Aliases(pub std::collections::HashMap<String, Alias>);
+/// How long an expanded type may grow: aliases that double at each step are refused, not followed until memory runs out.
+const ALIAS_LIMIT: usize = 1 << 20;
+// a word of a row, in an alias's body: the row's, said where a row names the alias
+re!(ALIAS_WORD, r#"(?:^|[^A-Za-z0-9_$.])(?:(?:handler|draft|ref|io|pending)\s+[A-Za-z_$({\["'`]|(?:fails|catches)\()"#);
+fn word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+}
+/// The token before a place in a type's text (it ends `before`): "" at the start, `=>`, a word, or one character.
+fn token_before(before: &str) -> &str {
+    let t = before.js_trim_end();
+    if t.is_empty() {
+        return "";
+    }
+    if t.ends_with("=>") {
+        return "=>";
+    }
+    let b = t.as_bytes();
+    let mut k = b.len();
+    while k > 0 && word_byte(b[k - 1]) {
+        k -= 1;
+    }
+    if k < b.len() {
+        &t[k..]
+    } else {
+        &t[t.len() - 1..]
+    }
+}
+/// The token a place in a type's text is followed by (`after` starts there): "" at the end, `=>`, a word, or one character.
+fn token_after(after: &str) -> &str {
+    let t = after.js_trim_start();
+    if t.is_empty() {
+        return "";
+    }
+    if t.starts_with("=>") {
+        return "=>";
+    }
+    let b = t.as_bytes();
+    let mut k = 0;
+    while k < b.len() && word_byte(b[k]) {
+        k += 1;
+    }
+    if k > 0 {
+        &t[..k]
+    } else {
+        &t[..t.chars().next().map_or(1, char::len_utf8)]
+    }
+}
+/// What binds a type's text at its top: a function type, a conditional, a union, an intersection, a prefix operator
+/// (`keyof T`), or nothing (a name, a record, a tuple, a literal, `T[]`): how it is put where a reference stood.
+#[derive(PartialEq)]
+enum Binds {
+    Fn,
+    Cond,
+    Union,
+    Inter,
+    Prefix,
+    Atom,
+}
+fn binds(t: &str) -> Binds {
+    let t = t.js_trim();
+    let b = t.as_bytes();
+    let (mut i, mut depth) = (0usize, 0i64);
+    let (mut arrow, mut cond, mut union, mut inter) = (false, false, false, false);
+    while i < b.len() {
+        if depth == 0 {
+            if t[i..].starts_with("=>") {
+                arrow = true;
+            } else if b[i] == b'|' {
+                union = true;
+            } else if b[i] == b'&' {
+                inter = true;
+            } else if b[i] == b'?' {
+                cond = true;
+            } else if word_byte(b[i]) && (i == 0 || !word_byte(b[i - 1])) {
+                let mut j = i;
+                while j < b.len() && word_byte(b[j]) {
+                    j += 1;
+                }
+                if &t[i..j] == "extends" {
+                    cond = true;
+                }
+                i = j;
+                continue;
+            }
+        }
+        depth += nests(t, i);
+        i = token_end(t, i);
+    }
+    let first = token_after(t);
+    if arrow || first == "new" || first == "abstract" {
+        Binds::Fn
+    } else if cond {
+        Binds::Cond
+    } else if union {
+        Binds::Union
+    } else if inter {
+        Binds::Inter
+    } else if matches!(first, "keyof" | "typeof" | "unique" | "readonly" | "infer" | "asserts") {
+        Binds::Prefix
+    } else {
+        Binds::Atom
+    }
+}
+/// Whether `x`, put where a reference stood between `before` and `after`, is written in parentheses: only where it would
+/// otherwise bind to what is around it. Alone in its place (a field's, a parameter's, a type argument's, after a word),
+/// a union among a union's members, an intersection among an intersection's, it is written as it is.
+fn needs_parens(x: &str, before: &str, after: &str) -> bool {
+    let k = binds(x);
+    if k == Binds::Atom {
+        return false;
+    }
+    let (p, n) = (token_before(before), token_after(after));
+    let open = matches!(p, "" | ":" | "," | "(" | "<" | "[" | "{" | ";" | "=" | "=>" | "handler" | "io" | "ref" | "pending");
+    let close = matches!(n, "" | "," | ";" | ")" | ">" | "]" | "}" | "=");
+    if open && close {
+        return false;
+    }
+    match k {
+        Binds::Union => !((open || p == "|") && (close || n == "|")),
+        Binds::Inter | Binds::Prefix => !((open || p == "|" || p == "&") && (close || n == "|" || n == "&")),
+        _ => true,
+    }
+}
+/// Whether a name at this place is no reference to a type: a field's or a parameter's name (`x:`, `x?:`), a method's
+/// (`x(`), a member of a qualified name (`Kit.X`, `import("…").X`), or what `typeof` and `infer` take.
+fn not_a_reference(before: &str, after: &str) -> bool {
+    let b = before.js_trim_end();
+    let a = after.js_trim_start();
+    (b.ends_with('.') && !b.ends_with("...")) || matches!(token_before(before), "typeof" | "infer") || (a.starts_with(':') && !b.ends_with('?')) || a.starts_with("?:") || a.starts_with("?(") || a.starts_with('(')
+}
+/// Each name at a place it is a reference, as `put` has it (`None`: kept), given the name, the text before it, the text,
+/// where the name ends, and whether it is deferred there: inside brackets, or in a conditional type's branch.
+fn rewrite_names(t: &str, mut put: impl FnMut(&str, &str, &str, usize, bool) -> Result<Option<(String, usize)>, String>) -> Result<String, String> {
+    let b = t.as_bytes();
+    let (mut out, mut i, mut kept, mut depth, mut branch) = (String::new(), 0usize, 0usize, 0i64, false);
+    while i < b.len() {
+        if !(b[i].is_ascii_alphabetic() || b[i] == b'_' || b[i] == b'$') || (i > 0 && word_byte(b[i - 1])) {
+            branch |= depth == 0 && b[i] == b'?';
+            depth += nests(t, i);
+            i = token_end(t, i);
+            continue;
+        }
+        let mut j = i;
+        while j < b.len() && word_byte(b[j]) {
+            j += 1;
+        }
+        if !not_a_reference(&t[..i], &t[j..]) {
+            if let Some((x, end)) = put(&t[i..j], &t[..i], t, j, depth > 0 || branch)? {
+                out.push_str(&t[kept..i]);
+                out.push_str(&x);
+                if out.len() > ALIAS_LIMIT {
+                    return Err("it expands past 1 MB (MO-8x)".to_string());
+                }
+                kept = end;
+                i = end;
+                continue;
+            }
+        }
+        i = j;
+    }
+    out.push_str(&t[kept..]);
+    Ok(out)
+}
+/// `body` with each of its parameters given its value.
+fn put_params(body: &str, vals: &[(String, String)]) -> Result<String, String> {
+    rewrite_names(body, |w, before, t, j, _| {
+        Ok(vals.iter().find(|(p, _)| p == w).map(|(_, v)| (if needs_parens(v, before, &t[j..]) { format!("({v})") } else { v.clone() }, j)))
+    })
+}
+fn expand_in(t: &str, al: &Aliases, stack: &mut Vec<String>) -> Result<String, String> {
+    rewrite_names(t, |w, before, t, j, inside| {
+        let Some(a) = al.0.get(w) else { return Ok(None) };
+        let gap = t[j..].len() - t[j..].js_trim_start().len();
+        let (args, end) = if t[j + gap..].starts_with('<') {
+            let e = closes(t, j + gap).ok_or_else(|| format!("{w}<…: its type arguments are not closed (MO-8x)"))?;
+            (Some(&t[j + gap + 1..e - 1]), e)
+        } else {
+            (None, j)
+        };
+        if t[end..].js_trim_start().starts_with('(') {
+            return Ok(None); // a method's name
+        }
+        if stack.iter().any(|s| s == w) {
+            // a reference to an alias being written out, inside a record, a list, a tuple, a function, a type argument or a
+            // conditional type's branch (`children?: RouteDefinition[]`): what TypeScript defers — it stays its name
+            if inside || token_after(&t[end..]) == "[" {
+                return Ok(None);
+            }
+            return Err(format!("{} names itself: {} → {} with nothing between to defer it (a record's field, a list's element, a function's part, a type argument, a conditional's branch): written out, it has no end (MO-8x)", w, stack.join(" → "), w));
+        }
+        if stack.len() > 64 {
+            return Err(format!("{w}: aliases nested deeper than 64 (MO-8x)"));
+        }
+        let given: Vec<String> = match args {
+            Some(a) => split_top(a, ",").iter().map(|x| expand_in(js_trim(x), al, stack)).collect::<Result<_, _>>()?,
+            None => vec![],
+        };
+        if given.len() > a.params.len() {
+            return Err(format!("{} takes {} type argument{}, and is given {} (MO-8x)", w, a.params.len(), if a.params.len() == 1 { "" } else { "s" }, given.len()));
+        }
+        let mut vals: Vec<(String, String)> = vec![];
+        for (k, (p, d)) in a.params.iter().enumerate() {
+            let v = match (given.get(k), d) {
+                (Some(g), _) => g.clone(),
+                (None, Some(d)) => put_params(d, &vals)?,
+                (None, None) => return Err(format!("{} is given {} type argument{}: its parameter {} has no default (MO-8x)", w, given.len(), if given.len() == 1 { "" } else { "s" }, p)),
+            };
+            vals.push((p.clone(), v));
+        }
+        let body = put_params(&a.body, &vals)?;
+        stack.push(w.to_string());
+        let x = expand_in(&body, al, stack)?;
+        stack.pop();
+        Ok(Some((if needs_parens(&x, before, &t[end..]) { format!("({x})") } else { x }, end)))
+    })
+}
+/// A row's type text with every reference to an alias of the file written out.
+pub fn expand_aliases(t: &str, al: &Aliases) -> Result<String, String> {
+    if al.0.is_empty() {
+        return Ok(t.to_string());
+    }
+    expand_in(t, al, &mut vec![])
+}
+fn expanded(c: &Cursor, al: &Aliases, t: String) -> R<String> {
+    if al.0.is_empty() {
+        return Ok(t);
+    }
+    expand_aliases(&t, al).or_else(|e| c.fail(&e))
+}
+/// `<S = {}, const T extends X = Y>`: each parameter's name and its default.
+fn alias_params(tp: &str) -> Vec<(String, Option<String>)> {
+    let inner = tp.get(1..tp.len().saturating_sub(1)).unwrap_or("");
+    split_top(inner, ",")
+        .iter()
+        .filter_map(|p| {
+            let mut rest = js_trim(p);
+            while let Some(r) = ["const ", "in ", "out "].iter().find_map(|m| rest.strip_prefix(m)) {
+                rest = r.js_trim_start();
+            }
+            let b = rest.as_bytes();
+            let mut k = 0;
+            while k < b.len() && word_byte(b[k]) {
+                k += 1;
+            }
+            if k == 0 {
+                return None;
+            }
+            let (mut i, mut depth, mut def) = (k, 0i64, None);
+            while i < b.len() {
+                if depth == 0 && b[i] == b'=' && !rest[i..].starts_with("=>") {
+                    def = Some(js_trim(&rest[i + 1..]).to_string());
+                    break;
+                }
+                depth += nests(rest, i);
+                i = token_end(rest, i);
+            }
+            Some((rest[..k].to_string(), def))
+        })
+        .collect()
+}
+/// The aliases a declaration file declares (`export type N<P> = body`, wherever in the file), each checked whole: a word in
+/// its body, a cycle, a reference with the wrong number of type arguments is an error at its row, named or not.
+pub fn collect_aliases(src: &str) -> R<Aliases> {
+    let mut al = Aliases::default();
+    let mut order: Vec<(String, usize)> = vec![];
+    let mut c = Cursor::new(src);
+    let b = src.as_bytes();
+    let (mut i, mut depth) = (0usize, 0i64);
+    while i < b.len() {
+        if depth == 0 && src[i..].starts_with("export") && (i == 0 || !word_byte(b[i - 1])) {
+            c.i = i;
+            if c.keyword("export") {
+                c.ws(true);
+                if c.keyword("type") {
+                    c.ws(true);
+                    if let Some(name) = c.ident() {
+                        c.ws(true);
+                        let tp = type_params(&mut c);
+                        c.ws(true);
+                        if c.eat("=") {
+                            c.ws(true);
+                            let body = parse_type(&mut c, false, true)?;
+                            let end = c.i;
+                            c.i = i;
+                            if ALIAS_WORD.is_match(&masked_strings(&body)) {
+                                return c.fail(&format!("type {name}: a word (`handler`, `draft`, `ref`, `io`, `pending`, `fails(…)`, `catches(…)`) is a row's, not an alias's — it is written where a row names the alias, `onChange?: handler {name}` (MO-8x)"));
+                            }
+                            if al.0.contains_key(&name) {
+                                return c.fail(&format!("type {name} is declared twice (MO-8x)"));
+                            }
+                            al.0.insert(name.clone(), Alias { params: tp.as_deref().map(alias_params).unwrap_or_default(), body });
+                            order.push((name, i));
+                            i = end;
+                            continue;
+                        }
+                    }
+                }
+            }
+            i += "export".len();
+            continue;
+        }
+        depth += nests(src, i);
+        i = token_end(src, i);
+    }
+    for (name, at) in &order {
+        if let Err(e) = expand_in(&al.0[name].body, &al, &mut vec![name.clone()]) {
+            c.i = *at;
+            return c.fail(&format!("type {name}: {e}"));
+        }
+    }
+    Ok(al)
+}
 /// MO-8j: a declaration file's rows as the parser reads them — each declaration and the line its row starts on — for
 /// strict declarations (TY-7), which hash rows by the parser, not by a text search.
 pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
@@ -1964,6 +2308,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
     let mut fns: HashSet<String> = HashSet::new();
     let mut hosts: Vec<(String, String, usize)> = vec![]; // MO-11u: each `renders(H)` — the fn, H, and where the word's `(` is
     let mut members: Vec<(String, usize)> = vec![]; // MO-8t: each fn named as a method (`toaster.show`), and where its name ends
+    let al = collect_aliases(src)?; // MO-8x
     loop {
         c.ws(true);
         if c.eof() {
@@ -2123,7 +2468,8 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             c.ws(false);
             let ty = if c.eat(":") {
                 c.ws(true);
-                Some(parse_type(&mut c, false, true)?)
+                let t = parse_type(&mut c, false, true)?;
+                Some(expanded(&c, &al, t)?)
             } else {
                 None
             };
@@ -2151,7 +2497,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             continue;
         }
         if c.keyword("component") {
-            out.push(parse_js_component(&mut c, line)?);
+            out.push(parse_js_component(&mut c, line, &al)?);
             continue;
         }
         let side = if c.keyword("server") {
@@ -2222,7 +2568,8 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             ptypes.push(if c.peek() == ':' {
                 c.bump();
                 c.ws(true);
-                Some(parse_type(&mut c, false, true)?)
+                let t = parse_type(&mut c, false, true)?;
+                Some(expanded(&c, &al, t)?)
             } else {
                 None
             });
@@ -2261,7 +2608,7 @@ pub fn parse_declaration_rows(src: &str) -> R<(Vec<JsDecl>, Vec<usize>)> {
             if OLD_HOLDS.is_match(head) {
                 return c.fail(gone("holds"));
             }
-            let head = js_trim(head).to_string();
+            let head = expanded(&c, &al, js_trim(head).to_string())?; // MO-8x
             // MO-10l: `pending` and `fails(…)` before a `ref` part; before a plain field (MO-10f, withdrawn, MO-8r
             // 2026-11-23) they are refused by name, wherever in the result they are written
             let Some(w) = type_words(&head, Words::Result) else { return c.fail(gone("pending")) };
@@ -4614,17 +4961,18 @@ mod recovering {
         let src = "export type PickerProps<O> = { value?: O; options: O[]; onPick?: (v: O) => void; label?: string }\nexport component Picker<Option>(props: PickerProps<Option> & { onPick?: handler (v: Option) => void; item?: Component }) uses(kit)\nexport component Kit.Row(props: import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>)\nexport component Plain(props: { id: string })\nexport context kit\n";
         let decls = parse_declarations(src).expect("parses");
         let types: Vec<Option<&str>> = decls.iter().filter_map(|d| match d { JsDecl::Comp { props_type, .. } => Some(props_type.as_deref()), _ => None }).collect();
-        assert_eq!(types, [Some("PickerProps<Option>"), Some("import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>"), None]);
+        // MO-8x: the file's own alias is read written out, its argument in place of its parameter
+        assert_eq!(types, [Some("{ value?: Option; options: Option[]; onPick?: (v: Option) => void; label?: string }"), Some("import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>"), None]);
         let JsDecl::Comp { props, uses, .. } = &decls[1] else { panic!("a component") };
         assert_eq!(props.iter().map(|p| (p.name.as_str(), p.callback, p.component)).collect::<Vec<_>>(), [("onPick", true, false), ("item", false, true)]);
         assert_eq!(uses, &["kit".to_string()]);
         let JsDecl::Comp { props, .. } = &decls[2] else { panic!("a component") };
         assert!(props.is_empty());
         let dts = crate::project::declaration_file(&decls);
-        assert!(dts.contains("export declare function Picker<Option>(props: PickerProps<Option> & { onPick?: (v: Option) => void; item?: Component; }): View;"), "{dts}");
+        assert!(dts.contains("export declare function Picker<Option>(props: { value?: Option; options: Option[]; onPick?: (v: Option) => void; label?: string } & { onPick?: (v: Option) => void; item?: Component; }): View;"), "{dts}");
         assert!(dts.contains("Row: (props: import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>) => View;"), "{dts}");
         let (check, _) = crate::project::boundary_file(&decls, "./kit.js");
-        assert!(check.contains("type __decl_Picker = <Option>(props: PickerProps<Option> & NoInfer<{ onPick?: (v: Option) => void; item?: Component; }>) => any;"), "{check}");
+        assert!(check.contains("type __decl_Picker = <Option>(props: { value?: Option; options: Option[]; onPick?: (v: Option) => void; label?: string } & NoInfer<{ onPick?: (v: Option) => void; item?: Component; }>) => any;"), "{check}");
         assert!(parse_declarations("export component A(props: & { a: string })\n").is_err());
         // a type that begins with a record is a type all the same: the record that closes the props is the last
         let decls = parse_declarations("export component B(props: { id: string } & Extra & { onPick?: handler () => void })\nexport component C(props: { id: string } & Extra)\n").expect("parses");

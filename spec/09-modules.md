@@ -391,6 +391,69 @@ export component Save(props: { v: unrendered action go catches(nothing) })
     source: a declaration `tsc` emitted is the source's types (the census,
     `bench/any-census.txt`: every `any` left is written the same in the
     source at the release's tag, where it was looked for).
+- **MO-8x (An alias of the file is followed) (2026-11-28).** An `export type
+  N<P = D> = body` of a declaration file is a shorter spelling of its body.
+  Both checkers read every row with each reference to one of the file's own
+  aliases written out in its place — its type arguments put in for its
+  parameters, a missing one by its default — before anything reads the row:
+  prop kinds, record fields, function types and the words before them,
+  result parts, `View`, `Component`, `ref`, primitives, lists, disposers. A
+  row that names an alias is read as the row that writes it out, and says
+  the same in every verdict.
+  - *Written in its place* means as TypeScript reads it: in parentheses only
+    where it would otherwise bind to what is around it (a function type in a
+    union, a union before `[]`). Alone in its place — a field's, a
+    parameter's, a type argument's, after a word — a union among a union's
+    members, an intersection among an intersection's, it is written as it is.
+  - *An alias of an alias* is followed to the end. *A recursive alias* (a route
+    tree, `RouteDefinition = { …; children?: RouteDefinition[] }`) is written
+    out once: where it names itself inside a record, a list, a tuple, a
+    function, a type argument or a conditional type's branch — what
+    TypeScript defers — that reference stays its name, read as any name is.
+    A cycle with nothing between (`A = B | string`, `B = A`, or an alias's
+    own type argument, `Loop = Box<Loop>`) has no end written out, and is an
+    error at the alias's row, as are a reference with more type arguments
+    than the alias has parameters, or one without a default left out, and an
+    alias declared twice. Each alias is checked whole when the file is read,
+    whether a row names it or not; one that grows past 1 MB written out is
+    refused, not followed.
+  - *A word is a row's.* `handler`, `draft`, `ref`, `io`, `pending`,
+    `fails(…)`, `catches(…)` say how the checker reads a place of a row, and
+    an alias's body holds none: an alias that writes one is refused. The word
+    is written where a row names the alias, `onOpenChange?: handler Change`,
+    and applies there exactly as before the written-out text (the row is read
+    written out first). A record whose field carries a word keeps that field
+    in the row, `{ onDone: handler Done; label: string }`.
+  - *Local to the file.* An alias is followed in the file that declares it
+    and nowhere else: a row that names another module's type
+    (`import("lib").Props`, a type another `.d.rx` declares) is read as a
+    name, as before. A `.d.rx` is read alone — the declaration of one module,
+    found and pinned on its own (MO-8f, MO-8k) — and a row that changed
+    meaning when another file changed, or with which copy of a package npm
+    hoisted, would not be. An `.rx` program may still import an exported
+    alias as a type: TypeScript's, which reads it as it reads any type.
+    `interface` is no alias, and is read as a name.
+  - *TypeScript* (13 TY-6) holds the rows as the checker reads them —
+    written out — beside the aliases themselves: the same types, so a row
+    held before is held after, and the boundary check is unchanged.
+  - *Counting.* An alias spells the same text shorter, so no count of what a
+    row holds may change by it: the benchmark and the census count a draft
+    written out (`any`s, parts said by place, words written by hand) and
+    report the draft as written beside it. Nothing is hidden in an alias's
+    body.
+  - *rx-declare* writes a type a draft writes again and again once, as an
+    alias at the end of the draft, and names it where it stood: the same
+    text after a `:` in several places, or the same text but for one type
+    after a `:` inside it (`render?: (props: Record<string, any>, state: {
+    open: boolean }) => View` in every part of a UI kit is `RenderProp<{
+    open: boolean }>`). It is named as the library names the type where
+    TypeScript printed it from an alias of the library's, else by the field
+    it is written for. A text that holds a word, or names a row's own type
+    parameter, is not factored. The draft keeps an alias only where the crate
+    reads every row of it exactly as it reads the draft written out (the
+    rows' facts and the type at each place) and TypeScript holds it as it
+    held the other; otherwise the draft is written out. `--no-aliases`
+    writes it out.
 - **MO-8q (`any` is the library's, or it is not written).** A declaration of a
   module with types of its own may contain `any` only where the library's own
   declared type has `any` **at that position** (the parameter, the part of
@@ -1312,8 +1375,8 @@ signature's, the `.d.rx` notation (2026-10-26). Taken by default and open to a
 maintainer's veto: MO-1d, MO-9, MO-10, MO-11 and DV-24, MO-12, MO-13, MO-14.
 Ruled since: MO-8q and MO-8r (2026-11-22; the settlement of the one-library
 words, 2026-11-23), MO-10k (2026-11-22), MO-10l and MO-11t (2026-11-23),
-MO-11u (2026-11-24), MO-8t and MO-8u (2026-11-25).
+MO-11u (2026-11-24), MO-8t and MO-8u (2026-11-25), MO-8x (2026-11-28).
 
-Executable: S-module-1 to S-module-43, S-app-shop, S-check-3; the units named
+Executable: S-module-1 to S-module-43, S-app-shop, S-check-3; `compiler/test/aliases.mjs` (MO-8x); the units named
 for each rule in `ref/units.ts` and `compiler/src/`; `bench/tasks` and
 `bench/coverage`.

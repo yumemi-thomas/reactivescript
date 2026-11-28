@@ -74,6 +74,7 @@ const steps = [
   // the peer range against npm's newest Solid (runtime/npm.mjs): the same test, on a release
   { id: "runtime-npm", dir: "runtime", run: "node npm.mjs", after: ["runtime-test"], uses: ["binding-read"] },
   { id: "names", dir: ".", run: `${strip} compiler/test/names.mjs`, after: ["crate", "cargo-test"], quick: true },
+  { id: "aliases", dir: ".", run: `${strip} compiler/test/aliases.mjs`, after: ["crate", "cargo-test"], quick: true },   // 09 MO-8x
   { id: "spec-refs", dir: ".", run: "node scripts/spec-refs.mjs", quick: true },
   { id: "tools", dir: ".", run: "node scripts/lock.test.mjs && node scripts/cache.test.mjs" },
   { id: "tools-worker", dir: ".", run: "node scripts/tools.test.mjs", after: ["wasm", "npm-language-server"] },
