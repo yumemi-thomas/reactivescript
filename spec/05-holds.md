@@ -615,9 +615,19 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   a memo around the boundary throws it) changes the boundary's structure
   for every program to hide a bug in one. Earlier repro runs said plain
   Solid recovered "in every form tried". Every form tried read the inner
-  boundary eagerly in the outer's content, which hides it. *Memo:* the
-  user's to file; no draft, the repro is the plain-Solid program to start
-  from.
+  boundary eagerly in the outer's content, which hides it. *Cause*
+  (traced, repros/README): the reader going pending while the outer
+  boundary shows its fallback is recorded at the outer boundary (D-38). Its
+  next failure is caught by the inner boundary, and the outer is never told.
+  Its `prune` keeps any errored reader, even one whose error a boundary
+  below took. A pending phase anywhere in between is enough: the first
+  failure may be synchronous or come from an answer. The candidate fix, an
+  error boundary not keeping an errored reader that an error boundary below
+  it has recorded (`caughtBelow`'s counterpart), gives S-fail-10's spec
+  frames in the oracle with no divergence rows and leaves every other
+  oracle scenario as it is. So the lowering is right as it stands. *Memo:*
+  the user's to file. No draft: the repro and the candidate fix are in
+  repros/README.
 - **DV-30 (a guess on an optimistic store holds no switch once a refresh of
   it has landed) — a Solid bug; open, 2026-11-27; reduced 2026-11-28**
   (`ref/oracle/repros/dv30-refresh-then-guess.mjs`, the reduced form;

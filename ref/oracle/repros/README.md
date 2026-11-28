@@ -493,6 +493,30 @@ effect`, it is ok). `effect`: the failing read is a render effect's, as `insert`
 above) stick alike. The same on 510bb8d01 and npm 2.0.4. It was first run here in the forms without `own`, all of
 which recover, and was taken as "not shown to be Solid's". scenarios/S-fail-10 and spec/05 DV-31. Not filed here.
 
+**Cause** (traced in an instrumented copy of the pin's `dist/dev.js`, 2026-11-28; `boundaries.ts`). While the
+outer boundary shows its fallback, the render effect going pending passes it by and is recorded there as a reader
+(`catchStatus`: `if (b._fallback && b._type > flags) record(b, node)`, D-38/D-41), its own source. When it then
+fails with `TooLong`, `catchStatus` stops at the inner boundary, which catches it, and never reaches the outer one.
+The outer's `prune` keeps any reader with `r._statusFlags & STATUS_ERROR`, so it keeps this one, although the error
+belongs to a boundary below it. A pending phase in the content while the outer shows its fallback is enough: the
+first failure may be synchronous, may come from an answer (`null` that a memo turns into a throw) and does not have
+to be a rejection. The synchronous form never records the reader at the outer boundary. **Candidate fix**, the
+`caughtBelow` counterpart for errors: in `prune`, an error boundary does not keep an errored reader that an error
+boundary between them has recorded:
+
+```js
+function errorBelow(b, r) {
+  if (!(r._statusFlags & STATUS_ERROR)) return false;
+  for (let l = boundaryOf(r); l && l !== b; l = l._parent) if (l._type & STATUS_ERROR && l._readers.has(r)) return true;
+  return false;
+}
+// prune: … && !(mask & STATUS_ERROR && caughtBelow(b, r, s)) && !(mask & STATUS_ERROR && errorBelow(b, r))) || …
+```
+
+With it, this repro prints `inner:toolong` in every mode. The oracle shows S-fail-10's spec frames, with no
+divergence rows. Of the other 263 oracle scenarios none changes. Solid's own test suite was not run with it (the
+pin is read only here).
+
 ## The pin move to 510bb8d01 (2026-11-28)
 
 Every repro here was run on both pins (`rx-pin2.noindex/logs/repros-{old,new}.txt`, and by hand the ones with an `ms`

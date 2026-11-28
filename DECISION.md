@@ -2690,6 +2690,14 @@ Both items "found, not decided" in the section above.
   answer too (04 R-f-4 names S-fail-10). Not worked around. DV-7's old lowering (the failure handed out of the
   fallback, a memo around the boundary throwing it) would change every typed boundary's structure to hide one bug
   (solid-bugs rule: a DV and a memo). *Memo:* the user's to file. spec/05 DV-31, repros/README.
+- **DV-31's cause, traced (re-checked on a second run).** In an instrumented copy of the pin's `dist/dev.js` (the
+  pin untouched), the render effect that goes pending while the outer boundary shows its fallback is recorded at
+  the outer boundary (D-38). Its `TooLong` is caught by the inner boundary, and the outer is never told. The outer's
+  `prune` keeps any errored reader, even one whose error a boundary below it holds. So a pending phase anywhere in
+  between is enough. The candidate fix is `caughtBelow`'s counterpart for errors (repros/README). On the patched
+  copy, loaded through a resolve hook, the oracle runs S-fail-10 to its spec frames, and the other 263 scenarios are
+  unchanged. That confirms the lowering is right and the bug is Solid's. (A first re-run here seemed to clear Solid:
+  zsh does not split an unquoted `$a`, so `async own effect` reached the repro as one unknown mode.)
 - **S-fail-10 (new)**: the three forms of the probe. Three levels with a pending answer (`Frames`), the same
   synchronously (`Variant: synchronous`, every runner agrees), and two typed levels only, the fetch's rejection
   answered at the `await` (`Variant: two typed boundaries`). It has `oracle` divergence rows at instants 3 and 4 of
