@@ -266,7 +266,7 @@ const introducedRows = results.filter(r => !r.crash).flatMap(r => r.decl.files.f
 const allowLines = introducedRows.map(x => `  ${x.id}/${x.file} · ${x.name}: ${x.introduced} — ${x.entry ? `allowed (${x.entry.count}): ${x.entry.reason} Blocked by: ${x.entry.blocked}` : "NOT ON bench/any-allowlist.json"}`);
 // 09 MO-8q over whole drafts: every export of each module a task declares, as rx-declare drafts it now
 const wholeFiles = results.filter(r => !r.crash).flatMap(r => r.decl.files.filter(f => f.drafted).map(f => ({ id: r.id, ...f })));
-const wholeSum = k => wholeFiles.reduce((n, f) => n + f.whole[k], 0);
+const wholeSum = k => wholeFiles.reduce((n, f) => n + (f.whole[k] ?? 0), 0);
 const wholeWritten = k => wholeFiles.reduce((n, f) => n + (f.whole.written?.[k] ?? 0), 0);   // 09 MO-8x: the drafts as written, their aliases kept
 const wholeLines = wholeFiles.map(f => `  ${f.id} · ${f.spec}: ${f.whole.rows} rows, ${f.whole.vendor} \`any\` the library's own, ${f.whole.introduced} introduced${f.whole.introducedRows.length ? ` (${f.whole.introducedRows.map(x => `${x.name}: ${x.introduced}, ${x.causes.join("/")}`).join("; ")})` : ""}, ${f.whole.places} by place`);
 const wholeAllowed = (id, spec, name) => allowDrafts.find(a => a.task === id && a.draft === spec && a.name === name);
