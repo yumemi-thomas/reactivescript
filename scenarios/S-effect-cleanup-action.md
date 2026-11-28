@@ -44,12 +44,13 @@ trigger shows the root's state. Each `set` is one instant; the cleanup's write, 
 | 5 | handler `set(false)` | `F` |
 | 6 | (effect) | `F` |
 
-## Divergences (DV-29)
+## DV-29 (fixed on Solid main 510bb8d01, by #5236; not in a release yet)
 
-- oracle "Frames" instant 4: `Ft`
-
-Solid since 2.0.4 (main 30e7805eb and 50a4bfdde too; 2.0.3 and earlier do not): once an effect's cleanup has called an
-action while its owner was disposed, a render effect over a memo of the root's record misses the next change — the
-trigger keeps `F` beside the shown part. A plain write in the cleanup does not do it. Plain Solid:
-`ref/oracle/repros/cleanup-action-write.mjs`; spec/05 DV-29. Found by `examples/rx-packages` (`live.mjs`): Kobalte's
-popover, select and tooltip rewrites on the pinned Solid, whose `Title` (or item) unregisters so.
+Recorded until the pin moved to 510bb8d01: the oracle showed `Ft` at instant 4. Solid since 2.0.4 (main 30e7805eb and
+50a4bfdde too; 2.0.3 and earlier do not): once an effect's cleanup had called an action while its owner was disposed, a
+render effect over a memo of the root's record missed the next change — the trigger kept `F` beside the shown part. A
+plain write in the cleanup did not do it. Plain Solid: `ref/oracle/repros/cleanup-action-write.mjs` (`action` gives the
+expected `F | T | F | T | F` at 510bb8d01); spec/05 DV-29. Solid's #5236 ("a landed transaction stops being the
+flush's, so a cleanup's action never swallows the next write", issue #5233) fixed it. Found by `examples/rx-packages`
+(`live.mjs`): Kobalte's popover, select and tooltip rewrites, whose `Title` (or item) unregisters so. Nothing in the
+language changed for it; the divergence row is removed, so every runner's frame is checked as written.

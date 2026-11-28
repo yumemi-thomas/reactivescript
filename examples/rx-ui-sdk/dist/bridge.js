@@ -88,7 +88,13 @@ export function binder(part) {
     undo = attach((held = next), el);
   };
   createEffect(part, () => { if (held) hold(); });
-  onCleanup(() => { undo?.(); el = held = undo = undefined; });
+  // Letting go tells core, whose listeners write the parts' state: a cleanup that writes is an effect's (Solid #5244,
+  // "judged by the phase it belongs to"; an `onCleanup` of the body that writes is REACTIVE_WRITE_IN_OWNED_SCOPE in
+  // development). `onCleanup` stays for a part torn down before it settled.
+  const detach = () => { undo?.(); el = held = undo = undefined; };
+  let settledOnce = false;
+  onSettled(() => { settledOnce = true; return detach; });
+  onCleanup(() => { if (!settledOnce) detach(); });
   return (node) => {
     if (el === node) return;
     undo?.();

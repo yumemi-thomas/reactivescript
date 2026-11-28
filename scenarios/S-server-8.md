@@ -9,9 +9,9 @@ in the frame that shows its element; a server makes no element and calls no `ref
 
 That is what Solid did until 2.0.0-rc.21, rendered and hydrated alike. Since rc.22 (#4768, refs run in the creating
 pass) a client render shows an earlier `ref`'s write to a `ref` in a `for` row and in an `if` made in the same pass, and
-hydration shows it to the `if` only, after throwing the served element away and calling its `ref` twice — a bug of
-Solid's (DV-28; the plain Solid report is drafted, `solid-main.noindex/drafts/5-hydration-rebuilds-show`). The language
-does not follow it: the frames below are the screen's.
+hydration showed it to the `if` only, after throwing the served element away and calling its `ref` twice — a bug of
+Solid's (DV-28, its hydrated half: issue #5232, fixed on main by #5235: hydration now keeps the element and reads the screen). The
+language does not follow the client render (DV-28, its rendered half): the frames below are the screen's.
 
 What a program writes that works the same on every Solid: a `ref` stores its own element (`pop := e`), and what needs
 two `ref`s' elements reads them once the view is made — an equation, or an effect (`effect (anchor, pop) { … }`). A
@@ -53,9 +53,12 @@ export default component App() {
 
 - oracle "Frames" instant 0: `a011bc12`
 - oracle "Frames" instant 1: `a011bc22`
-- hydrated "Frames" instant 0: `a001bc12`
-- hydrated "Frames" instant 1: `a001bc22`
 
-Solid at the pin (2.0.3, next @ 30e7805; 2.0.4 the same, per the draft) rendering: the row's `ref` and the `if`'s read the anchor's write (`1`); the sibling reads the screen (`0`),
-as the language says. Hydrating: the row reads the screen and the `if`'s content is made again, its `ref` reading the
-write. The functional writes count `2` everywhere, and so does the equation that reads both.
+Rendering (DV-28's rendered half, Solid's rule at a grain the language does not transcribe, spec/10): the row's `ref` and the `if`'s
+read the anchor's write (`1`); the sibling reads the screen (`0`), as the language says. The functional writes count `2`
+everywhere, and so does the equation that reads both.
+
+Hydrating (DV-28's hydrated half, Solid's bug): until the pin moved to Solid main 510bb8d01, the row read the screen and the `if`'s
+content was made again, its `ref` called twice and reading the write (`a001bc12`, recorded as a `hydrated` divergence).
+Solid's #5235 (issue #5232; not in a release yet) keeps the served element and calls its `ref` once, reading what the
+page was served with: hydrated is `a000bc12`, the language's frame, and the rows are removed.

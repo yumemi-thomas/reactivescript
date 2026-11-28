@@ -6,10 +6,12 @@ A keyed source written fresh rows keeps the row of every key it keeps,
 wherever the new list puts it — also where nothing in the row reads the
 row (`for r in p.rows { <Made /> }`), and where the list reaches the loop
 through a prop. The key holds at any depth: a list inside a row is
-reconciled by it too. Solid's `reconcile(v, key)` alone gives a row whose
-fields nothing read a new proxy, and `<For>` would remake it (the third
-review's X1: state lost, silent in production); the runtime keeps it
-(`ref/compile/keyed.ts`). `Made` logs when its region is made.
+reconciled by it too. Solid's `reconcile(v, key)` gave a row whose fields
+nothing read a new proxy, and `<For>` remade it (the third review's X1:
+state lost, silent in production; Solid issue #5220). The runtime kept it
+(`ref/compile/keyed.ts`) until Solid fixed `reconcile` (#5222, main
+510bb8d01): the lowering is `reconcile(v, key)` again, and this scenario
+holds Solid to the rule. `Made` logs when its region is made.
 
 ## Program
 

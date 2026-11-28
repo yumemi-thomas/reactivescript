@@ -3,7 +3,8 @@
 Standalone scripts against Solid's `next` branch built from source at the
 commit in `ref/SOLID_NEXT` (every one re-run there, `0847122`, 2026-10-26; and
 again at `30e7805` on 2026-11-27: every bug marked fixed shows the ruled
-output; DV-26, DV-27 and DV-28 still reproduce) — no ReactiveScript code
+output; DV-26, DV-27 and DV-28 still reproduce; and at `510bb8d01` on
+2026-11-28, see the last section) — no ReactiveScript code
 involved. Run from `ref/oracle/` after `npm install`:
 
 ```
@@ -25,6 +26,7 @@ node --conditions=browser --conditions=development repros/4690-guess-reask-refre
 node --conditions=browser --conditions=development repros/pin-4906-target.mjs
 node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
 node --conditions=browser --conditions=development repros/keyed-guess-refresh-tear.mjs [fresh]   # DV-30, open
+node --conditions=browser repros/dv30-refresh-then-guess.mjs [nokey|key] [guess|noguess] [norefresh]   # DV-30 reduced
 ```
 
 The hydration repros are each one `app.jsx`, compiled by Solid's own
@@ -441,6 +443,7 @@ S-guess-reask-refresh's effect-only variant records it (instants 5 and 6).
 node --conditions=browser --conditions=development repros/pin-4906-target.mjs
 node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
 node --conditions=browser --conditions=development repros/keyed-guess-refresh-tear.mjs [fresh]   # DV-30, open
+node --conditions=browser repros/dv30-refresh-then-guess.mjs [nokey|key] [guess|noguess] [norefresh]   # DV-30 reduced
 ```
 
 #4906 runs stores on the thin engine and deletes the deep one, whose record a proxy answered as `store[$TARGET]`.
@@ -459,11 +462,34 @@ in a store), and a proxy against a plain object compares by `snapshot()`, the re
 
 ---
 
-## DV-30 — a keyed optimistic store tears on a switch after one guess has settled (open, 2026-11-27)
+## DV-30 — a guess on an optimistic store holds no switch once a refresh of it has landed (open, 2026-11-27)
+
+**Reduced** (the user's, 2026-11-28): `node --conditions=browser repros/dv30-refresh-then-guess.mjs nokey guess`
+prints `open | a,z TORN` (expected `all | a,z`); `key guess` the same; `nokey guess norefresh` holds (`all | a,z`).
+No key, no refresh in the action, no first action: one plain `refresh(todos)` that lands is enough. `createOptimistic`
+(a signal) holds; an unrelated signal written between the steps hides it. Torn on 50a4bfdde, 510bb8d01 and npm 2.0.4.
+The first form, as found:
 
 `keyed-guess-refresh-tear.mjs`: `createOptimisticStore(async () => fetch(filter()), [], { key: "id" })` and an action
 that guesses a row (`setTodos(ts => [...ts, { id }])`), awaits, and refreshes. After one add has settled, a second
 add's guess is out and `filter` is switched. **Expected** (H-11, Solid D-34; what the `fresh` argument shows): the
 switch joins the guess's hold — `all | a,x,z` until the action ends, then `open | o,z`. **Actual** at 50a4bfdde:
-`open | a,x,z` for the whole action. Found by the claims hunt at 41142a46 (finding 4). Not filed here.
+`open | a,x,z` for the whole action. Found by the claims hunt at 41142a46 (finding 4). Not filed here. The same at
+510bb8d01.
+
+## The pin move to 510bb8d01 (2026-11-28)
+
+Every repro here was run on both pins (`rx-pin2.noindex/logs/repros-{old,new}.txt`, and by hand the ones with an `ms`
+argument or a mode the header leaves optional, `byhand.txt`). Two lines moved, both to the ruled output:
+
+- `cleanup-action-write.mjs action` (DV-29): `… | set(false) T` at 50a4bfdde, `F | T | F | T | F` at 510bb8d01 —
+  Solid's #5236 (issue #5233). S-effect-cleanup-action's `oracle` row is removed.
+- `w3-error-through-a-part.mjs part 1` and `prop 1` (DV-26, before the shell): `<main><b></b></main>` at 50a4bfdde,
+  `<main><p>bad: no</p></main>` at 510bb8d01 — #5225. After the shell (`ms` 200) both still stream
+  `<template id="100" e></template>`: DV-26 stays open there (#5237, open), and so does S-server-7's `server` row.
+
+Outside this folder: X1's draft (`solid-main.noindex/drafts/1-reconcile-kept-row/repro.mjs none`) keeps both rows at
+510bb8d01 (#5222); DV-28b's draft 5 (`minimal/run.mjs main` with `SOLID_CHECKOUT`) calls the hydrated `ref` once and
+keeps the served node at 510bb8d01 (#5235). Every other line is the same on both pins: DV-19's store form (#5234,
+open), DV-30, DV-10, DV-21/22's neighbours, the fixed DVs' ruled outputs.
 

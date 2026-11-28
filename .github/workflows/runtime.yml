@@ -9,9 +9,9 @@ name: runtime
 on:
   push:
     branches: [main]
-    paths: ["runtime/**", "ref/compile/rt-web.ts", "ref/compile/rt-server.ts", "ref/compile/keyed.ts", "ref/compile/prims-solid.ts", "ref/compile/solid-internals.ts", "ref/SOLID_NEXT", "ref/scripts/solid-next.sh", "compiler/**", ".github/workflows/runtime.yml", ".github/actions/solid-next/**"]
+    paths: ["runtime/**", "ref/compile/rt-web.ts", "ref/compile/rt-server.ts", "ref/compile/prims-solid.ts", "ref/compile/solid-internals.ts", "ref/SOLID_NEXT", "ref/scripts/solid-next.sh", "compiler/**", ".github/workflows/runtime.yml", ".github/actions/solid-next/**"]
   pull_request:
-    paths: ["runtime/**", "ref/compile/rt-web.ts", "ref/compile/rt-server.ts", "ref/compile/keyed.ts", "ref/compile/prims-solid.ts", "ref/compile/solid-internals.ts", "ref/SOLID_NEXT", "ref/scripts/solid-next.sh", "compiler/**", ".github/workflows/runtime.yml", ".github/actions/solid-next/**"]
+    paths: ["runtime/**", "ref/compile/rt-web.ts", "ref/compile/rt-server.ts", "ref/compile/prims-solid.ts", "ref/compile/solid-internals.ts", "ref/SOLID_NEXT", "ref/scripts/solid-next.sh", "compiler/**", ".github/workflows/runtime.yml", ".github/actions/solid-next/**"]
   workflow_dispatch:
 
 jobs:

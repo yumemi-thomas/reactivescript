@@ -2486,3 +2486,97 @@ Before = 41142a46 (`rx-fix.noindex/base41`, built on the same pin), after = this
   probes. Advice is the remedy there.
 - **A fn of another module** that changes its parameter in place: its signature does not carry the parameters yet.
 - **New Solid bug: DV-30** (`ref/oracle/repros/keyed-guess-refresh-tear.mjs`). The user's to file; nothing drafted.
+
+## Pin moved to Solid main 510bb8d01 (2026-11-28)
+
+`ref/SOLID_NEXT` moves from 50a4bfdde to 510bb8d01 (Solid main, nine commits). Built fresh at `rx-pin2.noindex/solid-next`
+with `ref/scripts/solid-next.sh` (signals, solid, web, universal and their types; the native compiler, whose package
+did not change, so `compiler/Cargo.toml`'s crate pin stays). Kobalte stays at 9c237a06, rebuilt against the new pin
+(`rx-pin2.noindex/kobalte`: its tree links Solid by real path, so the old build would have put the old Solid beside the
+new one). The old pin, `rx-pin.noindex/solid-next`, is untouched and was the "before" of every comparison below
+(`rx-pin2.noindex/old/rs`: a worktree of 4f981418 built on it). Logs: `rx-pin2.noindex/logs`, census
+`rx-pin2.noindex/census`.
+
+| Solid commit | what | for us |
+| --- | --- | --- |
+| 510bb8d01 #5222 | keyed reconcile keeps a matched row's proxy when nothing subscribed (issue #5220) | **X1 fixed**: `ref/compile/keyed.ts` deleted, a keyed write is `reconcile(v, key)` again |
+| f7b6b9c45 #5236 | a landed transaction stops being the flush's (issue #5233) | **DV-29 fixed** |
+| cc4b6cf80 #5235 | a ref's read during hydration no longer rebuilds the served element (issue #5232) | **DV-28b fixed** (DV-28a, rendered, is Solid's rule and stays) |
+| 91260dc2d #5225 | `Errored` draws its fallback in the shell when a nested `Loading` fails before it | **DV-26, half**: the before-shell case; the after-shell case stays open (#5237, issue #5223) |
+| a3df43a7f #5244 | a cleanup's writes judged by the phase it belongs to (dev only) | a deliberate rule; one fix of ours in the UI SDK rewrite's JS bridge, below |
+| e0f2ad46c, 01ecce025, bcbb86fbd, 34485971a | createRoot perf, dynamic spread effect names, a test gate, size records | nothing |
+
+### Repros, old pin → new pin
+
+Every file in `ref/oracle/repros` with each mode its header lists (`repros-{old,new}.txt`), the `ms` and optional-mode
+ones by hand (`byhand.txt`, `dv26-{old,new}.txt`), and the drafts' repros for X1 and DV-28b (read only, run with each
+checkout).
+
+| DV | repro | 50a4bfdde | 510bb8d01 |
+| --- | --- | --- | --- |
+| X1 | `drafts/1-reconcile-kept-row/repro.mjs none` | rows made again 2 of 2 | **0 of 2: fixed** |
+| DV-29 | `cleanup-action-write.mjs action` | `… set(false) T` | **`F T F T F`: fixed** |
+| DV-28b | `drafts/5-…/minimal/run.mjs main` (+ `standalone/app.jsx`), `SOLID_CHECKOUT` | ref called twice, served node detached | **once, served node kept: fixed** (the ref reads the served value, rc.21's behaviour) |
+| DV-26 | `w3-error-through-a-part.mjs part\|prop 1` (before the shell) | `<b></b>` | **`<p>bad: no</p>`: fixed** |
+| DV-26 | the same, `ms` 200 (after the shell; what S-server-7 shows) | `<template id="100" e></template>` | **unchanged: open** |
+| DV-30 | `keyed-guess-refresh-tear.mjs`, `dv30-refresh-then-guess.mjs` (new, below) | torn | **unchanged: open** (npm 2.0.4 too) |
+| DV-19 store form | `dv19-latest-reask.mjs` | `latest=3` | unchanged (#5234 open, PR #5238) |
+| DV-21, DV-22, DV-10, DV-27 and every fixed DV | their repros | as ruled / as recorded | unchanged |
+
+### What we carried for them, and what was removed
+
+- **X1**: `ref/compile/keyed.ts` (`keyedWrite`, the runtime's own pass that reconciled each kept row into its proxy) is
+  deleted; `rt-web.ts`, `rt.ts` and the oracle's `lower.ts` call Solid's `reconcile(v, key)` for a write and for what
+  an updater answers. S-store-kept-row passes in the oracle and compiled code; the same lowering on the old pin fails
+  it (`made` twice at instants 1–3), so the scenario and `compiler/test/rows.mjs` hold Solid to it. proposals/32 and
+  bug 45, the scenario's text and the runtime workflow's path list say so. The published runtime keeps its peer
+  `>2.0.4`, which already leaves out 2.0.4 (which has X1); `runtime/npm.mjs` still finds 2.0.4 failing.
+- **DV-29**: S-effect-cleanup-action's `oracle` row removed (every runner shows `Tt`); `examples/rx-packages`'
+  `causes.json` loses its three DV-29 entries: Kobalte's popover, select and tooltip rewrites now agree with the
+  originals at every step (`live.mjs`: 5/5, 6/6, 7/7, client and hydrated), and the rewrite's select test "controlled
+  clear selection" passes (47 → 48 of 58). spec/05 DV-29 says fixed on main 510bb8d01, not in a release.
+- **DV-28b**: S-server-8's two `hydrated` rows removed: hydrated is `a000bc12`, the language's frame (SC-4c). The
+  `oracle` rows (DV-28a, a client render's order of passes) stay. spec/10, spec/02 SC-4c, spec/07, the scenario.
+- **DV-26**: nothing removed — S-server-7's `server` row is the after-shell case, still open, and the census' served
+  misses (`p3-err-aw-ifinner-app`) are the same. spec/10's memo says which half is fixed.
+- No workaround in the language or the checkers existed for any of them (nothing was ever refused or bent for them).
+
+### DV-30 reduced (the user's reduction, in this round)
+
+`ref/oracle/repros/dv30-refresh-then-guess.mjs`: `createOptimisticStore(async () => call(filter()), [])` with no key,
+one plain `refresh(todos)` that lands, then an action that guesses and awaits: `setFilter("open")` shows `open | a,z`
+where H-11 says `all | a,z`. `norefresh` holds, `createOptimistic` holds, an unrelated write between the steps hides
+it. Torn on 50a4bfdde, 510bb8d01 and npm 2.0.4 (run here). DV-30's title is no longer about a keyed store (spec/05,
+S-guess-filter, the repros README); the scenario's `oracle` rows stay. Still the user's to file; nothing drafted.
+
+### #5244 and the UI SDK rewrite: ours, fixed
+
+`examples/rx-ui-sdk/app/test.mjs`: the rewrite 44 → 30 of 44 on the new pin (the original 44), every failure
+`REACTIVE_WRITE_IN_OWNED_SCOPE` in tabs and dialogs; with Solid's links swapped back to 50a4bfdde, the same tree passes
+44. The stack: the rewrite's JS bridge (`src/bridge.js` `binder`) let go of a part in an `onCleanup` of the part's
+body; core's unregister (`registerPanel`'s return) sets its store, whose listener is the `.rx` part's (`listen`), which
+writes `tick`. #5244 is deliberate and asked for by the maintainer: an `onCleanup` of a component or memo that writes
+is owned, wherever teardown runs it; an effect's returned cleanup (or `onSettled(() => () => …)`) may write. The
+original passes because its ticks are `ownedWrite` signals. So the bridge, which is JS, follows Solid: it lets go in
+`onSettled`'s returned cleanup, and in `onCleanup` only for a part torn down before it settled. 44 of 44 on both pins;
+`check/run.mjs`'s table unchanged. No `.rx` program meets it: the language lowers an effect's cleanup to Solid's
+returned cleanup (S-effect-cleanup-action, EF-5), and every scenario runner and the census are unchanged.
+
+### Census, old pin → new pin
+
+| census | result |
+| --- | --- |
+| scenarios on the new pin (interpreter, oracle, compiled, served and hydrated) | before the records were removed: oracle and compiled 260 of 261, the one failure S-effect-cleanup-action's DV-29 row (Solid now right); served 261 of 261. After: as the full ci below |
+| the review sets, `census/run.mjs` (as census4): 72 folders, 18,798 programs; the filled ones served and hydrated in both emitters; before = 4f981418 on 50a4bfdde, after = this tree on 510bb8d01 | **every verdict the same in all 97 matrices** (24,891 verdicts, "0 agree in both and show something else" in each), `same` and `lower` as before (`op-o1f`'s 22 as before); the served misses the same (DV-26's after-shell, X14) |
+| `examples/rx-packages`: `build.mjs`, `run.mjs` both ways, `live.mjs`, `check.mjs` | builds; the tests by file the same but Kobalte select's rewrite 47 → 48 of 58 (DV-29); live: popover, select, tooltip agree (DV-29), slider's attributed timing step varied (2/5, its cause in `causes.json`), nothing unattributed; `check.json` unchanged |
+| `examples/rx-std`: `build.mjs`, `run.sh`; `std/test/browser.mjs` | builds; as before; 39 of 39 |
+| `examples/rx-ui-sdk`: `build.mjs`, `check/run.mjs`, `app/test.mjs` | builds; the check table unchanged; 44 of 44 both sides after the bridge fix (above) |
+| the full `scripts/ci`, uncached, with the Vite plugin fork (all 14 cores) | first run 47 of 48: `spec-refs` (S-server-8 named DV-28's halves as ids no chapter defines; reworded). Then **48 of 48 passed**, nothing kept from before, no step skipped (600 s): oracle, compiled and served 261 of 261 each; `rows`, `bench --check --strict`, `proposals/check.mjs` pass; `runtime-npm`: npm 2.0.4 is outside `>2.0.4` and fails 24 checks of `test.mjs`, the same 24 as the last ci on 50a4bfdde, so the peer stays |
+
+Nothing stricter dropped, nothing correct refused, neither checker changed; every runner agrees as before. The only
+code change is a removal (X1's workaround) and the UI SDK bridge following #5244.
+
+**Open on Solid's side** (nothing posted): DV-26's after-shell case (#5223, fix PR #5237 open); DV-30 (reduced here, the
+user's to file); DV-19's store form (#5234, PR #5238); #5239 and #5240 (filed by the user; no scenario of ours meets
+them); DV-21 and DV-22 rulings as recorded. Fixed on main and not in a release yet: X1, DV-29, DV-28b, DV-26's
+before-shell case — 2.0.4 still has all four. No new Solid bug from the nine commits.

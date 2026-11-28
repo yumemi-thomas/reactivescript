@@ -283,8 +283,9 @@ attributes are equations, children are readers, components are applied as
   one before. A `ref` reads the screen as the pass found it: none sees what
   another `ref` of the same pass wrote (02 SC-4c, S-server-8), as Solid did
   until 2.0.0-rc.21, rendered and hydrated alike. Solid since rc.22 shows an
-  earlier `ref`'s write to a `ref` in a `for` row or an `if` (a bug: 10
-  DV-28, recorded, not followed). A `ref` that counts writes by a function
+  earlier `ref`'s write to a `ref` in a `for` row or an `if` (10 DV-28a,
+  recorded, not followed; its hydrated half, DV-28b, is fixed on Solid main
+  510bb8d01). A `ref` that counts writes by a function
   of the value (`n := v => v + 1`, W-6), which composes whatever the order;
   what needs two `ref`s' elements reads them in an effect.
 

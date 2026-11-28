@@ -147,8 +147,10 @@ Function application `f(e…)` covers both language functions and FFI imports;
   frame, so its `ref` there reads the write (deliberate: #4768, a `ref`
   reads what its element was built for — the same principle, over Solid's
   own order of passes, which the language does not transcribe: 10 DV-28a);
-  hydrating, Solid reads the screen in a row and rebuilds an `if` (10
-  DV-28b: Solid's bug).
+  hydrating, Solid read the screen in a row and rebuilt an `if` (10
+  DV-28b: Solid's bug, fixed on Solid main 510bb8d01 by #5235, not in a
+  release yet: hydration keeps the served element and its `ref` reads the
+  screen).
   What depends on two `ref`s' elements is read once the view is made — an
   equation, an effect — and is the same on every Solid. S-server-8.
   (A first version refused such a read, `REF_READS_REF_WRITE`, because

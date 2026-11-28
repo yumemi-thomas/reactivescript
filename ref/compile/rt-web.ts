@@ -19,7 +19,6 @@ import { getContext, setContext, $PROXY, $RECORD, snapshot } from "@solidjs/sign
 const isStore = (v: any): boolean => v !== null && typeof v === "object" && v[$PROXY] === v && v[$RECORD] === undefined;
 import { hydrate, render } from "@solidjs/web";
 import { topOwner } from "./solid-internals.ts";
-import { keyedWrite } from "./keyed.ts";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
 // value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
@@ -337,8 +336,8 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
         const w: Writer = {
           // (ST-4d in development: the rows an updater answers, or leaves in its draft, and the rows a write gives)
           set: rootSet(store, set as never,
-            v => { oneKeyEach(name, key, v); setStore(key !== undefined ? keyedWrite(reconcile as never, isStore, v, key) as any : () => v as any); },
-            f => setStore((key !== undefined ? (d: unknown) => { const r = f(d); if (DEV) oneKeyEach(name, key, r === undefined ? d : r); if (r === undefined || r === d || typeof r !== "object" || r === null) return r; keyedWrite(reconcile as never, isStore, r, key)(d); } : f) as any)),   // ST-4a: what an updater answers is reconciled by the key, as a written value is
+            v => { oneKeyEach(name, key, v); setStore(key !== undefined ? (reconcile as any)(v, key) as any : () => v as any); },
+            f => setStore((key !== undefined ? (d: unknown) => { const r = f(d); if (DEV) oneKeyEach(name, key, r === undefined ? d : r); if (r === undefined || r === d || typeof r !== "object" || r === null) return r; (reconcile as any)(r, key)(d); } : f) as any)),   // ST-4a: what an updater answers is reconciled by the key, as a written value is
           path: pathWrite(setStore),
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };

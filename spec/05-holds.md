@@ -591,10 +591,19 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   now states F-3 and what still holds. Changed on the user's decision of
   2026-11-26: F-3 is Solid's deliberate rule, not a bug, so the language
   follows it (a Solid bug would have stayed a DV with a memo).
-- **DV-30 (a keyed optimistic store tears on a switch after one guess has
-  settled) — a Solid bug; open, 2026-11-27**
-  (`ref/oracle/repros/keyed-guess-refresh-tear.mjs`, plain signals;
-  S-guess-filter). `createOptimisticStore(async () => fetch(filter()), [], {
+- **DV-30 (a guess on an optimistic store holds no switch once a refresh of
+  it has landed) — a Solid bug; open, 2026-11-27; reduced 2026-11-28**
+  (`ref/oracle/repros/dv30-refresh-then-guess.mjs`, the reduced form;
+  `keyed-guess-refresh-tear.mjs`, the first; plain Solid; S-guess-filter).
+  *Reduced (the user's, 2026-11-28):* neither the key, nor a refresh inside
+  the action, nor a first action is needed. `createOptimisticStore(async ()
+  => call(filter()), [])`, one plain `refresh(todos)` that lands, then an
+  action that guesses (`setTodos(ts => [...ts, { id }])`) and awaits:
+  `setFilter("open")` shows `open | a,z` where H-11 says `all | a,z`. Without
+  the earlier refresh it holds; `createOptimistic` (a signal, not a store)
+  holds; an unrelated signal written between the steps hides it. Torn on
+  Solid main 50a4bfdde, 510bb8d01 and npm 2.0.4 alike (run here). The first
+  form, as found: `createOptimisticStore(async () => fetch(filter()), [], {
   key: "id" })` and an action that guesses a row, awaits and refreshes. On a
   fresh store a `filter` switch while the guess is out joins its hold (H-11,
   Solid D-34): the screen stays on the old filter with the guessed list. After
@@ -610,8 +619,11 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   s01-solid-tear`, `s02-solid-fresh`). Recorded as an `oracle` divergence; the
   program is the guide's §3 shape and nothing is refused. *Memo:* the user's
   to file; no draft, the repro is the plain-Solid program to start from.
+  Unchanged at Solid main 510bb8d01 (2026-11-28: the repro prints the same
+  frames on both pins, S-guess-filter's row still needed).
 - **DV-29 (a reader misses a change after an effect's cleanup called an
-  action) — a Solid bug, a regression in 2.0.4; open, 2026-11-27**
+  action) — a Solid bug, a regression in 2.0.4; fixed on Solid main
+  510bb8d01 (solidjs/solid#5236, issue #5233), not in a release yet**
   (`ref/oracle/repros/cleanup-action-write.mjs`, plain Solid;
   S-effect-cleanup-action). A part that registers with its root in an effect
   and unregisters in the effect's cleanup (EF-5), through an action, is the
@@ -630,9 +642,14 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   examples moved onto the pinned Solid (2026-11-27): `examples/rx-packages`
   `live.mjs`, Kobalte's popover, select and tooltip, whose rewrites
   unregister so, differ from the originals at the reopening step (their
-  `causes.json` names DV-29). *Memo:* the user's to file; no draft yet,
-  the repro is the plain-Solid program to start from. Nothing here changes
-  when it is fixed but this record.
+  `causes.json` named DV-29). *Memo (2026-11-28):* filed by the user as
+  #5233 (cause: #5161) and fixed by #5236 ("a landed transaction stops being
+  the flush's, so a cleanup's action never swallows the next write"). At the
+  pin 510bb8d01 the repro's `action` gives `F | T | F | T | F` as `plain`
+  does, and every runner shows `Tt` at S-effect-cleanup-action's instant 4:
+  its `oracle` row is removed, and `examples/rx-packages`' DV-29 causes with
+  it (the rewrites agree with the originals at the reopening step). Released
+  2.0.4 still has it; the runtime's peer (`>2.0.4`) leaves 2.0.4 out.
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
   2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts

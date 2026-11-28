@@ -318,9 +318,13 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   (`solid-main.noindex/drafts/2-errored-stream-nested`): reproduced on main
   (ad1f561), 2.0.4, 2.0.0, rc.23 and rc.21; the remainder of #4287, named as a
   limit in #4303; the cause in the server `createErrorBoundary`'s
-  `renderOutcome`. A fix of the before-shell case is open upstream as
-  solidjs/solid#5225; the after-shell case, which S-server-7 shows, has no
-  fix yet. Nothing here changes when it is fixed but this record.
+  `renderOutcome`. *Memo (2026-11-28):* the before-shell case is **fixed on
+  Solid main 510bb8d01** by solidjs/solid#5225 (not in a release yet): the
+  repro's `part` and `prop` with `ms` 1 draw `<p>bad: no</p>` in the shell
+  (at 50a4bfdde `<b></b>`). The after-shell case, which S-server-7 shows,
+  is unchanged at 510bb8d01 (`<template id="100" e></template>`); its fix is
+  a draft upstream (#5237, the rest of issue #5223). S-server-7's `server`
+  record stays. Nothing here changes when it is fixed but this record.
 
 - **DV-27 (a store a `ref` writes while hydrating) — Solid's, 2026-11-26;
   fixed on Solid main 50a4bfdde (probably #4906, 2026-11-27: the repro shows
@@ -356,7 +360,16 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   `oracle` divergence, not as a bug. *DV-28b, hydrated — Solid's bug*: a
   row's `ref` reads the screen where the same row rendered reads the write,
   and a `<Show>`'s served content is thrown away and made again, its `ref`
-  called twice (draft 5). Recorded as a `hydrated` divergence. The text
+  called twice (draft 5). Recorded as a `hydrated` divergence until
+  2026-11-28: **fixed on Solid main 510bb8d01** by solidjs/solid#5235 (issue
+  #5232; not in a release yet). Hydration keeps the served element and calls
+  its `ref` once, and the `ref` reads what the page was served with — the
+  screen, as SC-4c says (draft 5's `minimal` and `standalone`, run against
+  both checkouts: `ref calls: 2`, served node detached at 50a4bfdde; `ref
+  calls: 1`, kept at 510bb8d01). S-server-8 hydrated is `a000bc12`, the
+  language's frame; its `hydrated` rows are removed. DV-28a's `oracle` rows
+  stay (a client render still shows the write to the row and the `<Show>`:
+  Solid's order of passes, not a bug). The text
   below is the record of 2026-11-26, which took both for one regression:
   Solid's, a regression in 2.0.0-rc.22, 2026-11-26 (S-server-8; the
   plain-Solid issue is drafted, not posted:

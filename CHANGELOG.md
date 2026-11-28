@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Solid main 510bb8d01** (DECISION.md, "Pin moved to Solid main 510bb8d01")
+
+- **Changed: the pin moves to Solid main 510bb8d01**, which fixes four Solid bugs the language recorded: a kept keyed row
+  keeps its proxy (X1, #5222), a cleanup's action no longer swallows the next write (DV-29, #5236), a hydrated `ref`
+  keeps the served element (DV-28b, #5235), and an `errored` draws its fallback in the shell when a `loading` in a part
+  fails before it (DV-26's first half, #5225). None is in a release yet; the runtime's peer stays `>2.0.4`.
+- **Removed: `ref/compile/keyed.ts`**, the runtime's workaround for X1: a keyed write is Solid's `reconcile(v, key)`.
+
 **The hunts' findings** (DECISION.md, "Fix round after the hunts")
 
 - **Fixed: an attribute that probes is a reader of its own in compiled code** (spec/04 R-11a). `disabled={pending? x}`

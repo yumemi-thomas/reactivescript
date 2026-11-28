@@ -2,7 +2,8 @@
 // production build, rendered there and taken over from the server: the state of a row (a source in its region) is still
 // the row's after the list is written fresh rows, whether the row's body reads the row or not, and whether the list
 // reaches the loop directly or through a prop. Solid's `reconcile(v, key)` gave a row whose fields nothing read a new
-// proxy, and `<For>` remade it (X1 of the roadmap: silent in production); compile/keyed.ts keeps it.
+// proxy, and `<For>` remade it (X1 of the roadmap: silent in production); compile/keyed.ts kept it until Solid's #5222
+// (main 510bb8d01) fixed `reconcile` itself — the runtime calls `reconcile(v, key)` again, and this holds Solid to it.
 // Needs what bench/run.mjs needs (the crate, the runtime's build, bench/.out/ws).   node compiler/test/rows.mjs
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";

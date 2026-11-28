@@ -278,7 +278,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
       // where the client draws a later frame at once (a landing the stream could not carry, DV-26), it builds what changed
       const same = before === norm(await textOf());
       const issues = [same && (d.fresh.length || d.dropped.length) ? `rebuilt instead of adopting: built ${d.fresh.join(" ") || "nothing"}, dropped ${d.dropped.join(" ") || "nothing"}` : "", d.asked.length ? `asked again: ${d.asked.join(", ")}` : "", d.left ? `${d.left} server element(s) never claimed` : "", pageErrors.length ? `page errors: ${pageErrors.join(" | ")}` : ""].filter(Boolean);
-      // a recorded `hydrated` divergence at this instant whose frame is the one shown: Solid rebuilt what it should adopt (DV-28's `<Show>`; DV-15's, until Solid fixed it)
+      // a recorded `hydrated` divergence at this instant whose frame is the one shown: Solid rebuilt what it should adopt (DV-28b's `<Show>` and DV-15's, until Solid fixed them)
       const rec = known(chains[at - 1][chains[at - 1].length - 1]);
       if (issues.length && rec && issues.every(x => x.startsWith("rebuilt")) && norm(rec.frame) === norm(await textOf())) lines.push(`  ≠ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}  — recorded (hydrated)`);
       else if (issues.length) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}`); }

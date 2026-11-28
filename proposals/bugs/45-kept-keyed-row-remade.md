@@ -48,10 +48,13 @@ setRows(reconcile([{ id: "b", v: "B" }, { id: "c", v: "c" }], "id"));   // Made 
 Its own header says "surviving rows keep their proxy identity"; with a field read in the row they do. Nothing is
 filed (track 2 needs no upstream fix). *Memo (2026-11-26):* the plain-Solid issue is solidjs/solid#5220, with fix PR #5222, both open
 (`solid-main.noindex/drafts/1-reconcile-kept-row`: main ad1f561, 2.0.4, 2.0.0, rc.23, rc.21; again on main 50a4bfdde,
-after #4906 replaced the store engine, 2026-11-27). The fix below works around it; once Solid keeps the proxy,
-`keyedWrite` goes back to `reconcile(v, key)`.
+after #4906 replaced the store engine, 2026-11-27). The fix below worked around it; once Solid keeps the proxy,
+`keyedWrite` goes back to `reconcile(v, key)`. *Memo (2026-11-28):* fixed on Solid main by #5222 (510bb8d01, not in a
+release yet); with the pin there, `keyedWrite` is `reconcile(v, key)` again and `ref/compile/keyed.ts` is deleted. The
+draft's repro (`none`) keeps both rows at 510bb8d01 and remakes them at 50a4bfdde; the same lowering on the old pin
+fails S-store-kept-row (`made` twice at instants 1 to 3), so the scenario and `rows.mjs` still catch the bug.
 
-**Fix in this branch.** `ref/compile/keyed.ts`: before the list is reconciled, each row of the new value whose key is a
+**Fix in this branch (until 2026-11-28; Solid's own `reconcile` since).** `ref/compile/keyed.ts`: before the list is reconciled, each row of the new value whose key is a
 row's of the old one is reconciled into that row's own proxy, so the list's reconcile finds the new raw already the row's
 (lists and records inside a row the same way). Used by both runtimes (`rt-web.ts`, `rt.ts`) and the oracle, for a write
 and for what an updater answers. The interpreter reconciles a list inside a row by the key too (it paired them by
