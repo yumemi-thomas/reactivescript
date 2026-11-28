@@ -51,10 +51,14 @@ const app = "src/App.rx";
 export default defineConfig({ resolve: { preserveSymlinks: true }, plugins: [solid({ ssr: true, start: { app, nodeServer: true }, frontends: { ".rx": rx({ pages: [app], generate: false }) } })] });
 `);   // preserveSymlinks: Solid is the pin's, linked (scripts/lib/relink.mjs, linkedSolid)
   writeFileSync(path.join(dir, "dev.mjs"), `import { createServer } from "vite";
-const server = await createServer({ logLevel: "silent", server: { host: "127.0.0.1", port: 0 } });
+const server = await createServer({ logLevel: process.env.RR_LOG ? "info" : "silent", server: { host: "127.0.0.1", port: 0, watch: null } });
 await server.listen();
 console.log(\`listening \${server.httpServer.address().port}\`);
-`);
+`);   // watch: null — the project is written a moment before its server starts, and on macOS the watcher (chokidar
+  // over FSEvents) reports each file just written as changed once it starts: `vite.config.mjs changed, restarting
+  // server`. A restart that lands during the first render dropped it ("transport was disconnected, cannot call
+  // fetchModule", Vite's error overlay over the page, the click never landing); one that lands before it passed. Nothing
+  // here edits a file under a running server, so it watches none. `RR_LOG=1` prints the servers' logs.
   mkdirSync(path.join(dir, "src"));
   writeFileSync(path.join(dir, "src/team.rx"), "export context team: { name: string }\n");
   writeFileSync(path.join(dir, "src/App.rx"), `import { team } from "./team.rx"
@@ -84,17 +88,18 @@ const browser = await chromium.launch();
 /** The dev server's own render of `/`, then the page hydrated and clicked: `{ served, raw, text, problems }`. */
 async function dev(dir, { hydrate = true } = {}) {
   const child = spawn(process.execPath, ["dev.mjs"], { cwd: dir, env: { ...process.env, RX_TYPECHECK: "0" } });
+  if (process.env.RR_LOG) { const t0 = Date.now(); const tag = d => String(d).split("\n").filter(Boolean).map(l => `[${path.basename(dir)} +${Date.now() - t0}ms] ${l}`).join("\n") + "\n"; child.stdout.on("data", d => process.stderr.write(tag(d))); child.stderr.on("data", d => process.stderr.write(tag(d))); }
   try {
     const base = `http://127.0.0.1:${await listening(child, /listening (\d+)/)}`;
-    // (the first request of a cold dev server may be dropped while Vite optimizes the app's dependencies and restarts:
-    // seen as `fetch failed` on a loaded machine. Asked again, as a browser's reload would)
-    let raw; for (let i = 0; ; i++) { try { raw = await (await fetch(base + "/", { headers: { accept: "text/html" } })).text(); break; } catch (e) { if (i >= 4) throw e; await new Promise(r => setTimeout(r, 1000)); } }
+    // (asked once: the `fetch failed` a retry here used to hide was the same watcher's restart, see dev.mjs)
+    const raw = await (await fetch(base + "/", { headers: { accept: "text/html" } })).text();
     const r = { raw, served: bodyText(raw), text: "", problems: [] };
     if (!hydrate) return r;
     const page = await browser.newPage();
     page.on("console", m => { if (["error", "warning"].includes(m.type())) r.problems.push(m.text().slice(0, 300)); }); page.on("pageerror", e => r.problems.push(String(e).slice(0, 300)));
     await page.goto(base + "/");
-    await page.click("button.counter");
+    try { await page.click("button.counter"); }
+    catch (e) { const overlay = await page.evaluate(() => document.querySelector("vite-error-overlay")?.shadowRoot?.textContent ?? null).catch(() => null); throw new Error(`${overlay ? `Vite's error overlay: ${overlay.replace(/\s+/g, " ").slice(0, 1500)}\n` : ""}${e.message}`); }
     for (let i = 0; i < 100 && !/clicks: 1/.test(r.text); i++) { r.text = ((await page.textContent("body")) ?? "").replace(/\s+/g, " ").trim(); if (!/clicks: 1/.test(r.text)) await page.waitForTimeout(50); }
     await page.close();
     return r;
