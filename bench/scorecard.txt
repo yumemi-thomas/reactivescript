@@ -125,10 +125,10 @@ Introduced `any`s (09 MO-8q: none, or on bench/any-allowlist.json): none
 
 Read from the code that runs (09 MO-8v): 12 words in the rows the tasks keep, counted apart from the 436 written by hand; 0 contradicted
   the claims those rows make (one a word of a row): 166 — 12 proven by the generator, 108 held by a probe that fails over a module changed to make the claim false, 46 the author's own (bench/needed.txt: a program needs each), 0 mismatched (draft 0 proven + 2 held + 0 the author's, fails 0 proven + 2 held + 0 the author's, handler 7 proven + 6 held + 3 the author's, host 0 proven + 15 held + 0 the author's, instantiates 1 proven + 0 held + 9 the author's, nests 0 proven + 1 held + 0 the author's, pending ref 0 proven + 2 held + 0 the author's, provides 0 proven + 10 held + 4 the author's, pure 3 proven + 0 held + 29 the author's, ref 0 proven + 27 held + 0 the author's, rejects 0 proven + 8 held + 1 the author's, renders 0 proven + 4 held + 0 the author's, uses 1 proven + 31 held + 0 the author's)
-  whole drafts: 599 words read (496 handler, 76 instantiates, 27 pure); 1457 questions asked (1233 pure, 97 handler, 55 overloads, 24 draft, 20 rejects, 12 nests, 11 renders, 5 uses)
+  whole drafts: 599 words read (496 handler, 76 instantiates, 27 pure); 1459 questions asked (1233 pure, 99 handler, 55 overloads, 24 draft, 20 rejects, 12 nests, 11 renders, 5 uses)
   the audit (09 MO-8w: every behaviour word of the tasks' declarations held against the code): 12 proven, 0 contradicted, 99 the code does not show (bench/audit.txt lists each with what to check)
 
-Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 76 drafts, 4984 rows): 625 `any` the libraries' own, 0 introduced, 383 by place
+Whole drafts (09 MO-8q: every export of each module a task declares, drafted by rx-declare; 76 drafts, 4984 rows): 625 `any` the libraries' own, 0 introduced, 375 by place
   effect-derived · ./page.js: 1 rows, 0 `any` the library's own, 0 introduced, 0 by place
   file-routes · @solidjs/router: 92 rows, 25 `any` the library's own, 0 introduced, 21 by place
   file-routes · the JS host: 6 rows, 0 `any` the library's own, 0 introduced, 0 by place
@@ -145,7 +145,7 @@ Whole drafts (09 MO-8q: every export of each module a task declares, drafted by 
   primitives-listeners · @solid-primitives/event-bus: 27 rows, 11 `any` the library's own, 0 introduced, 20 by place
   primitives-listeners · @solid-primitives/focus: 15 rows, 0 `any` the library's own, 0 introduced, 0 by place
   primitives-listeners · @solid-primitives/raf: 9 rows, 3 `any` the library's own, 0 introduced, 1 by place
-  primitives-listeners · @solid-primitives/scheduled: 8 rows, 0 `any` the library's own, 0 introduced, 6 by place
+  primitives-listeners · @solid-primitives/scheduled: 8 rows, 0 `any` the library's own, 0 introduced, 0 by place
   primitives-sensors · @solid-primitives/connectivity: 11 rows, 0 `any` the library's own, 0 introduced, 0 by place
   primitives-sensors · @solid-primitives/keyboard: 10 rows, 0 `any` the library's own, 0 introduced, 0 by place
   primitives-sensors · @solid-primitives/media: 9 rows, 0 `any` the library's own, 0 introduced, 0 by place
@@ -201,7 +201,7 @@ Whole drafts (09 MO-8q: every export of each module a task declares, drafted by 
   ui-sdk-forms · @ui-sdk/solid/button: 6 rows, 1 `any` the library's own, 0 introduced, 1 by place
   ui-sdk-forms · @ui-sdk/solid/checkbox: 22 rows, 3 `any` the library's own, 0 introduced, 1 by place
   ui-sdk-forms · @ui-sdk/solid/radio: 15 rows, 3 `any` the library's own, 0 introduced, 1 by place
-  wardic-motion · @wardic/dom: 121 rows, 0 `any` the library's own, 0 introduced, 3 by place
+  wardic-motion · @wardic/dom: 121 rows, 0 `any` the library's own, 0 introduced, 2 by place
   wardic-motion · @wardic/solid: 297 rows, 3 `any` the library's own, 0 introduced, 40 by place
-  wardic-values · @wardic/dom: 121 rows, 0 `any` the library's own, 0 introduced, 3 by place
+  wardic-values · @wardic/dom: 121 rows, 0 `any` the library's own, 0 introduced, 2 by place
   wardic-values · @wardic/solid: 297 rows, 3 `any` the library's own, 0 introduced, 40 by place
