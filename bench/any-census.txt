@@ -1,32 +1,32 @@
 The `any` census (2026-11-28; bench/any-census.mjs, then bench/any-origin.mjs --tags <checkouts>): every module the tasks declare and the coverage suite drafts, drafted whole once, each `any` the draft calls the library's own placed and traced. The reasoning: tooling/rx-language-server/DECLARATIONS.md, "What the `any`s left are".
 
-1309 `any`s the drafts call the library's own, in 947 rows of 105 modules (281 drafted)
+1317 `any`s the drafts call the library's own, in 948 rows of 105 modules (281 drafted)
 
 By place in the row — what the checker reads there:
     783  type-arg         never    a type argument of a named type (`Component<any>`, `Record<string, any>`): ty_step does not open a name
     223  callback-answer  one bit  what a callback answers: whether it is a View (a render prop) or a value (ty_answers_value); `any` is neither
     114  bound            never    a type parameter's bound or default: TypeScript's alone (project.rs's boundary check)
      94  alias            never    an `export type`'s body: the checker skips JsDecl::Type; ty_undoes follows an alias only for a disposer
+     34  callback-param   never    a callback's parameters: only `handler`/`draft` before them, and that it is a function
      32  field-or-element read     a step of a parameter or result (ty_step, decl_prim, ty_list): `any` says nothing — stricter for a primitive, looser for io
      28  whole            read     the whole type of a parameter, prop, result or const: `any` is not a callback, a list, a view or a primitive
-     26  callback-param   never    a callback's parameters: only `handler`/`draft` before them, and that it is a function
       9  result-fn-answer read     what a function part of a result answers (shape_of, void_method, promise_method): `any` is a value, not io — looser
 
 By what the checker reads of the place:
-   1017  never
+   1025  never
     223  one bit
      69  read
 
 By origin:
    1168  own
-    117  other
+    125  other
      24  printed
 
 Other packages whose declaration a row spells out:
      66  @tanstack/query-core
      20  @zag-js/types
+     18  (other)
      11  @tanstack/router-core
-     10  (other)
       6  @wardic/dom
       2  @tanstack/history
       1  csstype
@@ -35,8 +35,8 @@ Other packages whose declaration a row spells out:
 By the module's package:
     700  @ui-sdk/solid
     200  solid-stripe
+     71  @tanstack/solid-router
      64  valibot
-     63  @tanstack/solid-router
      42  (the task's own)
      37  @tanstack/solid-query
      25  @solidjs/router
@@ -84,6 +84,7 @@ Place × origin:
      23  field-or-element · other
      19  callback-param · own
      13  bound · other
+     12  callback-param · other
       9  field-or-element · own
       9  alias · printed
       8  result-fn-answer · own
@@ -91,7 +92,6 @@ Place × origin:
       7  callback-answer · other
       7  alias · other
       4  type-arg · printed
-      4  callback-param · other
       3  callback-param · printed
       1  whole · other
       1  result-fn-answer · other
@@ -106,6 +106,7 @@ The pieces that hold them, most frequent first (40):
       9  @tanstack/solid-router · bound · Record<string, any>
       9  valibot · alias · TInput = any
       8  @tanstack/solid-query · type-arg · import("@tanstack/query-core").MutationOptions<any, any, any, any>
+      8  @tanstack/solid-router · callback-param · state?: any
       8  (the task's own) · type-arg · import("@tanstack/solid-query").MutationObserverOptions<any, any, any, any>
       8  (the task's own) · type-arg · import("@tanstack/query-core").MutationOptions<any, any, any, any>
       7  @solid-primitives/event-bus · alias · Record<PropertyKey, any>
@@ -136,10 +137,38 @@ The pieces that hold them, most frequent first (40):
       3  @tanstack/solid-query · callback-param · data: any
       3  @tanstack/solid-query · callback-answer · (data: any) => any
       3  @tanstack/solid-router · alias · ReadonlyArray<any>
-      3  @wardic/solid · alias · I = any
 
 Modules whose package's declaration files name something TypeScript cannot resolve: 1
   tasks/router-provider/src:./router.tsx: __root.tsx: Cannot find module '../pages.rx?rx-lib' or its corresponding type declarations. · index.tsx: Cannot find module '../pages.rx?rx-lib' or its corresponding type declarations. (+1)
+
+As written (09 MO-8x) — the counts above are of the drafts written out; written, each type a draft writes again and again is an alias of the file:
+  all: 244 aliases in 60 of 281 drafts; rows 8211 → 8455, characters of rows 1343359 → 1247244 (7.2% fewer), `any` written 1317 → 609
+  @dschz/solid-flow: 28 aliases in 1 of 1 drafts; rows 185 → 213, characters of rows 77510 → 64001 (17.4% fewer), `any` written 1 → 1
+  @solid-primitives/animation: 1 aliases in 1 of 1 drafts; rows 23 → 24, characters of rows 3090 → 2915 (5.7% fewer), `any` written 0 → 0
+  @solid-primitives/audio: 7 aliases in 1 of 1 drafts; rows 7 → 14, characters of rows 11569 → 10153 (12.2% fewer), `any` written 0 → 0
+  @solid-primitives/date: 1 aliases in 1 of 1 drafts; rows 33 → 34, characters of rows 3143 → 2991 (4.8% fewer), `any` written 0 → 0
+  @solid-primitives/event-listener: 15 aliases in 1 of 1 drafts; rows 19 → 34, characters of rows 28122 → 24405 (13.2% fewer), `any` written 5 → 5
+  @solid-primitives/filesystem: 4 aliases in 1 of 1 drafts; rows 26 → 30, characters of rows 5614 → 4147 (26.1% fewer), `any` written 0 → 0
+  @solid-primitives/focus: 3 aliases in 1 of 1 drafts; rows 15 → 18, characters of rows 2837 → 2208 (22.2% fewer), `any` written 0 → 0
+  @solid-primitives/gestures: 3 aliases in 1 of 1 drafts; rows 19 → 22, characters of rows 2443 → 2268 (7.2% fewer), `any` written 0 → 0
+  @solid-primitives/list-state: 1 aliases in 1 of 1 drafts; rows 9 → 10, characters of rows 2442 → 2234 (8.5% fewer), `any` written 0 → 0
+  @solid-primitives/rootless: 1 aliases in 1 of 1 drafts; rows 11 → 12, characters of rows 3190 → 3008 (5.7% fewer), `any` written 2 → 2
+  @solid-primitives/storage: 2 aliases in 1 of 2 drafts; rows 23 → 25, characters of rows 4231 → 3744 (11.5% fewer), `any` written 9 → 9
+  @solid-primitives/upload: 1 aliases in 1 of 1 drafts; rows 20 → 21, characters of rows 3020 → 2838 (6.0% fewer), `any` written 0 → 0
+  @solid-primitives/utils: 2 aliases in 2 of 3 drafts; rows 149 → 151, characters of rows 28331 → 14855 (47.6% fewer), `any` written 23 → 23
+  @solid-primitives/video: 7 aliases in 1 of 1 drafts; rows 14 → 21, characters of rows 12749 → 11301 (11.4% fewer), `any` written 0 → 0
+  @solidjs/router: 2 aliases in 1 of 1 drafts; rows 92 → 94, characters of rows 11427 → 11229 (1.7% fewer), `any` written 25 → 25
+  @tanstack/solid-query: 2 aliases in 1 of 1 drafts; rows 197 → 199, characters of rows 34968 → 34605 (1.0% fewer), `any` written 37 → 35
+  @tanstack/solid-router: 2 aliases in 1 of 1 drafts; rows 295 → 297, characters of rows 61646 → 57948 (6.0% fewer), `any` written 71 → 65
+  @ui-sdk/solid: 119 aliases in 32 of 69 drafts; rows 2913 → 3032, characters of rows 433456 → 396634 (8.5% fewer), `any` written 700 → 126
+  @wardic/dom: 2 aliases in 1 of 1 drafts; rows 121 → 123, characters of rows 13603 → 13406 (1.4% fewer), `any` written 0 → 0
+  @wardic/solid: 6 aliases in 2 of 3 drafts; rows 823 → 829, characters of rows 81450 → 80634 (1.0% fewer), `any` written 10 → 10
+  @zag-js/solid: 4 aliases in 1 of 1 drafts; rows 215 → 219, characters of rows 44888 → 40360 (10.1% fewer), `any` written 23 → 23
+  solid-codemirror: 1 aliases in 1 of 1 drafts; rows 11 → 12, characters of rows 2363 → 2190 (7.3% fewer), `any` written 0 → 0
+  solid-floating-ui: 11 aliases in 1 of 2 drafts; rows 213 → 224, characters of rows 36443 → 31977 (12.3% fewer), `any` written 1 → 1
+  solid-stripe: 14 aliases in 2 of 3 drafts; rows 127 → 141, characters of rows 32832 → 25738 (21.6% fewer), `any` written 200 → 74
+  solid-tiptap: 2 aliases in 1 of 1 drafts; rows 14 → 16, characters of rows 1572 → 1342 (14.6% fewer), `any` written 0 → 0
+  tasks: 3 aliases in 1 of 30 drafts; rows 158 → 161, characters of rows 31251 → 30944 (1.0% fewer), `any` written 42 → 42
 
 Source (the `any`s found in the package's own declaration files): 1163; the package ships no TypeScript source: 1099; the source writes the same piece: 61; it does not: 3
   @ui-sdk/solid: 700 — no source in the package
@@ -224,44 +253,3 @@ Parts said by place (09 MO-8m), by where they stand: 1183
      69  result-fn-answer  read   e.g. @solid-primitives/controlled-props · createControlledProp, @solid-primitives/controlled-signal · createControllableSignal, @solid-primitives/controlled-signal · createControllableBooleanSignal, @solid-primitives/controlled-signal · createControllableArraySignal
      41  field-or-element  read   e.g. @solid-primitives/form · createForm, @solid-primitives/memo · createLatest, @solid-primitives/memo · createLatestMany, @solid-primitives/memo · createReducer
       2  type-arg          never   e.g. valibot · getSpecificMessage, valibot · setSpecificMessage
-
-2026-11-28, after MO-8x (bench/any-census.mjs over the same 281 modules; every table above unchanged, counted written out):
-As written (09 MO-8x) — the counts above are of the drafts written out; written, each type a draft writes again and again is an alias of the file:
-  all: 263 aliases in 82 of 281 drafts; rows 8211 → 8474, characters of rows 1331469 → 1237798 (7.0% fewer), `any` written 1309 → 581
-  @dschz/solid-flow: 28 aliases in 1 of 1 drafts; rows 185 → 213, characters of rows 77510 → 64001 (17.4% fewer), `any` written 1 → 1
-  @solid-primitives/a11y: 2 aliases in 1 of 1 drafts; rows 12 → 14, characters of rows 2732 → 2666 (2.4% fewer), `any` written 0 → 0
-  @solid-primitives/animation: 1 aliases in 1 of 1 drafts; rows 23 → 24, characters of rows 3090 → 2915 (5.7% fewer), `any` written 0 → 0
-  @solid-primitives/audio: 7 aliases in 1 of 1 drafts; rows 7 → 14, characters of rows 11569 → 10153 (12.2% fewer), `any` written 0 → 0
-  @solid-primitives/controlled-props: 1 aliases in 1 of 1 drafts; rows 13 → 14, characters of rows 3584 → 3483 (2.8% fewer), `any` written 0 → 0
-  @solid-primitives/date: 1 aliases in 1 of 1 drafts; rows 33 → 34, characters of rows 3143 → 2991 (4.8% fewer), `any` written 0 → 0
-  @solid-primitives/event-listener: 15 aliases in 1 of 1 drafts; rows 19 → 34, characters of rows 28098 → 24381 (13.2% fewer), `any` written 5 → 5
-  @solid-primitives/favicon: 1 aliases in 1 of 1 drafts; rows 24 → 25, characters of rows 2677 → 2593 (3.1% fewer), `any` written 0 → 0
-  @solid-primitives/filesystem: 4 aliases in 1 of 1 drafts; rows 26 → 30, characters of rows 5287 → 3820 (27.7% fewer), `any` written 0 → 0
-  @solid-primitives/focus: 3 aliases in 1 of 1 drafts; rows 15 → 18, characters of rows 2837 → 2208 (22.2% fewer), `any` written 0 → 0
-  @solid-primitives/form: 2 aliases in 1 of 1 drafts; rows 16 → 18, characters of rows 4453 → 4387 (1.5% fewer), `any` written 0 → 0
-  @solid-primitives/gestures: 3 aliases in 1 of 1 drafts; rows 19 → 22, characters of rows 2443 → 2268 (7.2% fewer), `any` written 0 → 0
-  @solid-primitives/input-mask: 1 aliases in 1 of 1 drafts; rows 14 → 15, characters of rows 1610 → 1506 (6.5% fewer), `any` written 0 → 0
-  @solid-primitives/keyed: 1 aliases in 1 of 1 drafts; rows 7 → 8, characters of rows 1352 → 1258 (7.0% fewer), `any` written 1 → 1
-  @solid-primitives/list-state: 1 aliases in 1 of 1 drafts; rows 9 → 10, characters of rows 2442 → 2234 (8.5% fewer), `any` written 0 → 0
-  @solid-primitives/mediastream: 1 aliases in 1 of 1 drafts; rows 9 → 10, characters of rows 1131 → 1108 (2.0% fewer), `any` written 0 → 0
-  @solid-primitives/pagination: 1 aliases in 1 of 1 drafts; rows 7 → 8, characters of rows 1606 → 1486 (7.5% fewer), `any` written 0 → 0
-  @solid-primitives/rootless: 1 aliases in 1 of 1 drafts; rows 11 → 12, characters of rows 3190 → 3008 (5.7% fewer), `any` written 2 → 2
-  @solid-primitives/storage: 2 aliases in 1 of 2 drafts; rows 23 → 25, characters of rows 4231 → 3744 (11.5% fewer), `any` written 9 → 9
-  @solid-primitives/timer: 1 aliases in 1 of 1 drafts; rows 6 → 7, characters of rows 1070 → 998 (6.7% fewer), `any` written 0 → 0
-  @solid-primitives/upload: 1 aliases in 1 of 1 drafts; rows 20 → 21, characters of rows 2582 → 2400 (7.0% fewer), `any` written 0 → 0
-  @solid-primitives/utils: 2 aliases in 2 of 3 drafts; rows 149 → 151, characters of rows 28299 → 14823 (47.6% fewer), `any` written 23 → 23
-  @solid-primitives/video: 7 aliases in 1 of 1 drafts; rows 14 → 21, characters of rows 12749 → 11301 (11.4% fewer), `any` written 0 → 0
-  @solidjs/router: 1 aliases in 1 of 1 drafts; rows 92 → 93, characters of rows 10778 → 10712 (0.6% fewer), `any` written 25 → 25
-  @tanstack/solid-query: 2 aliases in 1 of 1 drafts; rows 197 → 199, characters of rows 34960 → 34597 (1.0% fewer), `any` written 37 → 35
-  @ui-sdk/solid: 129 aliases in 42 of 69 drafts; rows 2913 → 3042, characters of rows 433456 → 395676 (8.7% fewer), `any` written 700 → 100
-  @wardic/dom: 2 aliases in 1 of 1 drafts; rows 121 → 123, characters of rows 13603 → 13406 (1.4% fewer), `any` written 0 → 0
-  @wardic/solid: 5 aliases in 3 of 3 drafts; rows 823 → 828, characters of rows 79848 → 79395 (0.6% fewer), `any` written 10 → 10
-  @zag-js/solid: 4 aliases in 1 of 1 drafts; rows 215 → 219, characters of rows 44888 → 40360 (10.1% fewer), `any` written 23 → 23
-  cmdk-solid: 1 aliases in 1 of 1 drafts; rows 29 → 30, characters of rows 3630 → 3510 (3.3% fewer), `any` written 1 → 1
-  solid-codemirror: 1 aliases in 1 of 1 drafts; rows 11 → 12, characters of rows 2363 → 2190 (7.3% fewer), `any` written 0 → 0
-  solid-floating-ui: 10 aliases in 1 of 2 drafts; rows 213 → 223, characters of rows 36008 → 31701 (12.0% fewer), `any` written 1 → 1
-  solid-slider: 1 aliases in 1 of 4 drafts; rows 11 → 12, characters of rows 1736 → 1706 (1.7% fewer), `any` written 2 → 2
-  solid-stripe: 14 aliases in 2 of 3 drafts; rows 127 → 141, characters of rows 32832 → 25738 (21.6% fewer), `any` written 200 → 74
-  solid-tiptap: 2 aliases in 1 of 1 drafts; rows 14 → 16, characters of rows 1572 → 1342 (14.6% fewer), `any` written 0 → 0
-  tasks: 3 aliases in 1 of 30 drafts; rows 158 → 161, characters of rows 31235 → 30928 (1.0% fewer), `any` written 42 → 42
-  virtua: 1 aliases in 1 of 1 drafts; rows 25 → 26, characters of rows 2862 → 2792 (2.4% fewer), `any` written 0 → 0

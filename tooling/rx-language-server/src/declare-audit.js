@@ -52,7 +52,7 @@ function audit(spec, from, rowsIn, text, raw = "") {
     // (a row that is an instantiation says which functions it answers do something, MO-10b: rx-declare reads that off the row it writes)
     // (…and a part the row marks `io` is said to do something: it is no part of what `pure` claims, 2026-11-26)
     const rowLine = raw.split("\n")[row.line - 1] ?? "";
-    const left = f.pure?.ok ? f.pure.parts?.find(p => !require("./declare-infer.js").ioMarked(rowLine, p.path)) : undefined;
+    const left = f.pure?.ok ? f.pure.parts?.find(p => !require("./declare-infer.js").partSaid(rowLine, p, f)) : undefined;
     if (w.pure) say("pure", f.pure?.ok && !left ? "proven" : "unproven", left ? `a function it answers (${left.path.join(".") || "itself"}) is not shown to only compute: ${left.why}${at(left)}` : `${why?.why ?? "not read"}${at(why)}`);
     for (const h of w.handlers) { const v = f.handlers?.[h.field === undefined ? String(h.index) : `${h.index}.${h.field}`]; say(`handler(${h.label})`, v?.ok ? "proven" : "unproven", `${v?.why ?? f.unplaced ?? "not read"}${at(v)}`); }
     for (const d of w.drafts) say(`draft(${d.name})`, "unproven", "whether the code changes what it is given in place, and keeps nothing of it, is not read");

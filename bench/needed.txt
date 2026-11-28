@@ -1,6 +1,6 @@
 Hand-written words no tool has shown, in the declarations of the tasks and of the coverage entries (bench/needed.mjs): each is the app author's own claim, in the app's own declaration. None is in a generated declaration, which holds only words the code proves.
 
-78 a correct program is refused without (38 pure, 25 instantiates, 10 handler, 4 provides, 1 rejects; by diagnostic: 63 IO_IN_REACTIVE, 10 REACTIVE_WRITE_IN_OWNED_SCOPE, 10 SNAPSHOT_ARGUMENT, 5 CONTEXT_NOT_FOUND, 2 SNAPSHOT_KEPT, 2 UNHANDLED_FAILURE):
+72 a correct program is refused without (33 pure, 24 instantiates, 10 handler, 4 provides, 1 rejects; by diagnostic: 57 IO_IN_REACTIVE, 10 REACTIVE_WRITE_IN_OWNED_SCOPE, 10 SNAPSHOT_ARGUMENT, 5 CONTEXT_NOT_FOUND, 2 UNHANDLED_FAILURE, 1 SNAPSHOT_KEPT):
   cover-cmdk-solid-command/rx-types/cmdk-solid.d.rx: CommandItem: handler(onSelect) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:10, REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:11
       not proven: it is handed to code that is not followed [cmdk-solid/dist/index.js:379]
   cover-primitives-analytics/rx-types/@solid-primitives/analytics.d.rx: createAnalytics: instantiates — without it: IO_IN_REACTIVE main.rx:5
@@ -10,8 +10,6 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
   cover-primitives-deep/rx-types/@solid-primitives/deep.d.rx: trackDeep: pure — without it: IO_IN_REACTIVE main.rx:7
       not proven: it uses Solid's $PROXY [@solid-primitives/deep/dist/track-deep.js:29]
   cover-primitives-event-bus/rx-types/@solid-primitives/event-bus.d.rx: createEventBus: instantiates — without it: IO_IN_REACTIVE main.rx:6
-      not proven: no call that needs an owner is made on every path
-  cover-primitives-event-dispatcher/rx-types/@solid-primitives/event-dispatcher.d.rx: createEventDispatcher: instantiates — without it: IO_IN_REACTIVE main.rx:5, SNAPSHOT_KEPT main.rx:5
       not proven: no call that needs an owner is made on every path
   cover-primitives-event-props/rx-types/@solid-primitives/event-props.d.rx: createEventProps: instantiates — without it: IO_IN_REACTIVE main.rx:6
       not proven: no call that needs an owner is made on every path
@@ -41,12 +39,8 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
       not proven: no call that needs an owner is made on every path
   cover-primitives-set/set.d.rx: makeSet: instantiates — without it: IO_IN_REACTIVE main.rx:6
       not proven: no call that needs an owner is made on every path
-  cover-primitives-sortable/rx-types/@solid-primitives/sortable.d.rx: by: pure — without it: IO_IN_REACTIVE main.rx:8
-      not proven: a function it answers (itself) is not shown to only compute: it converts a value that may run code (`toString`, `valueOf`) [@solid-primitives/sortable/dist/comparators.js:18]
   cover-primitives-static-store/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — without it: IO_IN_REACTIVE main.rx:5
       not proven: it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
-  cover-primitives-upload/rx-types/@solid-primitives/upload.d.rx: createFilePicker: pure — without it: IO_IN_REACTIVE main.rx:5
-      not proven: a function it answers (clearFiles) is not shown to only compute: it writes a signal while it is called [@solid-primitives/upload/dist/createFilePicker.js:69]
   cover-primitives-url/rx-types/@solid-primitives/url.d.rx: createURL: instantiates — without it: IO_IN_REACTIVE main.rx:5
       not proven: no call that needs an owner is made on every path
   cover-solid-codemirror-editor/rx-types/solid-codemirror.d.rx: createCodeMirror: handler(props.onValueChange) — without it: REACTIVE_WRITE_IN_OWNED_SCOPE main.rx:6
@@ -107,8 +101,6 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
       not proven: it listens, and the package's code may send what it listens to while a call runs: .bind() of a function that is not known [@solid-primitives/rootless/dist/index.js:25]
   primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: instantiates — without it: IO_IN_REACTIVE main.rx:15
       not proven: no call that needs an owner is made on every path
-  primitives-state/rx-types/@solid-primitives/sortable.d.rx: by: pure — without it: IO_IN_REACTIVE main.rx:16
-      not proven: a function it answers (itself) is not shown to only compute: it converts a value that may run code (`toString`, `valueOf`) [@solid-primitives/sortable/dist/comparators.js:18]
   primitives-state/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — without it: IO_IN_REACTIVE main.rx:14
       not proven: it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
   query-mutation/api.d.rx: dehydrated: pure — without it: IO_IN_REACTIVE main.rx:20
@@ -151,10 +143,6 @@ Hand-written words no tool has shown, in the declarations of the tasks and of th
       not proven: a class the module exports, which any importer may change [people.js:9]
   start-route/src/people.d.rx: fetchPerson: rejects(NotFound) — without it: UNHANDLED_FAILURE host.d.rx:7
       not proven: what it throws is not read
-  table-pagination/table.d.rx: getCoreRowModel: pure — without it: IO_IN_REACTIVE main.rx:32
-      not proven: a function it answers (itself) is not shown to only compute: it reads process: the environment [@tanstack/table-core/build/lib/index.mjs:153]
-  table-pagination/table.d.rx: getPaginationRowModel: pure — without it: IO_IN_REACTIVE main.rx:32
-      not proven: a function it answers (itself) is not shown to only compute: it reads process: the environment [@tanstack/table-core/build/lib/index.mjs:153]
   wardic-motion/rx-types/@wardic/solid.d.rx: ward: instantiates — without it: IO_IN_REACTIVE main.rx:11
       not proven: it is no function written out in the module, under a name nothing writes
 

@@ -1,8 +1,8 @@
 The tasks' declarations, every behaviour word (pure, handler, draft, rejects, uses, provides, nests, renders) held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
 
-12 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
+15 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
 0 contradicted: a run shows the word false (rx-verify).
-99 the code does not show: a person's word, with the first thing the reading stops at — what to check.
+96 the code does not show: a person's word, with the first thing the reading stops at — what to check.
   file-routes/rx-types/@solidjs/router.d.rx: useParams: uses(router) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
   file-routes/src/people.d.rx: getPerson: pure — it uses Solid's isServerFunction [@solidjs/router/dist/index.js:2005]
   file-routes/src/people.d.rx: getPerson: rejects(NotFound) — what it throws is not read
@@ -30,7 +30,6 @@ The tasks' declarations, every behaviour word (pure, handler, draft, rejects, us
   kobalte-toast/sync.d.rx: pushChanges: rejects(Offline) — what it throws is not read
   primitives-listeners/rx-types/@solid-primitives/focus.d.rx: makeFocusListener: handler(callback) — it listens, and the package's code may send what it listens to while a call runs: .focus() [@solid-primitives/focus/dist/autofocus.js:23]
   primitives-sensors/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: handler(callback) — it listens, and the package's code may send what it listens to while a call runs: .bind() of a function that is not known [@solid-primitives/rootless/dist/index.js:25]
-  primitives-state/rx-types/@solid-primitives/sortable.d.rx: by: pure — a function it answers (itself) is not shown to only compute: it converts a value that may run code (`toString`, `valueOf`) [@solid-primitives/sortable/dist/comparators.js:18]
   primitives-state/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
   query-forward/query.d.rx: useQuery: uses(queryClient) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
   query-forward/rx-types/@tanstack/solid-query.d.rx: QueryClientProvider: provides(queryClient) — what it answers is no provider of a value that is shown to be one, whose children are read [@tanstack/solid-query/build/index.js:1]
@@ -83,8 +82,6 @@ The tasks' declarations, every behaviour word (pure, handler, draft, rejects, us
   start-route/src/people.d.rx: fetchPerson: rejects(NotFound) — what it throws is not read
   store-helper/array.d.rx: moveItem: draft(list) — whether the code changes what it is given in place, and keeps nothing of it, is not read
   store-helper/array.d.rx: sortBy: draft(list) — whether the code changes what it is given in place, and keeps nothing of it, is not read
-  table-pagination/table.d.rx: getCoreRowModel: pure — a function it answers (itself) is not shown to only compute: it reads process: the environment [@tanstack/table-core/build/lib/index.mjs:153]
-  table-pagination/table.d.rx: getPaginationRowModel: pure — a function it answers (itself) is not shown to only compute: it reads process: the environment [@tanstack/table-core/build/lib/index.mjs:153]
   table-pagination/table.d.rx: createTable: renders(FlexRender) — where the library renders what it is given is not read: a value kept in the module's state is followed no further
   ui-sdk-dialog/rx-types/@ui-sdk/solid/dialog.d.rx: Dialog: handler(onOpenChange) — the record it is in goes where it is not followed [@ui-sdk/solid/dist/dialog.js:9]
   ui-sdk-dialog/rx-types/@ui-sdk/solid/dialog.d.rx: Dialog: provides(dialog) — what it answers is no provider of a value that is shown to be one, whose children are read [@ui-sdk/solid/dist/dialog.js:9]

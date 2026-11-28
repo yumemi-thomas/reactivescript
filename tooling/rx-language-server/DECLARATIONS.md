@@ -636,6 +636,10 @@ word, and no longer takes a proven `instantiates` off its row. Over the census's
 says it by that part). Over the 3,411 adversarial packages 13 rows change, none to a word its package's fact refutes.
 `instantiates` itself gained nothing, on purpose: 19 of the 20 fns the benchmark's declarations mark by hand run with no
 owner under Solid's development build in silence (`compiler/words/probes/no-owner.mjs`), so the word is false of them.
+The `any` census after it (`bench/any-census.txt`): 1,317 the libraries' own in 948 rows, 0 the draft's — the 8 more
+than the 1,309 above are `state?: any` of TanStack's history, in the rows whose result is now written by its parts
+(naming more of a library's types reproduces more of them, MO-8q); as written, 244 aliases in 60 drafts (the same
+machine and sources without this change: 237 in 58).
 
 Executable: `test/words.js` (the rows, the questions, `--why`, both checkers, `rx-verify` over rows that claim what their
 code does not do), `test/words-audit.js`, and `test/words-cases.js` over `test/words/cases.json` (516 functions the old

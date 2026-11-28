@@ -1,8 +1,8 @@
 The coverage entries' declarations, every behaviour word held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
 
-19 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
+22 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
 0 contradicted: a run shows the word false (rx-verify).
-48 the code does not show: a person's word, with the first thing the reading stops at — what to check.
+46 the code does not show: a person's word, with the first thing the reading stops at — what to check.
   cmdk-solid/command/rx-types/cmdk-solid.d.rx: CommandItem: handler(onSelect) — it is handed to code that is not followed [cmdk-solid/dist/index.js:379]
   primitives/context/counter.d.rx: CounterProvider: provides(counter) — which context the name stands for is not shown
   primitives/context/counter.d.rx: useCounter: uses(counter) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
@@ -19,11 +19,9 @@ The coverage entries' declarations, every behaviour word held against what the c
   primitives/props/button.d.rx: Button: handler(onPress) — it goes where it is not followed [button.js:4]
   primitives/refs/rx-types/@solid-primitives/refs.d.rx: Refs: handler(ref) — it is handed to code that is not followed [@solid-primitives/refs/dist/index.js:104]
   primitives/script-loader/rx-types/@solid-primitives/script-loader.d.rx: createScriptLoader: handler(props.onLoad) — it is kept where it is not followed [@solid-primitives/script-loader/dist/index.js:28]
-  primitives/sortable/rx-types/@solid-primitives/sortable.d.rx: by: pure — a function it answers (itself) is not shown to only compute: it converts a value that may run code (`toString`, `valueOf`) [@solid-primitives/sortable/dist/comparators.js:18]
   primitives/static-store/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
   primitives/transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: handler(options.onEnter) — it is handed to code that is not followed [@solid-primitives/transition-group/dist/index.js:74]
   primitives/transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: handler(options.onExit) — it is handed to code that is not followed [@solid-primitives/transition-group/dist/index.js:74]
-  primitives/upload/rx-types/@solid-primitives/upload.d.rx: createFilePicker: pure — a function it answers (clearFiles) is not shown to only compute: it writes a signal while it is called [@solid-primitives/upload/dist/createFilePicker.js:69]
   solid-codemirror/editor/rx-types/solid-codemirror.d.rx: createCodeMirror: handler(props.onValueChange) — not read: it may replace a built-in: the global object goes where it is not followed, and something is written under a name that is computed (bench/.out/ws/node_modules/@codemirror/view/dist/index.js:43)
   solid-flow/graph/rx-types/@dschz/solid-flow.d.rx: SolidFlow: handler(onNodeClick) — not read: under the conditions umd it loads other files, which are not read
   solid-sonner/toaster/rx-types/solid-sonner.d.rx: toast: renders(Toaster) — where the library renders what it is given is not read: a value kept in the module's state is followed no further

@@ -306,6 +306,8 @@ console.log("a function a fn answers: `io` before the whole result (MO-10b), rea
   ok("a result the module names is written by its parts where the types show what the checker reads: an `Accessor`, a function that answers nothing", has("export pure fn createPicker(): { files: ref number; clear: () => void }"), text);
   ok("…and by its name where a part is only shaped as an accessor: no type says it only reads", has("export fn schema(): Schema"), text);
   ok("a field named `ref` is no `ref` word: the row keeps the `instantiates` its code proves", has("export pure fn useItem(): { ref: (node: Element | null) => void; index: number } instantiates"), text);
+  const audit = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "--audit", "kit.d.rx"], { cwd: app, encoding: "utf8" });
+  ok("the audit holds each of those words as the draft wrote it: a part marked `io`, and one that answers nothing in a row that instantiates, are said", /: \d+ words read from the code, 0 it does not show/.test(audit.stdout + audit.stderr), audit.stdout + audit.stderr);
   const judge = (file, body) => {
     fs.writeFileSync(path.join(app, file), ["import { emitter, createPicker } from \"./kit.js\"", "export default component App() {", ...body, "}", ""].join("\n"));
     const t = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "--noEmit", "-p", "tsconfig.json"], { cwd: app, encoding: "utf8" });

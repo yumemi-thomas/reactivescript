@@ -257,4 +257,14 @@ function apply(spec, from, lines, why, more = {}) {
   return { lines: out, head, count, words, unread: total ? undefined : unread, facts, provided, at };
 }
 
-module.exports = { apply, parseRow, named, fnTypeAt, records, ioMarked };
+/** Whether a row's line says of the function part at `p.path` what `pure` needs said of one not shown to only compute
+ *  (MO-10b): it is marked `io`, or the row is an instantiation and writes the part a function that answers nothing or a
+ *  promise, which a view may not call. What the writer above takes, for whoever reads a row already written (the audit). */
+function partSaid(line, p, f) {
+  if (ioMarked(line, p.path)) return true;
+  const row = parseRow(line); if (!row || !p.callable) return false;
+  const result = /^\s*:\s*(.*)$/s.exec(line.slice(row.close + 1))?.[1] ?? "";
+  return instantiating(line, row, f ?? {}) && acts(result.replace(/\s+(?:instantiates|(?:uses|provides|rejects|nests|renders)\([^()]*\))(?=\s|$)/g, ""), p.path);
+}
+
+module.exports = { apply, parseRow, named, fnTypeAt, records, ioMarked, partSaid };
