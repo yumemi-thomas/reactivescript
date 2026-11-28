@@ -530,6 +530,27 @@ fs.writeFileSync(path.join(ws, "kit.d.ts"), [
   const tk = spawnSync(process.execPath, [path.join(__dirname, "../bin/tsc.js"), "-p", "tsconfig.kit.json"], { cwd: ws, encoding: "utf8" });
   check("rx-tsc holds the draft, with `renders(Toaster)` added, against the same types — and a component that declares no props where a function of nothing is asked for (TY-3d)", tk.status === 0, tk.stdout + tk.stderr);
 }
+// 2026-11-28: a parameter whose type is a function type generic in itself, by a name (`schedule: Schedule`, `<A>(cb, wait)
+// => Handle<A>`), is written by that name: taken apart (`Parameters<Schedule>`) it is the function at its bounds, which
+// TypeScript does not hold, and the row fell back to every part by its place — the callback beside it too, which then has
+// no `(` a `handler` can be written on. A JS component's prop keeps its function type (MO-10g: unmarked, it is pure).
+fs.writeFileSync(path.join(ws, "sched.js"), "export const throttle = (cb) => cb;\nexport const leading = (schedule, cb, wait) => schedule(cb, wait);\nexport const Timer = () => null;\n");
+fs.writeFileSync(path.join(ws, "sched.d.ts"), [
+  "import type { JSX } from \"@solidjs/web\";",
+  "export type Handle<A extends unknown[]> = ((...args: A) => void) & { clear: () => void };",
+  "export type Schedule = <A extends unknown[]>(callback: (...args: A) => void, wait?: number) => Handle<A>;",
+  "export declare function throttle<A extends unknown[]>(callback: (...args: A) => void, wait?: number): Handle<A>;",
+  "export declare function leading<A extends unknown[]>(schedule: Schedule, callback: (...args: A) => void, wait?: number): Handle<A>;",
+  "export declare function Timer(props: { onTick: Schedule }): JSX.Element;",
+  "",
+].join("\n"));
+{
+  const r = spawnSync(process.execPath, [path.join(__dirname, "../bin/declare.js"), "./sched.js", "--no-infer"], { cwd: ws, encoding: "utf8" });
+  const has = line => r.stdout.split("\n").includes(line);
+  if (process.env.VERBOSE) console.log(r.stdout);
+  check("a parameter typed by a function type generic in itself is written by its name, and the row keeps its callback and result", has("export fn leading<A extends unknown[]>(schedule: Schedule, callback: (...args: A) => void, wait?: number): Handle<A>"), r.stdout + r.stderr);
+  check("…and a component's prop of that type keeps a function type (an unmarked one is pure there, MO-10g)", /^export component Timer\(props: .*onTick: \(/m.test(r.stdout), r.stdout);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

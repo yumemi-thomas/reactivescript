@@ -350,6 +350,120 @@ record is not the row's own; a function of nothing that answers
 (`SourceAccessor`) is an accessor; a render prop generic in what it
 gives is a render prop.
 
+## What the `any`s left are (census, 2026-11-28)
+
+The drafts write no `any` of their own; the question was what the
+library's own ones are, what they cost, and whether a draft could say
+more — by writing types differently, or by reading the package's
+TypeScript source instead of its declaration files. `bench/any-census.mjs`
+drafts every module the tasks declare and the coverage suite lists (281,
+each once), and `bench/any-origin.mjs` places and traces each `any` the
+drafts call the library's; `bench/any-census.txt` is the run.
+
+*Where they are.* 1309 `any`s in 947 rows of 105 modules. Two libraries
+hold most: `@ui-sdk/solid` (700: one alias, `RenderProp<S> = (props:
+Record<string, any>, state: S) => JSX.Element`, in every part's `render`
+prop) and `solid-stripe` (200: its callbacks answer `any`, `onReady?:
+(element) => any`). Each `any` is placed where the checker reads it
+(compiler/src/parse.rs's `shape_of`, the prop kinds, `callbacks`;
+check.rs's `ty_*` readers; ref/ mirrors them): 1017 stand where it reads
+nothing — a type argument of a named type (783), a bound or default
+(114), a type alias's body (94), a callback's parameters (26); 223 are
+what a callback answers, of which it reads one thing (a `View`, or a
+value); 69 are in a part it reads a step at a time — `deepEqual(a: any,
+b: any)`, `isRedirect(obj: any)`, `copyToClipboard`'s `value?: any`,
+zag's `"data-…"?: any` attributes: functions that take anything, and
+results the library left open.
+
+*Where they come from.* Each `any`'s smallest piece of the row
+(`Record<string, any>`, `value?: any`) was looked for in the
+declaration files the module's program reads: 1168 in the package's own,
+117 in another package's whose type the row spells out (TanStack's
+`query-core`, `router-core`, `@zag-js/types`, …), 24 written by
+TypeScript's printer (an `any` it inferred, or a bundle's renamed
+parameter `TInput$1 = any`). None comes from a name TypeScript could not
+resolve. Of the 1163 in the package's own files, the source was looked
+at for all but 16 (three solid-primitives and zag, whose tags were not
+fetched): in the package (`src/`, a source map's `sourcesContent`:
+TanStack Query and Router, solid-use, wardic, cmdk-solid, solid-slider;
+64) or at the git tag of the installed version (ui-sdk, solid-stripe,
+valibot, `@solidjs/router`, the solid-primitives; 1083, each package's
+folder found by its package.json's name and version). The source writes
+the same piece for all but nine, and those nine are no loss: TanStack
+Router's `createLink` is the same text (the row writes `JSX.Element` as
+`View`), and the others are inferred, the same type in the source —
+`solid-use`'s `equals = Object.is` is lib's `(value1: any, value2: any)
+=> boolean`, ui-sdk's `useFieldControl` merges `Record<string, any>`
+props.
+
+*Why the source has nothing more.* A declaration file `tsc` emits from
+TypeScript is the source's types: an annotation is copied as written,
+and an inferred type is printed by the same checker that would read the
+source (it does not cut a type to `any`: one too long to print is an
+error, TS7056). Reading the source with TypeScript's checker can differ
+from the declaration only where the declaration was written by hand
+apart from the code, or emitted by a tool that does not infer
+(isolated declarations, which refuse a missing annotation rather than
+write `any`). No package of the test set is either. So `rx-declare`
+reads no source for types: where it could, it would read the same
+types, and a source is not known to be what was built without proving
+it (a source map's file, or a tag's, checked against the package's own
+declaration, which is then what is read anyway). The words are another
+matter and stay as they are: `compiler/words` reads the files each host
+loads (DESIGN.md, *What is read*), because a word is about the code
+that runs; a source is what that code was built from, through a
+compiler, a JSX transform and a bundler.
+
+*Restate, or name the library's type?* What a `.d.rx` says is read twice
+(13 TY-4b, TY-6): TypeScript types the program with the library's own
+declaration and only holds the row against it, so a row may be a
+reference to the library's type and lose nothing there; the checker
+reads the row's text, a step at a time, and reads nothing through a
+name (`import("pkg").T`, `Parameters<typeof …>`). So a row spells out
+exactly what the checker reads — a result's tuple and record parts and
+whether a function part answers `void` or a promise, `ref`, `View`,
+`Component`, a primitive at the end of a path, a list, a disposer, a
+callback's function type (where `handler` and `draft` go), a prop's
+kind — and names the library's type everywhere else (MO-8m, MO-8o).
+A reference-only declaration (`typeof import("pkg").f` and the words)
+would lose those reads: a function part that is io would be read as a
+value, a primitive field as one that may hold the value — wrong
+programs accepted, right ones refused. The `any`s above are what that
+leaves: the library's, in what is spelled out because the checker reads
+around them (ui-sdk's `render` must be a function answering a `View`,
+so its parameters are written beside it). Writing such a part by its
+place instead (`(...args: Parameters<RenderProp<S>>) => View`) would
+hide the `any` and say nothing more; MO-8q counts parts said by place
+apart so that it is not a way around the rule, and it is not done.
+
+*What the census changed (2026-11-28).* A parameter whose type is a
+function type generic in itself, by a name — `@solid-primitives/
+scheduled`'s `leading(schedule: ScheduleCallback, callback, wait)`,
+`ScheduleCallback = <Args>(callback, wait?) => Scheduled<Args>` — was
+written `(...args: Parameters<ScheduleCallback>) => ReturnType<…>`: that
+is the function at its bounds, which TypeScript does not hold where the
+library takes the generic one, so the row fell back to its last reading,
+every part by its place, `callback` too — and a closure given there
+with a body was refused (`REACTIVE_WRITE_IN_OWNED_SCOPE`: no function
+type was left for `handler` to stand on). Such a parameter, or a field
+of a record parameter, is now written by the library's name: the
+checker reads a parameter's function type only marked `handler`, which
+a word read from the code places on a written `(`, so the name says
+what the unmarked function type said. A JS component's prop is not
+changed: there an unmarked function type is read as pure, and a name by
+the prop's own name (SC-4). Three modules' drafts changed (scheduled's
+`leading` and `leadingAndTrailing`, i18n's translators, wardic's
+`Report.debugOf`): 18 fewer parts said by place, and i18n's
+`missingKeyAsTemplate` now spells out the library's `(path: string,
+...args: any[]) => O | undefined`.
+
+*Left as they are.* A JS component's prop typed by a function type
+generic in itself is still the draft's `(...args: any[]) => any`
+(introduced; no package of the test set has one): its name would change
+how the checker reads an `on…` prop, and taking it apart is another
+type. Rows of zag's `normalizeProps` (one per element) and a router's
+methods are said by place where their parameters are computed types.
+
 ## A module of the app's own (MO-8s)
 
 It is drafted as any module is: the words its code proves, and no word copied from another row (a word copied off a row

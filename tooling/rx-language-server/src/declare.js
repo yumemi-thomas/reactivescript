@@ -49,7 +49,7 @@ const whole = (ts, checker, t, at, node) => { const s = text(ts, checker, t, at,
 const valueOf = (ts, checker, t) => { const sym = checker.getNonNullableType(t).symbol; if (!sym || !(sym.flags & ts.SymbolFlags.Function)) return undefined; const r = nameOf(ts, checker, sym, 0, true); return r.text && /^import\(/.test(r.text) ? `typeof ${r.text}` : undefined; };
 /** MO-8m: a callback's type (MO-10g) — its own signature where every part can be named; else its parameters and what
  *  it answers by its place in the library's declaration (`at`); else open. */
-function callbackText(ts, checker, t, at, why = "callback", node) {
+function callbackText(ts, checker, t, at, why = "callback", node, byName = false) {
   if (CTX.refs) {
     const nn = checker.getNonNullableType(t);
     const sigs = nn.getCallSignatures();
@@ -74,6 +74,14 @@ function callbackText(ts, checker, t, at, why = "callback", node) {
     const fnOf = x => { const m = /^\((.*)\)$/s.exec(x); const y = m && !/^[^(]*\)/.test(m[1]) ? m[1] : x; return /^\([^]*\) => /.test(y) && !/^\([^()]*\)\[\]/.test(y) ? y : undefined; };
     const direct = n => !!n && (ts.isParenthesizedTypeNode(n) ? direct(n.type) : ts.isFunctionTypeNode(n) && !n.typeParameters?.length);
     if (named && !introduced(named) && one && sigs.length === 1 && (direct(node) ? !WORDS.test(named) : nn === t && fnOf(named))) return direct(node) ? named.replace(/^\((.*)\)$/s, (m, x) => /^[^(]*\)/.test(x) ? m : x) : fnOf(named);
+    // a callback type generic in itself (`schedule: ScheduleCallback`, `<Args>(callback, wait?) => Scheduled<Args>`) by
+    // the name the library declares it with, as it stands: taken apart (`Parameters<N>`) it is the function at its
+    // bounds, another type, which TypeScript does not hold where the library takes N — and the row fell back to every part
+    // by its place, the parameters beside it too (2026-11-28). A parameter's function type is read by the checker only
+    // marked `handler` (MO-10g), a word placed on a written `(`: the name says what that function type says unmarked.
+    // (`byName`: a parameter, or a field of a record parameter. A JS component's prop is not one: there a function type
+    // with no `handler` is read as pure, and a name by the prop's own name, SC-4 — the reading would change.)
+    if (byName && named && !introduced(named) && one && sigs.length === 1 && sigs[0].getTypeParameters()?.length && !direct(node) && !fnOf(named)) return named;
     if (named && !introduced(named)) at = nn === t ? named : `NonNullable<${named}>`;
     else at = at ? present(checker, t, at) : valueOf(ts, checker, t);
     if (at) return `(...args: Parameters<${at}>) => ${CTX.decl && one && sigs.length === 1 && sigs[0].getReturnType().flags & ts.TypeFlags.Void ? "void" : `ReturnType<${at}>`}`;
@@ -646,7 +654,7 @@ function fnText(ts, checker, t) {
   const rt = r.flags & ts.TypeFlags.Void ? "void" : /^Promise</.test(rs) && /^any\u00ab/.test(named) ? `Promise<${named}>` : named;
   return `(${ps.join(", ")}) => ${rt}`;
 }
-function propText(ts, checker, p, at, precise = false, obj) {
+function propText(ts, checker, p, at, precise = false, obj, field = false) {
   const t = checker.getTypeOfSymbolAtLocation(p, at);
   const here = obj && CTX.refs ? `${obj}[${JSON.stringify(p.name)}]` : undefined;   // the prop, in the library's own declaration
   const opt = p.flags & ts.SymbolFlags.Optional ? "?" : "";
@@ -659,7 +667,7 @@ function propText(ts, checker, p, at, precise = false, obj) {
   if (isComponent(ts, checker, t) && !isElement(ts, checker, t)) return `${p.name}${opt}: Component`;
   if (checker.getNonNullableType(t).isUnion?.() && !isElement(ts, checker, t) && checker.getNonNullableType(t).types.some(u => isComponent(ts, checker, u)) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.StringLike) && checker.getNonNullableType(t).types.some(u => u.flags & ts.TypeFlags.String || (u.flags & ts.TypeFlags.Intersection && u.types.some(x => x.flags & ts.TypeFlags.String)))) return `${p.name}${opt}: string | Component`;   // a polymorphic \`as\`: a tag or a component (MO-11c)
   if (isElement(ts, checker, t)) return `${p.name}${opt}: View`;
-  if (isFn(checker, t)) return `${p.name}${opt}: ${(precise && fnText(ts, checker, t)) || callbackText(ts, checker, t, here, "callback", annotation(ts, p))}`;   // a callback (MO-10g)
+  if (isFn(checker, t)) return `${p.name}${opt}: ${(precise && fnText(ts, checker, t)) || callbackText(ts, checker, t, here, "callback", annotation(ts, p), field)}`;   // a callback (MO-10g)
   // MO-11c (2026-11-24): a record or a list of components — each component in the literal the prop is given is applied there
   if (obj !== undefined || CTX.decl) { const held = heldComponents(ts, checker, t, at); if (held) { const all = `${p.name}${opt}: ${held.all}`; HELD_ONLY.set(all.replace(MARK, ""), `${p.name}${opt}: ${held.only}`); return all; } }
   return `${p.name}${opt}: ${text(ts, checker, t, here, annotation(ts, p))}`;
@@ -781,7 +789,7 @@ function paramText(ts, checker, p, at, generic = false, here) {
     const own = checker.getNonNullableType(t);
     if (CTX.decl && own.flags & ts.TypeFlags.TypeParameter && CTX.scope.has(own.symbol)) { const said = declared(ts, checker, node, t, true); if (said && !introduced(said)) return `${name}${opt}: ${said}`; }
     if (!checker.getNonNullableType(t).getCallSignatures().some(s => checker.getTypePredicateOfSignature?.(s))) {
-      const c = callbackText(ts, checker, t, here, "callback", node);
+      const c = callbackText(ts, checker, t, here, "callback", node, true);
       // MO-11c, MO-11u: a parameter that is a component (it takes props and gives an element) is written `Component<P>`,
       // the same type under its own name — what the fn is given is then read as what it is
       { const k = isComponent(ts, checker, t) && !isElement(ts, checker, t) ? /^\(([A-Za-z_$][\w$]*): ([^]*)\) => View$/.exec(c) : null;
@@ -796,7 +804,7 @@ function paramText(ts, checker, p, at, generic = false, here) {
   }
   const obj = checker.getNonNullableType(t);
   if (ownObject(ts, obj, checker) && sayable(ts, obj) && obj.getProperties().some(q => isFn(checker, checker.getTypeOfSymbolAtLocation(q, at)))) {
-    const rec = `${name}${opt}: { ${obj.getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name)).map(q => propText(ts, checker, q, at, false, present(checker, t, here))).join("; ")} }`;   // its callbacks are typed as functions
+    const rec = `${name}${opt}: { ${obj.getProperties().filter(q => /^[A-Za-z_$][\w$]*$/.test(q.name)).map(q => propText(ts, checker, q, at, false, present(checker, t, here), true)).join("; ")} }`;   // its callbacks are typed as functions
     // MO-8q: where a field has no text (a predicate, a function generic in itself), the options by the name the library
     // declares them with, or by their place, before an `any` of the draft's
     const whole_ = CTX.decl && introduced(rec) ? whole(ts, checker, opt ? checker.getNonNullableType(t) : t, opt ? present(checker, t, here) : here, node) : undefined;

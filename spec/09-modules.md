@@ -378,6 +378,19 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   - *The record is held to the type* (13 TY-6f): each field names a prop the
     type has, and its type is one the library's type for that prop takes, the
     same or narrower. Otherwise `DECLARATION_MISMATCH`, on the row.
+  - *What a row spells out (2026-11-28).* TypeScript types a program with
+    the library's own declaration (13 TY-4b) and only holds a row against it
+    (TY-6); the checker reads the row's text and nothing through a name. So
+    a drafted row spells out what the checker reads (MO-8d's shape, a
+    result's parts, a callback's function type, a prop's kind, a primitive
+    at the end of a path) and names the library's types everywhere else.
+    A parameter whose type is a function type generic in itself is its
+    name (`schedule: ScheduleCallback`): taken apart it is another type,
+    and the checker reads a parameter's function type only marked
+    `handler`. Types are read from the library's declaration, not its
+    source: a declaration `tsc` emitted is the source's types (the census,
+    `bench/any-census.txt`: every `any` left is written the same in the
+    source at the release's tag, where it was looked for).
 - **MO-8q (`any` is the library's, or it is not written).** A declaration of a
   module with types of its own may contain `any` only where the library's own
   declared type has `any` **at that position** (the parameter, the part of

@@ -103,6 +103,15 @@ expected diagnostics are the ones the language already has for the mistake
 (or the one its spec says it should have). A fix to the compiler follows from
 a rule in `spec/`, never from a task.
 
+**The `any` census.** `node bench/any-census.mjs` drafts every module the tasks declare and the coverage suite lists,
+once each (a process a draft, with a heap limit, a watch on its memory and a wall-time limit; `--out dir`, `--only
+text`, `--jobs n`); `node bench/any-origin.mjs --in dir [--tags dir]` then says of each `any` the drafts call the
+library's own where it stands in its row (what the checker reads there), where it comes from (the package's own
+declaration files, another package's, TypeScript's printer), and whether the package's TypeScript source writes it too
+— the source it ships, or (`--tags`) checkouts of its repository at the git tag of the installed version. It also
+places the parts said by place. `bench/any-census.txt` is the last run; what it showed is in
+`tooling/rx-language-server/DECLARATIONS.md`, *What the `any`s left are*.
+
 ## The coverage suite
 
 A task is one job with its mistakes; it samples a library. The coverage suite (`bench/coverage/`, `coverage.mjs`,

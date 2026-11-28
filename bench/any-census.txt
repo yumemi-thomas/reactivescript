@@ -1,0 +1,226 @@
+The `any` census (2026-11-28; bench/any-census.mjs, then bench/any-origin.mjs --tags <checkouts>): every module the tasks declare and the coverage suite drafts, drafted whole once, each `any` the draft calls the library's own placed and traced. The reasoning: tooling/rx-language-server/DECLARATIONS.md, "What the `any`s left are".
+
+1309 `any`s the drafts call the library's own, in 947 rows of 105 modules (281 drafted)
+
+By place in the row — what the checker reads there:
+    783  type-arg         never    a type argument of a named type (`Component<any>`, `Record<string, any>`): ty_step does not open a name
+    223  callback-answer  one bit  what a callback answers: whether it is a View (a render prop) or a value (ty_answers_value); `any` is neither
+    114  bound            never    a type parameter's bound or default: TypeScript's alone (project.rs's boundary check)
+     94  alias            never    an `export type`'s body: the checker skips JsDecl::Type; ty_undoes follows an alias only for a disposer
+     32  field-or-element read     a step of a parameter or result (ty_step, decl_prim, ty_list): `any` says nothing — stricter for a primitive, looser for io
+     28  whole            read     the whole type of a parameter, prop, result or const: `any` is not a callback, a list, a view or a primitive
+     26  callback-param   never    a callback's parameters: only `handler`/`draft` before them, and that it is a function
+      9  result-fn-answer read     what a function part of a result answers (shape_of, void_method, promise_method): `any` is a value, not io — looser
+
+By what the checker reads of the place:
+   1017  never
+    223  one bit
+     69  read
+
+By origin:
+   1168  own
+    117  other
+     24  printed
+
+Other packages whose declaration a row spells out:
+     66  @tanstack/query-core
+     20  @zag-js/types
+     11  @tanstack/router-core
+     10  (other)
+      6  @wardic/dom
+      2  @tanstack/history
+      1  csstype
+      1  @floating-ui/core
+
+By the module's package:
+    700  @ui-sdk/solid
+    200  solid-stripe
+     64  valibot
+     63  @tanstack/solid-router
+     42  (the task's own)
+     37  @tanstack/solid-query
+     25  @solidjs/router
+     23  @solid-primitives/utils
+     23  @zag-js/solid
+     17  @solid-primitives/signal-builders
+     11  @solid-primitives/event-bus
+     10  @wardic/solid
+      9  @solid-primitives/storage
+      8  solid-use
+      7  @solid-primitives/async
+      6  @solid-primitives/destructure
+      6  @solid-primitives/event-dispatcher
+      5  @solid-primitives/event-listener
+      5  @solid-primitives/i18n
+      4  @solid-primitives/clipboard
+      4  @solid-primitives/promise
+      4  @solid-primitives/props
+      4  @solid-primitives/sortable
+      3  (other)
+      3  @solid-primitives/graphql
+      3  @solid-primitives/list
+      3  @solid-primitives/memo
+      3  @solid-primitives/raf
+      2  @solid-primitives/flux-store
+      2  @solid-primitives/rootless
+      2  @solid-primitives/state-machine
+      2  @solid-primitives/virtual
+      2  solid-slider
+      1  @dschz/solid-flow
+      1  @solid-primitives/jsx-tokenizer
+      1  @solid-primitives/keyed
+      1  @solid-primitives/mutable
+      1  @solid-primitives/sse
+      1  cmdk-solid
+      1  solid-floating-ui
+
+Place × origin:
+    718  type-arg · own
+    208  callback-answer · own
+    101  bound · own
+     78  alias · own
+     61  type-arg · other
+     27  whole · own
+     23  field-or-element · other
+     19  callback-param · own
+     13  bound · other
+      9  field-or-element · own
+      9  alias · printed
+      8  result-fn-answer · own
+      8  callback-answer · printed
+      7  callback-answer · other
+      7  alias · other
+      4  type-arg · printed
+      4  callback-param · other
+      3  callback-param · printed
+      1  whole · other
+      1  result-fn-answer · other
+
+The pieces that hold them, most frequent first (40):
+    692  @ui-sdk/solid · type-arg · Record<string, any>
+     62  solid-stripe · callback-answer · (event: { elementType: import("@stripe/stripe-js").StripeElementType }) => any
+     26  solid-stripe · callback-answer · () => any
+     13  @solid-primitives/signal-builders · bound · any[]
+     10  @tanstack/solid-router · type-arg · Record<string, any>
+     10  (the task's own) · type-arg · import("@tanstack/query-core").QueryObserverOptions<any, any, any, any, any>
+      9  @tanstack/solid-router · bound · Record<string, any>
+      9  valibot · alias · TInput = any
+      8  @tanstack/solid-query · type-arg · import("@tanstack/query-core").MutationOptions<any, any, any, any>
+      8  (the task's own) · type-arg · import("@tanstack/solid-query").MutationObserverOptions<any, any, any, any>
+      8  (the task's own) · type-arg · import("@tanstack/query-core").MutationOptions<any, any, any, any>
+      7  @solid-primitives/event-bus · alias · Record<PropertyKey, any>
+      7  @solid-primitives/utils · bound · any[]
+      7  @tanstack/solid-router · whole · any
+      7  @tanstack/solid-router · alias · Record<string, any>
+      7  @tanstack/solid-router · type-arg · RouteMatch<any, any, any, any, any, any, any>
+      6  @solid-primitives/utils · whole · any
+      6  valibot · alias · PipeItem<any, unknown, BaseIssue<unknown>>
+      6  valibot · type-arg · PipeItem<any, unknown, BaseIssue<unknown>>
+      6  valibot · bound · any[]
+      5  @solid-primitives/destructure · alias · any[]
+      5  @tanstack/solid-query · type-arg · import("@tanstack/query-core").QueryObserverOptions<any, any, any, any, any>
+      4  @solid-primitives/event-listener · type-arg · MessageEvent<any>
+      4  @solid-primitives/sortable · whole · any
+      4  @solidjs/router · bound · Array<any>
+      4  @tanstack/solid-query · type-arg · MutationObserverOptions<any, any, any, any>
+      4  @tanstack/solid-query · bound · import("@tanstack/solid-query").Mutation<any, any, any, any>
+      4  @tanstack/solid-query · type-arg · import("@tanstack/solid-query").Query<any, any, any, any>
+      4  solid-stripe · callback-answer · (event: { elementType: "payment"; success: boolean; error?: string | undefined; payment_method: { id: string; type: string; billing_details: { address: { city: …
+      4  (the task's own) · bound · import("@tanstack/solid-query").MutationFilters<any, any>
+      4  (the task's own) · bound · import("@tanstack/query-core").MutationOptions<any, any, any, any>
+      4  valibot · alias · any[]
+      4  valibot · bound · PipeItem<any, unknown, BaseIssue<unknown>>
+      3  @solid-primitives/clipboard · callback-param · el: any
+      3  @solid-primitives/promise · whole · any
+      3  @solid-primitives/utils · field-or-element · any[]
+      3  @tanstack/solid-query · callback-param · data: any
+      3  @tanstack/solid-query · callback-answer · (data: any) => any
+      3  @tanstack/solid-router · alias · ReadonlyArray<any>
+      3  @wardic/solid · alias · I = any
+
+Modules whose package's declaration files name something TypeScript cannot resolve: 1
+  tasks/router-provider/src:./router.tsx: __root.tsx: Cannot find module '../pages.rx?rx-lib' or its corresponding type declarations. · index.tsx: Cannot find module '../pages.rx?rx-lib' or its corresponding type declarations. (+1)
+
+Source (the `any`s found in the package's own declaration files): 1163; the package ships no TypeScript source: 1099; the source writes the same piece: 61; it does not: 3
+  @ui-sdk/solid: 700 — no source in the package
+  solid-stripe: 196 — no source in the package
+  valibot: 55 — no source in the package
+  @tanstack/solid-router: 41 — sourcesContent + src/: 40 the same, 1 not
+  @solidjs/router: 25 — no source in the package
+  @solid-primitives/utils: 23 — no source in the package
+  @solid-primitives/signal-builders: 17 — no source in the package
+  @solid-primitives/event-bus: 11 — no source in the package
+  @solid-primitives/storage: 9 — no source in the package
+  @tanstack/solid-query: 9 — sourcesContent + src/: 9 the same, 0 not
+  solid-use: 8 — sourcesContent + src/: 6 the same, 2 not
+  @solid-primitives/async: 7 — no source in the package
+  @solid-primitives/destructure: 6 — no source in the package
+  @solid-primitives/event-dispatcher: 6 — no source in the package
+  @solid-primitives/i18n: 5 — no source in the package
+  @solid-primitives/clipboard: 4 — no source in the package
+  @solid-primitives/promise: 4 — no source in the package
+  @solid-primitives/props: 4 — no source in the package
+  @solid-primitives/sortable: 4 — no source in the package
+  @wardic/solid: 4 — src/: 4 the same, 0 not
+  @solid-primitives/graphql: 3 — no source in the package
+  @solid-primitives/memo: 3 — no source in the package
+  @solid-primitives/raf: 3 — no source in the package
+  @solid-primitives/flux-store: 2 — no source in the package
+  @solid-primitives/list: 2 — no source in the package
+  @solid-primitives/state-machine: 2 — no source in the package
+  @solid-primitives/virtual: 2 — no source in the package
+  @zag-js/solid: 2 — no source in the package
+  @solid-primitives/event-listener: 1 — no source in the package
+  @solid-primitives/jsx-tokenizer: 1 — no source in the package
+  @solid-primitives/keyed: 1 — no source in the package
+  @solid-primitives/mutable: 1 — no source in the package
+  cmdk-solid: 1 — sourcesContent: 1 the same, 0 not
+  solid-slider: 1 — sourcesContent: 1 the same, 0 not
+
+  not in the source as written:
+    @tanstack/solid-router · createLink · type-arg · Constrain<TComp, any, (props: CreateLinkProps) => View>
+    solid-use · default · callback-param · value1: any
+    solid-use · default · callback-param · value2: any
+
+Source at the release's tag (a checkout of each repository at the git tag of the installed version; `--tags`):
+  @ui-sdk/solid@0.1.0-beta.18 (ui/packages/solid): 700 — 694 written the same in the source, 6 not
+  solid-stripe@2.0.0 (solid-stripe): 196 — 196 written the same in the source, 0 not
+  valibot@1.5.0 (valibot/library): 55 — 55 written the same in the source, 0 not
+  @solidjs/router@2.0.1 (solid-router): 25 — 25 written the same in the source, 0 not
+  @solid-primitives/utils@7.0.1 (solid-primitives/packages/utils): 23 — 23 written the same in the source, 0 not
+  @solid-primitives/signal-builders@1.0.0 (solid-primitives/packages/signal-builders): 17 — 17 written the same in the source, 0 not
+  @solid-primitives/event-bus@3.0.0 (solid-primitives/packages/event-bus): 11 — 11 written the same in the source, 0 not
+  @solid-primitives/storage@5.0.1: 9 — no checkout at its tag
+  @solid-primitives/async@0.0.101 (solid-primitives/packages/async): 7 — 7 written the same in the source, 0 not
+  @solid-primitives/destructure@1.0.0 (solid-primitives/packages/destructure): 6 — 6 written the same in the source, 0 not
+  @solid-primitives/event-dispatcher@1.0.0 (solid-primitives/packages/event-dispatcher): 6 — 6 written the same in the source, 0 not
+  @solid-primitives/i18n@3.0.1: 5 — no checkout at its tag
+  @solid-primitives/clipboard@2.0.0 (solid-primitives/packages/clipboard): 4 — 4 written the same in the source, 0 not
+  @solid-primitives/promise@2.0.0 (solid-primitives/packages/promise): 4 — 4 written the same in the source, 0 not
+  @solid-primitives/props@4.0.0 (solid-primitives/packages/props): 4 — 4 written the same in the source, 0 not
+  @solid-primitives/sortable@1.0.0 (solid-primitives/packages/sortable): 4 — 4 written the same in the source, 0 not
+  @solid-primitives/graphql@3.0.0 (solid-primitives/packages/graphql): 3 — 3 written the same in the source, 0 not
+  @solid-primitives/memo@2.0.0 (solid-primitives/packages/memo): 3 — 3 written the same in the source, 0 not
+  @solid-primitives/raf@4.0.0 (solid-primitives/packages/raf): 3 — 3 written the same in the source, 0 not
+  @solid-primitives/flux-store@1.0.0 (solid-primitives/packages/flux-store): 2 — 2 written the same in the source, 0 not
+  @solid-primitives/list@1.0.0 (solid-primitives/packages/list): 2 — 2 written the same in the source, 0 not
+  @solid-primitives/state-machine@1.0.0 (solid-primitives/packages/state-machine): 2 — 2 written the same in the source, 0 not
+  @solid-primitives/virtual@1.0.1 (solid-primitives/packages/virtual): 2 — 2 written the same in the source, 0 not
+  @zag-js/solid@2.0.0-next.4: 2 — no checkout at its tag
+  @solid-primitives/event-listener@3.0.0 (solid-primitives/packages/event-listener): 1 — 1 written the same in the source, 0 not
+  @solid-primitives/jsx-tokenizer@3.0.0 (solid-primitives/packages/jsx-tokenizer): 1 — 1 written the same in the source, 0 not
+  @solid-primitives/keyed@3.0.0 (solid-primitives/packages/keyed): 1 — 1 written the same in the source, 0 not
+  @solid-primitives/mutable@3.0.0 (solid-primitives/packages/mutable): 1 — 1 written the same in the source, 0 not
+
+  not in the tag's source as written:
+    @ui-sdk/solid · useFieldControl · result-fn-answer · [x: string]: any;
+    @ui-sdk/solid · useFieldControl · result-fn-answer · readonly "aria-labelledby": any;
+    @ui-sdk/solid · useFieldControl · result-fn-answer · readonly "data-slot": any;
+
+Parts said by place (09 MO-8m), by where they stand: 1183
+    616  whole             read   e.g. @dschz/solid-flow · SolidFlow, @dschz/solid-flow · SolidFlowProvider, @dschz/solid-flow · NodeToolbar, @dschz/solid-flow · getIncomers
+    285  callback-param    never   e.g. @dschz/solid-flow · SolidFlow, @dschz/solid-flow · SolidFlowProvider, @dschz/solid-flow · createEdgeStore, @dschz/solid-flow · createOptimisticEdgeStore
+    170  callback-answer   one bit   e.g. @dschz/solid-flow · SolidFlow, @dschz/solid-flow · SolidFlowProvider, @solid-primitives/async · fromStream, @solid-primitives/async · fromJSONStream
+     69  result-fn-answer  read   e.g. @solid-primitives/controlled-props · createControlledProp, @solid-primitives/controlled-signal · createControllableSignal, @solid-primitives/controlled-signal · createControllableBooleanSignal, @solid-primitives/controlled-signal · createControllableArraySignal
+     41  field-or-element  read   e.g. @solid-primitives/form · createForm, @solid-primitives/memo · createLatest, @solid-primitives/memo · createLatestMany, @solid-primitives/memo · createReducer
+      2  type-arg          never   e.g. valibot · getSpecificMessage, valibot · setSpecificMessage
