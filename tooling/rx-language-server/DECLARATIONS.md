@@ -525,6 +525,19 @@ beside the draft (`expanded`) — and report the draft as written next to
 it: `bench/any-census.txt`, *As written*; `scorecard.txt`, *Whole
 drafts*.
 
+*What it came to (the census's 281 drafts, 2026-11-28).* 263 aliases
+in 82 drafts; each of the 82 is read by the crate as its written-out
+twin (every row's facts and types), and every table of the census is
+unchanged. Rows 8211 → 8474 (an alias is a row); characters of rows
+1 331 469 → 1 237 798, 7.0% fewer; `any` written 1309 → 581 (the same
+1309 counted written out). `@ui-sdk/solid`: 129 aliases in 42 of its 69
+drafts, characters 433 456 → 395 676 (8.7% fewer), `any` written 700 →
+100 — the render prop's `Record<string, any>` once a draft instead of
+once a part. The rest of a ui-sdk draft is the library's own props
+types and records the checker reads, which differ part by part. A
+draft the aliases would not shorten is written out
+(`@tanstack/solid-router`'s one candidate).
+
 ## A module of the app's own (MO-8s)
 
 It is drafted as any module is: the words its code proves, and no word copied from another row (a word copied off a row

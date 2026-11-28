@@ -168,6 +168,7 @@ function factorDraft(head, rows, { hints, file, check, why = [] }) {
     const fr = factor(rows, { hints, taken, limit: aliases.length }).rows;
     const t = build(fr, aliases);
     let same; try { same = reading(t, file) === want; } catch { same = false; }
+    if (same && t.length >= text.length) { why.push("the aliases make the draft no shorter"); return undefined; }
     if (same) {
       const bad = check?.(t, head.length, [...fr, ...(aliases.length ? ["// x", ...aliases.map(aliasRow)] : [])]);
       if (!bad?.size) return { text: t, aliases: aliases.map(a => ({ name: a.name, params: a.params, uses: a.uses })) };
