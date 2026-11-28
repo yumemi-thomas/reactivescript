@@ -107,5 +107,7 @@ jobs:
         run: node compiler/test/confined.mjs
       - name: What unmounted is collected; a package under a JavaScript host
         run: node compiler/test/leaks.mjs && node compiler/test/js-host.mjs
+      - name: "server fns in a Vite app: refused with the plugin's pass off, no body in a client bundle, each request's own app, failures across the wire (12 SF-7a)"
+        run: node compiler/test/server-fns.mjs
       - name: "an app that lists only the compiler: the runtime nested, hoisted, and listed nowhere, under start mode's dev server and its build (CP-4a)"
         run: node compiler/test/runtime-resolve.mjs

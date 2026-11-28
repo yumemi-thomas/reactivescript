@@ -119,7 +119,9 @@ Beyond this the language has structured stores with per-path writes
 data loads ([spec/05](spec/05-holds.md)), modules that own their state and
 export actions to change it ([spec/09](spec/09-modules.md)), streamed SSR with
 hydration ([spec/10](spec/10-server.md)), `server fn` for code that runs on
-the server ([spec/12](spec/12-server-functions.md)), scoped `<style>`
+the server ([spec/12](spec/12-server-functions.md); in a Vite app it needs
+Solid's server-function pass, `solid({ serverFunctions: true })`, and a build
+without it fails), scoped `<style>`
 ([spec/07](spec/07-surface.md)), and types checked by TypeScript through a
 TSX projection ([spec/13](spec/13-types.md)). For whole apps, start with
 [`examples/todo.rx`](examples/todo.rx) and

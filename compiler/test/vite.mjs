@@ -35,7 +35,8 @@ const solid = (await import(pathToFileURL(path.join(pluginDir, "dist/esm/index.m
 const { chromium } = createRequire(import.meta.url)("playwright");
 const runtime = path.join(repo, "runtime");   // @reactivescript/runtime, built (`npm run build` there)
 
-// notes/ calls server functions: with no server behind the static build, it shows its own error boundary
+// notes/ calls server functions (Solid's server-function pass on): with no server behind the static build, each call's
+// request fails, and it shows its own error boundary
 const apps = {
   todo: "todo.rx", cart: "cart.rx", signup: "signup.rx", users: "users.rx", shop: "shop/main.rx", notes: "notes/main.rx",
   "ai-feed": "ai/feed.rx", "ai-grid": "ai/grid.rx", "ai-wizard": "ai/wizard.rx",
@@ -121,7 +122,8 @@ async function routerPlugin() {
 const before = async (name, dir) => name === "tanstack" ? [(await routerPlugin())({ target: "solid", routesDirectory: path.join(dir, "src/tanstack/routes"), generatedRouteTree: path.join(dir, "src/tanstack/routeTree.gen.ts"), autoCodeSplitting: false, disableLogging: true })] : [];
 const config = (dir, entry, plugins = []) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
-  plugins: [...plugins, solid()],
+  // 12 SF-7a: an app with a server fn turns on Solid's server-function pass (a build with it off fails, saying so)
+  plugins: [...plugins, entry.startsWith("notes/") ? solid({ serverFunctions: true }) : solid()],
   // the dev server polls for changes: what is tested is an edit reaching the page, not the platform's file events. On
   // macOS they report a project written just before the server started late, as a burst of changes, and an edit made
   // meanwhile is merged into the burst or never reported (plain Vite, no plugin, shows it): "styles (dev)" then failed
@@ -135,12 +137,14 @@ const browser = await chromium.launch();
 let pass = 0, fail = 0;
 async function drive(name, url, check) {
   const page = await browser.newPage(); const errors = [];
-  page.on("pageerror", e => errors.push(e.message)); page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
+  const asked = [];   // notes/: the requests to the server-function endpoint, which the static server does not answer
+  page.on("request", r => { if (r.url().includes("/_server")) asked.push(r.url()); });
+  page.on("pageerror", e => errors.push(e.message)); page.on("console", m => { if (m.type() === "error" && !(name.startsWith("notes") && /Failed to load resource: the server responded with a status of 404/.test(m.text()) && asked.length)) errors.push(m.text()); });
   try {
     await page.goto(url); await page.waitForTimeout(900);
     const text = (await page.textContent("#app"))?.replace(/\s+/g, " ").trim() ?? "";
     if (!text) throw new Error("nothing rendered");
-    if (check) await check(page);
+    if (check) await check(page, { asked });
     if (errors.length) throw new Error(errors.join(" | "));
     pass++; console.log(`✓ ${name}: ${text.slice(0, 90)}`);
   } catch (e) { fail++; console.log(`✗ ${name}: ${e.message}`); }
@@ -220,7 +224,12 @@ const tanstack = async page => {
   await page.click("nav >> text=Nobody"); await until("an unknown id, its typed boundary", async () => (await app()).includes("no person 9"));
   if (!(await page.evaluate(() => window.__loaded))) throw new Error("a link reloaded the page");
 };
-const drivers = { todo, router, virtual, "virtual-headless": headless, query, primitives, tanstack: async page => { await tanstack(page); await page.click("nav >> text=Home"); if (!(await page.textContent("#app")).includes("of the directory")) throw new Error(`what the app's entry provides above the router: ${await page.textContent("#app")}`); }, "tanstack-factory": tanstack };
+// 12 SF-7a: each server fn call is a request to the server (none answers it here), and the page shows its region
+const notes = async (page, { asked }) => {
+  if (!asked.length) throw new Error("no request to the server-function endpoint: the call did not go over the wire");
+  const t = await page.textContent("#app"); if (!/could not load/.test(t)) throw new Error(`no error region: ${t}`);
+};
+const drivers = { todo, notes, router, virtual, "virtual-headless": headless, query, primitives, tanstack: async page => { await tanstack(page); await page.click("nav >> text=Home"); if (!(await page.textContent("#app")).includes("of the directory")) throw new Error(`what the app's entry provides above the router: ${await page.textContent("#app")}`); }, "tanstack-factory": tanstack };
 
 for (const [name, entry] of Object.entries(apps)) {
   if (!mine(name)) continue;

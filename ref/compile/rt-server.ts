@@ -332,8 +332,8 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
         const question = !!getObserver();
         if (question && flights.has(key)) return asked(key, flights.get(key)!);
         const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
-        (globalThis as { __rx_app?: unknown }).__rx_app = app;   // the app a body run in place belongs to (it reads it once, at its start)
-        let p: Promise<unknown>; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); }
+        // the app a body run in place belongs to: it reads it once, at its start, while this call is on the stack (12 SF-7a)
+        let p: Promise<unknown>; const was = inPlace; inPlace = app; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); } finally { inPlace = was; }
         p.then(v => fl.resolve(v), e => fl.reject(e));
         return question ? asked(key, fl) : fl;
       };
@@ -342,12 +342,14 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
      *  the client's — behind a wire that copies arguments and result and lets only declared failures through. */
     serverCall(name: string, gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>, args: unknown[]): Promise<unknown> {
       return new Promise((resolve, reject) => {
-        const fail = (msg: string): never => { throw new Error(`WIRE_VALUE: ${name}: ${msg}`); };
+        // SF-6a: what the wire cannot carry is the program's error, named alike in a development and a production build
+        // (sent as it is — its message names the fn and the value's path, nothing of the data — and said on the server)
+        const fail = (msg: string): never => { const e = new Error(`WIRE_VALUE: ${name}: ${msg}`); markSafeError(e); console.error(`[reactivescript] ${e.message} (12 SF-6a)`); throw e; };
         let g: Generator<unknown, unknown, unknown>;
         try { g = gen(...args.map((a, i) => wireCopy(a, `argument ${i + 1}`, fail))); } catch (e) { reject(e); return; }
         const step = (input: unknown, thrown: boolean) => {
           const was = currentEq; currentEq = null; let r: IteratorResult<unknown, unknown>;   // the body's flights are not the asking equation's
-          try { r = untrack(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { reject(wireFailure(e)); return; } finally { currentEq = was; }
+          try { r = untrack(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { reject(app.markSendable(e) ?? wireFailure(e)); return; } finally { currentEq = was; }   // SV-5a: a declared JS class crosses as itself, as a `.rx` one does
           if (r.done) { try { resolve(wireCopy(r.value, "its result", fail)); } catch (e) { reject(e); } return; }
           Promise.resolve(r.value).then(v => step(v, false), e => step(e, true));
         };
@@ -419,7 +421,7 @@ function makeApp(opts: { api?: Record<string, (...a: any[]) => unknown>; conform
     inst<T>(f: () => T): T { return (getOwner() ? runWithOwner(createOwner(), () => untrack(f)) : untrack(f)) as T; },   // with no owner above there is none to make one under: what needs one (`provide`) says so, as where two copies of Solid are loaded (CP-4a)
 
     snapshot(get: Acc) { return untrack(get); },   // H-10: the committed value; R-8a: of a value that has never had one it throws, as `latest` does (R-12; Solid F-9: nothing to serve) — it handed Solid's pending mark on, and `got := x + "!"` wrote `#pending!`
-    errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
+    errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown, id?: string) => errorClass(name, params, message, id ?? `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a): the compiler's (`module#Name`), the same on both sides
     isA, PANIC, tryCatch, catchRead,
     catchMemo: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown, _truth?: unknown) => catchAcc(f, match, alt),   // (rt.ts: `truth` is what `refresh` re-asks, a client's word)
     throw: (e: unknown): never => { throw e; },
@@ -550,6 +552,19 @@ export function createApp(opts: AppOpts = {}): ServerApp {
   if (ev && !had) (ev.locals ??= {})[HOST_APP] = app;
   return app;
 }
+/** 12 SF-7a: the app a server function's body runs in (`globalThis.__rx_app`, which the compiled body reads once, at its
+ *  start). Called in place (`serverRef`, during a render, or where nothing turned the body into a request), the caller's
+ *  app; answering a request to the function, the request's (`pageApp`: the one its event holds, else one made for that
+ *  request and kept in its event), never another request's or the last render's. Outside a request and a render it
+ *  throws: a body there would have no request to answer. */
+let inPlace: ServerApp | null = null;
+let assigned: unknown = undefined;   // a runtime of the browser's in the same process (tests) writes it the old way
+export function serverApp(): ServerApp {
+  return inPlace ?? (assigned as ServerApp | undefined) ?? pageApp("a server fn's body");
+}
+// (the global answers nothing where there is no app, rather than throw at whatever reads globals: the compiled body's
+// first use of it then fails; `serverApp` says why)
+Object.defineProperty(globalThis, "__rx_app", { configurable: true, get: () => { try { return serverApp(); } catch { return undefined; } }, set: (v: unknown) => { assigned = v; } });
 const moduleSeq = new WeakMap<object, number>();
 /** MO-13h: a module a JS importer instantiates is a root of its own, not under the owner that first used it: in a
  *  request's app, under the request's own owner (`requestOwner`: it lasts as the request does, not as its first render

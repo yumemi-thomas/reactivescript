@@ -574,6 +574,17 @@ impl Loader<'_> {
         name_methods(&mut p, &self.declarations);
         name_locals(&mut p, &|d, name| self.instantiating_export(d, name));
         kids_values(&mut p);
+        // SV-5a: a module's own identity, as a declaration's: what its error classes are sent to the client as
+        let id = package_relative(path, &*self.read);
+        for d in &p.decls {
+            let Decl::Error { name, .. } = d else { continue };
+            let key = format!("{id}#{name}");
+            if let Some(other) = self.wire_ids.get(&key) {
+                return Err(ParseError(format!("{path}: the error class {name} would be sent to the client as \"{key}\", and so would the one {other} declares: neither is in a package with a name, so nothing tells them apart — give the package.json above one of them a \"name\" (SV-5a)"), None, Some(path.to_string()), "DUPLICATE_WIRE_ID"));
+            }
+            self.wire_ids.insert(key, path.to_string());
+        }
+        self.declaration_ids.insert(path.to_string(), id);
         self.programs.insert(path.to_string(), p);
         self.sources.insert(path.to_string(), src);
         self.state.insert(path.to_string(), State::Done);

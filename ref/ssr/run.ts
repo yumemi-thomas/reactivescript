@@ -38,8 +38,10 @@ async function serverFunction(req: import("node:http").IncomingMessage, res: imp
   const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
   const headers = new Headers(); for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
   const request = new Request(`http://127.0.0.1${req.url}`, { method: req.method, headers, body: req.method === "GET" || req.method === "HEAD" ? undefined : Buffer.concat(chunks) });
-  const rpc = createApp({ conformance: true }); rpcApps.push(rpc); (globalThis as { __rx_app?: unknown }).__rx_app = rpc;
-  const response = await handleServerFunctionRequest(request);
+  // the request's app, made for the runner (its flights are the harness's), handed to the body as an integration would:
+  // in the request's event (12 SF-7a) — the body finds it there, as it finds the one a real request's event makes it
+  const rpc = createApp({ conformance: true }); rpcApps.push(rpc);
+  const response = await handleServerFunctionRequest(request, { createEvent: r => ({ request: r, locals: { [Symbol.for("reactivescript.app")]: rpc } }) });
   res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
   if (response.body) for await (const c of response.body as unknown as AsyncIterable<Uint8Array>) res.write(c);
   res.end();

@@ -167,7 +167,14 @@ function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unkn
   if (typeof v === "object") { const proto = Object.getPrototypeOf(v); if (proto === Object.prototype || proto === null) { const o: Record<string, unknown> = {}; for (const k of Object.keys(v as object)) o[k] = wireCopy((v as Record<string, unknown>)[k], `${where}.${k}`, fail); return o; } }
   return fail(`${where} is ${typeof v === "function" ? "a function" : `an instance of ${(v as object).constructor?.name ?? "a class"}`}, which the wire cannot carry: send data`);
 }
-const wireFailure = (err: unknown): unknown => err instanceof Error && (err.constructor as { declared?: boolean }).declared ? err : new Error("Internal Server Error");
+/** SV-5a: a failure crosses as itself when its class is declared — a `.rx` error class, or a JS one its `.d.rx` declares
+ *  (`jsClass`, below: up its prototype chain) — and as `Internal Server Error` otherwise. */
+const wireFailure = (err: unknown): unknown => {
+  if (!(err instanceof Error)) return new Error("Internal Server Error");
+  if ((err.constructor as { declared?: boolean }).declared) return err;
+  for (let p = Object.getPrototypeOf(err); p && p !== Object.prototype; p = Object.getPrototypeOf(p)) if (jsClassIds.has(p.constructor)) return err;
+  return new Error("Internal Server Error");
+};
 
 // ---------------------------------------------------------------- flights (the scenario harness's async)
 /** A controllable flight: an async iterable (a stream — each resolve is a landing) that actions await through `first`. */
@@ -465,8 +472,9 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
         const question = !!getObserver();
         if (question && flights.has(key)) return asked(key, flights.get(key)!);
         const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
-        (globalThis as { __rx_app?: unknown }).__rx_app = app;   // the app a body run in place belongs to (it reads it once, at its start)
-        let p: Promise<unknown>; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); }
+        // the app a body run in place belongs to: it reads it once, at its start, while this call is on the stack (12 SF-7a)
+        const g0 = globalThis as { __rx_app?: unknown }; const was = g0.__rx_app;
+        let p: Promise<unknown>; g0.__rx_app = app; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); } finally { g0.__rx_app = was; }
         p.then(v => fl.resolve(v), e => fl.reject(e));
         return question ? asked(key, fl) : fl;
       };
@@ -563,7 +571,7 @@ function makeApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknow
     /** An imperative read sees σ (H-10): a pending value is a value; a snapshot of an error throws it (R-f-7). */
     snapshot(get: Acc) { return untrack(get); },   // H-10: the committed value; R-8a: of a value that has never had one it throws, as `latest` does (R-12; Solid F-9: nothing to serve) — it handed Solid's pending mark on, and `got := x + "!"` wrote `#pending!`
     // ---- failures (R-f) ----
-    errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity: the same on both sides (SV-5a)
+    errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown, id?: string) => errorClass(name, params, message, id ?? `${name}#${classSeq++}`),   // a declaration's identity: the compiler's (`module#Name`), the same on both sides (SV-5a)
     isA, PANIC, tryCatch, catchRead,
     /** R-f-4 over a tail await: the boundary an equation is read through; `truth`, the inner memo that asks — what `refresh` re-asks (AC-4) */
     catchMemo: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown, truth?: Acc) => { const acc = catchAcc(f, match, alt) as Acc; if (truth) truthOf.set(acc, truth); return acc; },

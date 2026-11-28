@@ -27,6 +27,7 @@ node --conditions=browser --conditions=development repros/pin-4906-target.mjs
 node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
 node --conditions=browser --conditions=development repros/keyed-guess-refresh-tear.mjs [fresh]   # DV-30, open
 node --conditions=browser repros/dv30-refresh-then-guess.mjs [nokey|key] [guess|noguess] [norefresh]   # DV-30 reduced
+node --conditions=browser --conditions=development repros/dv31-rethrow-then-caught.mjs [sync|async] [later] [component] [derived] [typed] [three] [effect]   # recovers in every form: the open nest-class difference is not shown to be Solid's (DECISION.md)
 ```
 
 The hydration repros are each one `app.jsx`, compiled by Solid's own
@@ -444,6 +445,7 @@ node --conditions=browser --conditions=development repros/pin-4906-target.mjs
 node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
 node --conditions=browser --conditions=development repros/keyed-guess-refresh-tear.mjs [fresh]   # DV-30, open
 node --conditions=browser repros/dv30-refresh-then-guess.mjs [nokey|key] [guess|noguess] [norefresh]   # DV-30 reduced
+node --conditions=browser --conditions=development repros/dv31-rethrow-then-caught.mjs [sync|async] [later] [component] [derived] [typed] [three] [effect]   # recovers in every form: the open nest-class difference is not shown to be Solid's (DECISION.md)
 ```
 
 #4906 runs stores on the thin engine and deletes the deep one, whose record a proxy answered as `store[$TARGET]`.

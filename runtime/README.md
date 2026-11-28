@@ -77,7 +77,12 @@ itself. Without it the router's cache sends the error redacted.
 What crosses from the server to the page is what the program declares (spec/12 SF-6b): a failure of a class the
 module declares (`export error NotFound(id)`) arrives as itself, with its fields; anything else — a plain `Error("db
 down")` thrown by the server's code — reaches the page as a failure whose message is `Internal Server Error` (Solid's
-redaction: a server's own messages are not the page's to show). Declare the classes a page shows.
+redaction: a server's own messages are not the page's to show). Declare the classes a page shows. That holds for a
+`server fn` too, served or called over the wire, for an `.rx` class (`error TooLong(n)`) and for a JS class its
+`.d.rx` declares, and a typed `catch` takes them alike in a development and a production build: a class is known by its
+declaration (the module's path below its package and its name), the same on both sides. A value the wire cannot carry
+(a `Date`, a class instance, a function, in a server fn's arguments or result) is the program's error, `WIRE_VALUE`,
+named — the fn and the value's path — in a production build as in a development one, and printed on the server.
 
 A JS host can render `.rx` components itself (spec/11 CP-4d): import the
 module with `?rx-lib` and import its components:

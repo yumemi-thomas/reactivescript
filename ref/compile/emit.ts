@@ -161,7 +161,13 @@ class Gen {
     for (const x of this.modDecls) {
       if (x.k === "import" && !x.resolved) for (const { name, alias } of this.withMethods(x)) {
         if (inPrelude(x, name, this.mods?.set.conformance)) continue;
-        if (!x.from.startsWith(".")) { env.vars.set(alias, { kind: "val", js: `w$${alias}` }); continue; }   // a package's: module level
+        if (!x.from.startsWith(".")) {   // a package's: module level
+          env.vars.set(alias, { kind: "val", js: `w$${alias}` });
+          // SV-5a: the body may run in an app no page of this module was made in (a request to the server function alone):
+          // the module's declared JS error classes are known to it there too, so what it fails with crosses as itself
+          if (x.declaredErrors?.includes(name)) pre.push(`__rt.jsClass(w$${alias}, ${J(`${x.from}#${name}`)}${x.declaredErrorFields?.[name] ? `, ${J(x.declaredErrorFields[name])}` : ""});`);
+          continue;
+        }
         env.vars.set(alias, { kind: "val", js: mg(alias) });
         pre.push(`const ${mg(alias)} = ${x.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : `__rt.api(${J(name)})`};`);
       }
@@ -302,7 +308,10 @@ class Gen {
       if (env.parent) { out.push(`${pad}const ${mg(d.name)} = ${make};   // R-f-1`); continue; }
       // a module's error class is the module's, created once (by whichever app asks first): a server function's body,
       // hoisted to module level (SF-7a), throws the class an action's catch tests
-      this.top.push(`let c$${d.name};\nfunction g$${d.name}(__rt) { const __B = __rt.B; return c$${d.name} ??= ${make}; }`);
+      // SV-5a: its identity is its declaration's (the module's package-relative path and its name), the same on the
+      // server and the client whatever order either makes its classes in
+      const made = `${make.slice(0, -1)}, ${J(`${this.mods?.set.declarationIds?.get(this.file) ?? this.file}#${d.name}`)})`;
+      this.top.push(`let c$${d.name};\nfunction g$${d.name}(__rt) { const __B = __rt.B; return c$${d.name} ??= ${made}; }`);
       out.push(`${pad}const ${mg(d.name)} = g$${d.name}(__rt);   // R-f-1`);
     }
     for (const d of decls) if (d.k === "context") out.push(`${pad}const ${mg(d.name)} = __rt.context(${J(d.name)}, ${d.dflt ? `() => ${this.expr(d.dflt, env, { imp: false })}` : "null"});   // RG-7: the declaration is the context's identity${this.reg(d.name, `{ value: ${mg(d.name)} }`, pad)}`);

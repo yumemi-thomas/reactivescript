@@ -633,13 +633,23 @@ impl<'p> Gen<'p> {
         let decls = self.mod_decls;
         for x in decls {
             match x {
-                Decl::Import { resolved: None, names, from, declared_errors, declared, .. } => {
+                Decl::Import { resolved: None, names, from, declared_errors, declared_error_fields, declared, .. } => {
                     for n in &with_methods(names, declared.as_ref().and_then(|dp| self.set.declarations.get(dp))) {
                         if in_prelude(x, &n.name, self.set.conformance) {
                             continue;
                         }
                         if self.js_import(from) {
                             self.set(env, &n.alias, val(format!("w${}", n.alias)));
+                            // SV-5a: the body may run in an app no page of this module was made in (a request to the
+                            // server function alone): the module's declared JS error classes are known to it there too,
+                            // so what it fails with crosses as itself
+                            if declared_errors.as_ref().is_some_and(|e| e.contains(&n.name)) {
+                                let mut a = vec![id(format!("w${}", n.alias)), str(format!("{}#{}", self.class_module(from, declared.as_deref()), n.name))];
+                                if let Some((_, fs)) = declared_error_fields.as_ref().and_then(|xs| xs.iter().find(|(k, _)| k == &n.name)) {
+                                    a.push(E::Arr(fs.iter().map(|f| str(f.clone())).collect()));
+                                }
+                                pre.push(S::Expr(rtc("jsClass", a)));
+                            }
                             continue;
                         }
                         self.set(env, &n.alias, val(mg(&n.alias)));
@@ -1042,6 +1052,15 @@ impl<'p> Gen<'p> {
                 out.push(S::At(d.line(), Box::new(konst(mg(name), make)))); // R-f-1
                 continue;
             }
+            // SV-5a: its identity is its declaration's (the module's package-relative path and its name), the same on the
+            // server and the client whatever order either makes its classes in
+            let make = match make {
+                E::Call(f, mut a) => {
+                    a.push(str(format!("{}#{}", self.set.declaration_ids.get(&self.file).cloned().unwrap_or_else(|| self.file.clone()), name)));
+                    E::Call(f, a)
+                }
+                m => m,
+            };
             let t0 = self.top.len();
             // a module's error class is the module's, created once (by whichever app asks first): a server function's body,
             // hoisted to module level (SF-7a), throws the class an action's catch tests

@@ -91,6 +91,21 @@ try {
   const host = JSON.parse(execFileSync(process.execPath, ["host.mjs"], { cwd: tmp }).toString());
   check("a ?rx-lib component used on the server outside a render and outside a request throws, and says what to do (CP-4d)", /outside a render and outside a request/.test(host.threw) && /renderToString/.test(host.threw) && /provideRequestEvent/.test(host.threw) && /components\(pages, createApp/.test(host.threw), host.threw);
   check("the same with the app passed renders", host.ok === true, String(host.ok));
+  // 12 SF-7a: a server fn's body takes its app from the request it answers (`globalThis.__rx_app`, `serverApp`): two
+  // requests at once each have their own, kept for the whole request, never the other's; outside a request and a render
+  // there is none, and it says so (found by the server hunt: the body read the app of whatever was rendered last)
+  writeFileSync(path.join(tmp, "requests.mjs"), `import { serverApp } from "@reactivescript/runtime/server";
+import { provideRequestEvent } from "@solidjs/web/storage";
+const request = id => provideRequestEvent({ request: new Request("http://127.0.0.1/" + id), locals: {} }, async () => {
+  const first = globalThis.__rx_app; await new Promise(r => setTimeout(r, 10)); return { first, again: serverApp() };
+});
+const [a, b] = await Promise.all([request("a"), request("b")]);
+let outside = ""; try { serverApp(); } catch (e) { outside = String(e.message); }
+console.log(JSON.stringify({ own: a.first === a.again && b.first === b.again, apart: a.first !== b.first, b: typeof a.first?.serverCall, outside }));
+`);
+  const reqs = JSON.parse(execFileSync(process.execPath, ["requests.mjs"], { cwd: tmp }).toString());
+  check("a server fn's body runs in its request's own app, the same across its awaits, never another request's (12 SF-7a)", reqs.own && reqs.apart && reqs.b === "function", JSON.stringify(reqs));
+  check("…and outside a request and a render it has none, and says so", /a server fn's body was used on the server outside a render and outside a request/.test(reqs.outside), reqs.outside);
   // CP-4b: a factory the dev server's plugin named is keyed by its name — the same file with the same text, evaluated
   // twice (a dev server serves one module under several URLs), is one instance; an edited one, or one with no name, its own
   writeFileSync(path.join(tmp, "keyed.mjs"), `import { createApp } from "@reactivescript/runtime";\nconst app = createApp({ root: null });\nconst f = () => () => ({});\nconst a = f(), b = f(), c = f(), d = f(); a.__rxKey = b.__rxKey = "src/team.rx#1"; c.__rxKey = "src/team.rx#2";\nconsole.log(JSON.stringify({ same: app.module(a, a) === app.module(b, b), edited: app.module(c, c) !== app.module(a, a), unnamed: app.module(d, d) !== app.module(a, a) && app.module(d, d) === app.module(d, d) }));\n`);

@@ -70,6 +70,20 @@ const mtime = file => { try { return statSync(file).mtimeMs; } catch { return -1
 const isDep = moduleId => new URLSearchParams(moduleId.split("?")[1] ?? "").has(DEP);
 // `import __m0 from "./catalog.rx";` → `"./catalog.rx?rx-dep"` (one line each: the module's map is by line, CP-1c)
 const tagDeps = code => code.replace(/^(import \w+ from ")(\.{1,2}\/[^"?]*\.rx)(";?)$/gm, `$1$2?${DEP}$3`);
+// 12 SF-7a: a `server fn` is lowered to a module-level `"use server"` function, which Solid's plugin turns into a request
+// only when its server-function pass is on (`solid({ serverFunctions: true })`). With the pass off the body, and every
+// server-only module it imports, would ship to the browser and run there. A front end is not told the plugin's options,
+// so each body in a browser build carries two references to files that do not exist, which the pass (it runs first)
+// removes with the body when it makes it a request. With the pass off: a worker's URL — a build resolves it as it
+// transforms the module and fails there, before anything is written — and a dynamic import, which the dev server
+// resolves as it serves the module to the browser and refuses. The file's name is the message. Same line as the
+// directive: the module's map is by line (CP-1c).
+const SERVER_APP_LINE = /^(\s*)const __rt = globalThis\.__rx_app;$/gm;
+const SERVER_FN_GUARD = /^(\s*)(async function sf\$([\w$]+)\(\.\.\.__a\) \{\n\s*"use server";)$/gm;
+const guardServerFns = (code, file) => code.replace(SERVER_FN_GUARD, (_, ws, head, name) => {
+  const said = `server fn ${name} (${file}) would run in the browser: turn on Solid's server-function pass, solid({ serverFunctions: true }) (12 SF-7a)`;
+  return `${ws}${head} import(${JSON.stringify(`reactivescript: ${said}`)}); new Worker(new URL(${JSON.stringify(`./${said}`)}, import.meta.url));`;
+});
 
 /** TY-1a: `rx-tsc --noEmit` over the project the entry belongs to (its nearest tsconfig.json): null when it passes, the
  *  report when it does not, `{ missing }` ("tsconfig" or "checker") when it cannot run. */
@@ -296,6 +310,13 @@ function runtimeFor(root) {
   return spec;
 }
 
+/** The runtime's server build, for a server fn body's import of its app: the package's `/server` export, or this
+ *  package's own copy's file where the app's imports do not reach the package (as `runtimeFor`). */
+function serverRuntimeFor(root) {
+  const spec = runtimeFor(root);
+  return spec === "@reactivescript/runtime" ? "@reactivescript/runtime/server" : posix(path.join(spec, "dist/server.js"));
+}
+
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
 export default function rx(options = {}) {
   const flag = process.env.RX_TYPECHECK;
@@ -441,6 +462,12 @@ export default function rx(options = {}) {
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);
       const m = out.modules[file];
+      // SF-7a: in a browser build (dom, universal) each server fn body carries the guard above; in the server's, a body
+      // takes its app from the runtime — the request's (`serverApp`, @reactivescript/runtime/server), so that the module
+      // that holds it brings the runtime in even where nothing else of the app is on the server (a client-only app's
+      // server, answering a request to the function alone). The line stays where it was (CP-1c)
+      const guard = code => target !== "ssr" ? guardServerFns(code, path.relative(lastRoot ?? process.cwd(), file).split(path.sep).join("/"))
+        : !code.includes("const __rt = globalThis.__rx_app;") ? code : `${code.replace(SERVER_APP_LINE, "$1const __rt = __rxServerApp();")}\nimport { serverApp as __rxServerApp } from ${JSON.stringify(serverRuntimeFor(path.resolve(root ?? lastRoot ?? process.cwd())))};\n`;
       for (const p of Object.keys(out.modules)) if (p !== file) addWatchFile(p);
       // CSS-4: each module links its own stylesheet, so a module several programs share links it once
       // CP-4d: a library's components by name, bound to the host's app (`import { PersonCard } from "./pages.rx?rx-lib"`);
@@ -472,9 +499,9 @@ export default function rx(options = {}) {
       // The compiled module's own line is rewritten in place, so the source map's lines still hold.
       if (page && file === entry) {
         if (!out.page) throw new Error(`${path.relative(process.cwd(), file)} is imported as a route file's page (?rx-page) and has no default component: write \`export default component Page() { … }\` (11 CP-4d)`);
-        const code = tagDeps(m.code).replace(/^export default function module\(/m, "export function __rxModule(");
+        const code = guard(tagDeps(m.code)).replace(/^export default function module\(/m, "export function __rxModule(");
         return { code: keyed(code + named.replace("__rxComponents(module,", "__rxComponents(__rxModule,").replace("__rxLibrary(module,", "__rxLibrary(__rxModule,").replace("\nmodule.__rxName = ", "\n__rxModule.__rxName = ") + `export default __rx.${out.page};\n`, "__rxModule"), map: m.map, css: m.css ?? "" };
       }
-      return { code: keyed(tagDeps(m.code) + named, "module"), map: m.map, css: m.css ?? "" };
+      return { code: keyed(guard(tagDeps(m.code)) + named, "module"), map: m.map, css: m.css ?? "" };
   }
 }

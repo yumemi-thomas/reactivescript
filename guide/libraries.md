@@ -733,9 +733,17 @@ whole-program build, since JavaScript may render that one anywhere.
     fileRoutes({ extensions: ["rx"], types: "src/file-routes.d.ts", toRoute: /* as above */ }),
     // `vite` renders each request; `vite build`, then `node dist/server/node.js`. The root is the .rx file itself,
     // said once: start mode imports the file it is given, and the front end compiles that file as a page
-    solid({ ssr: true, start: { app, nodeServer: true }, frontends: { ".rx": rx({ pages: [app] }) } }),
+    solid({ ssr: true, serverFunctions: true, start: { app, nodeServer: true }, frontends: { ".rx": rx({ pages: [app] }) } }),
   ] })                                                      // const app = "src/App.rx"; rx from "@reactivescript/compiler/vite"
   ```
+
+  `serverFunctions: true` turns on Solid's server-function pass, which makes each `server fn` a request to the server
+  in the browser's build (spec/12 SF-7a). It is off by default in Solid's plugin, in start mode and in a client-only
+  app (`solid({ serverFunctions: true })`) alike: with it off, a module that declares a `server fn` fails the build —
+  and the dev server refuses to serve it to the browser — naming the fn and this option, since its body, and the
+  server-only modules it imports, would otherwise ship to the browser and run there. A request to a server fn runs in
+  an app of its own request (each request its own, whatever page the server rendered before), so a page reached by a
+  link and a client-only app call it as a served page does (`compiler/test/server-fns.mjs`).
 
   ```rx
   // src/App.rx
@@ -753,6 +761,13 @@ whole-program build, since JavaScript may render that one anywhere.
   copy of Solid every package that runs on Solid — reaches it through the compiler's `package.json`. (An app that
   lists neither, with both installed all the same, gets a runtime on Node's copy of Solid: the first `provide` says
   so, and what to list.)
+
+  `refresh` over a library's cached loader asks the loader again, and the library answers from its cache: `refresh
+  person` over `@solidjs/router`'s `query(getPerson, "person")` calls `getPerson` and gets the cached answer back,
+  with no request. To have the router fetch again — after a write, or to retry — say so to its cache:
+  `revalidate("person")` (or `revalidate(getPerson.keyFor(id))` for one entry), declared in the router's `.d.rx` as
+  the io it is (`bench/tasks/router-data`). A `server fn` question has no such cache: `refresh user` re-asks it over
+  the wire.
 
 For a host with no tree to read, `rx-declare --host src/pages.rx` (or the route files) drafts what it can: the
 imports, the contexts those modules' imports are declared to use, and a view with every component at the top; which

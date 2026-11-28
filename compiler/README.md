@@ -103,7 +103,16 @@ What happens to a `.rx` module in Vite:
   with its map onto `.rx` (by line, CP-1c) and, on the entry, the program's
   stylesheet. Solid's plugin then runs its lazy, refresh and
   server-function passes (12 SF-7a) and links the stylesheet as a CSS module
-  (CSS-4).
+  (CSS-4). The server-function pass runs only with
+  `solid({ serverFunctions: true })`: a front end is not told the plugin's
+  options, so each `server fn` body in a browser build carries references
+  to files that do not exist, which the pass removes with the body. With
+  the pass off, the build fails as it transforms the module, before
+  anything is written, and the dev server refuses to serve it — the
+  missing file's name says which fn, where, and the option. In the
+  server's build a body takes the app of the request it answers
+  (`serverApp` from `@reactivescript/runtime/server`), so it brings the
+  runtime with it.
 
 The app mounts a program with `createApp` from `@reactivescript/runtime`
 (`../runtime`, CP-4a), as the examples do.
@@ -151,8 +160,8 @@ The app mounts a program with `createApp` from `@reactivescript/runtime`
 
 Not yet: Solid's refresh of a single `.rx` component in place is untested (an edit of an `.rx` module reloads the
 page, or re-runs the module that hosts it, and what the page shows after it is tested: `test/vite.mjs`,
-`bench/tasks/router-rx-routes`, `start-mode`); server rendering in Vite needs a request-scoped app for server
-functions to run in.
+`bench/tasks/router-rx-routes`, `start-mode`). Server functions in Vite — served, over the wire after a client
+navigation, in a client-only app, and their failures — are tested by `test/server-fns.mjs`.
 
 ### A library: `rx-lib`
 

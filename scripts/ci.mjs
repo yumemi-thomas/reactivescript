@@ -91,6 +91,8 @@ const steps = [
   { id: "runtime-resolve", dir: ".", run: "node compiler/test/runtime-resolve.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"] },
   { id: "leaks", dir: ".", run: "node compiler/test/leaks.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"] },
   { id: "js-host", dir: ".", run: "node compiler/test/js-host.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"] },
+  // 12 SF-7a: server fns in Vite — refused with the plugin's pass off, never in a client bundle, a request's own app
+  { id: "server-fns", dir: ".", run: "node compiler/test/server-fns.mjs", after: ["node-build", "bench-install", "runtime", "npm-language-server"], uses: ["ws", "binding-read"] },
   { id: "rows", dir: ".", run: "node compiler/test/rows.mjs", after: ["node-build", "bench-install", "runtime"], uses: ["ws", "binding-read"], quick: true },
   { id: "measure", dir: ".", run: "node bench/measure.test.mjs", after: ["wasm", "npm-language-server"], quick: true },
   { id: "generated", dir: ".", run: `${strip} bench/generated.mjs`, after: ["wasm", "node-build", "bench-install", "runtime", "npm-language-server"], uses: ["ws"], n: jobs, heavy: true },

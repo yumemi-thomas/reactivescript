@@ -276,6 +276,15 @@ function loadProgram(entry: string, read: (path: string) => string | undefined, 
     reexported(p, path, new Map([...programs].filter(([k]) => state.get(k) === "done")));
     sigReexported(p, path);
     nameMethods(p, declarations); nameLocals(p, (from, name) => instantiatingExport(from, name, programs, signatures, declarations)); kidsValues(p);
+    // SV-5a: a module's own identity, as a declaration's: what its error classes are sent to the client as
+    { const id = packageRelative(path, read);
+      for (const x of p.decls) {
+        if (x.k !== "error") continue;
+        const key = `${id}#${x.name}`; const other = wireIds.get(key);
+        if (other !== undefined) throw Object.assign(new ParseError(`${path}: the error class ${x.name} would be sent to the client as "${key}", and so would the one ${other} declares: neither is in a package with a name, so nothing tells them apart — give the package.json above one of them a "name" (SV-5a)`), { code: "DUPLICATE_WIRE_ID" });
+        wireIds.set(key, path);
+      }
+      declarationIds.set(path, id); }
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);

@@ -431,8 +431,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
         const question = !!getObserver();
         if (question && flights.has(key)) return asked(key, flights.get(key)!);
         const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
-        (globalThis as { __rx_app?: unknown }).__rx_app = app;   // the app a body run in place belongs to (it reads it once, at its start)
-        let p: Promise<unknown>; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); }
+        // the app a body run in place belongs to: it reads it once, at its start, while this call is on the stack (12 SF-7a)
+        const g0 = globalThis as { __rx_app?: unknown }; const was = g0.__rx_app;
+        let p: Promise<unknown>; g0.__rx_app = app; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); } finally { g0.__rx_app = was; }
         p.then(v => fl.resolve(v), e => fl.reject(e));
         return question ? asked(key, fl) : fl;
       };

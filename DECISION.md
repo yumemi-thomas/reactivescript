@@ -2580,3 +2580,97 @@ code change is a removal (X1's workaround) and the UI SDK bridge following #5244
 user's to file); DV-19's store form (#5234, PR #5238); #5239 and #5240 (filed by the user; no scenario of ours meets
 them); DV-21 and DV-22 rulings as recorded. Fixed on main and not in a release yet: X1, DV-29, DV-28b, DV-26's
 before-shell case — 2.0.4 still has all four. No new Solid bug from the nine commits.
+
+## The unreduced runner differences, and server functions in Vite (2026-11-28)
+
+On 061fb6ca (pin: Solid main 510bb8d01). Two parts: the three differences "Outside review" left unreduced
+(`f3/e-nested-errored`, `eq/effect-store-input`, `pin/ref-asks`), then the server hunt's findings
+(rx-hunt.noindex/server/REPORT.md: A1–A4, C1, C3; B1 left, the user's decision). Probes, logs and the census are outside
+the tree, in `rx-fix.noindex/probes/{red,red2,red3}`, `out/red`, `census5`, `hunt-a`.
+
+### The three differences: each ours, none Solid's
+
+- **`f3/e-nested-errored` — the interpreter (ours).** Reduced to one boundary (S-hold-10): `B` rejects while the change
+  that asked it (`s := 2`) still waits for `A`, read in the same region. Every Solid runner stages the rejection with
+  its frame and shows `2ERR` when `A` lands (H-12: "a held rejection is staged like a value and reveals with its
+  frame"); the interpreter showed it an instant early. Its settle took a boundary whose fallback was only staged (the
+  failure caught this pass, nothing committed) as "behind a shown error fallback" (H-4), so `A`'s pending read stopped
+  holding the change in the next pass of the same instant. Fixed: behind a fallback means behind one that is the
+  display (`erroredShowing` asks the committed fallback too, `ref/src/runtime.ts`). H-12 says so.
+- **`eq/effect-store-input` — the comparison (ours, no runner wrong).** The oracle and both emitters make a row and the
+  `(effect)` row after it one step (EF-8, `ref/oracle/run.ts`), so they report 4 frames where the interpreter reports 7;
+  every frame they both report is equal (all six runners pass the probe with its frames written). `scripts/matrix.mjs`
+  compared the lists without their instants. It now compares the instants every core runner reports (a passed one
+  counts), and takes a server frame equal to the mount's (the interpreter's instant 0, before the effect) as agreeing.
+- **`pin/ref-asks` — the oracle's harness (ours).** On the pin, `pin/ref-asks` agrees in all six runners (interpreter,
+  oracle, both emitters, served and hydrated in both); its written frames were wrong. The difference is `x6b/ref-asks`'s
+  form: its two `resolve A` rows land one flight twice. The oracle handed a plain tail `await`'s flight to Solid as the
+  flight itself, an async iterable, so Solid took the second landing as a stream's (`a1`); compiled code and the
+  interpreter take one answer (`a0`). A plain `await` has one answer (only `await*` streams, ST-6): the oracle now
+  returns `flight.first` there, as compiled code's `__rt.awaited` does (`ref/oracle/lower.ts` `computeOf`). S-hold-11.
+
+No Solid repro, no DV: none is Solid's.
+
+### Server functions in Vite (the hunt's A1–A4)
+
+- **A1, a server fn shipped to the browser (ours: the front end).** Solid's plugin runs its server-function pass only
+  with `solid({ serverFunctions: true })`, and a front end is not told the plugin's options (npm 3.0.1 has no
+  `context.resolve`). So each `server fn` body in a browser build now carries two references to files that do not
+  exist, which the pass removes with the body: a worker URL (a build resolves it while it transforms the module, and
+  fails there, before anything is written) and a dynamic import (the dev server refuses to serve the module). The
+  missing file's name names the fn, its file and the option. A first try with a dynamic import alone failed the build
+  only after `dist/client` was written, the body and the database module in it; a glob import only warned. Docs:
+  README, guide/libraries.md (start mode with `serverFunctions: true`), compiler/README, spec/12 SF-7a.
+  `examples/notes` (compiler/test/vite.mjs) turns the pass on: its calls are requests, its region shows their failure.
+- **A2, a request ran in a borrowed app (ours: the runtime).** The body reads `globalThis.__rx_app`. It was set by
+  whichever render last called a server fn, or never. Now the server runtime answers it per request (`serverApp`): the
+  caller's app while a call in place is on the stack, else the request event's (Solid's handler runs each request in an
+  event of its own, `pageApp` makes it its app). Outside both, nothing. In Vite's server build the body imports
+  `serverApp` from `@reactivescript/runtime/server` itself, so a client-only app's server, which renders nothing, has
+  the runtime. `ref/ssr/run.ts` no longer sets the global: it hands the request its app in the event, as an
+  integration would. `runtime/test.mjs`: two concurrent requests each keep their own app across awaits; none outside.
+- **A3, failures across the wire (ours: the runtime and both emitters).** `serverCall` passed only `.rx` classes:
+  a JS class its `.d.rx` declares (`export error NotFound`) now crosses as itself (`markSendable`), and a server fn's
+  body registers its module's declared JS classes (both emitters), so a request that renders nothing knows them. The
+  dev-only miss of an `.rx` class by a typed `catch` was its wire id, `Name#<counter>`, a count per app of the classes
+  made so far, which the two sides need not agree on. A module's error class is now known by its declaration, the
+  module's package-relative path and its name (both loaders and both emitters). Two modules that would be named alike
+  are refused (`DUPLICATE_WIRE_ID`, as for `.d.rx`); no program of the census meets it.
+- **A4, a `Date` in a result (ours: the runtime).** `WIRE_VALUE` is now sent as it is and printed on the server, in a
+  production build as in a development one (it was an anonymous 500, nothing logged). Not done: refusing it
+  statically. The two checkers do not read TypeScript's types, and rx-tsc's projection would have to refuse a `Date`
+  without refusing a value it cannot type. SF-6a says so.
+- **C1, C3 (docs).** guide/libraries.md: `refresh` over a router `query` is answered by its cache; `revalidate(key)`
+  asks again. runtime/README: what crosses, alike in dev and prod.
+- **Test:** `compiler/test/server-fns.mjs` (ci step `server-fns`, and in the workflow), 25 checks. Start mode in the
+  bench's workspace (npm's plugin 3.0.1), pass off: the build fails with the message and writes nothing for the
+  browser, and the dev server refuses the module. Pass on: no body and no server-only data in the client's files. On a
+  fresh server, a page reached by a link asks and acts over the wire. The JS and `.rx` classes reach typed boundaries
+  and typed catches, served, over the wire, in production and under the dev server. A `Date` is named in both. A
+  client-only app's server fn is answered under the dev server.
+
+### Found, not decided
+
+- **A typed boundary on its fallback when the failure changes class after a pending answer** (found by the test above,
+  `probes/red3/nest-class.md`). `errored(e) { errored(e: NotFound) { errored(e: TooLong) { u } } }`, `u` NotFound, then
+  a change whose answer makes it TooLong. The interpreter shows `TooLong` (R-f-4: the boundary re-decides). The oracle
+  and both emitters keep the stale `NotFound: no user 9` until a value lands. The synchronous form agrees everywhere.
+  Plain Solid (`ref/oracle/repros/dv31-rethrow-then-caught.mjs`, with modes for async, a later answer, `<Errored>` with
+  the fallback's memo, a derived memo, three levels, the read in a render effect) recovers in every form tried. So it
+  is not shown to be Solid's. The two lowerings that agree are separate code over the same Solid, and the difference is
+  not reduced further. The test reaches `/e/long` from a page that shows no failure.
+- **`runtime-resolve`'s "hoisted" dev server** misses its first click on a loaded machine (`button.counter` not found
+  for 30 s right after load). On 061fb6ca itself 1 of 3 runs, the same with this tree's runtime, front end or binding
+  swapped back. Not this change's, not fixed.
+
+### Census and ci
+
+| census | result |
+| --- | --- |
+| the review sets (`census5/run.mjs`, as census4): 72 folders, 18,798 programs, 6,185 served and hydrated in both emitters; before = 061fb6ca (`rx-fix.noindex/base061`), after = this tree | **every verdict the same in all 97 matrices** (agree 20,996, refused 3,729, differ 103, same error 82, stopped 63, not compiled 7, server differs 3, before and after alike); "0 agree in both and show something else" in each; `same` and `lower` as before (`op-o1f`'s 22 stopped) |
+| the full `scripts/ci`, uncached, with the Vite plugin fork (8 cores: another agent's Chromium) | first run 47 of 49: `t-vite` (`examples/notes` without the pass, refused by A1: the test turns it on now) and `runtime-resolve` (the flake above). Then **49 of 49 passed**, nothing kept from before, no step skipped (656 s), `server-fns` among them |
+
+Strictness: nothing dropped. Raised: a module with a `server fn` built without Solid's server-function pass fails
+(it shipped its body). `DUPLICATE_WIRE_ID` covers a module's error classes (no program of the sets meets it). Nothing
+correct newly refused (every census verdict as before). Both checkers changed alike (the module's wire id, in both
+loaders), and every runner agrees as before on the sets. **New Solid bugs: none.**
