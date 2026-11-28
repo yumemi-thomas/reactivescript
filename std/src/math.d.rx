@@ -1,0 +1,13 @@
+export const PI: number
+export pure fn max(...values: number[]): number
+export pure fn min(...values: number[]): number
+export pure fn abs(x: number): number
+export pure fn ceil(x: number): number
+export pure fn cos(x: number): number
+export pure fn floor(x: number): number
+export pure fn round(x: number): number
+export pure fn sin(x: number): number
+export pure fn sqrt(x: number): number
+export pure fn isFinite(x: unknown): boolean
+export pure fn isInteger(x: unknown): boolean
+export pure fn num(x: number | string | boolean | null | undefined): number

@@ -1,0 +1,7 @@
+The sprint board is built in `/tmp/claude-0/runs/r15/board-foldkit-haiku-5/src/` (`main.ts`, `model.ts`, `message.ts`, `command.ts`, `update.ts`, `view.ts`). `./check` passes and all 26 visible tests pass; I used 3 of the 15 check/test runs. Each board and archive command carries a per-visit number, so replies from a discarded page are ignored, and optimistic moves, adds, renames, archives, toggles and restores revert on decline.
+
+I was least sure of these choices, which the brief leaves open:
+- A card moved into To do while an add is pending lands above the pending card, not below it.
+- Move, add and checklist buttons are disabled while their target column or checklist is still loading or has failed.
+- The rename input keeps its text after submit, and the archive error clears only when the next archive starts.
+- The 404 logged during page load was not traced; it is probably a favicon, but I did not confirm that.

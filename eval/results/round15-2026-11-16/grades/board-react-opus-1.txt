@@ -1,0 +1,8 @@
+== hidden
+45/45 passed
+== overlap
+26/26 passed
+== fuzz
+board-react-opus-1: 1/20 seeds found a hole
+  seed 8 step 43: settled: card: "#3 Bravo · 2/3", server "#3 Delta · 2/3"
+    land fetchCards:doing ; up #4 ; select #3 ; fail moveCard:4,doing,0 ; up #4 ; rename Alpha ; land fetchCards:todo ; rename Delta ; land moveCard:4,doing,0 ; up #2 ; land moveCard:2,todo,0 ; add-item docs 1 ; rename Bravo ; land fetchChecklist:3 ; land renameCard:3,Bravo ; select #1 ; add-item ship 2 ; select #4 ; right #1 ; land fetchCards:done ; left #4 ; add Delta 3 ; left #3 ; up #3 ; land 

@@ -1,0 +1,4 @@
+//@ for solid-slider ^2.0.0
+export component SliderProvider(props: { children: View })
+export component Slider(props: { options?: import("keen-slider").KeenSliderOptions; plugins?: import("keen-slider").KeenSliderPlugin[]; children: View })
+export component SliderButton(props: { next?: boolean; prev?: boolean; disabled?: boolean; class?: string; classList?: { [k: string]: boolean | undefined; } | undefined; children: View })

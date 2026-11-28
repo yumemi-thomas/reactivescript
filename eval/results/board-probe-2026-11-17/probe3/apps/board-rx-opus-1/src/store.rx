@@ -1,0 +1,222 @@
+// The board's server data and every write on it. They live in the module, not in a page, because a write can
+// outlive the page it started on: its guesses and the lists it re-asks live as long as the write.
+import pure { fetchCards, fetchChecklist, fetchArchived } from "./api"
+import { moveCard, renameCard, addCard, archiveCard, toggleItem, addItem, restoreCard, Card, Item, Archived } from "./api"
+
+// One counter per column: a new value asks the column again (a page open, or a retry). The board is the page the
+// app opens on, so they start at 0. The archive is not open at start, so its counter starts below the guard.
+export source todoTry := 0
+export source doingTry := 0
+export source doneTry := 0
+export source archiveVisit := -1
+
+// The selected card's id, or -1.
+export source selected: number := -1
+
+// Failures are the client's: they outlast the guesses they come with.
+export source moveError := ""
+export source addError := ""
+export source archiveError := ""
+export source renameError := ""
+export source itemError := ""
+export source restoreError := ""
+
+// Keys for placeholders (a card or an item the server has not answered yet): negative, so never a server id.
+source nextKey := -1
+
+export todo: Card[] key id = todoTry >= 0 ? await fetchCards("todo") : []
+export doing: Card[] key id = doingTry >= 0 ? await fetchCards("doing") : []
+export done: Card[] key id = doneTry >= 0 ? await fetchCards("done") : []
+export checklist: Item[] key id = selected < 0 ? [] : await fetchChecklist(selected)
+export archived: Archived[] key id = archiveVisit >= 0 ? await fetchArchived() : []
+
+fn insertAt(rs: Card[], j: number, c: Card): Card[] => [...rs.slice(0, j), c, ...rs.slice(j)]
+fn without(rs: Card[], id: number): Card[] => rs.filter(r => r.id != id)
+fn shift(rs: Card[], col: string, to: string, c: Card, j: number): Card[] =>
+  col == to ? insertAt(without(rs, c.id), j, c) : without(rs, c.id)
+fn has(rs: Card[], id: number): boolean => rs.some(r => r.id == id)
+
+// Where the selected card is on the board as shown ("" when nothing is selected or it is not on the board).
+// Each arm reads one more column only when the card is not in the ones before it.
+export where = selected < 0 ? ""
+  : (has(todo, selected) catch (e) => false) ? "todo"
+  : (has(doing, selected) catch (e) => false) ? "doing"
+  : (has(done, selected) catch (e) => false) ? "done"
+  : ""
+export selIndex = (where == "todo" ? todo.findIndex(r => r.id == selected)
+  : where == "doing" ? doing.findIndex(r => r.id == selected)
+  : where == "done" ? done.findIndex(r => r.id == selected)
+  : -1) catch (e) => -1
+export selCard = (where == "todo" ? todo[selIndex]
+  : where == "doing" ? doing[selIndex]
+  : where == "done" ? done[selIndex]
+  : null) catch (e) => null
+
+// ---- page opens and selection
+
+export action openBoard() {
+  todoTry := todoTry + 1
+  doingTry := doingTry + 1
+  doneTry := doneTry + 1
+  selected := -1
+  onFlush(() => {
+    moveError := ""
+    addError := ""
+    archiveError := ""
+    renameError := ""
+    itemError := ""
+  })
+}
+
+export action openArchive() {
+  archiveVisit := archiveVisit + 1
+  onFlush(() => { restoreError := "" })
+}
+
+export action retry(col: string) {
+  if (col == "todo") { todoTry := todoTry + 1 }
+  if (col == "doing") { doingTry := doingTry + 1 }
+  if (col == "done") { doneTry := doneTry + 1 }
+}
+
+export action select(id: number) {
+  selected := id
+  onFlush(() => {
+    renameError := ""
+    itemError := ""
+  })
+}
+
+// ---- cards
+
+// Move card `c` from column `from` to position `j` of column `to` (which may be `from`), as shown.
+export action move(c: Card, from: string, to: string, j: number) {
+  onFlush(() => { moveError := "" })
+  try {
+    if (from == "todo" || to == "todo") { guess todo := rs => shift(rs, "todo", to, c, j) }
+    if (from == "doing" || to == "doing") { guess doing := rs => shift(rs, "doing", to, c, j) }
+    if (from == "done" || to == "done") { guess done := rs => shift(rs, "done", to, c, j) }
+    await moveCard(c.id, to, j)
+    refresh todo
+    refresh doing
+    refresh done
+  } catch (e) {
+    moveError := e.message
+    onFlush(() => { moveError := e.message })
+  }
+}
+
+export action add(title: string) {
+  let k = nextKey
+  onFlush(() => {
+    nextKey := k - 1
+    addError := ""
+  })
+  try {
+    guess todo := rs => [...rs, { id: k, title: title, done: 0, total: 0 }]
+    let r = await addCard("todo", title)
+    guess todo := rs => rs.map(x => x.id == k ? { ...x, id: r.id, title: r.title } : x)
+    refresh todo
+  } catch (e) {
+    addError := e.message
+    onFlush(() => { addError := e.message })
+  }
+}
+
+// `i`: the card's index in column `col` on screen.
+export action rename(id: number, title: string, col: string, i: number) {
+  onFlush(() => { renameError := "" })
+  try {
+    if (col == "todo") { guess todo[i].title := title }
+    if (col == "doing") { guess doing[i].title := title }
+    if (col == "done") { guess done[i].title := title }
+    await renameCard(id, title)
+    refresh todo
+    refresh doing
+    refresh done
+  } catch (e) {
+    renameError := e.message
+    onFlush(() => { renameError := e.message })
+  }
+}
+
+export action archive(id: number, col: string) {
+  onFlush(() => {
+    selected := -1
+    archiveError := ""
+    renameError := ""
+    itemError := ""
+  })
+  try {
+    if (col == "todo") { guess todo := rs => without(rs, id) }
+    if (col == "doing") { guess doing := rs => without(rs, id) }
+    if (col == "done") { guess done := rs => without(rs, id) }
+    await archiveCard(id)
+    refresh todo
+    refresh doing
+    refresh done
+  } catch (e) {
+    archiveError := e.message
+    onFlush(() => { archiveError := e.message })
+  }
+}
+
+// ---- checklist
+
+// `k`: the item's index in the checklist on screen; `col`, `i`: the card's column and index there; `n`: the card's
+// new done count as it will be.
+export action toggle(cardId: number, itemId: number, k: number, value: boolean, col: string, i: number, n: number) {
+  onFlush(() => { itemError := "" })
+  try {
+    guess checklist[k].done := value
+    if (col == "todo") { guess todo[i].done := n }
+    if (col == "doing") { guess doing[i].done := n }
+    if (col == "done") { guess done[i].done := n }
+    await toggleItem(cardId, itemId, value)
+    refresh checklist
+    refresh todo
+    refresh doing
+    refresh done
+  } catch (e) {
+    itemError := e.message
+    onFlush(() => { itemError := e.message })
+  }
+}
+
+// `n`: the card's new total as it will be.
+export action addChecklistItem(cardId: number, text: string, col: string, i: number, n: number) {
+  let k = nextKey
+  onFlush(() => {
+    nextKey := k - 1
+    itemError := ""
+  })
+  try {
+    guess checklist := rs => [...rs, { id: k, text: text, done: false }]
+    if (col == "todo") { guess todo[i].total := n }
+    if (col == "doing") { guess doing[i].total := n }
+    if (col == "done") { guess done[i].total := n }
+    let r = await addItem(cardId, text)
+    guess checklist := rs => rs.map(x => x.id == k ? { id: r.id, text: r.text, done: r.done } : x)
+    refresh checklist
+    refresh todo
+    refresh doing
+    refresh done
+  } catch (e) {
+    itemError := e.message
+    onFlush(() => { itemError := e.message })
+  }
+}
+
+// ---- archive
+
+export action restore(id: number) {
+  onFlush(() => { restoreError := "" })
+  try {
+    guess archived := rs => rs.filter(r => r.id != id)
+    await restoreCard(id)
+    refresh archived
+  } catch (e) {
+    restoreError := e.message
+    onFlush(() => { restoreError := e.message })
+  }
+}

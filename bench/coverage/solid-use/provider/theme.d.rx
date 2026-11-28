@@ -1,0 +1,4 @@
+// By hand: every word (the module is the app's own). The library's scope is no context (bench/tasks/solid-use-state): no
+// row says `provides` or `uses`.
+export component ThemeScope(props: { value: string; children?: View })
+export fn useTheme(): ref string

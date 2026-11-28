@@ -1,0 +1,13 @@
+//@ for @tanstack/solid-query ^6.0.0-rc.6
+// @tanstack/solid-query 6 (Solid 2.0) in rows, as rx-declare drafts it — what its types cannot show, it knows of this
+// release: the client's context and its provider, a
+// mutation whose callbacks are called later (MO-10g) and whose `mutate` answers a promise, and the client by the method
+// the app calls (the draft lists every method that answers nothing or a promise, MO-10b): each is called from a handler.
+export context queryClient
+export type InvalidateOptions = import("@tanstack/solid-query").InvalidateOptions
+export type InvalidateQueryFilters<TQueryKey extends QueryKey = QueryKey> = import("@tanstack/solid-query").InvalidateQueryFilters<TQueryKey>
+export type QueryKey = import("@tanstack/solid-query").QueryKey
+export type QueryClientProviderProps = import("@tanstack/solid-query").QueryClientProviderProps
+export component QueryClientProvider(props: QueryClientProviderProps) provides(queryClient)
+export fn useQueryClient(queryClient?: import("@tanstack/solid-query").QueryClient): { invalidateQueries: (filters?: InvalidateQueryFilters<QueryKey>, options?: InvalidateOptions) => Promise<void> } uses(queryClient)
+export fn useMutation<TData = unknown, TVariables = void>(ref options: { mutationFn: (v: TVariables) => Promise<TData>; onSuccess?: handler () => void }): { mutate: (v: TVariables) => Promise<TData>; isPending: boolean; status: string; reset: () => void } uses(queryClient)

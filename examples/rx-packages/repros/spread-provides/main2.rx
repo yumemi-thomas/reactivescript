@@ -1,0 +1,3 @@
+import { Item, Part } from "./lib.rx"
+component Item2(props: { children?: View }) { <Item>{props.children}</Item> }
+export default component App() { <Item2><Part /></Item2> }

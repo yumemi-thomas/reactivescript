@@ -1,0 +1,11 @@
+I built the sprint board in plain TypeScript and the DOM, split across `src/main.ts` (tabs), `src/board.ts`, `src/archive.ts` and `src/dom.ts`; `./check` passes and `./test` passes 26/26, using 2 of the 15 runs. Each page keeps the server's confirmed state plus a list of changes still waiting on the server, and shows the two combined, so one request failing undoes only its own change even when several are in flight. Answers that arrive after a page was left, or after a newer load of the same column or checklist, are ignored.
+
+The brief left some choices open, and I decided them as follows:
+- The rename box keeps its text after a rename.
+- Clicking a card that is already selected does nothing.
+- Cards still being added can't be selected.
+- `add-card` and any move into a column that hasn't loaded are disabled.
+- Titles and items are trimmed, and blank ones are ignored.
+- A rename or item error that arrives after another card was selected is not shown.
+
+One known gap: if a card is moved to the bottom of To do while a new card is still being added there, it can jump above the new card once the server accepts the move.

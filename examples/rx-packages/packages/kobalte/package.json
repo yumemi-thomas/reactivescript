@@ -1,0 +1,153 @@
+{
+  "name": "@rx-packages/kobalte",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "files": [
+    "dist",
+    "src",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "rx-lib"
+  },
+  "reactivescript": {
+    "entries": [
+      "src/button.rx",
+      "src/checkbox.rx",
+      "src/collapsible.rx",
+      "src/dialog.rx",
+      "src/form.rx",
+      "src/meter.rx",
+      "src/pagination.rx",
+      "src/radio.rx",
+      "src/select.rx",
+      "src/small.rx",
+      "src/switch.rx",
+      "src/tabs.rx",
+      "src/toast.rx",
+      "src/tooltip.rx"
+    ]
+  },
+  "exports": {
+    "./form": {
+      "types": "./dist/form.d.ts",
+      "worker": "./dist/form.server.js",
+      "browser": "./dist/form.js",
+      "deno": "./dist/form.server.js",
+      "node": "./dist/form.server.js",
+      "default": "./dist/form.js"
+    },
+    "./switch": {
+      "types": "./dist/switch.d.ts",
+      "worker": "./dist/switch.server.js",
+      "browser": "./dist/switch.js",
+      "deno": "./dist/switch.server.js",
+      "node": "./dist/switch.server.js",
+      "default": "./dist/switch.js"
+    },
+    "./button": {
+      "types": "./dist/button.d.ts",
+      "worker": "./dist/button.server.js",
+      "browser": "./dist/button.js",
+      "deno": "./dist/button.server.js",
+      "node": "./dist/button.server.js",
+      "default": "./dist/button.js"
+    },
+    "./checkbox": {
+      "types": "./dist/checkbox.d.ts",
+      "worker": "./dist/checkbox.server.js",
+      "browser": "./dist/checkbox.js",
+      "deno": "./dist/checkbox.server.js",
+      "node": "./dist/checkbox.server.js",
+      "default": "./dist/checkbox.js"
+    },
+    "./collapsible": {
+      "types": "./dist/collapsible.d.ts",
+      "worker": "./dist/collapsible.server.js",
+      "browser": "./dist/collapsible.js",
+      "deno": "./dist/collapsible.server.js",
+      "node": "./dist/collapsible.server.js",
+      "default": "./dist/collapsible.js"
+    },
+    "./meter": {
+      "types": "./dist/meter.d.ts",
+      "worker": "./dist/meter.server.js",
+      "browser": "./dist/meter.js",
+      "deno": "./dist/meter.server.js",
+      "node": "./dist/meter.server.js",
+      "default": "./dist/meter.js"
+    },
+    "./small": {
+      "types": "./dist/small.d.ts",
+      "worker": "./dist/small.server.js",
+      "browser": "./dist/small.js",
+      "deno": "./dist/small.server.js",
+      "node": "./dist/small.server.js",
+      "default": "./dist/small.js"
+    },
+    "./pagination": {
+      "types": "./dist/pagination.d.ts",
+      "worker": "./dist/pagination.server.js",
+      "browser": "./dist/pagination.js",
+      "deno": "./dist/pagination.server.js",
+      "node": "./dist/pagination.server.js",
+      "default": "./dist/pagination.js"
+    },
+    "./radio": {
+      "types": "./dist/radio.d.ts",
+      "worker": "./dist/radio.server.js",
+      "browser": "./dist/radio.js",
+      "deno": "./dist/radio.server.js",
+      "node": "./dist/radio.server.js",
+      "default": "./dist/radio.js"
+    },
+    "./tabs": {
+      "types": "./dist/tabs.d.ts",
+      "worker": "./dist/tabs.server.js",
+      "browser": "./dist/tabs.js",
+      "deno": "./dist/tabs.server.js",
+      "node": "./dist/tabs.server.js",
+      "default": "./dist/tabs.js"
+    },
+    "./dialog": {
+      "types": "./dist/dialog.d.ts",
+      "worker": "./dist/dialog.server.js",
+      "browser": "./dist/dialog.js",
+      "deno": "./dist/dialog.server.js",
+      "node": "./dist/dialog.server.js",
+      "default": "./dist/dialog.js"
+    },
+    "./tooltip": {
+      "types": "./dist/tooltip.d.ts",
+      "worker": "./dist/tooltip.server.js",
+      "browser": "./dist/tooltip.js",
+      "deno": "./dist/tooltip.server.js",
+      "node": "./dist/tooltip.server.js",
+      "default": "./dist/tooltip.js"
+    },
+    "./select": {
+      "types": "./dist/select.d.ts",
+      "worker": "./dist/select.server.js",
+      "browser": "./dist/select.js",
+      "deno": "./dist/select.server.js",
+      "node": "./dist/select.server.js",
+      "default": "./dist/select.js"
+    },
+    "./toast": {
+      "types": "./dist/toast.d.ts",
+      "worker": "./dist/toast.server.js",
+      "browser": "./dist/toast.js",
+      "deno": "./dist/toast.server.js",
+      "node": "./dist/toast.server.js",
+      "default": "./dist/toast.js"
+    }
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.0",
+    "@solidjs/web": "^2.0.0",
+    "@reactivescript/runtime": "*"
+  }
+}

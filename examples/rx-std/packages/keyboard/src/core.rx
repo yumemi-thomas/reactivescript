@@ -1,0 +1,42 @@
+// The keyboard as values: one instance for the page, made at its first reader.
+import { onWindow } from "@reactivescript/std/browser"
+import { after } from "@reactivescript/std/time"
+import pure { isString } from "@reactivescript/std/is"
+
+export type Keys = string[]
+
+export source event: KeyboardEvent | null := null
+export source keys: Keys := []
+
+fn upper(k: any): string => isString(k) ? k.toUpperCase() : ""
+fn held_(e: KeyboardEvent): Keys => [e.metaKey ? "META" : "", e.ctrlKey ? "CONTROL" : "", e.altKey ? "ALT" : "", e.shiftKey ? "SHIFT" : ""].filter((m) => m != "")
+/** The modifiers held before the first key of all are before it. */
+fn pressed(ks: Keys, e: KeyboardEvent): Keys => e.repeat || !isString(e.key) || ks.includes(upper(e.key)) ? ks :
+  ks.length == 0 && !["ALT", "CONTROL", "META", "SHIFT"].includes(upper(e.key)) ? [...held_(e), upper(e.key)] : [...ks, upper(e.key)]
+fn released(ks: Keys, e: KeyboardEvent): Keys => !isString(e.key) ? ks : upper(e.key) == "META" ? [] : ks.filter((k) => k !== upper(e.key))
+
+effect () {
+  let stops = [
+    onWindow("keydown", (e) => { event := e
+      keys := ks => pressed(ks, e)
+      after(0, () => { event := null }) }),
+    onWindow("keyup", (e) => { keys := ks => released(ks, e) }),
+    onWindow("blur", () => { keys := [] }),
+    onWindow("contextmenu", (e) => { if (!e.defaultPrevented) { keys := [] } })
+  ]
+  return () => { stops.forEach((stop) => { stop() }) }
+}
+
+/** The key held alone: the one pressed when none was. */
+before = pre keys -> []
+export held: string | null = before.length == 0 && keys.length == 1 ? keys[0] : null
+
+/** Every state of the keys since the first was pressed (a copy of each: REPORT.md, bug 2). */
+export sequence: Keys[] = keys.length == 0 ? [] : [...(pre sequence -> []), [...keys]]
+
+/** Whether that key is held alone. Its row instantiates (`ref key`): JavaScript is handed an accessor, as the original's
+ *  `createKeyHold` hands one (MO-13i) — what a fn answers to JavaScript is its row's, never its body's form (E-9b). */
+export fn createKeyHold(ref key: string): boolean {
+  holding = upper(key) == held
+  holding
+}

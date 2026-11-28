@@ -1,0 +1,18 @@
+import pure { load } from "./api.js"
+import { Progress as Root, Track, Fill, Label, ValueLabel } from "@rx-packages/kobalte/meter"
+/*TOP*/
+export default component App() {
+  source n: number := 0
+  source other: number := 0
+  source list: string[] := ["a", "b"]
+  source extra: boolean := false
+  source on: number := 1
+  slow = await load(n)
+  action bump() { n := n + 1 }
+  /*DECL*/
+  <main><p>{n} {other} {list.join("+")}</p>
+    <button onClick={() => { bump(); extra := !extra; list := [...list, "c"] }}>b</button>
+    <div>/*A*/<Root value={on}><Label>CHILD</Label><ValueLabel /><Track><Fill /></Track></Root><button onClick={() => { on := 2 }}>b</button>/*B*/</div>
+    {errored fallback { <i>e</i> } { {loading fallback { <i>l</i> } { <b>{slow}</b> }} }}
+  </main>
+}

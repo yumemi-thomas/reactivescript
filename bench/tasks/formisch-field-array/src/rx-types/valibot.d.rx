@@ -1,0 +1,32 @@
+//@ for valibot ^1.5.0
+// valibot's schema builders, as rx-declare drafts them (each with the types of its own that it names). Read from the code by rx-declare (09 MO-8v; it was by hand): `pure` — each
+// makes a value from what it is given.
+export type ObjectEntries = import("valibot").ObjectEntries
+export type BaseIssue<TInput> = import("valibot").BaseIssue<TInput>
+export type BaseSchema<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseSchema<TInput, TOutput, TIssue>
+export type PipeAction<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").PipeAction<TInput, TOutput, TIssue>
+export type PipeItem<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").PipeItem<TInput, TOutput, TIssue>
+export type LengthInput = import("valibot").LengthInput
+export type ArrayIssue = import("valibot").ArrayIssue
+export type ArraySchema<TItem extends BaseSchema<unknown, unknown, BaseIssue<unknown>>, TMessage extends ErrorMessage<ArrayIssue> | undefined> = import("valibot").ArraySchema<TItem, TMessage>
+export type ErrorMessage<TIssue extends BaseIssue<unknown>> = import("valibot").ErrorMessage<TIssue>
+export type InferIssue<TItem extends BaseSchema<unknown, unknown, BaseIssue<unknown>> | BaseSchemaAsync<unknown, unknown, BaseIssue<unknown>> | BaseValidation<any, unknown, BaseIssue<unknown>> | BaseValidationAsync<any, unknown, BaseIssue<unknown>> | BaseTransformation<any, unknown, BaseIssue<unknown>> | BaseTransformationAsync<any, unknown, BaseIssue<unknown>> | BaseMetadata<any>> = import("valibot").InferIssue<TItem>
+export type InferOutput<TItem extends BaseSchema<unknown, unknown, BaseIssue<unknown>> | BaseSchemaAsync<unknown, unknown, BaseIssue<unknown>> | BaseValidation<any, unknown, BaseIssue<unknown>> | BaseValidationAsync<any, unknown, BaseIssue<unknown>> | BaseTransformation<any, unknown, BaseIssue<unknown>> | BaseTransformationAsync<any, unknown, BaseIssue<unknown>> | BaseMetadata<any>> = import("valibot").InferOutput<TItem>
+export type MinLengthAction<TInput extends LengthInput, TRequirement extends number, TMessage extends ErrorMessage<MinLengthIssue<TInput, TRequirement>> | undefined> = import("valibot").MinLengthAction<TInput, TRequirement, TMessage>
+export type MinLengthIssue<TInput extends LengthInput, TRequirement extends number> = import("valibot").MinLengthIssue<TInput, TRequirement>
+export type ObjectIssue = import("valibot").ObjectIssue
+export type ObjectSchema<TEntries extends ObjectEntries, TMessage extends ErrorMessage<ObjectIssue> | undefined> = import("valibot").ObjectSchema<TEntries, TMessage>
+export type SchemaWithPipe<TPipe extends readonly [BaseSchema<unknown, unknown, BaseIssue<unknown>>, ...PipeItem<any, unknown, BaseIssue<unknown>>[]]> = import("valibot").SchemaWithPipe<TPipe>
+export type StringIssue = import("valibot").StringIssue
+export type StringSchema<TMessage extends ErrorMessage<StringIssue> | undefined> = import("valibot").StringSchema<TMessage>
+export type BaseMetadata<TInput> = import("valibot").BaseMetadata<TInput>
+export type BaseSchemaAsync<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseSchemaAsync<TInput, TOutput, TIssue>
+export type BaseTransformation<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseTransformation<TInput, TOutput, TIssue>
+export type BaseTransformationAsync<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseTransformationAsync<TInput, TOutput, TIssue>
+export type BaseValidation<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseValidation<TInput, TOutput, TIssue>
+export type BaseValidationAsync<TInput, TOutput, TIssue extends BaseIssue<unknown>> = import("valibot").BaseValidationAsync<TInput, TOutput, TIssue>
+export pure fn object<const TEntries extends ObjectEntries>(entries: TEntries): ObjectSchema<TEntries, undefined>
+export pure fn array<const TItem extends BaseSchema<unknown, unknown, BaseIssue<unknown>>>(item: TItem): ArraySchema<TItem, undefined>
+export pure fn string(): StringSchema<undefined>
+export pure fn pipe<const TSchema extends BaseSchema<unknown, unknown, BaseIssue<unknown>>, const TItem1 extends PipeItem<InferOutput<TSchema>, unknown, BaseIssue<unknown>>>(schema: TSchema, item1: TItem1 | PipeAction<InferOutput<TSchema>, InferOutput<TItem1>, InferIssue<TItem1>>): SchemaWithPipe<readonly [TSchema, TItem1]>
+export pure fn minLength<TInput extends LengthInput, const TRequirement extends number>(requirement: TRequirement): MinLengthAction<TInput, TRequirement, undefined>

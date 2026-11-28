@@ -1,0 +1,24 @@
+// A share dialog on UI SDK's Dialog: the open state is the app's, a press outside does not close it, a toggle inside
+// shows its own state in its label, and sending writes app state and closes the dialog.
+import { Dialog, DialogTrigger, DialogBackdrop, DialogContent, DialogTitle, DialogDescription, DialogClose, DialogOpenChangeDetails } from "@ui-sdk/solid/dialog"
+import { Toggle } from "@ui-sdk/solid/toggle"
+
+export default component App() {
+  source open: boolean := false
+  source notify: boolean := false
+  source sent: number := 0
+  <p class="status">{open ? "sharing" : "idle"}; sent {sent}{notify ? ", with a notice" : ""}</p>
+  <Dialog open={open} onOpenChange={(next: boolean, details: DialogOpenChangeDetails) => { if (!next && details.reason == "outside-press") { details.cancel() } else { open := next } }}>
+    <DialogTrigger class="trigger">Share</DialogTrigger>
+    <DialogBackdrop class="backdrop" />
+    <DialogContent class="content">
+      <DialogTitle>Share link</DialogTitle>
+      <DialogDescription>Anyone who has this link can view this.</DialogDescription>
+      <Toggle class="notify" pressed={notify} onPressedChange={(pressed: boolean) => { notify := pressed }}>{view (state) {
+        <span>{state.pressed ? "Notify people: on" : "Notify people: off"}</span>
+      }}</Toggle>
+      <button class="send" onClick={() => { sent := sent + 1; open := false }}>Send</button>
+      <DialogClose class="close">Cancel</DialogClose>
+    </DialogContent>
+  </Dialog>
+}

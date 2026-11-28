@@ -1,0 +1,8 @@
+// solid-use/atom: one function that reads and writes (atom.js gives `.rx` its two halves).
+import { createAtom } from "./atom.js"
+
+export default component App() {
+  [count, setCount] = createAtom(0)
+  <p>count {count}</p>
+  <button onClick={() => { setCount(count + 1) }}>add</button>
+}

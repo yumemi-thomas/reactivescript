@@ -4,11 +4,12 @@
 //! `const`. Names are mangled (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The
 //! module is a tree (`js.rs`), never text (CP-3).
 
-use crate::ast::{Decl, Expr, ExprKind, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind};
-use crate::awaits::{is_handler, non_tail_awaits, view_readers};
+use crate::ast::{instantiates, kept_parts, Decl, Expr, ExprKind, Field, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind, TplPart};
+use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
-use crate::modules::ModuleSet;
+use crate::modules::{defaulted, given, shown, shown_in, takes_view, type_only, types_of, views_of, Given, ModuleSet, Types};
+use crate::names::{in_prelude, language, scalar, Lang};
 use crate::parse::{JsDecl, Part, Shape as FShape};
 use crate::signature::ExportSig;
 use indexmap::{IndexMap, IndexSet};
@@ -22,13 +23,27 @@ fn fail<T>(msg: impl Into<String>) -> R<T> {
     Err(CompileError(msg.into()))
 }
 
-const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"];
-fn builtin(n: &str) -> bool {
-    BUILTINS.contains(&n)
-}
 const VOID_TAGS: &[&str] = &["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"];
 fn mg(n: &str) -> String {
     format!("v${n}")
+}
+/// MO-8t: an import's names, and after each the methods its declaration gives rows of their own (`export fn
+/// toaster.show(…)`): each is bound as a declared fn is, under the name the loader gave its mentions (`toaster.show`),
+/// and written as that member of the import (`v$toaster.show`)
+fn with_methods(names: &[crate::ast::ImportName], ds: Option<&Vec<JsDecl>>) -> Vec<crate::ast::ImportName> {
+    let mut out = vec![];
+    for n in names {
+        out.push(n.clone());
+        let prefix = format!("{}.", n.name);
+        for m in ds.map(|v| v.as_slice()).unwrap_or(&[]) {
+            if let JsDecl::Fn { name, .. } = m {
+                if name.starts_with(&prefix) {
+                    out.push(crate::ast::ImportName { name: name.clone(), alias: format!("{}{}", n.alias, &name[n.name.len()..]) });
+                }
+            }
+        }
+    }
+    out
 }
 /// a component: an uppercase JSX tag
 fn cm(n: &str) -> String {
@@ -56,6 +71,16 @@ struct FnRef {
 struct Bind {
     kind: Kind,
     js: String,
+    /// RG-4b: a component's props, or a projection of them that holds a view
+    given: Option<Given>,
+    /// RG-4c: a context that holds a view
+    view_ctx: bool,
+    /// RG-4c: a component's props: the views it shows (`<props.f … />`), and whether it takes plain content as well
+    shows: Vec<(String, bool)>,
+    /// RG-4c: a component whose children are a view or plain content
+    plain: bool,
+    /// RG-4c: a component whose children are a value
+    kids_value: bool,
     w: Option<String>,
     f: Option<FnRef>,
     prev: Option<String>,
@@ -64,9 +89,35 @@ struct Bind {
     /// MO-10: a primitive's result (Jfn), or an instance's (with `inst`, the name of its raw result)
     shape: Option<FShape>,
     inst: Option<String>,
+    /// MO-10i: a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy
+    draft: bool,
+    /// MO-10i: a JS fn's callbacks whose parameters are its drafts (argument, parameter positions); its result's
+    /// function parts that take such callbacks, by tuple index or field
+    drafts: Vec<(usize, Vec<usize>)>,
+    part_drafts: Vec<(String, Vec<(usize, Vec<usize>)>)>,
+    /// MO-10i (2026-11-22): a JS module's name — a draft it is called with is lent, not given; and the parameters its
+    /// declaration marks `draft`, which are given the draft itself
+    js_fn: bool,
+    draft_args: Vec<usize>,
+    /// E-9b: the expression a name stands for where it is read; its place among the names of a call that are evaluated
+    /// once, and whether it is read apart
+    sub: Option<*const Expr>,
+    shared: Option<(usize, bool)>,
+    /// R-11a: its own expression, where it is an equation or a source with a question, and the scope it is read in: what
+    /// reads it reads ahead if it does
+    of: Option<(*const Expr, Env)>,
+}
+/// RG-4c: a component whose children are a view or plain content.
+fn takes_plain(d: &Decl, types: &Types) -> bool {
+    matches!(d, Decl::Component { props, props_type, decls, view, tparams, .. } if shown(props, props_type.as_deref(), decls, view, types, tparams.as_deref()).get("children").is_some_and(|v| v.mixed))
+}
+/// RG-4c: children that are a value — declared a value's type (`children: number[]`), or used as one where every caller
+/// gives one (`kids_value`) — are given as the value written between the tags, not as content to show.
+fn kids_as_value(d: &Decl, types: &Types) -> bool {
+    matches!(d, Decl::Component { props_type, tparams, kids_value, .. } if *kids_value || takes_view(props_type.as_deref(), types, "children", tparams.as_deref()) == Some(false))
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), w: None, f: None, prev: None, client: false, shape: None, inst: None }
+    Bind { kind, js: js.into(), given: None, view_ctx: false, shows: vec![], plain: false, kids_value: false, w: None, f: None, prev: None, client: false, shape: None, inst: None, draft: false, drafts: vec![], part_drafts: vec![], js_fn: false, draft_args: vec![], sub: None, shared: None, of: None }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -81,6 +132,8 @@ type Env = usize;
 #[derive(Clone, Default)]
 struct Ctx {
     imp: bool,
+    /// an element's `ref`: its closure is called while the view is made
+    is_ref: bool,
     gen: bool,
     is_async: bool,
     tail: bool,
@@ -98,6 +151,8 @@ struct Usage {
     optimistic: HashSet<String>,
     paths: HashSet<String>,
     prev_of: HashSet<String>,
+    /// plain writes (not guesses): a question source that is guessed by path and written plainly lowers to a layer over a writable truth
+    plain: HashSet<String>,
 }
 fn usage(programs: &[&Program], extra: &[Vec<Stmt>]) -> Usage {
     let mut u = Usage::default();
@@ -110,6 +165,9 @@ fn usage(programs: &[&Program], extra: &[Vec<Stmt>]) -> Usage {
                 let tname = || target.and_then(|t| t["name"].as_str()).unwrap_or_default().to_string();
                 if k == Some("optimistic") {
                     u.optimistic.insert(tname());
+                }
+                if k == Some("write") && !target.and_then(|t| t["ctx"].as_bool()).unwrap_or(false) {
+                    u.plain.insert(tname());
                 }
                 if matches!(k, Some("write" | "optimistic")) && target.and_then(|t| t["path"].as_array()).is_some_and(|p| !p.is_empty()) {
                     u.paths.insert(tname());
@@ -166,6 +224,54 @@ fn deps(e: &Value, self_name: &str, out: &mut IndexSet<String>) {
         _ => {}
     }
 }
+/// RG-7b: a `use` of the context `name` written in what its provision is given — not in a block there that provides it
+/// itself (ref/src/ast.ts `ownUses`).
+fn own_use(e: &Value, name: &str) -> bool {
+    match e {
+        Value::Array(xs) => xs.iter().any(|x| own_use(x, name)),
+        Value::Object(o) => {
+            let k = o.get("k").and_then(Value::as_str);
+            if k == Some("use") {
+                return o.get("name").and_then(Value::as_str) == Some(name);
+            }
+            if let Some(Value::Array(ds)) = o.get("decls") {
+                if ds.iter().any(|d| d.get("k").and_then(Value::as_str) == Some("provide") && d.get("name").and_then(Value::as_str) == Some(name)) {
+                    return false;
+                }
+            }
+            o.iter().any(|(key, v)| key != "k" && own_use(v, name))
+        }
+        _ => false,
+    }
+}
+/// C-1: the contexts an expression uses where it stands — not in a closure, which runs later, unless a call has it
+/// (ref/src/ast.ts `usesNow`). `skip`: a context whose uses are not counted (a provision's own).
+pub(crate) fn uses_now(e: &Value, called: bool, skip: Option<&str>, out: &mut IndexSet<String>) {
+    match e {
+        Value::Array(xs) => xs.iter().for_each(|x| uses_now(x, called, skip, out)),
+        Value::Object(o) => {
+            let k = o.get("k").and_then(Value::as_str);
+            if k == Some("use") {
+                if let Some(n) = o.get("name").and_then(Value::as_str) {
+                    if skip != Some(n) {
+                        out.insert(n.to_string());
+                    }
+                }
+                return;
+            }
+            if k == Some("serverfn") || (k == Some("fn") && !called) {
+                return;
+            }
+            let inner = k == Some("call") || (called && k != Some("fn"));
+            for (key, v) in o {
+                if key != "k" {
+                    uses_now(v, inner, skip, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
 fn has_await_json(v: &Value) -> bool {
     serde_json::to_string(v).unwrap().contains("\"k\":\"await\"")
 }
@@ -180,6 +286,8 @@ pub struct Compiled {
     pub entry: String,
     /// CSS-4: the modules' stylesheets, beside their JavaScript
     pub css: String,
+    /// CSS-4: each module's own stylesheet, by its output name
+    pub module_css: IndexMap<String, String>,
 }
 
 /// 09 MO-1: one ES module per `.rx` module. A dependency's module is a factory over the app (`__rt.module` runs it once per
@@ -192,24 +300,47 @@ pub fn compile_modules(set: &ModuleSet, extra: &[Vec<Stmt>]) -> R<Compiled> {
 /// `compile_modules`, with each module importing its dependencies by their `.rx` paths (relative to the importer) when
 /// `by_source`, as a bundler resolves them, rather than as the sibling `.mjs` files `compile_modules` names.
 pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> R<Compiled> {
+    compile_linked_as(set, extra, by_source, false, &Default::default())
+}
+/// CP-4d: `library`, the entry is compiled as a dependency is (`module(__rt)`, its exports), for a JS host that imports
+/// an `.rx` module for its components (`./pages.rx?rx-lib`) rather than mounting a program from it. `plans` (MO-13i): the
+/// fns that hand JavaScript their result in parts.
+pub fn compile_linked_as<'a>(set: &'a ModuleSet, extra: &[Vec<Stmt>], by_source: bool, library: bool, plans: &'a crate::check::Plans) -> R<Compiled> {
     let programs: Vec<&Program> = set.order.iter().map(|p| &set.programs[p]).collect();
     let mut g = Gen::new(usage(&programs, extra), set);
     g.by_source = by_source;
+    g.plans = Some(plans);
     let mut files = IndexMap::new();
     let mut paths = IndexMap::new();
+    let mut module_css = IndexMap::new();
     for path in &set.order {
         let p = &set.programs[path];
-        g.begin_module(path, &p.decls);
+        let css0 = g.css.len();
+        g.begin_module(path, p);
         let mut deps: Vec<&str> = vec![];
+        // MO-13c: a module a JS import's printed signature stands for is the compiled JavaScript that import names,
+        // whose `__rx` is the module's factory
+        let mut compiled: HashMap<&str, &str> = HashMap::new();
         for d in &p.decls {
-            if let Decl::Import { resolved: Some(r), .. } = d {
+            if let Decl::Import { resolved: Some(r), from, through, .. } = d {
+                // MO-6e: an import a signature's re-export sent to the declaring module is reached through the module it named
+                let r = through.as_ref().map_or(r, |t| &t.resolved);
                 if !deps.contains(&r.as_str()) {
                     deps.push(r);
                 }
+                if !crate::modules::is_rx(from) {
+                    compiled.insert(r, from);
+                }
             }
         }
-        let mut body: Vec<S> = deps.iter().map(|d| S::ImportDefault(g.dep_var(d), if by_source { relative(path, d) } else { format!("./{}", g.out(d)) })).collect();
-        if *path == set.entry {
+        let mut body: Vec<S> = deps
+            .iter()
+            .map(|d| match compiled.get(d) {
+                Some(from) => S::ImportNamed(vec![("__rx".to_string(), g.dep_var(d))], from.to_string()),
+                None => S::ImportDefault(g.dep_var(d), if by_source { relative(path, d) } else { format!("./{}", g.out(d)) }),
+            })
+            .collect();
+        if *path == set.entry && !library {
             let root = g.new_env(None);
             let inner = g.block(&p.decls, &p.view, root, None, true)?;
             body.append(&mut g.top);
@@ -223,23 +354,55 @@ pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> 
             }));
         } else {
             let exported: Vec<&str> = p.decls.iter().filter(|d| d.exported() && !matches!(d, Decl::TypeDecl { .. })).filter_map(|d| d.name()).collect();
-            let is_comp = |n: &str| p.decls.iter().any(|d| matches!(d, Decl::Component { name, .. } if name == n));
-            let tail = E::Obj(exported.iter().map(|n| Prop::Kv(Key::Str(n.to_string()), id(if is_comp(n) { cm(n) } else { mg(n) }))).collect());
+            let is_comp = |n: &str| p.decls.iter().any(|d| matches!(d, Decl::Component { name, .. } if name == n)) || made_component(p, n, &set.declarations); // MO-11j
+            let mut props: Vec<Prop> = exported.iter().map(|n| Prop::Kv(Key::Str(n.to_string()), id(if is_comp(n) { cm(n) } else { mg(n) }))).collect();
+            // MO-6e: what the module re-exports, handed on as it binds it (a package's entry is imported by its own name)
+            for d in &p.decls {
+                if let Decl::Import { reexport: true, resolved: Some(r), names, .. } = d {
+                    for n in names {
+                        if !g.is_type(r, &n.name) {
+                            props.push(Prop::Kv(Key::Str(n.alias.clone()), id(g.import_bind(r, &n.name, &n.alias).js)));
+                        }
+                    }
+                }
+            }
+            let tail = E::Obj(props);
             let root = g.new_env(None);
             let mut inner = g.block(&p.decls, &[], root, Some(tail), false)?;
             body.append(&mut g.top);
             let mut fbody = vec![konst("__B", dot(id("__rt"), "B"))];
+            // MO-13i: a package is compiled apart from the app whose runtime it runs on
+            if p.decls.iter().any(|d| plans.contains_key(&(d as *const Decl))) {
+                fbody.push(S::IfThen(E::Un("!", Box::new(rt("result"))), Box::new(S::Throw(call(id("Error"), vec![str(format!("{}: a package compiled by this version of ReactiveScript needs @reactivescript/runtime of the same version or newer: upgrade it in the app (09 MO-13i)", path.rsplit('/').next().unwrap_or(path)))])))));
+            }
             fbody.append(&mut inner);
             body.push(S::ExportDefault(Func { name: Some("module".into()), params: vec![P::Id("__rt".into())], directives: vec![], body: fbody, is_async: false, generator: false }));
         }
+        module_css.insert(g.out(path), g.css[css0..].join("\n"));
         files.insert(g.out(path), body);
         paths.insert(g.out(path), path.clone());
     }
-    Ok(Compiled { files, paths, entry: g.out(&set.entry), css: g.css.join("\n") })
+    Ok(Compiled { files, paths, entry: g.out(&set.entry), css: g.css.join("\n"), module_css })
 }
 
 struct Gen<'p> {
+    /// MO-10i: expressions written where a read of a draft needs no copy: handed straight back to the library (a value
+    /// written to a draft's path, the callback's result, an argument of a draft's own method), or consumed by an operator
+    /// that makes a primitive of them
+    raw: HashSet<*const Expr>,
+    /// C-2: a whole store read there is copied
+    kept: HashSet<*const Expr>,
+    /// declarations the lowering made
+    made: Vec<std::rc::Rc<Decl>>,
+    /// MO-10i: the arguments of a JS fn's call, with the fn's name: a draft read there is lent (`__rt.lend`)
+    lent: HashMap<*const Expr, String>,
+    /// MO-10i: closures written where a JS fn hands their parameters a draft, with those positions
+    draft_closures: HashMap<*const Expr, Vec<usize>>,
+    /// MO-10i (2026-11-22): where a name is written as a call's whole argument, in the module being emitted: name →
+    /// (callee's name, argument index) — how a closure bound to a name is known to be a draft's callback
+    arg_calls: HashMap<String, Vec<(String, usize)>>,
     u: Usage,
+    plans: Option<&'p crate::check::Plans>,
     set: &'p ModuleSet,
     file: String,
     /// Modules imported by source path, for a bundler (`compile_linked`), not as sibling `.mjs` files.
@@ -248,17 +411,36 @@ struct Gen<'p> {
     /// module-level code: hoisted server functions and the module's error classes
     top: Vec<S>,
     top_fns: HashSet<String>,
+    /// RG-7b: the contexts whose `use` is, where emission stands, written in their own provision (the name of what is
+    /// above it), or in a block that provides them (None: that block's provision, found as any).
+    above: Vec<(String, Option<String>)>,
+    up_seq: usize,
     /// a module-level server fn → its hoisted function
     server_names: IndexMap<String, String>,
     mod_decls: &'p [Decl],
+    /// MO-11t: the props of the JS components this module imports that take a view
+    views: crate::modules::ViewProps,
+    /// what the module imports from JavaScript for its types alone
+    type_only: HashSet<String>,
+    /// an equation's hoisted awaits were just written, for its accessor to claim (`reg`)
+    claims: bool,
     sf_seq: usize,
     /// CSS-2: the scope class of the view being emitted
     style_hash: Option<String>,
     hoisted: HashMap<*const Expr, String>,
+    /// R-f-4a: an await a `catch` takes, settled to the failure: the answer its reader computes
+    settled: HashMap<*const Expr, E>,
+    hoisted_catch: HashMap<*const Expr, String>,
     hoist_seq: usize,
     frames: Vec<Frame>,
     style_ids: u32,
+    /// RG-4c: `props.f`, in a component that shows that view
+    shown: Vec<String>,
+    /// by module
+    types: std::cell::RefCell<HashMap<String, std::rc::Rc<Types>>>,
 }
+
+const AWAIT_NOT_LOWERED: &str = "`await` outside an equation's result position is not lowered yet";
 
 /// MO-10: the scenario prelude's `./prims`, a JS module of Solid primitives (`ref/compile/prims-solid.ts`).
 fn is_prims(from: &str) -> bool {
@@ -270,25 +452,51 @@ impl<'p> Gen<'p> {
     /// bundler (`by_source`, the product), where `./util.js` is the app's own file. `./api` stays the app's injected API
     /// (`createApp({ api })`, CP-4), and in the scenario runners every relative import is the harness's.
     fn js_import(&self, from: &str) -> bool {
-        !from.starts_with('.') || (self.by_source && !from.ends_with("/api"))
+        !from.starts_with('.') || (self.by_source && from != "./api")
+    }
+    /// SV-5a: the module a declared JS error class is identified by: a package's specifier, or the app's own `.d.rx`
+    /// as `modules::package_relative` names it — after its named package, else below the nearest package.json above it,
+    /// else by its own name: the same from every entry, in every checkout and on every machine. No machine path in a
+    /// client bundle.
+    fn class_module(&self, from: &str, declared: Option<&str>) -> String {
+        match declared.filter(|_| from.starts_with('.')) {
+            Some(dts) => self.set.declaration_ids.get(dts).cloned().unwrap_or_else(|| dts.rsplit('/').next().unwrap_or(dts).to_string()),
+            None => from.to_string(),
+        }
     }
     fn new(u: Usage, set: &'p ModuleSet) -> Self {
         Gen {
             u,
+            plans: None,
             set,
             file: "main.rx".into(),
             by_source: false,
             css: vec![],
             top: vec![],
             top_fns: HashSet::new(),
+            above: vec![],
+            up_seq: 0,
             server_names: IndexMap::new(),
             mod_decls: &[],
+            views: Default::default(),
+            claims: false,
+            type_only: HashSet::new(),
             sf_seq: 0,
             style_hash: None,
             hoisted: HashMap::new(),
+            settled: HashMap::new(),
+            hoisted_catch: HashMap::new(),
             hoist_seq: 0,
             frames: vec![],
             style_ids: 0,
+            shown: vec![],
+            types: Default::default(),
+            raw: HashSet::new(),
+            kept: HashSet::new(),
+            made: vec![],
+            lent: HashMap::new(),
+            draft_closures: HashMap::new(),
+            arg_calls: HashMap::new(),
         }
     }
     // ---- environments
@@ -335,11 +543,15 @@ impl<'p> Gen<'p> {
         format!("__m{}", self.mod_index(path))
     }
     /// Begin a module: what a hoisted server function may name at module level (SF-3: imports, error classes, server fns).
-    fn begin_module(&mut self, path: &str, decls: &'p [Decl]) {
+    fn begin_module(&mut self, path: &str, p: &'p Program) {
+        let decls = &p.decls[..];
+        self.type_only = type_only(p, self.set);
         self.file = path.to_string();
         self.top = vec![];
         self.top_fns = HashSet::new();
         self.mod_decls = decls;
+        self.views = crate::modules::ViewProps::of(self.set, decls);
+        self.arg_calls = crate::check::scope_facts(&serde_json::json!({ "decls": crate::ast::decls_json(decls), "view": [] })).arg_calls;
         self.server_names = IndexMap::new();
         for d in decls {
             match d {
@@ -354,11 +566,18 @@ impl<'p> Gen<'p> {
         }
         // a package's JS (`@solidjs/web/server-functions`): a real import at module level, where a hoisted server fn's wrappers are
         for d in decls {
-            if let Decl::Import { resolved: None, from, names, .. } = d {
+            if let Decl::Import { resolved: None, from, names, declared, .. } = d {
                 if !self.js_import(from) {
                     continue;
                 }
-                let ns: Vec<(String, String)> = names.iter().filter(|n| !builtin(&n.name) && n.name != "log").map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
+                if names.is_empty() {
+                    // 07 §1a: for its effect
+                    self.top.push(S::ImportBare(from.clone()));
+                    continue;
+                }
+                // a type its declaration file declares binds nothing: the JS module exports no such name
+                let is_type = |n: &str| declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| matches!(y, JsDecl::Type { name, .. } if name == n)));
+                let ns: Vec<(String, String)> = names.iter().filter(|n| !in_prelude(d, &n.name, self.set.conformance) && !is_type(&n.name) && !self.type_only.contains(&n.alias)).map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
                 if !ns.is_empty() {
                     self.top.push(S::ImportNamed(ns, from.clone()));
                 }
@@ -376,7 +595,7 @@ impl<'p> Gen<'p> {
     fn chain(&mut self, name: &str, x: &Expr) -> R<E> {
         match &x.k {
             ExprKind::ServerFn { params, body, .. } => self.server_hoist(name, params, body, true),
-            ExprKind::Call { f, args } if matches!(&f.k, ExprKind::Id(_)) => {
+            ExprKind::Call { f, args, .. } if matches!(&f.k, ExprKind::Id(_)) => {
                 let ExprKind::Id(fname) = &f.k else { unreachable!() };
                 let found = self.mod_decls.iter().any(|d| matches!(d, Decl::Import { resolved: None, from, names, .. } if self.js_import(from) && names.iter().any(|n| &n.alias == fname)));
                 if !found {
@@ -414,13 +633,23 @@ impl<'p> Gen<'p> {
         let decls = self.mod_decls;
         for x in decls {
             match x {
-                Decl::Import { resolved: None, names, from, declared_errors, .. } => {
-                    for n in names {
-                        if n.name == "log" || builtin(&n.name) {
+                Decl::Import { resolved: None, names, from, declared_errors, declared_error_fields, declared, .. } => {
+                    for n in &with_methods(names, declared.as_ref().and_then(|dp| self.set.declarations.get(dp))) {
+                        if in_prelude(x, &n.name, self.set.conformance) {
                             continue;
                         }
                         if self.js_import(from) {
                             self.set(env, &n.alias, val(format!("w${}", n.alias)));
+                            // SV-5a: the body may run in an app no page of this module was made in (a request to the
+                            // server function alone): the module's declared JS error classes are known to it there too,
+                            // so what it fails with crosses as itself
+                            if declared_errors.as_ref().is_some_and(|e| e.contains(&n.name)) {
+                                let mut a = vec![id(format!("w${}", n.alias)), str(format!("{}#{}", self.class_module(from, declared.as_deref()), n.name))];
+                                if let Some((_, fs)) = declared_error_fields.as_ref().and_then(|xs| xs.iter().find(|(k, _)| k == &n.name)) {
+                                    a.push(E::Arr(fs.iter().map(|f| str(f.clone())).collect()));
+                                }
+                                pre.push(S::Expr(rtc("jsClass", a)));
+                            }
                             continue;
                         }
                         self.set(env, &n.alias, val(mg(&n.alias)));
@@ -441,7 +670,7 @@ impl<'p> Gen<'p> {
                     self.set(env, name, val(js));
                 }
                 // a value fn (SF-3: it reads nothing reactive)
-                Decl::Fn { name, params, decls: ds, .. } if !params.iter().any(|p| p.r#ref) && ds.is_empty() => {
+                Decl::Fn { name, params, decls: ds, tail, named, .. } if !instantiates(params, ds, tail, *named) => {
                     let mut b = bind(Kind::Fn, mg(name));
                     b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(x as *const Decl) });
                     self.set(env, name, b);
@@ -480,6 +709,19 @@ impl<'p> Gen<'p> {
 
     // ---- blocks: a region's declarations, then its view
     fn block(&mut self, decls: &[Decl], view: &[Markup], env: Env, exports_tail: Option<E>, style_root: bool) -> R<Vec<S>> {
+        // RG-7b: a `use` in a block that provides its context is that block's provision, not what an enclosing provision's
+        // expression reads above
+        let n = self.above.len();
+        for d in decls {
+            if let Decl::Provide { name, .. } = d {
+                self.above.push((name.clone(), None));
+            }
+        }
+        let out = self.block_styled(decls, view, env, exports_tail, style_root);
+        self.above.truncate(n);
+        out
+    }
+    fn block_styled(&mut self, decls: &[Decl], view: &[Markup], env: Env, exports_tail: Option<E>, style_root: bool) -> R<Vec<S>> {
         let prev = self.style_hash.clone();
         if style_root {
             // a component's view (or the program's) has its own scope; a branch keeps its view's
@@ -525,6 +767,7 @@ impl<'p> Gen<'p> {
                     MarkupKind::Text(_) | MarkupKind::Style(_) | MarkupKind::Portal { .. } => {}
                     MarkupKind::Read(_) => out.push(Item::Container(vec![])),
                     MarkupKind::El { tag, attrs, children } if tag.is_empty() => out.extend(tree(g, children)),
+                    MarkupKind::El { tag, .. } if g.shown.contains(tag) => out.push(Item::Container(vec![])),   // RG-4c: the caller's
                     MarkupKind::El { tag, attrs, children } => {
                         g.style_ids += 1;
                         let kind = if tag.as_bytes()[0].is_ascii_lowercase() { ElementKind::Native(tag.clone()) } else { ElementKind::Component };
@@ -547,7 +790,7 @@ impl<'p> Gen<'p> {
                         out.push(Item::Container(tree(g, t)));
                         out.push(Item::Container(tree(g, f)));
                     }
-                    MarkupKind::Mfor { body, .. } => out.push(Item::Container(tree(g, body))),
+                    MarkupKind::Mfor { body, .. } | MarkupKind::Mview { body, .. } => out.push(Item::Container(tree(g, body))),
                     MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => {
                         out.push(Item::Container(tree(g, fallback)));
                         out.push(Item::Container(tree(g, body)));
@@ -592,26 +835,38 @@ impl<'p> Gen<'p> {
         let mut out: Vec<S> = vec![konst("__o", rtc("owner", vec![]))];
         // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
         let mut instantiated: HashSet<String> = HashSet::new();
+        let mut bound: HashSet<String> = HashSet::new();
         for d in decls {
-            let Decl::Import { resolved: Some(r), names, .. } = d else { continue };
+            let Decl::Import { resolved: Some(r), names, from, through, .. } = d else { continue };
             let n0 = out.len();
-            let iv = format!("__i{}", self.mod_index(r));
+            let via = through.as_ref().map_or(r, |t| &t.resolved); // MO-6e: the module the code reaches the names through
+            let iv = format!("__i{}", self.mod_index(via));
             if instantiated.insert(iv.clone()) {
                 // MO-1b: once per app. A bundler's module is one factory function wherever it is imported from, so by source the
-                // factory is its own key: a module shared by two programs gets the same key in both (11 CP-7).
-                let key = if self.by_source { id(self.dep_var(r)) } else { str(self.out(r)) };
-                out.push(konst(iv.clone(), rtc("module", vec![key, id(self.dep_var(r))])));
+                // factory is its own key: a module shared by two programs gets the same key in both (11 CP-7). MO-13c: so is
+                // the compiled module a printed signature stands for, in every build.
+                let key = if self.by_source || !crate::modules::is_rx(from) { id(self.dep_var(via)) } else { str(self.out(via)) };
+                out.push(konst(iv.clone(), rtc("module", vec![key, id(self.dep_var(via))])));
             }
             for n in names {
-                let is_type = self.set.programs.get(r).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name, .. } if *name == n.name)))
-                    || self.set.signatures.get(r).and_then(|s| s.exports.get(&n.name)).is_some_and(|x| matches!(x, ExportSig::Type));
-                if is_type {
+                if self.is_type(r, &n.name) {
                     continue; // a type binds nothing
                 }
-                let ib = self.import_bind(r, &n.name, &n.alias);
-                let js = ib.js.clone();
+                // MO-6e: a name used here and given on (`import { A }` beside `export { A }`, one export of one module) is one binding
+                if !bound.insert(n.alias.clone()) {
+                    continue;
+                }
+                let mut ib = self.import_bind(r, &n.name, &n.alias);
+                if ib.kind == Kind::Acc && self.u.prev_of.contains(&n.alias) {
+                    ib.prev = Some(format!("p${}", n.alias));
+                }
+                let (js, prev) = (ib.js.clone(), ib.prev.clone());
                 self.set(env, &n.alias, ib);
-                out.push(konst(js, E::Index(Box::new(id(iv.clone())), Box::new(str(n.name.clone())), false)));
+                let there = through.as_ref().and_then(|t| t.names.iter().find(|(a, _)| *a == n.alias).map(|(_, x)| x.clone())).unwrap_or_else(|| n.name.clone());
+                out.push(konst(js.clone(), E::Index(Box::new(id(iv.clone())), Box::new(str(there)), false)));
+                if let Some(p) = prev {
+                    out.push(konst(p, rtc("pre", vec![id(js)])));
+                }
             }
             at(&mut out, n0, d.line());
         }
@@ -619,14 +874,17 @@ impl<'p> Gen<'p> {
         for d in decls {
             match d {
                 Decl::Import { resolved: Some(_), .. } => {}
-                Decl::Import { names, side, declared_side, declared, .. } => {
-                    for n in names {
+                Decl::Import { names, pure, side, declared_side, declared, .. } => {
+                    for n in &with_methods(names, declared.as_ref().and_then(|dp| self.set.declarations.get(dp))) {
                         // MO-10a: a declared primitive
                         let x = declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).and_then(|ds| ds.iter().find(|y| y.name() == n.name));
-                        if let Some(JsDecl::Fn { params, refs, shape, instantiates: true, .. }) = x {
+                        if let Some(JsDecl::Fn { params, refs, shape, drafts, part_drafts, .. }) = x.filter(|x| x.instance(declared.as_deref().unwrap_or(""), *pure)) {
                             let mut b = bind(Kind::Jfn, mg(&n.alias));
                             b.f = Some(FnRef { params: params.iter().enumerate().map(|(i, p)| (p.clone(), refs.get(i).copied().unwrap_or(false))).collect(), decl: None });
                             b.shape = Some(shape.clone());
+                            b.drafts = drafts.clone();
+                            b.part_drafts = part_drafts.clone();
+                            b.js_fn = true;
                             self.set(env, &n.alias, b);
                             continue;
                         }
@@ -640,19 +898,39 @@ impl<'p> Gen<'p> {
                         let mut b = val(mg(&n.alias));
                         b.client = *side == Some(crate::ast::Side::Client)
                             || declared_side.as_ref().is_some_and(|ds| ds.iter().any(|(k, s)| *k == n.name && *s == crate::ast::Side::Client));
+                        if let Some(JsDecl::Fn { drafts, part_drafts, draft_args, .. }) = x {
+                            b.drafts = drafts.clone();
+                            b.part_drafts = part_drafts.clone();
+                            b.draft_args = draft_args.clone();
+                        }
+                        b.js_fn = true;
                         self.set(env, &n.alias, b);
                     }
                 }
-                Decl::Fn { name, params, decls: ds, .. } => {
-                    let mut b = bind(if params.iter().any(|p| p.r#ref) || !ds.is_empty() { Kind::Ifn } else { Kind::Fn }, mg(name));
+                Decl::Fn { name, params, decls: ds, tail, named, .. } => {
+                    let mut b = bind(if instantiates(params, ds, tail, *named) { Kind::Ifn } else { Kind::Fn }, mg(name));
                     b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                     self.set(env, name, b);
                 }
-                Decl::Component { name, .. } => self.set(env, name, bind(Kind::Comp, cm(name))),
+                Decl::Component { name, .. } => {
+                    let mut b = bind(Kind::Comp, cm(name));
+                    b.plain = takes_plain(d, &self.types(&self.file));
+                    b.kids_value = kids_as_value(d, &self.types(&self.file));
+                    self.set(env, name, b)
+                }
                 Decl::Action { name, .. } => self.set(env, name, bind(Kind::Act, mg(name))),
-                Decl::Server { name, .. } | Decl::Error { name, .. } | Decl::Context { name, .. } => self.set(env, name, val(mg(name))),
-                Decl::Source { name, .. } => {
+                Decl::Server { name, .. } | Decl::Error { name, .. } => self.set(env, name, val(mg(name))),
+                Decl::Context { name, ty, .. } => {
+                    // RG-4c: a context that holds a view
+                    let mut b = val(mg(name));
+                    b.view_ctx = crate::modules::view_ctx(ty.as_deref(), &self.types(&self.file)).is_some();
+                    self.set(env, name, b)
+                }
+                Decl::Source { name, question, init, .. } => {
                     let mut b = bind(Kind::Src, mg(name));
+                    if *question {
+                        b.of = Some((init as *const Expr, env));
+                    }
                     b.w = Some(format!("w${name}"));
                     b.prev = self.u.prev_of.contains(name).then(|| format!("p${name}"));
                     self.set(env, name, b);
@@ -661,6 +939,7 @@ impl<'p> Gen<'p> {
                 Decl::Eq { name, e, .. } if unwrap_server(e).is_some() => self.set(env, name, val(mg(name))),
                 Decl::Eq { name, e, deferred, .. } => {
                     let mut b = bind(Kind::Acc, mg(name));
+                    b.of = Some((e as *const Expr, env));
                     if let ExprKind::Call { f, .. } = &e.k {
                         if let ExprKind::Id(fname) = &f.k {
                             // MO-11f: a factory's component is a JSX tag
@@ -674,8 +953,25 @@ impl<'p> Gen<'p> {
                             if let Some(jf) = self.lookup(env, fname).filter(|x| x.kind == Kind::Jfn) {
                                 b.inst = Some(format!("r${name}"));
                                 b.shape = jf.shape.clone();
+                                b.part_drafts = jf.part_drafts.clone(); // MO-10i
+                            } else if let Some(jf) = self.lookup(env, fname) {
+                                b.part_drafts = jf.part_drafts.clone();
                             }
                         }
+                    }
+                    // MO-10i: a result's function part that takes drafts, bound to a name; an alias of the result
+                    match &e.k {
+                        ExprKind::Id(on) => {
+                            if let Some(ob) = self.lookup(env, on) {
+                                b.part_drafts = ob.part_drafts.clone();
+                            }
+                        }
+                        ExprKind::Member { .. } | ExprKind::Index { .. } => {
+                            if let Some(d) = self.part_drafts_of(e, env) {
+                                b.drafts = d;
+                            }
+                        }
+                        _ => {}
                     }
                     if self.guessed_eq(name, e, *deferred) {
                         b.w = Some(format!("w${name}"));
@@ -686,19 +982,47 @@ impl<'p> Gen<'p> {
                 _ => {}
             }
         }
+        // RG-4b: the equations that are projections of the component's props, in whatever order they are written
+        let mut more = true;
+        while std::mem::take(&mut more) {
+            for d in decls {
+                let Decl::Eq { name, e, deferred: false, key: None, .. } = d else { continue };
+                if unwrap_server(e).is_some() || self.guessed_eq(name, e, false) || self.frames[env].vars.get(name).is_none_or(|b| b.given.is_some()) {
+                    continue;
+                }
+                if let Some(g) = self.given(e, env) {
+                    self.frames[env].vars.get_mut(name).unwrap().given = Some(g);
+                    more = true;
+                }
+            }
+        }
         for d in decls {
-            let Decl::Import { resolved: None, names, from, declared_errors, .. } = d else { continue };
+            let Decl::Import { resolved: None, names, from, declared_errors, declared_error_fields, declared, .. } = d else { continue };
             let n0 = out.len();
             for n in names {
                 let (name, alias) = (&n.name, &n.alias);
-                let v = if self.js_import(from) && !builtin(name) && name != "log" {
-                    id(format!("w${alias}"))
-                } else if name == "log" {
-                    dot(id("__B"), "log")
+                if self.type_only.contains(alias) {
+                    continue;
+                }
+                // a type its declaration file declares binds nothing
+                if declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).is_some_and(|ds| ds.iter().any(|y| matches!(y, JsDecl::Type { name: tn, .. } if tn == name))) {
+                    continue;
+                }
+                let v = if in_prelude(d, name, self.set.conformance) {
+                    dot(id("__B"), name)
+                } else if self.js_import(from) {
+                    if declared_errors.as_ref().is_some_and(|e| e.contains(name)) {
+                        // SV-5a: a declared JS error class, by its declaration's identity (the same on server and client)
+                        let mut a = vec![id(format!("w${alias}")), str(format!("{}#{}", self.class_module(from, declared.as_deref()), name))];
+                        if let Some((_, fs)) = declared_error_fields.as_ref().and_then(|xs| xs.iter().find(|(k, _)| k == name)) {
+                            a.push(E::Arr(fs.iter().map(|f| str(f.clone())).collect()));
+                        }
+                        rtc("jsClass", a)
+                    } else {
+                        id(format!("w${alias}"))
+                    }
                 } else if declared_errors.as_ref().is_some_and(|e| e.contains(name)) {
                     rtc("jsError", vec![str(name.clone())])
-                } else if builtin(name) {
-                    dot(id("__B"), name)
                 } else if from.ends_with("/api") {
                     rtc("api", vec![str(name.clone())])
                 } else if is_prims(from) {
@@ -709,7 +1033,7 @@ impl<'p> Gen<'p> {
                 };
                 let js = if self.lookup(env, alias).is_some_and(|b| b.kind == Kind::Comp) { cm(alias) } else { mg(alias) };
                 out.push(konst(js.clone(), v));
-                out.push(sexpr(rtc("reg", vec![str(alias.clone()), obj(vec![("value", id(js))])])));
+                out.extend(self.reg(alias, vec![("value", id(js))]));
             }
             at(&mut out, n0, d.line());
         }
@@ -728,6 +1052,15 @@ impl<'p> Gen<'p> {
                 out.push(S::At(d.line(), Box::new(konst(mg(name), make)))); // R-f-1
                 continue;
             }
+            // SV-5a: its identity is its declaration's (the module's package-relative path and its name), the same on the
+            // server and the client whatever order either makes its classes in
+            let make = match make {
+                E::Call(f, mut a) => {
+                    a.push(str(format!("{}#{}", self.set.declaration_ids.get(&self.file).cloned().unwrap_or_else(|| self.file.clone()), name)));
+                    E::Call(f, a)
+                }
+                m => m,
+            };
             let t0 = self.top.len();
             // a module's error class is the module's, created once (by whichever app asks first): a server function's body,
             // hoisted to module level (SF-7a), throws the class an action's catch tests
@@ -752,7 +1085,7 @@ impl<'p> Gen<'p> {
             };
             // RG-7: the declaration is the context's identity
             out.push(konst(mg(name), rtc("context", vec![str(name.clone()), dv])));
-            out.push(sexpr(rtc("reg", vec![str(name.clone()), obj(vec![("value", id(mg(name)))])])));
+            out.extend(self.reg(name, vec![("value", id(mg(name)))]));
             at(&mut out, n0, d.line());
         }
         for d in decls {
@@ -768,13 +1101,15 @@ impl<'p> Gen<'p> {
             }
         }
         for d in decls {
-            let Decl::Action { name, params, body, .. } = d else { continue };
+            let Decl::Action { name, params, body, ret, .. } = d else { continue };
             let n0 = out.len();
             let penv = self.params(env, params);
-            let body = self.stmts(body, penv, &Ctx { imp: true, gen: true, ..Ctx::default() }, false)?;
-            let gen = E::Func(Box::new(Func { name: None, params: params.iter().map(|p| P::Id(mg(p))).collect(), directives: vec![], body, is_async: false, generator: true }));
-            out.push(konst(mg(name), rtc("action", vec![gen])));
-            out.push(sexpr(rtc("reg", vec![str(name.clone()), obj(vec![("value", id(mg(name)))])])));
+            // AC-1i (B10): an action that answers at the call is a plain function, its body a handler's
+            let now = ret.is_some();
+            let body = self.stmts(body, penv, &Ctx { imp: true, gen: !now, ..Ctx::default() }, false)?;
+            let gen = E::Func(Box::new(Func { name: None, params: params.iter().map(|p| P::Id(mg(p))).collect(), directives: vec![], body, is_async: false, generator: !now }));
+            out.push(konst(mg(name), rtc(if now { "now" } else { "action" }, vec![gen])));
+            out.extend(self.reg(name, vec![("value", id(mg(name)))]));
             at(&mut out, n0, d.line());
         }
         for d in decls {
@@ -822,10 +1157,22 @@ impl<'p> Gen<'p> {
                 _ => unreachable!(),
             };
             let mut ds = IndexSet::new();
-            deps(&e.to_json(), self_name, &mut ds);
+            let j = e.to_json();
+            deps(&j, self_name, &mut ds);
             for n in &ds {
                 if local.contains(n.as_str()) && n != self_name {
                     if let Some(t) = vals.iter().find(|x| !matches!(x, Decl::Provide { .. }) && x.name() == Some(n.as_str())) {
+                        visit(t, vals, local, key, done, busy, order);
+                    }
+                }
+            }
+            // RG-7b: a block's provision is the block's, wherever it is written in it: what uses it here is made after it
+            let own = if let Decl::Provide { name, .. } = d { Some(name.as_str()) } else { None };
+            let mut us = IndexSet::new();
+            uses_now(&j, false, own, &mut us);
+            for c in &us {
+                for t in vals.iter() {
+                    if matches!(t, Decl::Provide { name, .. } if name == c) {
                         visit(t, vals, local, key, done, busy, order);
                     }
                 }
@@ -864,9 +1211,10 @@ impl<'p> Gen<'p> {
         match exports_tail {
             Some(t) => out.push(S::Return(Some(t))),
             None => {
-                let mut h = self.hoist_all(&view_readers(view), env)?;
+                let mut h = self.hoist_all(&view_readers(view, &|t| t.starts_with(|c: char| c.is_ascii_uppercase())), env)?;
                 out.append(&mut h);
-                let m = self.markup(view, env)?;
+                // a block with no view returns null, which a fn's body drops (strip_return_null)
+                let m = if view.is_empty() { E::Null } else { self.markup(view, env)? };
                 out.push(S::Return(Some(m)));
             }
         }
@@ -874,6 +1222,11 @@ impl<'p> Gen<'p> {
     }
 
     /// An imported name's binding, from the exporting module's declaration (MO-3: a source is read-only here, so an accessor).
+    /// Whether `name` is a type of the module at `path` (it binds nothing).
+    fn is_type(&self, path: &str, name: &str) -> bool {
+        self.set.programs.get(path).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name: n, .. } if n == name)))
+            || self.set.signatures.get(path).and_then(|s| s.exports.get(name)).is_some_and(|x| matches!(x, ExportSig::Type(..)))
+    }
     fn import_bind(&self, path: &str, name: &str, alias: &str) -> Bind {
         let js = mg(alias);
         if !self.set.programs.contains_key(path) {
@@ -885,7 +1238,15 @@ impl<'p> Gen<'p> {
                         b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: None });
                         b
                     }
-                    ExportSig::Comp { .. } => bind(Kind::Comp, cm(alias)),
+                    ExportSig::Comp { sig } => {
+                        // MO-11j: a made component is a JS component
+                        let mut b = bind(Kind::Comp, cm(alias));
+                        if sig.made {
+                            b.shape = Some(FShape::Comp);
+                        }
+                        b.plain = sig.props.get("children").and_then(|p| p.view.as_ref()).is_some_and(|v| v.mixed);
+                        b
+                    }
                     ExportSig::Action => bind(Kind::Act, js),
                     ExportSig::Source { .. } | ExportSig::Eq { .. } => bind(Kind::Acc, js),
                     _ => val(js),
@@ -894,37 +1255,69 @@ impl<'p> Gen<'p> {
         }
         let Some(d) = self.set.programs.get(path).and_then(|p| p.decls.iter().find(|x| x.name() == Some(name))) else { return val(js) };
         match d {
-            Decl::Fn { params, decls, .. } => {
-                let mut b = bind(if params.iter().any(|p| p.r#ref) || !decls.is_empty() { Kind::Ifn } else { Kind::Fn }, js);
+            Decl::Fn { params, decls, tail, named, .. } => {
+                let mut b = bind(if instantiates(params, decls, tail, *named) { Kind::Ifn } else { Kind::Fn }, js);
                 b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                 b
             }
-            Decl::Component { .. } => bind(Kind::Comp, cm(alias)),
+            Decl::Component { .. } => {
+                let mut b = bind(Kind::Comp, cm(alias));
+                b.plain = takes_plain(d, &self.types(path));
+                b.kids_value = kids_as_value(d, &self.types(path));
+                b
+            }
             Decl::Action { .. } => bind(Kind::Act, js),
+            Decl::Eq { .. } if made_component(&self.set.programs[path], name, &self.set.declarations) => {
+                // MO-11j: a JS component, applied as JSX's <X />
+                let mut b = bind(Kind::Comp, cm(alias));
+                b.shape = Some(FShape::Comp);
+                b
+            }
             Decl::Source { .. } | Decl::Eq { .. } => bind(Kind::Acc, js),
             _ => val(js),
         }
     }
 
-    fn reg(&self, name: &str, b: &Bind, writer: bool) -> S {
+    /// The scenario harness's table of names (CP-4c): a conformance build's, and an app's where an equation's accessor
+    /// claims its hoisted awaits. An app has no such table, and one would keep every instance.
+    fn reg(&mut self, name: &str, entry: Vec<(&'static str, E)>) -> Option<S> {
+        let claims = std::mem::take(&mut self.claims);
+        (self.set.conformance || claims).then(|| sexpr(rtc("reg", vec![str(name), obj(entry)])))
+    }
+    fn reg_get(&mut self, name: &str, b: &Bind, writer: bool) -> Option<S> {
         let mut kv = vec![("get", id(b.js.clone()))];
         if writer {
             kv.push(("w", id(b.w.clone().unwrap())));
         }
-        sexpr(rtc("reg", vec![str(name), obj(kv)]))
+        self.reg(name, kv)
     }
     fn value(&mut self, d: &Decl, env: Env) -> R<Vec<S>> {
         if let Decl::Provide { name, e, .. } = d {
             let b = if let ExprKind::Id(n) = &e.k { self.lookup(env, n) } else { None };
             let src = b.as_ref().filter(|b| b.kind == Kind::Src);
-            let mut out = if src.is_some() { vec![] } else { self.hoist_all(&[e], env)? };
-            let entry = match src {
-                Some(b) => obj(vec![("get", id(b.js.clone())), ("w", id(b.w.clone().unwrap()))]),
-                None => {
-                    let x = self.expr(e, env, &reactive())?;
-                    obj(vec![("get", rtc("memo", vec![E::Null, thunk(x)]))])
-                }
-            };
+            // RG-7b: a `use` of its own context, written in what it is given, is what is above it: read before it is provided
+            let n = self.above.len();
+            let mut out = vec![];
+            if own_use(&e.to_json(), name) {
+                let v = format!("up${}", self.up_seq);
+                self.up_seq += 1;
+                out.push(konst(v.clone(), rtc("above", vec![self.reference(name, env, &reactive())?, id("__o")])));
+                self.above.push((name.clone(), Some(v)));
+            }
+            let made = (|| -> R<(Vec<S>, E)> {
+                let hoisted = if src.is_some() { vec![] } else { self.hoist_all(&[e], env)? };
+                let entry = match src {
+                    Some(b) => obj(vec![("get", id(b.js.clone())), ("w", id(b.w.clone().unwrap()))]),
+                    None => {
+                        let get = if self.given(e, env).is_some_and(|g| g.held()) { self.held(e, env)? } else { rtc("memo", vec![E::Null, thunk(self.expr(e, env, &reactive())?)]) };
+                        obj(vec![("get", get)])
+                    }
+                };
+                Ok((hoisted, entry))
+            })();
+            self.above.truncate(n);
+            let (mut hoisted, entry) = made?;
+            out.append(&mut hoisted);
             let c = self.reference(name, env, &reactive())?;
             out.push(sexpr(rtc("provide", vec![c, entry])));
             return Ok(out);
@@ -932,8 +1325,16 @@ impl<'p> Gen<'p> {
         let name = d.name().unwrap();
         let b = self.frames[env].vars.get(name).unwrap().clone();
         let mut out = match d {
-            Decl::Source { question: true, init, .. } => self.hoist(Some(name), init, env, true)?,
-            Decl::Eq { e, .. } if !matches!(&e.k, ExprKind::Draft { .. }) => self.hoist(Some(name), e, env, true)?,
+            // (an `await … catch` result is lowered in place only by a plain equation's form, value1's: elsewhere its await is
+            // hoisted and settled)
+            Decl::Source { question: true, init, .. } => self.hoist_in(Some(name), init, env, true, false)?,
+            Decl::Eq { e, key, deferred, .. } if !matches!(&e.k, ExprKind::Draft { .. }) => {
+                self.updater_closure(name, d.line(), e, env);
+                let rc = !self.guessed_eq(name, e, *deferred) && key.is_none() && !*deferred;
+                let mut v = self.hoist_in(Some(name), e, env, true, rc)?;
+                v.append(&mut self.hoist_catches(name, e, env)?);
+                v
+            }
             _ => vec![],
         };
         out.append(&mut self.value1(d, env, &b)?);
@@ -942,8 +1343,11 @@ impl<'p> Gen<'p> {
     /// 07 §3 / R-1: each `await` that is not the equation's result is its own async memo, asked only while the conditions that
     /// reach it hold (E-11, awaits.rs); the equation reads it where the `await` was.
     fn hoist(&mut self, name: Option<&str>, e: &Expr, env: Env, tail: bool) -> R<Vec<S>> {
+        self.hoist_in(name, e, env, tail, true)
+    }
+    fn hoist_in(&mut self, name: Option<&str>, e: &Expr, env: Env, tail: bool, root_catch: bool) -> R<Vec<S>> {
         let mut out = vec![];
-        for h in non_tail_awaits(e, tail) {
+        for h in crate::awaits::non_tail_awaits_in(e, tail, root_catch) {
             let v = format!("a${}${}", name.unwrap_or(""), self.hoist_seq);
             self.hoist_seq += 1;
             let mut guards = vec![];
@@ -954,6 +1358,23 @@ impl<'p> Gen<'p> {
             let ExprKind::Await { e: inner, init, stream } = &h.node.k else { unreachable!() };
             let body0 = self.expr(inner, env, &Ctx { tail: true, ..Ctx::default() })?;
             let body = if *stream { body0 } else { rtc("awaited", vec![body0]) };
+            // R-f-4: a matching rejection is settled where it is awaited, as in tail position (05 H-4) — to the failure it
+            // caught; the answer is the reader's to compute, outside the await, so that it reads its sources as the rest of
+            // the expression does (R-f-4a)
+            let body = match h.caught.map(|c| &c.k) {
+                Some(ExprKind::Catch { name: cn, classes, alt, .. }) => {
+                    let inner = self.new_env(Some(env));
+                    if let Some(n) = cn {
+                        self.set(inner, n, val(mg(n)));
+                    }
+                    let cls = self.classes(classes.as_deref(), env)?;
+                    let a = self.expr(alt, inner, &reactive())?;
+                    let pn = cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
+                    self.settled.insert(h.node as *const Expr, arrow(&[&pn], a));
+                    rtc("settle", vec![thunk(body), arrow(&["__e"], rtc("isA", vec![id("__e"), cls]))])
+                }
+                _ => body,
+            };
             self.hoisted.insert(h.node as *const Expr, v.clone());
             let lv = match init {
                 Some(i) => rtc("firstPaint", vec![thunk(self.expr(i, env, &reactive())?)]),
@@ -971,7 +1392,41 @@ impl<'p> Gen<'p> {
             out.push(konst(v.clone(), rtc("memo", vec![name.map(str).unwrap_or(E::Null), thunk(f), lv])));
             if let Some(n) = name {
                 out.push(sexpr(rtc("hoisted", vec![str(n), id(v)])));
+                self.claims = true;
             }
+        }
+        Ok(out)
+    }
+    /// R-f-4: each catch inside an equation gets one boundary, made once beside it (awaits.rs `inner_catches`).
+    fn hoist_catches(&mut self, name: &str, e: &Expr, env: Env) -> R<Vec<S>> {
+        let mut out = vec![];
+        for h in inner_catches(e) {
+            let ExprKind::Catch { e: x, name: cn, classes, alt } = &h.node.k else { unreachable!() };
+            let v = format!("c${}${}", name, self.hoist_seq);
+            self.hoist_seq += 1;
+            let mut guards = vec![];
+            for g in &h.guards {
+                let x = self.expr(g.e, env, &reactive())?;
+                guards.push(if g.nullish { bin("==", x, E::Null) } else if g.neg { not(x) } else { x });
+            }
+            let inner = self.new_env(Some(env));
+            if let Some(n) = cn {
+                self.set(inner, n, val(mg(n)));
+            }
+            let body = self.expr(x, env, &reactive())?;
+            let cls = self.classes(classes.as_deref(), env)?;
+            let a = self.expr(alt, inner, &reactive())?;
+            let p = cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
+            let f = if guards.is_empty() {
+                body
+            } else {
+                let mut it = guards.into_iter();
+                let first = it.next().unwrap();
+                let c = it.fold(first, |a, b| bin("&&", a, b));
+                E::Cond(Box::new(c), Box::new(body), Box::new(undef()))
+            };
+            self.hoisted_catch.insert(h.node as *const Expr, v.clone());
+            out.push(konst(v, rtc("catchMemo", vec![thunk(f), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&p], a)])));
         }
         Ok(out)
     }
@@ -989,44 +1444,65 @@ impl<'p> Gen<'p> {
             }
         };
         let pair = || Pat::Arr(vec![b.js.clone(), b.w.clone().unwrap()]);
+        if let Decl::Eq { name, e, .. } = d {
+            self.kept.extend(kept_parts(e, name).into_iter().map(|x| x as *const Expr));
+        }
         match d {
-            Decl::Source { name, init, question: false, .. } => {
+            Decl::Source { name, init, question: false, key, .. } => {
                 let x = self.expr(init, env, &reactive())?;
-                let mut out = vec![S::Const(pair(), rtc("source", vec![str(name.clone()), rtc("untrack", vec![thunk(x)])])), self.reg(name, b, true)];
+                let mut args = vec![str(name.clone()), rtc("untrack", vec![thunk(x)])];
+                if self.u.optimistic.contains(name) {
+                    args.push(E::Bool(true)); // AC-3: a guess over a writable — an optimistic layer derived from it
+                } else if key.is_some() {
+                    args.push(E::Bool(false));
+                }
+                if let Some(k) = key {
+                    args.push(str(k.clone())); // ST-4a: a new value written to it is reconciled by its key
+                }
+                let mut out = vec![S::Const(pair(), rtc("source", args))];
+                out.extend(self.reg_get(name, b, true));
                 prev(&mut out);
                 Ok(out)
             }
             Decl::Source { name, init, key, .. } => {
                 let lv = self.loading_value(init, env)?;
-                let mode = obj(vec![("optimistic", E::Bool(self.u.optimistic.contains(name))), ("structured", E::Bool(self.u.paths.contains(name)))]);
+                let mode = obj(vec![("optimistic", E::Bool(self.u.optimistic.contains(name))), ("structured", E::Bool(self.u.paths.contains(name))), ("record", E::Bool(matches!(init.k, ExprKind::Rec(_)))), ("plain", E::Bool(self.u.plain.contains(name)))]);
                 let x = self.expr(init, env, &Ctx { tail: true, self_: Some(name.clone()), ..Ctx::default() })?;
                 let mut args = vec![str(name.clone()), arrow(&["__prev"], x), lv, mode];
                 if let Some(k) = key {
                     args.push(str(k.clone()));
                 }
-                let mut out = vec![S::Const(pair(), rtc("question", args)), self.reg(name, b, true)];
+                let mut out = vec![S::Const(pair(), rtc("question", args))];
+                out.extend(self.reg_get(name, b, true));
                 prev(&mut out);
                 Ok(out)
             }
             Decl::Eq { name, e, key, deferred, .. } if self.guessed_eq(name, e, *deferred) => {
                 // AC-3 over an equation: createOptimistic(fn) / createOptimisticStore(fn, seed) — derived, its setter only guesses
                 let lv = self.loading_value(e, env)?;
-                let mode = obj(vec![("optimistic", E::Bool(true)), ("structured", E::Bool(self.u.paths.contains(name) || key.is_some())), ("derived", E::Bool(true))]);
+                // ST-4a: a key applies at any depth (Solid's); a record result is the store's root, its keyed lists inside it
+                let record = matches!(e.k, ExprKind::Rec(_));
+                let mode = obj(vec![("optimistic", E::Bool(true)), ("structured", E::Bool(self.u.paths.contains(name) || key.is_some())), ("derived", E::Bool(true)), ("record", E::Bool(record))]);
                 let x = self.expr(e, env, &Ctx { tail: true, self_: Some(name.clone()), ..Ctx::default() })?;
                 let mut args = vec![str(name.clone()), arrow(&["__prev"], x), lv, mode];
                 if let Some(k) = key {
                     args.push(str(k.clone()));
                 }
-                let mut out = vec![S::Const(pair(), rtc("question", args)), self.reg(name, b, true)];
+                let mut out = vec![S::Const(pair(), rtc("question", args))];
+                out.extend(self.reg_get(name, b, true));
                 prev(&mut out);
                 Ok(out)
             }
             Decl::Eq { name, e, key, deferred, .. } => {
-                let fin = |mut out: Vec<S>, g: &Self| {
-                    out.push(g.reg(name, b, false));
+                let fin = |mut out: Vec<S>, g: &mut Self| {
+                    out.extend(g.reg_get(name, b, false));
                     prev(&mut out);
                     Ok(out)
                 };
+                if b.given.as_ref().is_some_and(|g| g.held()) {
+                    let v = self.held(e, env)?;
+                    return fin(vec![konst(b.js.clone(), v)], self);
+                }
                 // ST-3
                 if let ExprKind::Draft { seed, body } = &e.k {
                     let ExprKind::Pre { name: sn, init: Some(si) } = &seed.k else { return fail("a draft's seed must be `pre self -> seed`") };
@@ -1050,14 +1526,14 @@ impl<'p> Gen<'p> {
                 }
                 if let Some(mut fx) = self.foreign(e, env, &b)? {
                     if b.kind == Kind::Comp {
-                        fx.push(sexpr(rtc("reg", vec![str(name.clone()), obj(vec![("value", id(b.js.clone()))])])));
+                        fx.extend(self.reg(name, vec![("value", id(b.js.clone()))]));
                         return Ok(fx);
                     }
                     return fin(fx, self);
                 }
                 if let Some(k) = key {
                     let x = self.expr(e, env, &Ctx { tail: true, ..Ctx::default() })?;
-                    return fin(vec![konst(b.js.clone(), rtc("keyed", vec![str(name.clone()), str(k.clone()), thunk(x)]))], self);
+                    return fin(vec![konst(b.js.clone(), rtc("keyed", vec![str(name.clone()), str(k.clone()), thunk(x), E::Bool(matches!(e.k, ExprKind::Rec(_)))]))], self);
                 }
                 // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
                 if let (ExprKind::Catch { e: ce, name: cn, classes, alt }, false) = (&e.k, deferred) {
@@ -1070,13 +1546,20 @@ impl<'p> Gen<'p> {
                     let i = format!("i${name}");
                     let cls = self.classes(classes.as_deref(), env)?;
                     let a = self.expr(alt, inner, &reactive())?;
+                    let pn = cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
+                    // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary; the answer
+                    // is computed by its reader (R-f-4a)
+                    let awaited = matches!(ce.k, ExprKind::Await { .. });
+                    let body = if awaited { rtc("settle", vec![thunk(x), arrow(&["__e"], rtc("isA", vec![id("__e"), cls.clone()]))]) } else { x };
+                    let read = if awaited { rtc("caught", vec![call(id(i.clone()), vec![]), arrow(&[&pn], a.clone())]) } else { call(id(i.clone()), vec![]) };
                     let out = vec![
-                        konst(i.clone(), rtc("memo", vec![str(name.clone()), arrow(&["__prev"], x), lv])),
+                        konst(i.clone(), rtc("memo", vec![str(name.clone()), arrow(&["__prev"], body), lv])),
                         konst(
                             b.js.clone(),
                             rtc(
                                 "catchMemo",
-                                vec![thunk(call(id(i), vec![])), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into())], a)],
+                                // AC-4: `refresh` re-asks the inner memo
+                                vec![thunk(read), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&pn], a), id(i.clone())],
                             ),
                         ),
                     ];
@@ -1088,6 +1571,53 @@ impl<'p> Gen<'p> {
             }
             _ => fail("unreachable"),
         }
+    }
+    fn given(&self, e: &Expr, env: Env) -> Option<Given> {
+        given(e, &|n| self.lookup(env, n).and_then(|b| b.given))
+    }
+    /// RG-4c: a view the component was given, as it is read: no computation of its own, so it is made where it is read.
+    fn held(&mut self, e: &Expr, env: Env) -> R<E> {
+        if defaulted(e, &|n| self.lookup(env, n).and_then(|b| b.given)).is_some() {
+            let ExprKind::If { t, f, .. } = &e.k else { unreachable!() };
+            let (v, d) = (self.expr(f, env, &reactive())?, self.expr(t, env, &reactive())?);
+            return Ok(thunk(rtc("preOr", vec![v, thunk(d)])));
+        }
+        Ok(thunk(self.expr(e, env, &reactive())?))
+    }
+    /// RG-4c: whether a view was given, asked without making it. The question is the argument as it was written, read
+    /// with each view in it standing for itself (`__rt.ask`: content, a view given on, a choice or a default of them);
+    /// a value in it answers as JavaScript has it. `some`: whether it is not `undefined` (`??`, `!= undefined`). Of a
+    /// prop that is not declared `View`, the question is its value's, and nothing is emitted here.
+    fn asked(&mut self, e: &Expr, env: Env, not_lit: Option<E>) -> R<Option<E>> {
+        if !self.given(e, env).is_some_and(|g| g.held() && g.view()) {
+            return Ok(None);
+        }
+        let v = rtc("ask", vec![thunk(self.expr(e, env, &reactive())?)]);
+        Ok(Some(match not_lit { Some(x) => bin("!==", v, x), None => v }))
+    }
+    /// … and a condition that asks it: the view itself or a choice of views (`bare`: an `if`, a `?:`, the left of
+    /// `&&`), `!v`, `v == undefined`, `a && b`, `a || b`.
+    fn asks(&mut self, c: &Expr, env: Env, bare: bool) -> R<Option<E>> {
+        if bare {
+            if let Some(a) = self.asked(c, env, None)? {
+                return Ok(Some(a));
+            }
+        }
+        Ok(match &c.k {
+            ExprKind::Un { op, e } if op == "!" => self.asks(e, env, true)?.map(not),
+            ExprKind::Bin { op, l, r } if matches!(op.as_str(), "==" | "!=") && matches!(r.k, ExprKind::Lit(Lit::Undefined | Lit::Null)) => self.asked(l, env, Some(if matches!(r.k, ExprKind::Lit(Lit::Null)) { E::Null } else { undef() }))?.map(|a| if op == "==" { not(a) } else { a }),
+            ExprKind::Bin { op, l, r } if bare && matches!(op.as_str(), "&&" | "||") => {
+                let (a, b) = (self.asks(l, env, true)?, self.asks(r, env, true)?);
+                if a.is_none() && b.is_none() {
+                    None
+                } else {
+                    let a = match a { Some(a) => a, None => self.expr(l, env, &reactive())? };
+                    let b = match b { Some(b) => b, None => self.expr(r, env, &reactive())? };
+                    Some(bin(static_op(op), a, b))
+                }
+            }
+            _ => None,
+        })
     }
     /// SV-7b: a call into `client` JS — awaited, a client question: Solid's `ssrSource: "client"`, never asked on the server.
     fn client_call(&self, e: &Expr, env: Env) -> bool {
@@ -1166,26 +1696,128 @@ impl<'p> Gen<'p> {
         Ok(out)
     }
     fn fn_decl(&mut self, d: &Decl, env: Env) -> R<S> {
-        let Decl::Fn { name, params, decls, tail, .. } = d else { unreachable!() };
+        let Decl::Fn { name, params, decls, tail, named, .. } = d else { unreachable!() };
         let inner = self.new_env(Some(env));
         for p in params {
-            self.set(inner, &p.name, bind(if p.r#ref { Kind::Acc } else { Kind::Val }, mg(&p.name)));
+            let mut b = bind(if p.r#ref { Kind::Acc } else { Kind::Val }, mg(&p.name));
+            b.prev = (p.r#ref && self.u.prev_of.contains(&p.name)).then(|| format!("p${}", p.name));
+            self.set(inner, &p.name, b);
         }
         let ps: Vec<P> = params.iter().map(|p| P::Id(mg(&p.name))).collect();
-        if !params.iter().any(|p| p.r#ref) && decls.is_empty() {
-            let x = self.expr(tail, inner, &reactive())?;
-            return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body: vec![S::Return(Some(x))], is_async: false, generator: false }));
+        // E-9a: a `ref` parameter left out reads `undefined` — its accessor is one of that
+        let absent = || -> Vec<S> { params.iter().filter(|p| p.r#ref && p.opt).map(|p| S::Expr(E::Assign("??=", Box::new(id(mg(&p.name))), Box::new(thunk(undef()))))).collect() };
+        if !instantiates(params, decls, tail, *named) {
+            let x = if *named { self.named(decls, tail, inner)? } else { self.expr(tail, inner, &reactive())? };
+            let mut body = absent();
+            body.push(S::Return(Some(x)));
+            return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body, is_async: false, generator: false }));
+        }
+        // an `await` in the result: the result is an equation (RG-6a), and its flights are that equation's (07 §3)
+        if !non_tail_awaits(tail, false).is_empty() {
+            let mut d2 = d.clone();
+            let Decl::Fn { decls, tail, line, span, .. } = &mut d2 else { unreachable!() };
+            let t = std::mem::replace(tail, Expr { k: ExprKind::Id("result$".into()), span: tail.span });
+            decls.push(Decl::Eq { name: "result$".into(), e: t, line: *line, span: *span, deferred: false, key: None, ty: None, exported: false });
+            let d2 = std::rc::Rc::new(d2);
+            self.made.push(d2.clone()); // its expressions are known by their places while the program is lowered
+            return self.fn_decl(&d2, env);
         }
         // an instantiating fn (RG-6): called once, returns the accessor of its tail
-        let mut body = self.block(decls, &[], inner, None, false)?;
+        let mut body: Vec<S> = params.iter().filter(|p| p.r#ref && self.u.prev_of.contains(&p.name)).map(|p| konst(format!("p${}", p.name), rtc("pre", vec![id(mg(&p.name))]))).collect();
+        body.append(&mut self.block(decls, &[], inner, None, false)?);
         strip_return_null(&mut body);
         let tb = if let ExprKind::Id(n) = &tail.k { self.lookup(inner, n) } else { None };
         let t = match tb {
             Some(tb) if matches!(tb.kind, Kind::Acc | Kind::Src) => id(tb.js),
             _ => rtc("memo", vec![E::Null, thunk(self.expr(tail, inner, &reactive())?)]),
         };
+        // MO-13i: called by JavaScript (`this`, the runtime's), its parts; by `.rx`, the accessor, with the parts beside it
+        let plan = self.plans.and_then(|p| p.get(&(d as *const Decl)));
+        let t = match plan {
+            Some(p) => {
+                let parts = self.parts(p, inner)?;
+                rtc("result", vec![id("this"), thunk(t), thunk(parts)])
+            }
+            None => t,
+        };
         body.push(S::Return(Some(t)));
+        // RG-6a: what it provides is for what its call instantiates, not for the caller's region: an owner of the call's own
+        if decls.iter().any(|x| matches!(x, Decl::Provide { .. })) {
+            body = vec![S::Return(Some(rtc("inst", vec![arrow_block(vec![], body, false)])))];
+        }
+        let mut whole = absent();
+        whole.append(&mut body);
+        let body = whole;
         Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body, is_async: false, generator: false }))
+    }
+    /// E-9b: the result of a fn that names values. A name read in one place stands there as its expression; the others are
+    /// read through `n$`, which evaluates each at most once for the call, or through `r$` where what is read is not what is
+    /// read elsewhere (`peek`, `latest`, `pending?`), which evaluates it there.
+    fn named(&mut self, decls: &[Decl], tail: &Expr, inner: Env) -> R<E> {
+        let names = crate::ast::locals_of(decls, tail);
+        let mut shared = vec![];
+        for (n, e, once) in &names {
+            let mut b = val("");
+            if *once {
+                b.sub = Some(*e as *const Expr);
+            } else {
+                b.shared = Some((shared.len(), false));
+                shared.push(*e);
+            }
+            self.set(inner, n, b);
+        }
+        let t = self.expr(tail, inner, &reactive())?;
+        if shared.is_empty() {
+            return Ok(t);
+        }
+        let of = shared.iter().map(|e| Ok(arrow(&["n$", "r$"], self.expr(e, inner, &reactive())?))).collect::<R<Vec<_>>>()?;
+        Ok(rtc("names", vec![E::Arr(of), arrow(&["n$", "r$"], t)]))
+    }
+    /// E-9b: the names of a fn's body, as a `peek`, a `latest` or a `pending?` reads them.
+    fn apart(&mut self, env: Env) -> Env {
+        let mut out: Vec<(String, Bind)> = vec![];
+        let mut e = Some(env);
+        while let Some(i) = e {
+            for (n, b) in &self.frames[i].vars {
+                if b.shared.is_some() && self.lookup(env, n).is_some_and(|x| x.shared == b.shared) {
+                    out.push((n.clone(), Bind { shared: b.shared.map(|(k, _)| (k, true)), ..b.clone() }));
+                }
+            }
+            e = self.frames[i].parent;
+        }
+        if out.is_empty() {
+            return env;
+        }
+        let inner = self.new_env(Some(env));
+        for (n, b) in out {
+            self.set(inner, &n, b);
+        }
+        inner
+    }
+    /// MO-13i: the parts of a fn's result, as a Solid primitive hands them.
+    fn parts(&mut self, p: &crate::check::Plan, env: Env) -> R<E> {
+        use crate::check::Plan;
+        // the program outlives its lowering; a plan's expressions are its own
+        let of = |e: &*const Expr| -> &'p Expr { unsafe { &**e } };
+        Ok(match p {
+            Plan::Io(e) => self.expr(of(e), env, &reactive())?,
+            Plan::Leaf(e, r) => {
+                let e = of(e);
+                if !r.is_reader() {
+                    return Ok(rtc("untrack", vec![thunk(self.expr(e, env, &reactive())?)]));
+                }
+                match if let ExprKind::Id(n) = &e.k { self.lookup(env, n) } else { None } {
+                    Some(b) if matches!(b.kind, Kind::Acc | Kind::Src) => id(b.js),
+                    _ => rtc("memo", vec![E::Null, thunk(self.expr(e, env, &reactive())?)]),
+                }
+            }
+            Plan::Rec(fs) => E::Obj(fs.iter().map(|(k, p)| Ok(Prop::Kv(Key::Str(k.clone()), self.parts(p, env)?))).collect::<R<Vec<_>>>()?),
+            Plan::Arr(xs) => E::Arr(xs.iter().map(|p| self.parts(p, env)).collect::<R<Vec<_>>>()?),
+            Plan::Inst(n, path, _) => {
+                let Some(b) = self.lookup(env, n) else { return fail(format!("{n}: no such instance")) };
+                path.iter().fold(rtc("parts", vec![id(b.js), str(n.clone())]), |o, k| E::Index(Box::new(o), Box::new(str(k.clone())), false))
+            }
+        })
     }
     /// MO-10: `x = f(…)` over a declared primitive — called once (RG-6), a ref argument as an accessor, a value one
     /// untracked; and `y = x[i]` / `x.k` over its result. A `ref` part is bound to the accessor itself, any other part to
@@ -1200,7 +1832,7 @@ impl<'p> Gen<'p> {
         }
         let ix = |r: &str, k: E| E::Index(Box::new(id(r)), Box::new(k), false);
         match &e.k {
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 let ExprKind::Id(fname) = &f.k else { return Ok(None) };
                 let Some(fb) = self.lookup(env, fname).filter(|x| x.kind == Kind::Jfn) else { return Ok(None) };
                 let refs: Vec<bool> = fb.f.as_ref().unwrap().params.iter().map(|p| p.1).collect();
@@ -1216,6 +1848,13 @@ impl<'p> Gen<'p> {
                             continue;
                         }
                     }
+                    // RG-6b, MO-10a (2026-11-23): what is written out as a constant has nothing to follow, and is the plain
+                    // accessor `() => "a.mp3"`: no node, no owner's id, and nothing reactive for a library to read where
+                    // nothing tracks (Solid's STRICT_READ_UNTRACKED, of a parameter it reads once while it is made)
+                    if constant(a) {
+                        out.push(thunk(self.expr(a, env, &reactive())?));
+                        continue;
+                    }
                     out.push(rtc("memo", vec![E::Null, thunk(self.expr(a, env, &reactive())?)]));
                 }
                 // MO-11f: the component the factory hands back
@@ -1223,19 +1862,27 @@ impl<'p> Gen<'p> {
                     return Ok(Some(vec![konst(b.js.clone(), call(id(fb.js.clone()), out))]));
                 }
                 let r = b.inst.clone().unwrap();
+                // R-f-5, MO-10f (revised 2026-11-21 after review): the result as a value whose parts are read where they are
+                // read, each a getter on the result (a `ref` part called): reading `q.isFetching` does not read `q.data`,
+                // which may fail or hold, as the checker counts it
+                // …and a result none of whose parts is an accessor is the library's own object, read as it is (2026-11-22):
+                // a field read is that field's read on it, its methods are called on it, and a field its declaration
+                // leaves out is still there
                 let whole = match fb.shape.as_ref().unwrap() {
                     FShape::Comp => unreachable!(),
                     FShape::Part(p) => part(id(r.clone()), *p),
+                    sh if !sh.has_ref() => part(id(r.clone()), Part::Value),
                     FShape::Items(items) => rtc(
-                        "memo",
-                        vec![E::Null, thunk(E::Arr(items.iter().enumerate().map(|(i, p)| { let x = ix(&r, E::Num(i as f64)); if *p == Part::Ref { call(x, vec![]) } else { x } }).collect()))],
+                        "lazy",
+                        vec![id(r.clone()), E::Arr((0..items.len()).map(|i| E::Num(i as f64)).collect()), E::Arr(items.iter().enumerate().filter(|(_, p)| **p == Part::Ref).map(|(i, _)| E::Num(i as f64)).collect())],
                     ),
                     FShape::Fields(fields) => rtc(
-                        "memo",
-                        vec![E::Null, thunk(E::Obj(fields.iter().map(|(k, p)| { let x = ix(&r, str(k.clone())); Prop::Kv(Key::Str(k.clone()), if *p == Part::Ref { call(x, vec![]) } else { x }) }).collect()))],
+                        "lazy",
+                        vec![id(r.clone()), E::Arr(fields.iter().map(|(k, _)| str(k.clone())).collect()), E::Arr(fields.iter().filter(|(_, p)| *p == Part::Ref).map(|(k, _)| str(k.clone())).collect())],
                     ),
                 };
-                Ok(Some(vec![konst(r.clone(), call(id(fb.js.clone()), out)), konst(b.js.clone(), whole)]))
+                // MO-10a: called in an owner of its own (`__rt.inst`), its arguments' nodes with it
+                Ok(Some(vec![konst(r.clone(), rtc("inst", vec![thunk(call(id(fb.js.clone()), out))])), konst(b.js.clone(), whole)]))
             }
             ExprKind::Index { o, .. } | ExprKind::Member { o, .. } => {
                 let ExprKind::Id(on) = &o.k else { return Ok(None) };
@@ -1261,7 +1908,7 @@ impl<'p> Gen<'p> {
         }
     }
     fn instantiate(&mut self, e: &Expr, env: Env) -> R<E> {
-        let ExprKind::Call { f, args } = &e.k else { unreachable!() };
+        let ExprKind::Call { f, args, .. } = &e.k else { unreachable!() };
         let ExprKind::Id(fname) = &f.k else { unreachable!() };
         let b = self.lookup(env, fname).unwrap();
         let mut out = vec![];
@@ -1284,16 +1931,93 @@ impl<'p> Gen<'p> {
         }
         Ok(call(id(b.js), out))
     }
+    fn types(&self, path: &str) -> std::rc::Rc<Types> {
+        self.types.borrow_mut().entry(path.to_string()).or_insert_with(|| std::rc::Rc::new(types_of(self.set, path))).clone()
+    }
     fn component(&mut self, d: &Decl, env: Env) -> R<S> {
-        let Decl::Component { name, props, decls, view, .. } = d else { unreachable!() };
+        let Decl::Component { name, props, decls, view, props_type, tparams, kids_value, .. } = d else { unreachable!() };
         let inner = self.new_env(Some(env));
-        self.set(inner, props, val(mg(props)));
-        let body = self.block(decls, view, inner, None, true)?;
+        let mut pb = val(mg(props));
+        let types = self.types(&self.file);
+        pb.given = Some(Given::Props { less: vec![], views: views_of(props_type.as_deref(), &types, self.mod_decls, tparams.as_deref(), *kids_value).into() });
+        pb.shows = shown(props, props_type.as_deref(), decls, view, &types, tparams.as_deref()).into_iter().map(|(f, v)| (f, v.mixed)).collect();
+        let was = std::mem::replace(&mut self.shown, pb.shows.iter().map(|f| format!("{props}.{}", f.0)).collect());
+        self.set(inner, props, pb);
+        let body = self.owned(decls, view, inner, true);
+        self.shown = was;
+        let body = body?;
         Ok(S::Func(Func { name: Some(cm(name)), params: vec![P::Id(mg(props))], directives: vec![], body, is_async: false, generator: false }))
     }
 
     // ---- expressions
+    /// MO-10i (2026-11-22): a closure bound to `name` that the module gives, by that name, to a call that hands the
+    /// position a draft (`setTodos(up)`) is that callback: its parameters there are the draft's (the checker holds the
+    /// name to that use alone, `check::updater_positions`).
+    fn updater_closure(&mut self, name: &str, line: usize, e: &Expr, env: Env) {
+        let ExprKind::Fn { params, .. } = &e.k else { return };
+        if params.is_empty() {
+            return;
+        }
+        let mut found: Option<Vec<usize>> = None;
+        for (callee, i) in self.arg_calls.get(&format!("{name}@{line}")).cloned().unwrap_or_default() {
+            let Some(ps) = self.lookup(env, &callee).and_then(|b| b.drafts.iter().find(|(j, _)| *j == i).map(|(_, ps)| ps.clone())) else { continue };
+            match &found {
+                None => found = Some(ps),
+                Some(f) if *f == ps => {}
+                Some(_) => return,
+            }
+        }
+        if let Some(ps) = found {
+            self.draft_closures.insert(e as *const Expr, ps);
+        }
+    }
+    /// MO-10i: the draft a read goes through: the draft's name, a path below it, or what a method called on one gives.
+    fn draft_chain(&self, e: &Expr, env: Env) -> bool {
+        match &e.k {
+            ExprKind::Id(n) => self.lookup(env, n).is_some_and(|b| b.draft),
+            ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => self.draft_chain(o, env),
+            ExprKind::Call { f, .. } => matches!(&f.k, ExprKind::Member { o, .. } | ExprKind::Index { o, .. } if self.draft_chain(o, env)),
+            _ => false,
+        }
+    }
+    /// MO-10i: a place of a draft: its name, or a path below it (no call).
+    fn draft_place(&self, e: &Expr, env: Env) -> bool {
+        match &e.k {
+            ExprKind::Id(n) => self.lookup(env, n).is_some_and(|b| b.draft),
+            ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => self.draft_place(o, env),
+            _ => false,
+        }
+    }
+    /// MO-10i: the draft callbacks of a function part read off a result, `st[1]` or `st.set`.
+    fn part_drafts_of(&self, f: &Expr, env: Env) -> Option<Vec<(usize, Vec<usize>)>> {
+        let (o, key) = match &f.k {
+            ExprKind::Member { o, p, .. } => (o, Some(p.clone())),
+            ExprKind::Index { o, i, .. } => (o, crate::check::lit_key(i)),
+            _ => return None,
+        };
+        let (ExprKind::Id(on), Some(key)) = (&o.k, key) else { return None };
+        self.lookup(env, on)?.part_drafts.iter().find(|(k, _)| *k == key).map(|(_, d)| d.clone())
+    }
+    /// An expression's value. MO-10i (ruled 2026-11-22): a library's draft is a place, not a value, so a read of one —
+    /// its name, a path below it, what a method called on it gives — is a copy (`__rt.copy`), wherever its value could
+    /// be kept: what `.rx` holds of a draft is never the library's own object. Not where it is handed straight back to
+    /// the library, or consumed by an operator that makes a primitive of it (`raw`).
     fn expr(&mut self, e: &Expr, env: Env, ctx: &Ctx) -> R<E> {
+        let mut x = self.expr0(e, env, ctx)?;
+        if self.kept.contains(&(e as *const Expr)) {
+            x = rtc("kept", vec![x]);
+        }
+        if !self.raw.contains(&(e as *const Expr)) && self.draft_chain(e, env) {
+            // a JS fn called with a read of a draft is lent a copy (in a development build one that refuses to be
+            // changed: a change to it would be lost, MO-10i); its `draft` parameters are given the draft itself (`raw`)
+            if let Some(to) = self.lent.get(&(e as *const Expr)) {
+                return Ok(rtc("lend", vec![x, str(to.clone())]));
+            }
+            return Ok(rtc("copy", vec![x]));
+        }
+        Ok(x)
+    }
+    fn expr0(&mut self, e: &Expr, env: Env, ctx: &Ctx) -> R<E> {
         let sub = Ctx { tail: false, ..ctx.clone() };
         Ok(match &e.k {
             ExprKind::Lit(l) => lit(l),
@@ -1310,12 +2034,19 @@ impl<'p> Gen<'p> {
                 let Some(p) = self.lookup(env, name).and_then(|b| b.prev) else { return fail(format!("pre {name}: no companion memo")) };
                 rtc("preOr", vec![call(id(p), vec![]), thunk(i)])
             }
-            ExprKind::Peek(x) => rtc("untrack", vec![thunk(self.expr(x, env, &sub)?)]),
+            ExprKind::Peek(x) => {
+                let env = self.apart(env);
+                rtc("untrack", vec![thunk(self.expr(x, env, &sub)?)])
+            }
             // RG-4b: Solid's live view
             ExprKind::Omit { e: x, keys } => rtc("omit", std::iter::once(self.expr(x, env, &sub)).chain(keys.iter().map(|k| Ok(str(k.clone())))).collect::<Result<Vec<_>, _>>()?),
             ExprKind::Await { e: x, stream, .. } => {
                 if let Some(v) = self.hoisted.get(&(e as *const Expr)) {
-                    return Ok(call(id(v.clone()), vec![]));
+                    let read = call(id(v.clone()), vec![]);
+                    return Ok(match self.settled.get(&(e as *const Expr)) {
+                        Some(a) => rtc("caught", vec![read, a.clone()]),
+                        None => read,
+                    });
                 }
                 if ctx.imp {
                     let y = self.expr(x, env, &sub)?;
@@ -1328,7 +2059,7 @@ impl<'p> Gen<'p> {
                     });
                 }
                 if !ctx.tail {
-                    return fail("`await` outside an equation's result position is not lowered yet");
+                    return fail(AWAIT_NOT_LOWERED);
                 }
                 // the memo returns the flight (R-1): a stream for `await*`, else its one answer
                 let y = self.expr(x, env, &sub)?;
@@ -1339,10 +2070,20 @@ impl<'p> Gen<'p> {
                 }
             }
             // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
-            ExprKind::Latest(x) => rtc("latest", vec![thunk(self.expr(x, env, &Ctx { imp: false, ..ctx.clone() })?)]),
-            ExprKind::Pending(x) => rtc("isPending", vec![thunk(self.expr(x, env, &sub)?)]),
+            ExprKind::Latest(x) => {
+                let env = self.apart(env);
+                rtc("latest", vec![thunk(self.expr(x, env, &Ctx { imp: false, ..ctx.clone() })?)])
+            }
+            ExprKind::Pending(x) => {
+                let env = self.apart(env);
+                rtc("isPending", vec![thunk(self.expr(x, env, &sub)?)])
+            }
             ExprKind::If { c, t, f } => {
-                let c = self.expr(c, env, &sub)?;
+                self.raw.insert(&**c as *const Expr);
+                let c = match self.asks(c, env, true)? {
+                    Some(a) => a,
+                    None => self.expr(c, env, &sub)?,
+                };
                 let t = self.expr(t, env, ctx)?;
                 let f = self.expr(f, env, ctx)?;
                 E::Cond(Box::new(c), Box::new(t), Box::new(f))
@@ -1350,6 +2091,9 @@ impl<'p> Gen<'p> {
             // R-f-3
             ExprKind::Throw(x) => rtc("throw", vec![self.expr(x, env, &sub)?]),
             // R-f-4: over a sync value, or the tail await's promise/stream
+            ExprKind::Catch { .. } if !ctx.imp && self.hoisted_catch.contains_key(&(e as *const Expr)) => call(id(self.hoisted_catch[&(e as *const Expr)].clone()), vec![]),
+            // R-f-4a: the await is settled to what it caught, a failure of its operand too; the answer is computed here, with no boundary of its own
+            ExprKind::Catch { e: x, .. } if !ctx.imp && self.settled.contains_key(&(&**x as *const Expr)) => self.expr(x, env, &sub)?,
             ExprKind::Catch { e: x, name, classes, alt } => {
                 if ctx.imp && has_await_json(&x.to_json()) {
                     return fail("`await … catch` inside an expression of imperative scope (AWAIT_IN_EXPRESSION, AC-1)");
@@ -1369,7 +2113,10 @@ impl<'p> Gen<'p> {
                 for p in parts {
                     xs.push(match p {
                         crate::ast::TplPart::Str(s) => str(s.clone()),
-                        crate::ast::TplPart::Expr(x) => rtc("fmt", vec![self.expr(x, env, &sub)?]),
+                        crate::ast::TplPart::Expr(x) => {
+                            self.raw.insert(x as *const Expr);
+                            rtc("fmt", vec![self.expr(x, env, &sub)?])
+                        }
                     });
                 }
                 let mut it = xs.into_iter();
@@ -1378,23 +2125,28 @@ impl<'p> Gen<'p> {
                     Some(first) => it.fold(first, |a, b| bin("+", a, b)),
                 }
             }
-            ExprKind::Member { o, p, .. } => E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true),
+            ExprKind::Member { o, p, .. } => {
+                self.raw.insert(&**o as *const Expr);
+                E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true)
+            }
             ExprKind::Index { o, i, .. } => {
+                self.raw.insert(&**o as *const Expr);
+                self.raw.insert(&**i as *const Expr); // a key is a primitive
                 let o = self.expr(o, env, &sub)?;
                 E::Index(Box::new(o), Box::new(self.expr(i, env, &sub)?), true)
             }
             // 07 CSS-5
             ExprKind::StyleMap { css, line } => self.class_map(css, *line)?,
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 // AC-6: Solid's until; the predicate is reactive scope
                 if let (ExprKind::Id(n), Some(Expr { k: ExprKind::Fn { body, .. }, .. })) = (&f.k, args.first()) {
-                    if n == "until" && self.lookup(env, "until").is_none() {
+                    if self.lang(env, n) == Some(Lang::Until) {
                         return Ok(rtc("until", vec![thunk(self.expr(body, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?)]));
                     }
                 }
                 // EF-7, EF-8: Solid's own
                 if let ExprKind::Id(n) = &f.k {
-                    if (n == "onSettled" || n == "onFlush") && self.lookup(env, n).is_none() {
+                    if !ctx.dynamic && matches!(self.lang(env, n), Some(Lang::OnSettled | Lang::OnFlush)) {
                         let mut xs = vec![];
                         for a in args {
                             xs.push(self.expr(a, env, &sub)?);
@@ -1402,7 +2154,53 @@ impl<'p> Gen<'p> {
                         return Ok(rtc(n, xs));
                     }
                 }
-                let callee = if let ExprKind::Member { o, p, .. } = &f.k { E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true) } else { self.expr(f, env, &sub)? };
+                // MO-10i: the closures this call hands a library's draft
+                let drafts = match &f.k {
+                    ExprKind::Id(n) => self.lookup(env, n).map(|b| b.drafts).unwrap_or_default(),
+                    _ => self.part_drafts_of(f, env).unwrap_or_default(),
+                };
+                for (i, ps) in drafts {
+                    if let Some(a) = args.get(i).filter(|a| matches!(a.k, ExprKind::Fn { .. })) {
+                        self.draft_closures.insert(a as *const Expr, ps);
+                    }
+                }
+                // a method of a draft is the library's own: what it is given goes straight back to it; a builtin that
+                // answers a primitive keeps nothing
+                let own = matches!(&f.k, ExprKind::Member { o, .. } | ExprKind::Index { o, .. } if self.draft_chain(o, env));
+                // a closure written for one of a draft's own methods (`d.items.forEach((row) => { … })`) is called by it
+                // with places of the draft: its parameters are read as copies, as the draft is (closed 2026-11-22)
+                if own {
+                    for a in args {
+                        if let ExprKind::Fn { params, .. } = &a.k {
+                            self.draft_closures.entry(a as *const Expr).or_insert_with(|| (0..params.len()).collect());
+                        }
+                    }
+                }
+                let scalar = matches!(&f.k, ExprKind::Id(n) if scalar(n, self.lookup(env, n).is_some()));
+                if own || scalar {
+                    for a in args {
+                        self.raw.insert(a as *const Expr);
+                    }
+                }
+                // MO-10i (2026-11-22): a JS fn's `draft` parameter is given the draft itself; its other arguments are lent
+                if let ExprKind::Id(n) = &f.k {
+                    if let Some(b) = self.lookup(env, n).filter(|b| b.js_fn) {
+                        for (i, a) in args.iter().enumerate() {
+                            if b.draft_args.contains(&i) {
+                                self.raw.insert(a as *const Expr);
+                            } else {
+                                self.lent.insert(a as *const Expr, n.clone());
+                            }
+                        }
+                    }
+                }
+                self.raw.insert(&**f as *const Expr);
+                let callee = if let ExprKind::Member { o, p, .. } = &f.k {
+                    self.raw.insert(&**o as *const Expr);
+                    E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true)
+                } else {
+                    self.expr(f, env, &sub)?
+                };
                 let mut xs = vec![];
                 for a in args {
                     xs.push(self.expr(a, env, &sub)?);
@@ -1429,10 +2227,22 @@ impl<'p> Gen<'p> {
                 }
                 E::Obj(ps)
             }
-            ExprKind::Fn { params, body, stmts } => {
+            ExprKind::Fn { params, body, stmts, .. } => {
                 let inner = self.params(env, params);
-                let ps: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
-                match stmts {
+                // MO-10i: the parameters a library hands its draft
+                if let Some(ds) = self.draft_closures.get(&(e as *const Expr)).cloned() {
+                    for j in ds {
+                        if let Some(p) = params.get(j) {
+                            let mut b = val(mg(p));
+                            b.draft = true;
+                            self.set(inner, p, b);
+                        }
+                    }
+                    self.raw.insert(&**body as *const Expr); // what the callback gives back is the library's
+                }
+                let own: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
+                let ps = if ctx.is_ref { vec![] } else { own.clone() };
+                let f = match stmts {
                     Some(ss) if crate::infer::inferred_action(ss).is_some() => {
                         // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
                         let b = self.stmts(ss, inner, &Ctx { imp: true, gen: true, dynamic: ctx.dynamic, effect: ctx.effect, ..Ctx::default() }, false)?;
@@ -1448,10 +2258,34 @@ impl<'p> Gen<'p> {
                         let b = self.expr(body, inner, &Ctx { imp: ctx.imp, dynamic: ctx.dynamic, effect: ctx.effect, ..Ctx::default() })?;
                         E::Arrow { params: ps, body: Body::Expr(Box::new(b)), is_async: false }
                     }
-                }
+                };
+                // H-10: what a `ref` closure reads is a snapshot, a prop as a source is — it is called while the view is
+                // made, where Solid's development build reports a read nothing tracks
+                if ctx.is_ref { E::Arrow { params: own, body: Body::Expr(Box::new(rtc("untrack", vec![f]))), is_async: false } } else { f }
             }
-            ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
+            ExprKind::Use(n) => match self.above.iter().rev().find(|(c, _)| c == n) {
+                Some((_, Some(up))) => call(id(up.clone()), vec![]),
+                _ => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
+            },
             ExprKind::Bin { op, l, r } => {
+                // RG-4c: a view asked for is not made
+                {
+                    if let Some(a) = self.asks(e, env, false)? {
+                        return Ok(a);
+                    }
+                    if op == "&&" {
+                        if let Some(a) = self.asks(l, env, true)? {
+                            // one that was not given is the nothing it is
+                            let (r, l) = (self.expr(r, env, &sub)?, self.expr(l, env, &sub)?);
+                            return Ok(E::Cond(Box::new(a), Box::new(r), Box::new(l)));
+                        }
+                    }
+                }
+                // MO-10i: an operator that makes a primitive keeps nothing of what it reads
+                if !matches!(op.as_str(), "??" | "||" | "&&") {
+                    self.raw.insert(&**l as *const Expr);
+                    self.raw.insert(&**r as *const Expr);
+                }
                 let l = self.expr(l, env, &sub)?;
                 let r = self.expr(r, env, &sub)?;
                 match op.as_str() {
@@ -1460,34 +2294,55 @@ impl<'p> Gen<'p> {
                     op => bin(static_op(op), l, r),
                 }
             }
-            ExprKind::Un { op, e: x } => E::Un(static_op(op), Box::new(self.expr(x, env, &sub)?)),
+            ExprKind::Un { op, e: x } => {
+                if let Some(a) = self.asks(e, env, false)? {
+                    return Ok(a);
+                }
+                self.raw.insert(&**x as *const Expr);
+                E::Un(static_op(op), Box::new(self.expr(x, env, &sub)?))
+            }
             ExprKind::Draft { .. } => return fail("a draft is an equation's whole expression"),
             ExprKind::Spread(_) => return fail("spread outside an array literal"),
             ExprKind::ServerFn { .. } => undef(),
         })
+    }
+    fn lang(&self, env: Env, name: &str) -> Option<Lang> {
+        language(name, self.lookup(env, name).is_some(), self.set.conformance)
     }
     fn reference(&mut self, name: &str, env: Env, ctx: &Ctx) -> R<E> {
         if ctx.effect && name.len() > 1 && name.starts_with('$') && name[1..].bytes().all(|b| b.is_ascii_digit()) {
             return Ok(E::Index(Box::new(id("$p")), Box::new(E::Num(name[1..].parse::<f64>().unwrap())), false));
         }
         let Some(b) = self.lookup(env, name) else {
-            if builtin(name) {
-                return Ok(dot(id("__B"), name));
-            }
+            let own = match language(name, false, self.set.conformance) {
+                Some(Lang::Fn) => Some(dot(id("__B"), name)),
+                Some(Lang::Log) if ctx.imp || ctx.dynamic => Some(dot(id("__B"), name)),
+                Some(Lang::OnSettled | Lang::OnFlush) if ctx.dynamic => Some(dot(id("__rt"), name)),
+                _ => None,
+            };
             if ctx.dynamic {
-                return Ok(if name == "log" {
-                    dot(id("__B"), "log")
-                } else if ctx.imp {
-                    rtc("dget", vec![str(name)])
-                } else {
-                    rtc("dget", vec![str(name), E::Bool(true)])
-                });
+                // a scenario's row names what the program binds, else the language's function
+                let mut a = vec![str(name)];
+                if let Some(f) = own {
+                    a.push(E::Bool(!ctx.imp));
+                    a.push(f);
+                } else if !ctx.imp {
+                    a.push(E::Bool(true));
+                }
+                return Ok(rtc("dget", a));
             }
-            if name == "log" && ctx.imp {
-                return Ok(dot(id("__B"), "log"));
+            if let Some(f) = own {
+                return Ok(f);
             }
             return fail(format!("unbound {name}"));
         };
+        if let Some(x) = b.sub {
+            // the fn outlives its lowering
+            return self.expr(unsafe { &*x }, env, &reactive());
+        }
+        if let Some((i, apart)) = b.shared {
+            return Ok(call(id(if apart { "r$" } else { "n$" }), vec![E::Num(i as f64)]));
+        }
         match b.kind {
             Kind::Acc | Kind::Src => Ok(if ctx.imp { rtc("snapshot", vec![id(b.js)]) } else { call(id(b.js), vec![]) }),
             // a component value is the compiled component (MO-11c)
@@ -1549,17 +2404,22 @@ impl<'p> Gen<'p> {
             }
             match &s.k {
                 StmtKind::Let { name, e, .. } => {
+                    self.updater_closure(name, s.line as usize, e, env);
                     let x = self.expr(e, env, &sub)?;
                     out.push(S::Let(mg(name), Some(x)));
                     self.set(env, name, val(mg(name)));
                 }
                 StmtKind::Expr(e) => {
+                    self.raw.insert(e as *const Expr); // MO-10i: its value is dropped, or is the callback's result
                     let x = self.expr(e, env, &sub)?;
                     out.push(if return_last && i == ss.len() - 1 { S::Return(Some(x)) } else { sexpr(x) });
                 }
                 StmtKind::Return(e) => {
                     let x = match e {
-                        Some(e) => Some(self.expr(e, env, &sub)?),
+                        Some(e) => {
+                            self.raw.insert(e as *const Expr); // MO-10i: a draft is named only in its own callback, whose result is the library's
+                            Some(self.expr(e, env, &sub)?)
+                        }
                         None => None,
                     };
                     out.push(S::Return(x));
@@ -1571,15 +2431,46 @@ impl<'p> Gen<'p> {
                     for p in &target.path {
                         keys.push(match p {
                             PathSeg::Name(n) => str(n.clone()),
-                            PathSeg::Expr(x) => self.expr(x, env, &sub)?,
+                            PathSeg::Expr(x) => {
+                                self.raw.insert(x as *const Expr); // a key is a primitive
+                                self.expr(x, env, &sub)?
+                            }
                         });
                     }
                     let has_path = !keys.is_empty();
                     let keys = E::Arr(keys);
+                    // MO-10i: a value written to a path of a draft goes straight back to the library
+                    if !optimistic && has_path && !target.is_ctx() && self.lookup(env, &target.name).is_some_and(|b| b.draft) {
+                        self.raw.insert(e as *const Expr);
+                    }
                     let v = self.expr(e, env, &sub)?;
                     if ctx.dynamic && !target.is_ctx() && self.lookup(env, &target.name).is_none() {
                         out.push(sexpr(rtc("dset", vec![str(target.name.clone()), keys, v, E::Bool(optimistic)])));
                         continue;
+                    }
+                    // MO-10i: a library's draft, written along its path
+                    if !optimistic && has_path && !target.is_ctx() {
+                        if let Some(b) = self.lookup(env, &target.name).filter(|b| b.kind == Kind::Val && b.w.is_none()) {
+                            let E::Arr(mut segs) = keys else { unreachable!() };
+                            // W-6: `d.n := v => v + 1` applies it. The place is evaluated once, as `x[k] += 1` is: the object
+                            // up to the last key, then that key, then the old value read from them and the new one written
+                            // there (`d.items[next()] := v => v + 1` calls `next` once)
+                            let updater = matches!(&e.k, ExprKind::Fn { params, stmts: None, .. } if params.len() == 1);
+                            if updater {
+                                let last = segs.pop().unwrap();
+                                let obj = segs.into_iter().fold(id(b.js), |o, k| E::Index(Box::new(o), Box::new(k), false));
+                                let place = E::Index(Box::new(id("__o$d")), Box::new(id("__k$d")), false);
+                                out.push(S::Block(vec![
+                                    S::Const(Pat::Id("__o$d".into()), obj),
+                                    S::Const(Pat::Id("__k$d".into()), last),
+                                    sexpr(E::Assign("=", Box::new(place.clone()), Box::new(E::Call(Box::new(v), vec![place])))),
+                                ]));
+                                continue;
+                            }
+                            let lhs = segs.into_iter().fold(id(b.js), |o, k| E::Index(Box::new(o), Box::new(k), false));
+                            out.push(sexpr(E::Assign("=", Box::new(lhs), Box::new(v))));
+                            continue;
+                        }
                     }
                     let w = if target.is_ctx() {
                         let c = self.reference(&target.name, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?;
@@ -1611,10 +2502,28 @@ impl<'p> Gen<'p> {
                     out.push(sexpr(call(rtc("action", vec![gen]), vec![])));
                 }
                 StmtKind::Sif { c, t, f } => {
+                    self.raw.insert(c as *const Expr);
                     let c = self.expr(c, env, &sub)?;
                     let t = self.stmts(t, env, ctx, false)?;
                     let f = self.stmts(f, env, ctx, false)?;
                     out.push(S::If(c, t, Some(f)));
+                }
+                // 07 §5: a loop of imperative scope; its variable is a constant of each turn
+                StmtKind::For { name, e, body } => {
+                    // MO-10i: a turn of a loop over a path of a draft is a place of that draft
+                    let place = self.draft_place(e, env);
+                    if place {
+                        self.raw.insert(e as *const Expr);
+                    }
+                    let x = self.expr(e, env, &sub)?;
+                    let inner = self.new_env(Some(env));
+                    let mut b = val(mg(name));
+                    b.draft = place;
+                    self.set(inner, name, b);
+                    let b = self.stmts(body, inner, ctx, false)?;
+                    // the loop visits what `e` holds when it starts (07 §5): a turn that adds to the list it loops over
+                    // does not lengthen the loop
+                    out.push(S::ForOf(mg(name), E::Arr(vec![E::Spread(Box::new(x))]), b));
                 }
                 StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
                     let block = self.stmts(body, env, ctx, false)?;
@@ -1650,12 +2559,22 @@ impl<'p> Gen<'p> {
     // ---- views: JSX, which Solid's compiler lowers for the DOM, the server and the test renderer
     /// A view: a fragment of children. Text is a string child; `{e}` is `{__rt.show(e)}` (a value is formatted, a view is
     /// inserted); control flow is Solid's components. What is a hole, a scope or a memo is the compiler's to decide. An empty
-    /// view is null, not `<></>` (an empty array loses its slot in the universal renderer: DV-13).
+    /// view is `<></>`, as any other (it was `null` while Solid's universal renderer lost an empty array's slot, DV-13: fixed
+    /// in solidjs/solid#4276, 2026-10-26).
     fn markup(&mut self, ms: &[Markup], env: Env) -> R<E> {
-        if ms.is_empty() {
-            return Ok(E::Null);
-        }
         Ok(E::Jsx(Box::new(Jsx::Frag(self.kids(ms, env)?, None))))
+    }
+    /// MO-11k: a render prop, an arrow over the view, its parameters bound as values.
+    /// RG-4c: to an .rx component (`one`), a function of one parameter: where plain content is taken as well, it is told from a
+    /// thunk by it.
+    fn view_fn(&mut self, params: &[String], decls: &[Decl], body: &[Markup], env: Env, one: bool) -> R<E> {
+        let inner = self.new_env(Some(env));
+        for p in params {
+            self.set(inner, p, val(mg(p)));
+        }
+        let pre = self.owned(decls, body, inner, false)?;
+        let ps: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
+        Ok(arrow_block(if one && ps.is_empty() { vec![P::Id("__s".into())] } else { ps }, pre, false))
     }
     fn kids(&mut self, ms: &[Markup], env: Env) -> R<Vec<Child>> {
         let mut out = vec![];
@@ -1681,15 +2600,73 @@ impl<'p> Gen<'p> {
         if let Some(n) = bind_name {
             self.set(inner, &n, val(mg(&n)));
         }
-        pre.append(&mut self.block(decls, view, inner, None, false)?);
+        pre.append(&mut self.owned(decls, view, inner, false)?);
         Ok(arrow_block(param.into_iter().map(P::Id).collect(), pre, false))
+    }
+    /// RG-7a: what a region provides is for what is in it, so it has an owner of its own: in Solid's production build a
+    /// component has none, and a branch's is its condition's, made again and again under what the last one provided.
+    fn owned(&mut self, decls: &[Decl], view: &[Markup], env: Env, root: bool) -> R<Vec<S>> {
+        let body = self.block(decls, view, env, None, root)?;
+        Ok(if decls.iter().any(|x| matches!(x, Decl::Provide { .. })) { vec![S::Return(Some(rtc("inst", vec![arrow_block(vec![], body, false)])))] } else { body })
     }
     fn region(&mut self, decls: &[Decl], view: &[Markup], env: Env) -> R<Child> {
         let f = self.region_fn(decls, view, env, None, None, None)?;
         Ok(Child::Expr(call(f, vec![])))
     }
+    /// RG-4c: the view a tag shows, `<props.f … />` in a component that does: the props, the field.
+    /// RG-4c: the context a tag shows the view of, `<use.item … />`.
+    fn used_view(&self, tag: &str, env: Env) -> Option<String> {
+        let u = crate::modules::used_in(tag)?;
+        self.lookup(env, u).filter(|b| b.view_ctx).map(|_| u.to_string())
+    }
+    fn shown_from(&self, tag: &str, env: Env) -> Option<(E, bool)> {
+        let (n, f) = shown_in(tag)?;
+        let b = self.lookup(env, n)?;
+        let mixed = b.shows.iter().find(|x| x.0 == f)?.1;
+        Some((dot(id(b.js), f), mixed))
+    }
+    /// R-11a: whether a reader's expression reads ahead where it stands: a probe (`latest`, `pending?`) outside a closure and
+    /// `peek`, or a read of an equation or a source with a question that does, or a call of a fn whose body does (as
+    /// ref/compile/emit.ts `readsAhead`)
+    fn reads_ahead(&self, v: &serde_json::Value, env: Env, seen: &mut HashSet<usize>) -> bool {
+        use serde_json::Value as V;
+        match v {
+            V::Array(xs) => xs.iter().any(|x| self.reads_ahead(x, env, seen)),
+            V::Object(o) => match o.get("k").and_then(|k| k.as_str()) {
+                Some("latest" | "pending") => true,
+                Some("fn" | "serverfn" | "peek") => false,
+                Some("id") => {
+                    let Some(b) = o.get("name").and_then(|n| n.as_str()).and_then(|n| self.lookup(env, n)) else { return false };
+                    if let Some((e, at)) = b.of {
+                        if !seen.insert(e as usize) {
+                            return false;
+                        }
+                        // SAFETY: the declarations outlive the emitter's pass over them
+                        let j = unsafe { &*e }.to_json();
+                        return self.reads_ahead(&j, at, seen);
+                    }
+                    if b.kind == Kind::Fn {
+                        if let Some(d) = b.f.as_ref().and_then(|f| f.decl) {
+                            if !seen.insert(d as usize) {
+                                return false;
+                            }
+                            // SAFETY: as above
+                            if let Decl::Fn { decls, tail, .. } = unsafe { &*d } {
+                                let mut xs: Vec<V> = decls.iter().filter_map(|d| if let Decl::Eq { e, .. } = d { Some(e.to_json()) } else { None }).collect();
+                                xs.push(tail.to_json());
+                                return self.reads_ahead(&V::Array(xs), env, seen);
+                            }
+                        }
+                    }
+                    false
+                }
+                _ => o.iter().any(|(k, x)| k != "k" && self.reads_ahead(x, env, seen)),
+            },
+            _ => false,
+        }
+    }
     fn attr(&mut self, name: &str, e: &Expr, env: Env) -> R<(String, AttrValue)> {
-        let x = self.expr(e, env, &Ctx { imp: is_handler(name), ..Ctx::default() })?;
+        let x = self.expr(e, env, &Ctx { imp: is_handler(name), is_ref: name == "ref", ..Ctx::default() })?;
         Ok((name.to_string(), AttrValue::Expr(x)))
     }
     fn child(&mut self, m: &Markup, env: Env) -> R<Option<Child>> {
@@ -1700,7 +2677,19 @@ impl<'p> Gen<'p> {
             MarkupKind::Text(s) => Child::Expr(str(s.clone())),
             // CSS-4: removed; the stylesheet is the module's
             MarkupKind::Style(_) => return Ok(None),
-            MarkupKind::Read(e) => Child::Expr(rtc("show", vec![self.expr(e, env, &re)?])),
+            // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another
+            // value is formatted (a JS library hands a component its text as an array of strings)
+            MarkupKind::Read(e) => {
+                // RG-4c: a view that was not given shows nothing
+                let f = match self.given(e, env) {
+                    Some(Given::Children { .. }) => "kids",
+                    Some(g) if g.held() => "opt",
+                    // a context that holds a view, shown: one that was not given shows nothing
+                    _ if matches!(&e.k, ExprKind::Use(n) if self.lookup(env, n).is_some_and(|b| b.view_ctx)) => "opt",
+                    _ => "show",
+                };
+                Child::Expr(rtc(f, vec![self.expr(e, env, &re)?]))
+            }
             MarkupKind::El { tag, children, .. } if tag.is_empty() => {
                 if children.is_empty() {
                     Child::Text("null".into())
@@ -1708,25 +2697,125 @@ impl<'p> Gen<'p> {
                     Child::Jsx(Jsx::Frag(self.kids(children, env)?, line))
                 }
             }
-            MarkupKind::El { tag, attrs, children } if tag.as_bytes()[0].is_ascii_uppercase() => {
-                let Some(b) = self.lookup(env, tag).filter(|b| b.kind == Kind::Comp) else { return fail(format!("unknown component {tag}")) };
+            // RG-4c: the view the component was given, applied (plain content, as it is)
+            MarkupKind::El { tag, attrs, .. } if self.shown_from(tag, env).is_some() || self.used_view(tag, env).is_some() => {
+                // `<use.item … />`: the view a context holds
+                let (view, mixed) = match self.used_view(tag, env) {
+                    Some(u) => (rtc("useGet", vec![self.reference(&u, env, &reactive())?, id("__o")]), false),
+                    None => self.shown_from(tag, env).unwrap(),
+                };
                 let mut xs = vec![];
                 for a in attrs {
                     xs.push(self.attr(&a.name, &a.e, env)?);
                 }
-                if children.is_empty() {
-                    // MO-11: a JS component gets JSX's own `<X />`, with no children prop
-                    if b.shape != Some(FShape::Comp) {
-                        xs.push(("children".into(), AttrValue::Expr(E::Arr(vec![]))));
-                    }
-                    el(JsxName::Ident(b.js), xs, vec![], true)
-                } else {
-                    el(JsxName::Ident(b.js), xs, self.kids(children, env)?, false)
+                let applied = E::Jsx(Box::new(Jsx::El { name: JsxName::Ident("V$view".into()), attrs: xs, children: vec![], self_closing: true, line }));
+                let mut args = vec![view, arrow(&["V$view"], applied)];
+                if mixed {
+                    args.push(E::Bool(true));
                 }
+                Child::Expr(rtc("view", args))
+            }
+            MarkupKind::El { tag, attrs, children } if tag.as_bytes()[0].is_ascii_uppercase() => {
+                // MO-11q: `<Dialog.Root>`, a member of a declared JS object
+                let member = match tag.split_once('.') {
+                    Some((h, m)) if self.lookup(env, tag).is_none() => self.lookup(env, h).map(|hb| (hb.js.clone(), m.to_string())),
+                    _ => None,
+                };
+                let b = match &member {
+                    Some(_) => None,
+                    None => Some(self.lookup(env, tag).filter(|b| b.kind == Kind::Comp)),
+                };
+                if let Some(None) = b {
+                    return fail(format!("unknown component {tag}"));
+                }
+                let plain = matches!(&b, Some(Some(b)) if b.plain);
+                let kids_value = matches!(&b, Some(Some(b)) if b.kids_value);
+                let (name, shape) = match (&member, b.flatten()) {
+                    (Some((o, m)), _) => (JsxName::Member(o.clone(), m.clone()), Some(FShape::Comp)),
+                    (None, Some(b)) => (JsxName::Ident(b.js), b.shape),
+                    (None, None) => unreachable!(),
+                };
+                let mut xs = vec![];
+                for a in attrs {
+                    // MO-11t: a component given by name to a prop typed `View` is applied there, with no arguments: the
+                    // element, made where the library reads the prop (JSX's `fallback={<Empty />}`, a getter)
+                    if let Some(n) = self.views.given(tag, &a.name, &a.e) {
+                        let applied = Markup { kind: MarkupKind::El { tag: n.to_string(), attrs: vec![], children: vec![] }, line: m.line, span: m.span };
+                        if let Some(Child::Jsx(j)) = self.child(&applied, env)? {
+                            xs.push((a.name.clone(), AttrValue::Expr(rtc("slot", vec![thunk(E::Jsx(Box::new(j)))]))));
+                        }
+                        continue;
+                    }
+                    xs.push(self.attr(&a.name, &a.e, env)?);
+                }
+                // MO-11k: named render props are attributes
+                for c in children {
+                    if let MarkupKind::Mview { prop: Some(p), params, decls, body } = &c.kind {
+                        let f = self.view_fn(params, decls, body, env, shape != Some(FShape::Comp))?;
+                        xs.push((p.clone(), AttrValue::Expr(f)));
+                    }
+                }
+                let rest: Vec<&Markup> = children.iter().filter(|c| !matches!(&c.kind, MarkupKind::Mview { prop: Some(_), .. })).collect();
+                if rest.is_empty() {
+                    // MO-11: a JS component gets JSX's own `<X />`, with no children prop
+                    return Ok(Some(el(name, xs, vec![], true)));
+                }
+                if shape != Some(FShape::Comp) {
+                    // RG-4c: a view; what is given as plain content where a view is taken is one that asks nothing
+                    let f = match &rest[..] {
+                        [Markup { kind: MarkupKind::Mview { params, decls, body, .. }, .. }] => Some(self.view_fn(params, decls, body, env, true)?),
+                        _ if plain => Some(self.view_fn(&[], &[], children, env, true)?),
+                        _ => None,
+                    };
+                    if let Some(f) = f {
+                        return Ok(Some(el(name, xs, vec![Child::Expr(f)], false)));
+                    }
+                }
+                // RG-4c: content is a block of the caller's names, made and owned where it is shown. One `{e}` that asks
+                // nothing of its place (no `use`, no `await`) is given as the value it is: a function prop is one
+                let lone = matches!(&rest[..], [Markup { kind: MarkupKind::Read(e), .. }] if matches!(e.k, ExprKind::Fn { .. }) || !placed(&e.to_json()));
+                let blank = rest.iter().all(|c| matches!(&c.kind, MarkupKind::Text(t) if t.trim().is_empty()));
+                if !lone && !blank {
+                    let f = self.region_fn(&[], children, env, None, None, None)?; // a named view among them is an attribute: no child
+                    return Ok(Some(el(name, xs, vec![Child::Expr(rtc("slot", vec![f]))], false))); // asked whether it was given, it is not made
+                }
+                let mut kids = vec![];
+                match &rest[..] {
+                    // children that are a value: the value
+                    [Markup { kind: MarkupKind::Read(e), .. }] if kids_value => kids.push(Child::Expr(self.expr(e, env, &reactive())?)),
+                    _ => {
+                        for c in rest {
+                            kids.extend(self.child(c, env)?);
+                        }
+                    }
+                }
+                el(name, xs, kids, false)
             }
             MarkupKind::El { tag, attrs, children } => {
                 let mut xs = vec![];
-                for a in attrs {
+                // R-11a: an attribute that reads ahead is a reader of its own — one render effect, made by the element's `ref`
+                // (`__rt.own`); where it was written, the server's value (`__rt.served`). Solid's compiler computes the others
+                // of the template in one effect
+                let apart: Vec<bool> = attrs.iter().map(|a| a.name != "..." && !is_handler(&a.name) && self.reads_ahead(&a.e.to_json(), env, &mut HashSet::new())).collect();
+                let mut own = vec![];
+                let mut user_ref = None;
+                for (i, a) in attrs.iter().enumerate() {
+                    if apart[i] {
+                        let v = match (&self.style_hash, a.name.as_str()) {
+                            (Some(h), "class") => {
+                                let h = h.clone();
+                                rtc("scopedClass", vec![self.expr(&a.e, env, &re)?, str(h)])
+                            }
+                            _ => self.expr(&a.e, env, &re)?,
+                        };
+                        own.push(E::Arr(vec![str(a.name.clone()), thunk(v.clone())]));
+                        xs.push((a.name.clone(), AttrValue::Expr(rtc("served", vec![thunk(v)]))));
+                        continue;
+                    }
+                    if a.name == "ref" && apart.iter().any(|x| *x) {
+                        user_ref = Some(self.expr(&a.e, env, &Ctx { imp: true, is_ref: true, ..Ctx::default() })?);
+                        continue;
+                    }
                     xs.push(match (&self.style_hash, a.name.as_str(), &a.e.k) {
                         (Some(h), "class", ExprKind::Lit(Lit::Str(v))) => ("class".to_string(), AttrValue::Expr(str(format!("{v} {h}")))),
                         (Some(h), "class", _) => {
@@ -1735,6 +2824,11 @@ impl<'p> Gen<'p> {
                         }
                         _ => self.attr(&a.name, &a.e, env)?,
                     });
+                }
+                if !own.is_empty() {
+                    let mut args = vec![user_ref.unwrap_or_else(|| id("undefined"))];
+                    args.extend(own);
+                    xs.push(("ref".into(), AttrValue::Expr(rtc("own", args))));
                 }
                 // CSS-2: every HTML element of the view
                 if let Some(h) = &self.style_hash {
@@ -1749,17 +2843,35 @@ impl<'p> Gen<'p> {
                 }
             }
             MarkupKind::Mif { c, t, t_decls, f, f_decls } => {
-                let narrowed = if let ExprKind::Id(n) = &c.k { self.lookup(env, n).filter(|b| matches!(b.kind, Kind::Acc | Kind::Src)).map(|b| (n.clone(), b)) } else { None };
+                let whether = self.asks(c, env, true)?; // RG-4c: a view asked for is not its answer
+                let narrowed = if let (ExprKind::Id(n), None) = (&c.k, &whether) { self.lookup(env, n).filter(|b| matches!(b.kind, Kind::Acc | Kind::Src)).map(|b| (n.clone(), b)) } else { None };
                 let narrow = narrowed.map(|(n, b)| {
                     let mut nb = bind(Kind::Acc, format!("n${n}"));
                     nb.w = b.w;
+                    nb.given = b.given;
                     (n, nb)
                 });
                 let tf = self.region_fn(t_decls, t, env, Some("__item".into()), narrow, None)?;
-                let when = self.expr(c, env, &re)?;
+                // RG-4c: a view left out is whatever the caller writes for nothing (`children: []`)
+                let asked = match &c.k {
+                    ExprKind::Member { o, p, .. } => match &o.k {
+                        ExprKind::Id(n) => self.shown_from(&format!("{n}.{p}"), env),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let when = match asked {
+                    Some((view, _)) => bin("===", E::Un("typeof", Box::new(view)), str("function")),
+                    None => match whether {
+                        Some(a) => a,
+                        None => self.expr(c, env, &re)?,
+                    },
+                };
                 let fb = self.region_fn(f_decls, f, env, None, None, None)?;
                 el(JsxName::Ident("Show".into()), vec![("when".into(), AttrValue::Expr(when)), ("fallback".into(), AttrValue::Expr(call(fb, vec![])))], vec![Child::Expr(tf)], false)
             }
+            MarkupKind::Mview { prop: Some(_), .. } => return Ok(None), // an attribute of the component it is given to
+            MarkupKind::Mview { params, decls, body, .. } => Child::Expr(self.view_fn(params, decls, body, env, false)?),
             MarkupKind::Mfor { name, xs, decls, body } => {
                 let b = self.region_fn(decls, body, env, Some(mg(name)), None, Some(name.clone()))?;
                 let each = self.expr(xs, env, &re)?;
@@ -1912,4 +3024,49 @@ pub fn lower_view(module: &[S], filename: &str, target: Target, module_name: &st
         _ => None,
     };
     Ok(Lowered { code: out.code, map })
+}
+
+/// MO-11f, MO-11j: an equation bound from a declared factory's call is a component (`Router = createRouter(…)`).
+fn made_component(p: &Program, name: &str, declarations: &indexmap::IndexMap<String, Vec<crate::parse::JsDecl>>) -> bool {
+    made_component_in(&p.decls, name, declarations)
+}
+pub(crate) fn made_component_in(decls: &[Decl], name: &str, declarations: &indexmap::IndexMap<String, Vec<crate::parse::JsDecl>>) -> bool {
+    let Some(Decl::Eq { e, .. }) = decls.iter().find(|x| matches!(x, Decl::Eq { name: n, .. } if n == name)) else { return false };
+    let ExprKind::Call { f, .. } = &e.k else { return false };
+    let ExprKind::Id(g) = &f.k else { return false };
+    for i in decls {
+        if let Decl::Import { names, declared: Some(dp), .. } = i {
+            if let Some(n) = names.iter().find(|x| &x.alias == g) {
+                return declarations.get(dp).is_some_and(|ds| ds.iter().any(|x| matches!(x, crate::parse::JsDecl::Fn { name, shape: crate::parse::Shape::Comp, .. } if *name == n.name)));
+            }
+        }
+    }
+    false
+}
+
+/// An expression written out as a constant: a literal, or an array, a record, a template or a sign over them.
+fn constant(e: &Expr) -> bool {
+    match &e.k {
+        ExprKind::Lit(_) => true,
+        ExprKind::Un { e, .. } => constant(e),
+        ExprKind::Tpl(parts) => parts.iter().all(|p| match p {
+            TplPart::Str(_) => true,
+            TplPart::Expr(e) => constant(e),
+        }),
+        ExprKind::Arr(items) => items.iter().all(constant),
+        ExprKind::Rec(fields) => fields.iter().all(|f| matches!(f, Field::Kv { v, .. } if constant(v))),
+        _ => false,
+    }
+}
+
+/// Whether an expression asks something of the place it is evaluated at: a `use`, an `await` (not in a closure, which is a value).
+fn placed(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Array(xs) => xs.iter().any(placed),
+        serde_json::Value::Object(o) => match o.get("k").and_then(|k| k.as_str()) {
+            Some("use" | "await") => true,
+            _ => o.values().any(placed),
+        },
+        _ => false,
+    }
 }

@@ -1,0 +1,22 @@
+// createDate and createDateNow. Derived from @solid-primitives/date 3.0.1 (MIT, see ../NOTICE).
+import { every } from "@reactivescript/std/time"
+import pure { toDate, isFn } from "./dom.js"
+import { nowDate } from "./dom.js"
+/** A date from what `init` says, and a setter that takes a date, a time, a string or a function of the date. */
+export fn createDate(ref init: any) {
+  source mine: Date | undefined := undefined
+  given = toDate(init)
+  now = mine ?? given
+  action set(input: any) { let d = toDate(isFn(input) ? input(now) : input)
+    mine := () => d }
+  [now, set]
+}
+/** Now, read again every `interval` ms. */
+export fn createDateNow(interval: number) {
+  source now: Date := toDate(0)
+  action update() { let d = nowDate()
+    now := () => d }
+  effect () { update()
+    return interval == 0 ? undefined : every(interval, () => { update() }) }
+  [now, update]
+}

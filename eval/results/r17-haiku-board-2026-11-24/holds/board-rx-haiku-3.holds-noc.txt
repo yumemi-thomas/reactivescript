@@ -1,0 +1,5 @@
+  both landed: expected screen
+  settled: todo ["#1 Write spec · 0/2","#2 Fix login · 1/3","#7 Plan sprint · 0/0","#3 Review PR · 2/2"] doing ["#4 Deploy · 0/1"] done ["#5 Kickoff · 3/3"] | To do (4) Doing (1) Done (1) | null
+✓ HOLD a move into To do while a card is being added there keeps both
+
+1/1 passed

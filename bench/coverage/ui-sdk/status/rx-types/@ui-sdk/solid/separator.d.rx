@@ -1,0 +1,3 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type SeparatorState = import("@ui-sdk/solid/separator").SeparatorState
+export component Separator(props: Parameters<typeof import("@ui-sdk/solid/separator").Separator>[0] & { render?: (props: Record<string, any>, state: NoInfer<SeparatorState>) => View })

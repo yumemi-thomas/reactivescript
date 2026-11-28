@@ -1,0 +1,8 @@
+// @solid-primitives/static-store: a store of a fixed shape, each field followed on its own.
+import { createStaticStore } from "@solid-primitives/static-store"
+
+export default component App() {
+  [size, setSize] = createStaticStore({ width: 0, height: 0 })
+  <p>{size.width} by {size.height}</p>
+  <button onClick={() => { setSize({ width: 640, height: 480 }) }}>measure</button>
+}

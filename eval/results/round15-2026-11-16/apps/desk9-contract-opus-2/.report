@@ -1,0 +1,6 @@
+I built the issue desk in `/tmp/claude-0/runs/r15/desk9-contract-opus-2/app.contract`, with `/tmp/claude-0/runs/r15/desk9-contract-opus-2/app.ts` as its data module. It has three tabs, and leaving a tab resets that page. Every instant change (assign, rename, close, posting a comment, adding or removing a label, the row buttons) is shown through the data module's `overlay`, which drops the change when the server declines. Each detail action, and the row buttons as one group, has its own error that clears as the brief says. The 30 visible tests pass. A dozen extra tests I wrote for declines, failures, retries, the open count and settings also passed, and I then removed them, leaving `tests/` as it was.
+
+Things I was unsure about:
+- **Extra reloads:** after each write the app asks the server again for the affected list, comments or labels.
+- **Related help after a rename:** an instant rename runs the related-help search again with the new title.
+- **Tabs are not routes:** the pages are switched by a state rather than routes, so the build warns about it, and Back and shared links do not reach a tab.

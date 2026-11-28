@@ -1,0 +1,5 @@
+// One entry for a kit in several modules (09 MO-6e): each name is the declaring module's, so the context provided by
+// one name is the context a part reads by another, in an app that imports the package by its entries.
+export { ThemeProvider as Root, theme, Theme } from "../theme.rx"
+export { Badge } from "../index.rx"
+export { Tag } from "./tag.rx"

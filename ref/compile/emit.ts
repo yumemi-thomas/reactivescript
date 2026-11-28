@@ -3,20 +3,28 @@
 // Lexical scopes become JS scopes: every region is a JS function, every declaration a `const`. Names are mangled
 // (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The decisions are the
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
+import { inPrelude, language, scalar } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
-import { singleModule, type ModuleSet } from "../src/modules.ts";
-import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
+import { instantiates, keptParts, localsOf, ownUses, usesNow } from "../src/ast.ts";
+import { singleModule, isRx, madeComponent, ViewProps, typeOnly, given, defaulted, bindGiven, viewsOf, viewCtx, shownIn, usedIn, shown, typesOf, takesView, type Given, type ModuleSet } from "../src/modules.ts";
+export { madeComponent };
+import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
-import { unwrapServer } from "../src/check.ts";
+import { jsxTag } from "./jsx.ts";
+import { unwrapServer, litKey } from "../src/check.ts";
+import { scopeFacts } from "../src/scope.ts";
 import { isPrims } from "../src/prims.ts";
-import type { Shape } from "../src/parse.ts";
+import type { Shape, JsDecl } from "../src/parse.ts";
+import { instance } from "../src/parse.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "jfn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string };   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Bind = { kind: Kind; js: string; given?: Given; viewCtx?: boolean; shows?: Map<string, boolean>; plain?: boolean; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string; draft?: boolean; drafts?: [number, number[]][]; partDrafts?: Record<string, [number, number[]][]>; jsFn?: boolean; draftArgs?: number[]; /** E-9b: a name of a fn's body that stands where it is read, or is read through the call's names */ sub?: Expr; shared?: number; /** R-11a: its own expression, where it is an equation or a source with a question: what reads it reads ahead if it does */ of?: Expr; ofEnv?: Env };   // MO-10i: draft, a library's draft (a callback's parameter, or a turn of a loop over a path of one): a place, read as a copy; drafts, partDrafts: a JS fn's draft callbacks, and its result's function parts that take them   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
+/** RG-4c: a view given to an .rx component, a function of one parameter. */
+const viewParam = (v: { params: string[] }) => v.params.map(mg).join(", ") || "__s";
 class Env {
   vars = new Map<string, Bind>(); parent: Env | null;
   constructor(parent: Env | null) { this.parent = parent; }
@@ -24,25 +32,25 @@ class Env {
   /** The declaring frame of `n` (for companion `pre` memos). */
   frame(n: string): Env | undefined { return this.vars.has(n) ? this : this.parent?.frame(n); }
 }
-type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean };
+type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean; ref?: boolean; callee?: boolean };
 
-const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);
-const isHandler = (a: string) => /^on[A-Z:]/.test(a);
+const isHandler = (a: string) => /^on[A-Z:]/.test(a) || a === "ref";   // `ref`: called once with the element
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
 const mg = (n: string) => `v$${n}`;
 const cm = (n: string) => `V$${n}`;   // a component: an uppercase JSX tag
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 
 // ---------------------------------------------------------------- usage analysis (the oracle's walkers, at compile time)
-type Usage = { optimistic: Set<string>; paths: Set<string>; prevOf: Set<string> };
+type Usage = { optimistic: Set<string>; paths: Set<string>; prevOf: Set<string>; plain: Set<string> };
 function usage(p: Program | Program[], extra: Stmt[][] = []): Usage {
-  const u: Usage = { optimistic: new Set(), paths: new Set(), prevOf: new Set() };
+  const u: Usage = { optimistic: new Set(), paths: new Set(), prevOf: new Set(), plain: new Set() };
   const seen = new WeakSet<object>();
   const walk = (x: unknown, selfName?: string): void => {
     if (!x || typeof x !== "object" || seen.has(x as object)) return; seen.add(x as object);
     if (Array.isArray(x)) { x.forEach(y => walk(y, selfName)); return; }
     const o = x as Record<string, any>;
     if (o.k === "optimistic") u.optimistic.add(o.target.name);
+    if (o.k === "write" && !o.target.ctx) u.plain.add(o.target.name);
     if ((o.k === "write" || o.k === "optimistic") && o.target.path.length) u.paths.add(o.target.name);
     if (o.k === "pending" && (o.e.k === "member" || o.e.k === "index")) { let y = o.e; while (y.k === "member" || y.k === "index") y = y.o; if (y.k === "id") u.paths.add(y.name); }
     if (o.k === "pre" && o.name !== selfName) u.prevOf.add(o.name);
@@ -75,14 +83,19 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
   const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out });
   const files = new Map<string, string>();
   for (const path of set.order) {
-    const p = set.programs.get(path)!; g.beginModule(path, p.decls);
-    const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
-    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
+    const p = set.programs.get(path)!; g.beginModule(path, p);
+    // MO-6e: an import a signature's re-export sent to the declaring module is reached through the module it named (`through`)
+    const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.through?.resolved ?? d.resolved] : []))];
+    // MO-13c: a module a JS import's printed signature stands for is the compiled JavaScript that import names, whose `__rx` is the module's factory
+    const compiled = new Map(p.decls.flatMap(d => d.k === "import" && d.resolved && !isRx(d.from) ? [[d.through?.resolved ?? d.resolved, d.from] as [string, string]] : []));
+    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => compiled.has(d) ? `import { __rx as ${g.depVar(d)} } from ${J(compiled.get(d)!)};` : `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
     if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
-      const isComp = (n: string) => p.decls.some(d => d.k === "component" && d.name === n);
-      const body = g.block(p.decls, [], new Env(null), 1, `{ ${exported.map(n => `${J(n)}: ${isComp(n) ? cm(n) : mg(n)}`).join(", ")} }`);
+      const isComp = (n: string) => p.decls.some(d => d.k === "component" && d.name === n) || madeComponent(p, n, set.declarations);   // MO-11j
+      // MO-6e: what the module re-exports, handed on as it binds it (a package's entry is imported by its own name)
+      const handed = p.decls.flatMap(d => d.k === "import" && d.reexport && d.resolved ? d.names.filter(n => !g.isType(d.resolved!, n.name)).map(n => `${J(n.alias)}: ${g.importJs(d.resolved!, n.name, n.alias)}`) : []);
+      const body = g.block(p.decls, [], new Env(null), 1, `{ ${[...exported.map(n => `${J(n)}: ${isComp(n) ? cm(n) : mg(n)}`), ...handed].join(", ")} }`);
       files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function module(__rt) {\n  const __B = __rt.B;\n${body}\n}\n`);
     }
   }
@@ -98,14 +111,21 @@ class Gen {
   top: string[] = [];                                   // module-level code: hoisted server functions and the module's error classes
   serverNames = new Map<string, string>();              // a module-level server fn → its hoisted function
   private modDecls: Decl[] = [];
+  private views = new ViewProps(undefined, []);   // MO-11t: the props of the JS components this module imports that take a view
+  private typeOnly = new Set<string>();           // what the module imports from JavaScript for its types alone
   private sfSeq = 0;
   /** Begin a module: what a hoisted server function may name at module level (SF-3: imports, error classes, server fns). */
-  beginModule(path: string, decls: Decl[]) {
+  beginModule(path: string, p: Program) {
+    const decls = p.decls; this.typeOnly = typeOnly(p, this.mods?.set);
     this.file = path; this.top = []; this.modDecls = decls; this.serverNames = new Map();
+    this.views = new ViewProps(this.mods?.set, decls);
+    this.argCalls = scopeFacts({ decls, view: [] }).argCalls;
     for (const d of decls) if (d.k === "server" || (d.k === "eq" && unwrapServer(d.e))) this.serverNames.set(d.name, `sf$${d.name}`);
     // a package's JS (\`@solidjs/web/server-functions\`): a real import at module level, where a hoisted server fn's wrappers are
     for (const d of decls) if (d.k === "import" && !d.resolved && !d.from.startsWith(".")) {
-      const names = d.names.filter(n => !BUILTINS.has(n.name) && n.name !== "log");
+      if (!d.names.length) { this.top.push(`import ${J(d.from)};`); continue; }   // 07 §1a: for its effect
+      const isType = (n: string) => !!d.declared && !!this.mods?.set.declarations?.get(d.declared)?.some(y => y.kind === "type" && y.name === n);   // a type its declaration file declares binds nothing: the JS module exports no such name
+      const names = d.names.filter(n => !inPrelude(d, n.name, this.mods?.set.conformance) && !isType(n.name) && !this.typeOnly.has(n.alias));
       if (names.length) this.top.push(`import { ${names.map(n => `${n.name} as w$${n.alias}`).join(", ")} } from ${J(d.from)};`);
     }
   }
@@ -128,19 +148,32 @@ class Gen {
     this.top.push(`const ${f} = ${chain(e)};`);
     return f;
   }
+  /** MO-8t: an import's names, and after each the methods its declaration gives rows of their own (`export fn
+   *  toaster.show(…)`): each is bound as a declared fn is, under the name the loader gave its mentions (`toaster.show`),
+   *  and written as that member of the import (`v$toaster.show`). */
+  private withMethods(d: Extract<Decl, { k: "import" }>): { name: string; alias: string }[] {
+    const ds = d.declared ? this.mods?.set.declarations?.get(d.declared) ?? [] : [];
+    return d.names.flatMap(n => [n, ...ds.flatMap(m => m.kind === "fn" && m.name.startsWith(n.name + ".") ? [{ name: m.name, alias: n.alias + m.name.slice(n.name.length) }] : [])]);
+  }
   private serverHoist(d: { name: string; params: string[]; body: Stmt[] }, expression = false): string {
     const f = this.serverNames.get(d.name) && !expression && !this.top.some(t => t.includes(`function ${this.serverNames.get(d.name)}(`)) ? this.serverNames.get(d.name)! : `sf$${d.name}$${this.sfSeq++}`;
     const env = new Env(null); const pre: string[] = [];
     for (const x of this.modDecls) {
-      if (x.k === "import" && !x.resolved) for (const { name, alias } of x.names) {
-        if (name === "log" || BUILTINS.has(name)) continue;
-        if (!x.from.startsWith(".")) { env.vars.set(alias, { kind: "val", js: `w$${alias}` }); continue; }   // a package's: module level
+      if (x.k === "import" && !x.resolved) for (const { name, alias } of this.withMethods(x)) {
+        if (inPrelude(x, name, this.mods?.set.conformance)) continue;
+        if (!x.from.startsWith(".")) {   // a package's: module level
+          env.vars.set(alias, { kind: "val", js: `w$${alias}` });
+          // SV-5a: the body may run in an app no page of this module was made in (a request to the server function alone):
+          // the module's declared JS error classes are known to it there too, so what it fails with crosses as itself
+          if (x.declaredErrors?.includes(name)) pre.push(`__rt.jsClass(w$${alias}, ${J(`${x.from}#${name}`)}${x.declaredErrorFields?.[name] ? `, ${J(x.declaredErrorFields[name])}` : ""});`);
+          continue;
+        }
         env.vars.set(alias, { kind: "val", js: mg(alias) });
         pre.push(`const ${mg(alias)} = ${x.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : `__rt.api(${J(name)})`};`);
       }
       if (x.k === "error") { env.vars.set(x.name, { kind: "val", js: mg(x.name) }); pre.push(`const ${mg(x.name)} = g$${x.name}(__rt);`); }
       if (x.k === "server" || (x.k === "eq" && unwrapServer(x.e))) env.vars.set(x.name, { kind: "val", js: this.serverNames.get(x.name)! });
-      if (x.k === "fn" && !x.params.some(p => p.ref) && !x.decls.length) env.vars.set(x.name, { kind: "fn", js: mg(x.name), fn: x });   // a value fn (SF-3: it reads nothing reactive)
+      if (x.k === "fn" && !instantiates(x)) env.vars.set(x.name, { kind: "fn", js: mg(x.name), fn: x });   // a value fn (SF-3: it reads nothing reactive)
     }
     for (const x of this.modDecls) if (x.k === "fn" && env.vars.get(x.name)?.fn === x) pre.push(this.fn(x, env, 0));   // declared again inside: the body is extracted with it (found by S-app-notes)
     const body = this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, 2);
@@ -155,11 +188,22 @@ class Gen {
   private modIndex(path: string) { const { order, signatures } = this.mods!.set; return [...order, ...(signatures?.keys() ?? [])].indexOf(path); }
   depVar(path: string) { return `__m${this.modIndex(path)}`; }
   /** An imported name's binding, from the exporting module's declaration (MO-3: a source is read-only here, so an accessor). */
+  /** RG-4c: a component whose children are a view or plain content. */
+  private plain(d: Extract<Decl, { k: "component" }>, path: string): { plain?: true; kidsValue?: true } {
+    const types = typesOf(this.mods?.set, path);
+    // RG-4c: children that are a value — declared a value's type (`children: number[]`), or used as one where every caller
+    // gives one (`kidsValue`) — are given as the value written between the tags, not as content to show
+    return { ...(shown(d, types).get("children")?.mixed ? { plain: true as const } : {}), ...(d.kidsValue || takesView(d.propsType, types, "children", d.tparams) === false ? { kidsValue: true as const } : {}) };
+  }
+  /** Whether `name` is a type of the module at `path` (it binds nothing). */
+  isType(path: string, name: string): boolean { return !!this.mods!.set.programs.get(path)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(path)?.exports.get(name)?.kind === "type"; }
+  /** MO-6e: the JavaScript name an imported name is bound to. */
+  importJs(path: string, name: string, alias: string): string { return this.importBind(path, name, alias).js; }
   private importBind(path: string, name: string, alias: string): Bind {
     const sig = this.mods!.set.programs.has(path) ? undefined : this.mods!.set.signatures?.get(path)?.exports.get(name);
     if (sig) switch (sig.kind) {                                                             // MO-9: the kind is the signature's
       case "fn": return { kind: sig.instantiating || sig.params.some(p => p.ref) ? "ifn" : "fn", js: mg(alias), fn: { k: "fn", name, params: sig.params, decls: [], tail: { k: "lit", v: undefined } } as unknown as FnDecl };
-      case "comp": return { kind: "comp", js: cm(alias) };
+      case "comp": return sig.sig.made ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "comp", js: cm(alias), ...(sig.sig.props.children?.view?.mixed ? { plain: true } : {}) };   // MO-11j: a made component is a JS component
       case "action": return { kind: "act", js: mg(alias) };
       case "source": case "eq": return { kind: "acc", js: mg(alias) };
       default: return { kind: "val", js: mg(alias) };
@@ -168,10 +212,11 @@ class Gen {
     const js = mg(alias);
     if (!d) return { kind: "val", js };
     switch (d.k) {
-      case "fn": return { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js, fn: d };
-      case "component": return { kind: "comp", js: cm(alias) };
+      case "fn": return { kind: instantiates(d) ? "ifn" : "fn", js, fn: d };
+      case "component": return { kind: "comp", js: cm(alias), ...this.plain(d, path) };
       case "action": return { kind: "act", js };
-      case "source": case "eq": return { kind: "acc", js };
+      case "eq": if (madeComponent(this.mods!.set.programs.get(path)!, name, this.mods!.set.declarations)) return { kind: "comp", js: cm(alias), shape: "comp" }; return { kind: "acc", js };   // MO-11j: a JS component, applied as JSX's <X />
+      case "source": return { kind: "acc", js };
       default: return { kind: "val", js };
     }
   }
@@ -191,7 +236,7 @@ class Gen {
   private classMap(css: string, line?: number): string {
     let r: { code: string; css?: string };
     try { r = transform(`export const __s = <style>${css}</style>;`, { filename: this.file.replace(/\.rx$/, "") + `.${line ?? 0}.tsrx`, generate: "dom" }) as typeof r; }
-    catch (e) { throw new CompileError(`<style> (line ${line ?? "?"}): ${(e as Error).message}`); }
+    catch (e) { throw new CompileError(`<style> (line ${line ?? "?"}): ${(e as Error).message.replace(/ \(\d+:\d+\)$/, "")}`); }   // the position is in the text made here, not the program's (the crate's message has none)
     const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); if (!m) throw new CompileError(`<style> (line ${line ?? "?"}): no class map`);
     if (r.css) this.css.push(r.css);
     return `Object.freeze(${m[1]})`;
@@ -205,18 +250,19 @@ class Gen {
         case "read": return "{0}";
         case "el": {
           if (m.tag === "") return `<>${tree(m.children)}</>`;
+          if (this.shown.has(m.tag)) return "{0}";                                             // RG-4c: the caller's
           const attrs = m.attrs.filter(a => !isHandler(a.name) && a.name !== "...").map(a => a.e.k === "lit" && typeof a.e.v === "string" ? ` ${a.name}="${esc(a.e.v)}"` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : ` ${a.name}={0}`).join("") + (m.attrs.some(a => a.name === "...") ? " {...0}" : "");
-          return VOID_TAGS.has(m.tag) ? `<${m.tag}${attrs} />` : `<${m.tag}${attrs}>${tree(m.children)}</${m.tag}>`;
+          { const tag = jsxTag(m.tag); return VOID_TAGS.has(m.tag) ? `<${tag}${attrs} />` : `<${tag}${attrs}>${tree(m.children)}</${tag}>`; }
         }
         case "mif": return `{(<>${tree(m.t)}</>)}{(<>${tree(m.f)}</>)}`;
-        case "mfor": return `{(<>${tree(m.body)}</>)}`;
+        case "mfor": case "mview": return `{(<>${tree(m.body)}</>)}`;
         case "loading": case "errored": return `{(<>${tree(m.fallback)}</>)}{(<>${tree(m.body)}</>)}`;
       }
     }).join("");
     const src = `export const __view = () => <><style>${st.css}</style>${tree(view)}</>;`;
     let r: { css?: string; cssHash?: string | null };
     try { r = transform(src, { filename: this.file.replace(/\.rx$/, "") + ".tsrx", generate: "dom" }) as typeof r; }
-    catch (e) { throw new CompileError(`<style> (line ${st.line ?? "?"}): ${(e as Error).message}`); }
+    catch (e) { throw new CompileError(`<style> (line ${st.line ?? "?"}): ${(e as Error).message.replace(/ \(\d+:\d+\)$/, "")}`); }   // the position is in the text made here, not the program's (the crate's message has none)
     if (!r.cssHash) return null;
     this.css.push(r.css ?? ""); return r.cssHash;
   }
@@ -224,45 +270,56 @@ class Gen {
     const pad = " ".repeat(ind * 2);
     const out: string[] = [`${pad}const __o = __rt.owner();`];
     // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
+    const bound = new Set<string>();
     for (const d of decls) if (d.k === "import" && d.resolved) {
-      const iv = `__i${this.modIndex(d.resolved)}`;
-      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${J(this.mods!.out(d.resolved))}, ${this.depVar(d.resolved)});`);
+      const via = d.through?.resolved ?? d.resolved;   // MO-6e: the module the code reaches the names through
+      const iv = `__i${this.modIndex(via)}`;
+      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${isRx(d.from) ? J(this.mods!.out(via)) : this.depVar(via) /* MO-13c: keyed by its factory, as a bundler's build keys a module */}, ${this.depVar(via)});`);
       for (const { name, alias } of d.names) {
-        if (this.mods!.set.programs.get(d.resolved)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(d.resolved)?.exports.get(name)?.kind === "type") continue;   // a type binds nothing
-        const ib = this.importBind(d.resolved, name, alias); env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(name)}];`);
+        if (this.isType(d.resolved, name)) continue;   // a type binds nothing
+        if (bound.has(alias)) continue; bound.add(alias);   // MO-6e: a name used here and given on (`import { A }` beside `export { A }`, one export of one module) is one binding
+        const ib = this.importBind(d.resolved, name, alias); if (ib.kind === "acc" && this.u.prevOf.has(alias)) ib.prev = `p$${alias}`; env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(d.through?.names[alias] ?? name)}];${ib.prev ? `\n${pad}const ${ib.prev} = __rt.pre(${ib.js});` : ""}`);
       }
     }
     // names first: hoisted functions and components; every other declaration is a const
     for (const d of decls) {
       if (d.k === "import" && d.resolved) continue;
-      if (d.k === "import") for (const { name, alias } of d.names) { const x = d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(y => y.name === name) : undefined; env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value" } : x?.kind === "comp" ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client" }); }   // MO-10a; MO-11a: a JS component is a JSX tag
-      if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
-      if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
+      if (d.k === "import") for (const { name, alias } of this.withMethods(d)) { const x = d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(y => y.name === name) : undefined; const dr = { ...(x?.kind === "fn" ? { ...(x.drafts ? { drafts: x.drafts } : {}), ...(x.partDrafts ? { partDrafts: x.partDrafts } : {}), ...(x.draftArgs ? { draftArgs: x.draftArgs } : {}) } : {}), ...(d.resolved ? {} : { jsFn: true }) };   /* MO-10i; jsFn: a JS module's name — a draft it is called with is lent, not given */ env.vars.set(alias, x?.kind === "fn" && instance(x, d.declared!, !!d.pure) ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value", ...dr } : x?.kind === "comp" ? { kind: "comp", js: cm(alias), shape: "comp" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client", ...dr }); }   // MO-10a; MO-11a: a JS component is a JSX tag
+      if (d.k === "fn") env.vars.set(d.name, { kind: instantiates(d) ? "ifn" : "fn", js: mg(d.name), fn: d });
+      if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name), ...this.plain(d, this.file) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
       if (d.k === "server") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
-      if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
-      if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
+      if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name), ...(d.k === "context" && viewCtx(d.type, typesOf(this.mods?.set, this.file)) ? { viewCtx: true } : {}) });   // RG-4c: a context that holds a view
+      if (d.k === "source") env.vars.set(d.name, { kind: "src", ...(d.question ? { of: d.init, ofEnv: env } : {}), js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
       if (d.k === "eq" && unwrapServer(d.e)) { env.vars.set(d.name, { kind: "val", js: mg(d.name) }); continue; }   // SF-1d: a server fn, not an accessor
-      if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; if (jf?.kind === "jfn" && jf.shape === "comp") { env.vars.set(d.name, { kind: "comp", js: cm(d.name), inst: cm(d.name), shape: "comp" }); continue; } env.vars.set(d.name, { kind: "acc", js: mg(d.name), w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}) }); }
+      if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; if (jf?.kind === "jfn" && jf.shape === "comp") { env.vars.set(d.name, { kind: "comp", js: cm(d.name), inst: cm(d.name), shape: "comp" }); continue; } env.vars.set(d.name, { kind: "acc", of: d.e, ofEnv: env, js: mg(d.name), w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}), ...this.draftsOfBinding(d.e, env) }); }
     }
+    bindGiven(decls.filter(d => d.k === "eq" && !this.guessedEq(d) && !unwrapServer(d.e)), n => env.lookup(n)?.given, (n, g) => { env.vars.get(n)!.given = g; });
     for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
-      const v = !d.from.startsWith(".") && !BUILTINS.has(name) && name !== "log" ? `w$${alias}` : name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
+      if (d.declared && this.mods?.set.declarations?.get(d.declared)?.some(y => y.kind === "type" && y.name === name)) continue;   // a type its declaration file declares binds nothing
+      if (this.typeOnly.has(alias)) continue;
+      const v = inPrelude(d, name, this.mods?.set.conformance) ? `__B.${name}` : !d.from.startsWith(".") ? (d.declaredErrors?.includes(name) ? `__rt.jsClass(w$${alias}, ${J(`${d.from}#${name}`)}${d.declaredErrorFields?.[name] ? `, ${J(d.declaredErrorFields[name])}` : ""})` : `w$${alias}`) /* SV-5a: a declared JS error class, by its declaration's identity */ : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
       const js = env.lookup(alias)?.kind === "comp" ? cm(alias) : mg(alias);
-      out.push(`${pad}const ${js} = ${v};\n${pad}__rt.reg(${J(alias)}, { value: ${js} });`);
+      out.push(`${pad}const ${js} = ${v};${this.reg(alias, `{ value: ${js} }`, pad)}`);
     }
     for (const d of decls) if (d.k === "error") {
       const inner = this.params(env, d.params); const make = `__rt.errorClass(${J(d.name)}, ${J(d.params)}, (${d.params.map(mg).join(", ")}) => ${d.msg ? this.expr(d.msg, inner, { imp: false }) : J(d.name)})`;
       if (env.parent) { out.push(`${pad}const ${mg(d.name)} = ${make};   // R-f-1`); continue; }
       // a module's error class is the module's, created once (by whichever app asks first): a server function's body,
       // hoisted to module level (SF-7a), throws the class an action's catch tests
-      this.top.push(`let c$${d.name};\nfunction g$${d.name}(__rt) { const __B = __rt.B; return c$${d.name} ??= ${make}; }`);
+      // SV-5a: its identity is its declaration's (the module's package-relative path and its name), the same on the
+      // server and the client whatever order either makes its classes in
+      const made = `${make.slice(0, -1)}, ${J(`${this.mods?.set.declarationIds?.get(this.file) ?? this.file}#${d.name}`)})`;
+      this.top.push(`let c$${d.name};\nfunction g$${d.name}(__rt) { const __B = __rt.B; return c$${d.name} ??= ${made}; }`);
       out.push(`${pad}const ${mg(d.name)} = g$${d.name}(__rt);   // R-f-1`);
     }
-    for (const d of decls) if (d.k === "context") out.push(`${pad}const ${mg(d.name)} = __rt.context(${J(d.name)}, ${d.dflt ? `() => ${this.expr(d.dflt, env, { imp: false })}` : "null"});   // RG-7: the declaration is the context's identity\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
+    for (const d of decls) if (d.k === "context") out.push(`${pad}const ${mg(d.name)} = __rt.context(${J(d.name)}, ${d.dflt ? `() => ${this.expr(d.dflt, env, { imp: false })}` : "null"});   // RG-7: the declaration is the context's identity${this.reg(d.name, `{ value: ${mg(d.name)} }`, pad)}`);
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
-    for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
+    for (const d of decls) if (d.k === "action") out.push(d.ret !== undefined
+      ? `${pad}const ${mg(d.name)} = __rt.now(function (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true }, ind + 1)}\n${pad}});${this.reg(d.name, `{ value: ${mg(d.name)} }`, pad)}`   // AC-1i: answers at the call
+      : `${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});${this.reg(d.name, `{ value: ${mg(d.name)} }`, pad)}`);
     for (const d of decls) if (d.k === "eq" && unwrapServer(d.e)) { const f = this.serverWrapped(d.name, d.e); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-1d: a wrapped server fn, at module level`); }
     for (const d of decls) if (d.k === "server") { const f = this.serverHoist(d); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-7a: the call site's (question or request); the function is module-level`); }
     // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)
@@ -272,8 +329,10 @@ class Gen {
     const done = new Set<string>(); const order: Decl[] = []; const busy = new Set<string>();
     const visit = (d: Decl) => {
       const k = key(d); if (done.has(k) || busy.has(k)) return; busy.add(k);
-      const self = d.k === "provide" ? "" : (d as { name: string }).name;
-      for (const n of deps(d.k === "eq" ? d.e : d.k === "source" ? d.init : d.e, self)) if (local.has(n) && n !== self) { const t = vals.find(x => x.k !== "provide" && (x as { name: string }).name === n); if (t) visit(t); }
+      const self = d.k === "provide" ? "" : (d as { name: string }).name, e = d.k === "eq" ? d.e : d.k === "source" ? d.init : d.e;
+      for (const n of deps(e, self)) if (local.has(n) && n !== self) { const t = vals.find(x => x.k !== "provide" && (x as { name: string }).name === n); if (t) visit(t); }
+      // RG-7b: a block's provision is the block's, wherever it is written in it: what uses it here is made after it
+      for (const c of usesNow(e, d.k === "provide" ? ownUses(d.name, d.e) : undefined)) for (const t of vals) if (t.k === "provide" && t.name === c && t !== d) visit(t);
       busy.delete(k); done.add(k); order.push(d);
     };
     vals.forEach(visit);
@@ -283,38 +342,66 @@ class Gen {
       out.push(...this.hoistAll(d.inputs, env, pad));
       out.push(`${pad}__rt.effect(${d.inputs.length}, () => [${d.inputs.map(i => this.expr(i, env, { imp: false })).join(", ")}], ($p) => __rt.untrack(() => {\n${this.stmts(d.body, inner, { imp: true, effect: true }, ind + 1, true)}\n${pad}}));   // SC-2: the apply reads σ, untracked`);
     }
-    if (!exportsTail) out.push(...this.hoistAll(viewReaders(view), env, pad));
-    out.push(exportsTail ? `${pad}return ${exportsTail};` : `${pad}return ${this.markup(view, env, ind)};`);
+    if (!exportsTail) out.push(...this.hoistAll(viewReaders(view, t => /^[A-Z]/.test(t)), env, pad));
+    out.push(exportsTail ? `${pad}return ${exportsTail};` : `${pad}return ${view.length ? this.markup(view, env, ind) : "null"};`);   // a block with no view returns null, which a fn's body drops
     return out.join("\n");
   }
+  private above = new Map<object, string>(); private upSeq = 0;   // RG-7b: a `use` written in its own provision, and the name of what is above it
   private params(env: Env, ps: string[]) { const e = new Env(env); for (const p of ps) e.vars.set(p, { kind: "val", js: mg(p) }); return e; }
 
   private value(d: Decl, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
     if (d.k === "provide") {
       const b = d.e.k === "id" ? env.lookup(d.e.name) : undefined;
-      const hoisted = b?.kind === "src" ? "" : this.hoistAll([d.e], env, pad).map(x => x + "\n").join("");
-      const entry = b?.kind === "src" ? `{ get: ${b.js}, w: ${b.w} }` : `{ get: __rt.memo(null, () => ${this.expr(d.e, env, { imp: false })}) }`;
-      return `${hoisted}${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
+      // RG-7b: a `use` of its own context, written in what it is given, is what is above it: read before it is provided
+      const own = ownUses(d.name, d.e); let up = "";
+      if (own.size) { const v = `up$${this.upSeq++}`; for (const u of own) this.above.set(u, v); up = `${pad}const ${v} = __rt.above(${this.ref(d.name, env, { imp: false })}, __o);\n`; }
+      const hoisted = b?.kind === "src" ? "": this.hoistAll([d.e], env, pad).map(x => x + "\n").join("");
+      const entry = b?.kind === "src" ? `{ get: ${b.js}, w: ${b.w} }` : given(d.e, n => env.lookup(n)?.given)?.held ? `{ get: ${this.held(d.e, env)} }` : `{ get: __rt.memo(null, () => ${this.expr(d.e, env, { imp: false })}) }`;
+      return `${up}${hoisted}${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
     }
     const b = env.vars.get((d as { name: string }).name)!;
-    const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad) : d.k === "eq" && d.e.k !== "draft" ? this.hoist(d.name, d.e, env, pad) : "";
+    if (d.k === "eq" && d.e.k !== "draft") this.updaterClosure(d.name, d.line, d.e, env);
+    // (an `await … catch` result is lowered in place only by a plain equation's form, value1's: elsewhere its await is hoisted and settled)
+    const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad, true, false) : d.k === "eq" && d.e.k !== "draft" ? [this.hoist(d.name, d.e, env, pad, true, !this.guessedEq(d) && !d.key && !d.deferred), this.hoistCatches(d.name, d.e, env, pad)].filter(Boolean).join("\n") : "";
     if (hoist) return hoist + "\n" + this.value1(d, env, ind, b);
     return this.value1(d, env, ind, b);
   }
   /** 07 §3 / R-1: each `await` that is not the equation's result is its own async memo, asked only while the conditions that
    *  reach it hold (E-11, ref/src/awaits.ts); the equation reads it where the `await` was. */
-  private hoisted = new Map<Expr, string>(); private hoistSeq = 0;
-  private hoist(name: string | null, e: Expr, env: Env, pad: string, tail = true): string {
-    return nonTailAwaits(e, tail).map(h => {
+  private hoisted = new Map<Expr, string>(); private hoistSeq = 0; private settled = new Map<Expr, string>();
+  private hoist(name: string | null, e: Expr, env: Env, pad: string, tail = true, rootCatch = true): string {
+    return nonTailAwaits(e, tail, rootCatch).map(h => {
       const v = `a$${name ?? ""}$${this.hoistSeq++}`;
       const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
-      const body0 = this.expr(h.node.e, env, { imp: false, tail: true }); const body = h.node.stream ? body0 : `__rt.awaited(${body0})`;
-      this.hoisted.set(h.node, v);
+      const body0 = this.expr(h.node.e, env, { imp: false, tail: true }); const body1 = h.node.stream ? body0 : `__rt.awaited(${body0})`;
+      const c = h.caught, inner = new Env(env); if (c?.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
+      // R-f-4: a matching rejection is settled where it is awaited, as in tail position (05 H-4) — to the failure it caught;
+      // the answer is the reader's to compute, outside the await, so that it reads its sources as the rest of the expression does (R-f-4a)
+      const body = c ? `__rt.settle(() => ${body1}, (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}))` : body1;
+      this.hoisted.set(h.node, v); if (c) this.settled.set(h.node, `(${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })}`);
+      if (name) this.claims = true;
       const lv = h.node.init ? `__rt.firstPaint(() => ${this.expr(h.node.init, env, { imp: false })})` : "undefined";
       return `${pad}const ${v} = __rt.memo(${J(name)}, () => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${this.clientCall(h.node.e, env) ? `__rt.clientQuestion(${lv})` : lv});${name ? `\n${pad}__rt.hoisted(${J(name)}, ${v});` : ""}`;
     }).join("\n");
   }
+  /** R-f-4: each catch inside an equation gets one boundary, made once beside it (awaits.ts `innerCatches`). */
+  private hoistedCatch = new Map<Expr, string>();
+  private hoistCatches(name: string, e: Expr, env: Env, pad: string): string {
+    return innerCatches(e).map(h => {
+      const v = `c$${name}$${this.hoistSeq++}`;
+      const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
+      const c = h.node; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
+      const body = this.expr(c.e, env, { imp: false });
+      const out = `${pad}const ${v} = __rt.catchMemo(() => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});`;
+      this.hoistedCatch.set(c, v);
+      return out;
+    }).join("\n");
+  }
+  /** The scenario harness's table of names (CP-4c): a conformance build's, and an app's where an equation's accessor claims
+   *  its hoisted awaits. An app has no such table, and one would keep every instance. */
+  private claims = false;
+  private reg(name: string, entry: string, pad: string): string { const c = this.claims; this.claims = false; return this.mods?.set.conformance || c ? `\n${pad}__rt.reg(${J(name)}, ${entry});` : ""; }
   private hoistAll(es: Expr[], env: Env, pad: string): string[] { return es.map(x => this.hoist(null, x, env, pad, false)).filter(Boolean); }
   /** An equation a guess sits over (AC-3): not deferred, not a draft, not a wrapped server fn. */
   private guessedEq(d: Extract<Decl, { k: "eq" }>): boolean { return this.u.optimistic.has(d.name) && !d.deferred && d.e.k !== "draft" && !unwrapServer(d.e); }
@@ -322,32 +409,58 @@ class Gen {
     const pad = " ".repeat(ind * 2);
     const prev = b.prev ? `\n${pad}const ${b.prev} = __rt.pre(${b.js});` : "";
     if (d.k === "source") {
-      if (!d.question) return `${pad}const [${b.js}, ${b.w}] = __rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false })}));\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      if (!d.question) return `${pad}const [${b.js}, ${b.w}] = __rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false })})${this.u.optimistic.has(d.name) ? ", true" : d.key !== undefined ? ", false" : ""}${d.key !== undefined ? `, ${J(d.key)}` : ""});${this.reg(d.name, `{ get: ${b.js}, w: ${b.w} }`, pad)}${prev}`;
       const lv = this.loadingValue(d.init, env);
-      const mode = `{ optimistic: ${this.u.optimistic.has(d.name)}, structured: ${this.u.paths.has(d.name)} }`;
-      return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      const mode = `{ optimistic: ${this.u.optimistic.has(d.name)}, structured: ${this.u.paths.has(d.name)}, record: ${d.init.k === "rec"}, plain: ${this.u.plain.has(d.name)} }`;
+      return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});${this.reg(d.name, `{ get: ${b.js}, w: ${b.w} }`, pad)}${prev}`;
     }
     if (d.k !== "eq") throw new CompileError("unreachable");
+    for (const x of keptParts(d.e, d.name)) this.kept.add(x);
     if (this.guessedEq(d)) {                                                                   // AC-3 over an equation: createOptimistic(fn) / createOptimisticStore(fn, seed) — derived, its setter only guesses
       const lv = this.loadingValue(d.e, env);
-      const mode = `{ optimistic: true, structured: ${this.u.paths.has(d.name) || !!d.key}, derived: true }`;
-      return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      const mode = `{ optimistic: true, structured: ${this.u.paths.has(d.name) || !!d.key}, derived: true, record: ${d.e.k === "rec"} }`;
+      return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});${this.reg(d.name, `{ get: ${b.js}, w: ${b.w} }`, pad)}${prev}`;
     }
-    const reg = `\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js} });${prev}`;
+    const reg = `${this.reg(d.name, `{ get: ${b.js} }`, pad)}${prev}`;
+    if (b.given?.held) return `${pad}const ${b.js} = ${this.held(d.e, env)};${reg}`;
     if (d.e.k === "draft") {                                                                   // ST-3
       const seed = d.e.seed; if (seed.k !== "pre" || seed.name !== d.name || !seed.init) throw new CompileError("a draft's seed must be `pre self -> seed`");
       const inner = new Env(env); inner.vars.set("d", { kind: "val", js: "v$d" });
       return `${pad}const ${b.js} = __rt.draft(__rt.untrack(() => ${this.expr(seed.init, env, { imp: false })}), (v$d) => {\n${this.draftBody(d.e.body, inner, ind + 1)}\n${pad}});${reg}`;
     }
     if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn") return `${pad}const ${b.js} = ${this.instantiate(d.e, env)};${reg}`;   // RG-6
-    const fx = this.foreign(d, env, b, pad); if (fx !== null) return b.kind === "comp" ? `${fx}\n${pad}__rt.reg(${J(d.name)}, { value: ${b.js} });` : `${fx}${reg}`;
-    if (d.key) return `${pad}const ${b.js} = __rt.keyed(${J(d.name)}, ${J(d.key)}, () => ${this.expr(d.e, env, { imp: false, tail: true })});${reg}`;
+    const fx = this.foreign(d, env, b, pad); if (fx !== null) return b.kind === "comp" ? `${fx}${this.reg(d.name, `{ value: ${b.js} }`, pad)}` : `${fx}${reg}`;
+    if (d.key) return `${pad}const ${b.js} = __rt.keyed(${J(d.name)}, ${J(d.key)}, () => ${this.expr(d.e, env, { imp: false, tail: true })}, ${d.e.k === "rec"});${reg}`;
     if (d.e.k === "catch" && !d.deferred) {                                                    // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
       const c = d.e; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
-      return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${this.expr(c.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchMemo(() => i$${d.name}(), (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});${reg}`;
+      const x = this.expr(c.e, env, { imp: false, tail: true, self: d.name }); const m = `(__e) => __rt.isA(__e, ${this.classes(c.classes, env)})`, a = `(${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })}`;
+      const body = c.e.k === "await" ? `__rt.settle(() => ${x}, ${m})` : x;                       // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary; the answer is computed by its reader (R-f-4a)
+      return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${body}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchMemo(() => ${c.e.k === "await" ? `__rt.caught(i$${d.name}(), ${a})` : `i$${d.name}()`}, (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })}, i$${d.name});${reg}`;   // AC-4: `refresh` re-asks the inner memo
     }
     const fn = d.deferred ? "deferred" : "memo";
     return `${pad}const ${b.js} = __rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(d.e, env)});${reg}`;
+  }
+  /** RG-4c: a view the component was given, as it is read: no computation of its own, so it is made where it is read. */
+  private held(e: Expr, env: Env): string {
+    const x = (y: Expr) => this.expr(y, env, { imp: false });
+    return `() => ${e.k === "if" && defaulted(e, n => env.lookup(n)?.given) ? `__rt.preOr(${x(e.f)}, () => ${x(e.t)})` : x(e)}`;
+  }
+  /** RG-4c: whether a view was given, asked without making it. The question is the argument as it was written, read
+   *  with each view in it standing for itself (`__rt.ask`: content, a view given on, a choice or a default of them);
+   *  a value in it answers as JavaScript has it. `some`: whether it is not `undefined` (`??`, `!= undefined`). Of a
+   *  prop that is not declared `View`, the question is its value's, and nothing is emitted here. */
+  private asked(e: Expr, env: Env, not?: "undefined" | "null"): string | undefined {   // not: whether it is not that (`!= undefined`, `!= null`: the language's `!=` is JavaScript's `!==`)
+    const g = given(e, n => env.lookup(n)?.given); if (!g?.held || !g.view) return undefined;
+    const v = `__rt.ask(() => ${this.expr(e, env, { imp: false })})`;
+    return not ? `(${v} !== ${not})` : v;
+  }
+  /** … and a condition that asks it: the view itself or a choice of views (`bare`: an `if`, a `?:`, the left of `&&`), `!v`, `v == undefined`, `a && b`, `a || b`. */
+  private asks(c: Expr, env: Env, bare: boolean): string | undefined {
+    if (bare) { const a = this.asked(c, env); if (a) return a; }
+    if (c.k === "un" && c.op === "!") { const a = this.asks(c.e, env, true); return a && `(!${a})`; }
+    if (c.k === "bin" && (c.op === "==" || c.op === "!=") && c.r.k === "lit" && c.r.v == null) { const a = this.asked(c.l, env, c.r.v === null ? "null" : "undefined"); return a && (c.op === "==" ? `(!${a})` : a); }
+    if (bare && c.k === "bin" && (c.op === "&&" || c.op === "||")) { const l = this.asks(c.l, env, true), r = this.asks(c.r, env, true); return l || r ? `(${l ?? this.expr(c.l, env, { imp: false })} ${c.op} ${r ?? this.expr(c.r, env, { imp: false })})` : undefined; }
+    return undefined;
   }
   /** SV-7b: a call into `client` JS — awaited, a client question: Solid's `ssrSource: "client"`, never asked on the server. */
   private clientCall(e: Expr, env: Env): boolean { const f = e.k === "catch" ? e.e : e; return f.k === "call" && f.f.k === "id" && !!env.lookup(f.f.name)?.client; }
@@ -377,13 +490,35 @@ class Gen {
   private fn(d: FnDecl, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env);
-    for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name) });
-    if (!d.params.some(p => p.ref) && !d.decls.length) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
+    for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name), ...(p.ref && this.u.prevOf.has(p.name) ? { prev: `p$${p.name}` } : {}) });
+    // E-9a: a `ref` parameter left out reads `undefined` — its accessor is one of that
+    const absent = d.params.filter(p => p.ref && p.opt).map(p => `${mg(p.name)} ??= () => undefined;`);
+    if (d.named) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.named(d, inner)}; }`;
+    if (!instantiates(d)) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { ${absent.map(a => `${a} `).join("")}return ${this.expr(d.tail, inner, { imp: false })}; }`;
     // an instantiating fn (RG-6): called once, returns the accessor of its tail
+    // an `await` in the result: the result is an equation (RG-6a), and its flights are that equation's (07 §3)
+    if (nonTailAwaits(d.tail, false).length) { const result = { k: "eq", name: "result$", e: d.tail, line: d.line } as Decl; return this.fn({ ...d, decls: [...d.decls, result], tail: { k: "id", name: "result$" } }, env, ind); }
     const body = this.block(d.decls, [], inner, ind + 1).split("\n").filter(l => !/^\s*return null;$/.test(l)).join("\n");
+    const prevs = d.params.filter(p => p.ref && this.u.prevOf.has(p.name)).map(p => `${pad}  const p$${p.name} = __rt.pre(${mg(p.name)});\n`).join("");
     const tb = d.tail.k === "id" ? inner.lookup(d.tail.name) : undefined;
     const tail = tb && (tb.kind === "acc" || tb.kind === "src") ? tb.js : `__rt.memo(null, () => ${this.expr(d.tail, inner, { imp: false })})`;
-    return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {\n${body}\n${pad}  return ${tail};\n${pad}}`;
+    const own = d.decls.some(x => x.k === "provide");   // RG-6a: what it provides is for what its call instantiates, not for the caller's region: an owner of the call's own
+    return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {${absent.map(a => `\n${pad}  ${a}`).join("")}${own ? " return __rt.inst(() => {" : ""}\n${prevs}${body}\n${pad}  return ${tail};\n${pad}${own ? "}); }" : "}"}`;
+  }
+  /** E-9b: the result of a fn that names values. A name read in one place stands there as its expression; the others are
+   *  read through `n$`, which evaluates each at most once for the call, or through `r$` where what is read is not what is
+   *  read elsewhere (`peek`, `latest`, `pending?`), which evaluates it there. */
+  private named(d: FnDecl, inner: Env): string {
+    const { order, once } = localsOf(d); const e = new Map(d.decls.flatMap(x => x.k === "eq" ? [[x.name, x.e] as const] : []));
+    const shared = order.filter(n => !once.has(n));
+    for (const n of order) inner.vars.set(n, once.has(n) ? { kind: "val", js: "", sub: e.get(n)! } : { kind: "val", js: `n$(${shared.indexOf(n)})`, shared: shared.indexOf(n) });
+    const tail = this.expr(d.tail, inner, { imp: false });
+    return shared.length ? `__rt.names([${shared.map(n => `(n$, r$) => ${this.expr(e.get(n)!, inner, { imp: false })}`).join(", ")}], (n$, r$) => ${tail})` : tail;
+  }
+  /** E-9b: the names of a fn's body, as a `peek`, a `latest` or a `pending?` reads them. */
+  private apart(env: Env): Env {
+    const out = new Env(env); for (let x: Env | null = env; x; x = x.parent) for (const [n, b] of x.vars) if (b.shared !== undefined && !out.vars.has(n) && env.lookup(n) === b) out.vars.set(n, { ...b, js: `r$(${b.shared})` });
+    return out;
   }
   /** MO-10: `x = f(…)` over a declared primitive — called once (RG-6), a ref argument as an accessor, a value one untracked;
    *  and `y = x[i]` / `x.k` over its result. A `ref` part is bound to the accessor itself, any other part to its value. */
@@ -395,12 +530,21 @@ class Gen {
       const args = e.args.map((a, i) => {
         if (!f.refs![i]) return `__rt.untrack(() => ${this.expr(a, env, { imp: false })})`;
         if (a.k === "id") { const ab = env.lookup(a.name); if (ab && (ab.kind === "acc" || ab.kind === "src")) return ab.js; }
+        // RG-6b, MO-10a (2026-11-23): what is written out as a constant has nothing to follow, and is the plain accessor
+        // `() => "a.mp3"`. A node for it took an owner's id for no reader, and a library that reads the parameter once
+        // while it is made (`access(src)`) read a reactive value where nothing tracks: Solid's STRICT_READ_UNTRACKED
+        if (constant(a)) return `() => ${this.expr(a, env, { imp: false })}`;
         return `__rt.memo(null, () => ${this.expr(a, env, { imp: false })})`;
       });
       const r = b.inst!; const sh = f.shape!;
       if (sh === "comp") return `${pad}const ${b.js} = ${f.js}(${args.join(", ")});`;                 // MO-11f: the component the factory hands back
-      const whole = typeof sh === "string" ? part(r, sh) : `__rt.memo(null, () => ${"items" in sh ? `[${sh.items.map((p, i) => p === "ref" ? `${r}[${i}]()` : `${r}[${i}]`).join(", ")}]` : `({ ${sh.fields.map(([k, p]) => `${J(k)}: ${p === "ref" ? `${r}[${J(k)}]()` : `${r}[${J(k)}]`}`).join(", ")} })`})`;
-      return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${whole};`;
+      // R-f-5, MO-10f (revised 2026-11-21 after review): the result as a value whose parts are read where they are read
+      // …and a result none of whose parts is an accessor is the library's own object, read as it is (2026-11-22): a field
+      // read is that field's read on it, its methods are called on it, and a field its declaration leaves out is still there
+      const noRef = typeof sh !== "string" && !("items" in sh ? sh.items : sh.fields.map(f => f[1])).includes("ref");
+      const whole = typeof sh === "string" ? part(r, sh) : noRef ? part(r, "value") : "items" in sh ? `__rt.lazy(${r}, [${sh.items.map((_, i) => i).join(", ")}], [${sh.items.flatMap((p, i) => p === "ref" ? [i] : []).join(", ")}])` : `__rt.lazy(${r}, [${sh.fields.map(([k]) => J(k)).join(", ")}], [${sh.fields.flatMap(([k, p]) => p === "ref" ? [J(k)] : []).join(", ")}])`;
+      // MO-10a: called in an owner of its own (`__rt.inst`), its arguments' nodes with it
+      return `${pad}const ${r} = __rt.inst(() => ${f.js}(${args.join(", ")}));\n${pad}const ${b.js} = ${whole};`;
     }
     if ((e.k === "index" && e.i.k === "lit") || e.k === "member") {
       const ob = e.o.k === "id" ? env.lookup(e.o.name) : undefined; const sh = ob?.shape; if (!ob?.inst || !sh || typeof sh !== "object") return null;
@@ -419,16 +563,84 @@ class Gen {
     });
     return `${b.js}(${args.join(", ")})`;
   }
+  private shown = new Set<string>();   // RG-4c: `props.f`, in a component that shows that view
   private component(d: Extract<Decl, { k: "component" }>, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
-    const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props) });
-    return `${pad}function ${cm(d.name)}(${mg(d.props)}) {\n${this.block(d.decls, d.view, inner, ind + 1, undefined, true)}\n${pad}}`;
+    const shows = new Map([...shown(d, typesOf(this.mods?.set, this.file))].map(([f, v]) => [f, v.mixed] as const));
+    const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props), shows, given: { props: { less: [], views: viewsOf(d.propsType, typesOf(this.mods?.set, this.file), this.modDecls, d.tparams, d.kidsValue) } } });
+    const was = this.shown; this.shown = new Set([...shows.keys()].map(f => `${d.props}.${f}`));
+    try { return `${pad}function ${cm(d.name)}(${mg(d.props)}) {\n${this.owned(d.decls, d.view, inner, ind + 1, true)}\n${pad}}`; } finally { this.shown = was; }
   }
 
   // ---- expressions ----
+  /** MO-10i: expressions written where a read of a draft needs no copy: handed straight back to the library (a value
+   *  written to a draft's path, the callback's result, an argument of a draft's own method), or consumed by an operator
+   *  that makes a primitive of them. */
+  private raw = new Set<Expr>();
+  private kept = new Set<Expr>();   // C-2: a whole store read there is copied
+  /** MO-10i: the arguments of a JS fn's call, with the fn's name: a draft read there is lent (`__rt.lend`). */
+  private lent = new Map<Expr, string>();
+  /** MO-10i: closures written where a JS fn hands their parameters a draft, with those positions. */
+  private draftClosures = new Map<Expr, number[]>();
+  /** MO-10i (2026-11-22): where a name is written as a call's whole argument, in the module being emitted: name → (callee's
+   *  name, argument index) — how a closure bound to a name is known to be a draft's callback. */
+  private argCalls = new Map<string, [string, number][]>();
+  /** MO-10i (2026-11-22): a closure bound to `name` that the module gives, by that name, to a call that hands the position
+   *  a draft (`setTodos(up)`) is that callback: its parameters there are the draft's (the checker holds the name to that
+   *  use alone, `Checker.updaterPositions`). */
+  private updaterClosure(name: string, line: number, e: Expr, env: Env) {
+    if (e.k !== "fn" || !e.params.length) return;
+    let found: number[] | undefined;
+    for (const [callee, i] of this.argCalls.get(`${name}@${line}`) ?? []) {
+      const ps = env.lookup(callee)?.drafts?.find(([j]) => j === i)?.[1]; if (!ps) continue;
+      if (!found) found = ps; else if (JSON.stringify(found) !== JSON.stringify(ps)) return;
+    }
+    if (found) this.draftClosures.set(e, found);
+  }
+  /** MO-10i: what an equation's binding keeps of a result's draft parts: a call's result's, an alias's, or the callbacks
+   *  of a function part bound to a name. */
+  private draftsOfBinding(e: Expr, env: Env): Pick<Bind, "drafts" | "partDrafts"> {
+    if (e.k === "call" && e.f.k === "id") { const pd = env.lookup(e.f.name)?.partDrafts; return pd ? { partDrafts: pd } : {}; }
+    if (e.k === "id") { const pd = env.lookup(e.name)?.partDrafts; return pd ? { partDrafts: pd } : {}; }
+    if (e.k === "member" || e.k === "index") { const d = this.partDraftsOf(e, env); return d ? { drafts: d } : {}; }
+    return {};
+  }
+  /** MO-10i: the draft a read goes through: the draft's name, a path below it, or what a method called on one gives. */
+  private draftChain(e: Expr, env: Env): boolean {
+    if (e.k === "id") return !!env.lookup(e.name)?.draft;
+    if (e.k === "member" || e.k === "index") return this.draftChain(e.o, env);
+    if (e.k === "call") return (e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env);
+    return false;
+  }
+  /** MO-10i: a place of a draft: its name, or a path below it (no call). */
+  private draftPlace(e: Expr, env: Env): boolean {
+    if (e.k === "id") return !!env.lookup(e.name)?.draft;
+    return (e.k === "member" || e.k === "index") && this.draftPlace(e.o, env);
+  }
+  /** MO-10i: the draft callbacks of a function part read off a result, `st[1]` or `st.set`. */
+  private partDraftsOf(f: Expr, env: Env): [number, number[]][] | undefined {
+    if (f.k !== "member" && f.k !== "index") return undefined;
+    const key = f.k === "member" ? f.p : litKey(f.i);
+    if (f.o.k !== "id" || key === undefined) return undefined;
+    const pd = env.lookup(f.o.name)?.partDrafts;
+    return pd && Object.prototype.hasOwnProperty.call(pd, key) ? pd[key] : undefined;
+  }
+  /** An expression's value. MO-10i (ruled 2026-11-22): a library's draft is a place, not a value, so a read of one — its
+   *  name, a path below it, what a method called on it gives — is a copy (`__rt.copy`), wherever its value could be kept:
+   *  what `.rx` holds of a draft is never the library's own object. Not where it is handed straight back to the library,
+   *  or consumed by an operator that makes a primitive of it (`raw`). */
   expr(e: Expr, env: Env, ctx: Ctx): string {
+    const x0 = this.expr0(e, env, ctx), x = this.kept.has(e) ? `__rt.kept(${x0})` : x0;
+    if (this.raw.has(e) || !this.draftChain(e, env)) return x;
+    // a JS fn called with a read of a draft is lent a copy (in a development build one that refuses to be changed: a
+    // change to it would be lost, MO-10i); its `draft` parameters are given the draft itself (`raw`)
+    const to = this.lent.get(e);
+    return to !== undefined ? `__rt.lend(${x}, ${JSON.stringify(to)})` : `__rt.copy(${x})`;
+  }
+  private expr0(e: Expr, env: Env, ctx: Ctx): string {
     const sub: Ctx = { ...ctx, tail: false };
     const go = (x: Expr) => this.expr(x, env, sub);
+    const rawGo = (x: Expr) => { this.raw.add(x); return go(x); };
     switch (e.k) {
       case "lit": return J(e.v);
       case "id": return this.ref(e.name, env, ctx);
@@ -438,47 +650,67 @@ class Gen {
         const b = env.lookup(e.name); if (!b?.prev) throw new CompileError(`pre ${e.name}: no companion memo`);
         return `__rt.preOr(${b.prev}(), () => ${init})`;
       }
-      case "peek": return `__rt.untrack(() => ${go(e.e)})`;
+      case "peek": return `__rt.untrack(() => ${this.expr(e.e, this.apart(env), sub)})`;
       case "await": {
-        if (this.hoisted.has(e)) return `${this.hoisted.get(e)}()`;
+        if (this.hoisted.has(e)) return this.settled.has(e) ? `__rt.caught(${this.hoisted.get(e)}(), ${this.settled.get(e)})` : `${this.hoisted.get(e)}()`;
         if (ctx.imp) return ctx.gen ? `(yield __rt.awaited(${go(e.e)}))` : ctx.async ? `(await __rt.awaited(${go(e.e)}))` : go(e.e);
         if (!ctx.tail) throw new CompileError("`await` outside an equation's result position is not lowered yet");
         return e.stream ? go(e.e) : `__rt.awaited(${go(e.e)})`;                                      // the memo returns the flight (R-1): a stream for `await*`, else its one answer
       }
-      case "latest": return `__rt.latest(() => ${this.expr(e.e, env, { ...ctx, imp: false })})`;   // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
-      case "pending": return `__rt.isPending(() => ${go(e.e)})`;
-      case "if": return `(${go(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
+      case "latest": return `__rt.latest(() => ${this.expr(e.e, this.apart(env), { ...ctx, imp: false })})`;   // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
+      case "pending": return `__rt.isPending(() => ${this.expr(e.e, this.apart(env), sub)})`;
+      case "if": return `(${this.asks(e.c, env, true) ?? rawGo(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
       case "throw": return `__rt.throw(${go(e.e)})`;                                          // R-f-3
       case "catch": {                                                                           // R-f-4: over a sync value, or the tail await's promise/stream
+        if (!ctx.imp && this.hoistedCatch.has(e)) return `${this.hoistedCatch.get(e)}()`;
+        if (!ctx.imp && this.settled.has(e.e)) return this.expr(e.e, env, sub);   // R-f-4a: the await is settled to what it caught, a failure of its operand too; the answer is computed here, with no boundary of its own
         if (ctx.imp && this.hasAwait(e.e)) throw new CompileError("`await … catch` inside an expression of imperative scope (AWAIT_IN_EXPRESSION, AC-1)");
         const inner = new Env(env); if (e.name) inner.vars.set(e.name, { kind: "val", js: mg(e.name) });
         return `__rt.${ctx.imp ? "tryCatch" : "catchRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
       }
-      case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
-      case "member": return `${go(e.o)}?.${e.p}`;
-      case "index": return `${go(e.o)}?.[${go(e.i)}]`;
+      case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${rawGo(p)})`).join(" + ") || '""'})`;
+      case "member": return `${rawGo(e.o)}?.${e.p}`;
+      case "index": return `${rawGo(e.o)}?.[${rawGo(e.i)}]`;                                 // a key is a primitive
       case "stylemap": return this.classMap(e.css, e.line);                                  // 07 CSS-5
       case "call": {
-        if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until") && e.args[0]?.k === "fn") { const p = e.args[0]; return `__rt.until(() => ${this.expr(p.body, env, { imp: false, dyn: ctx.dyn })})`; }   // AC-6: Solid's until; the predicate is reactive scope
-        if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env.lookup(e.f.name)) return `__rt.${e.f.name}(${e.args.map(go).join(", ")})`;   // EF-7, EF-8: Solid's own
-        if (e.f.k === "member") return `${go(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
-        return `${go(e.f)}(${e.args.map(go).join(", ")})`;
+        if (e.f.k === "id" && language(e.f.name, env.lookup(e.f.name)) === "until" && e.args[0]?.k === "fn") { const p = e.args[0]; return `__rt.until(() => ${this.expr(p.body, env, { imp: false, dyn: ctx.dyn })})`; }   // AC-6: Solid's until; the predicate is reactive scope
+        if (e.f.k === "id" && !ctx.dyn && ["onSettled", "onFlush"].includes(language(e.f.name, env.lookup(e.f.name))!)) return `__rt.${e.f.name}(${e.args.map(go).join(", ")})`;   // EF-7, EF-8: Solid's own
+        // MO-10i: the closures this call hands a library's draft
+        for (const [i, ps] of e.f.k === "id" ? env.lookup(e.f.name)?.drafts ?? [] : this.partDraftsOf(e.f, env) ?? []) { const a = e.args[i]; if (a?.k === "fn") this.draftClosures.set(a, ps); }
+        // a method of a draft is the library's own: what it is given goes straight back to it; a builtin that answers a
+        // primitive keeps nothing
+        if (((e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env)) || (e.f.k === "id" && scalar(e.f.name, env.lookup(e.f.name)))) for (const a of e.args) this.raw.add(a);
+        // a closure written for one of a draft's own methods (`d.items.forEach((row) => { … })`) is called by it with
+        // places of the draft: its parameters are read as copies, as the draft is (closed 2026-11-22)
+        if ((e.f.k === "member" || e.f.k === "index") && this.draftChain(e.f.o, env)) for (const a of e.args) if (a.k === "fn" && !this.draftClosures.has(a)) this.draftClosures.set(a, a.params.map((_, i) => i));
+        // MO-10i (2026-11-22): a JS fn's `draft` parameter is given the draft itself; its other arguments are lent
+        if (e.f.k === "id") { const f = env.lookup(e.f.name); if (f?.jsFn) e.args.forEach((a, i) => { if (f.draftArgs?.includes(i)) this.raw.add(a); else this.lent.set(a, (e.f as { name: string }).name); }); }
+        this.raw.add(e.f);
+        if (e.f.k === "member") return `${rawGo(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
+        return `${e.f.k === "id" ? this.expr(e.f, env, { ...sub, callee: true }) : go(e.f)}(${e.args.map(go).join(", ")})`;
       }
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "fn": {
-        const inner = this.params(env, e.params); const ps = e.params.map(mg).join(", ");
-        if (e.stmts && inferredAction(e.stmts)) return `(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()`;   // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
-        if (e.stmts) { const async = this.hasAwait(e.stmts); return `${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`; }
-        return `(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}`;
+        const inner = this.params(env, e.params); let ps = e.params.map(mg).join(", ");
+        // H-10: what a `ref` closure reads is a snapshot, a prop as a source is — it is called while the view is made, where Solid's development build reports a read nothing tracks
+        const once = ctx.ref ? `(${ps}) => __rt.untrack(` : ""; if (once) ps = ""; const end = once && ")";
+        { const ds = this.draftClosures.get(e); if (ds) { for (const j of ds) { const p = e.params[j]; if (p !== undefined) inner.vars.set(p, { kind: "val", js: mg(p), draft: true }); } this.raw.add(e.body); } }   // MO-10i: the parameters a library hands its draft; what the callback gives back is the library's
+        if (e.stmts && inferredAction(e.stmts)) return `${once}(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()${end}`;   // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
+        if (e.stmts) { const async = this.hasAwait(e.stmts); return `${once}${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}${end}`; }
+        return `${once}(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}${end}`;
       }
-      case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
+      case "use": if (this.above.has(e)) return `${this.above.get(e)}()`;
+        return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
+        { const a = this.asks(e, env, false); if (a) return a; if (e.op === "&&") { const l = this.asks(e.l, env, true); if (l) return `(${l} ? ${go(e.r)} : ${go(e.l)})`; } }   // RG-4c: asked, not made; one that was not given is the nothing it is
+        if (e.op !== "??" && e.op !== "||" && e.op !== "&&") { this.raw.add(e.l); this.raw.add(e.r); }   // MO-10i: an operator that makes a primitive keeps nothing of what it reads
         if (e.op === "==") return `__rt.eq(${go(e.l)}, ${go(e.r)})`;
         if (e.op === "!=") return `!__rt.eq(${go(e.l)}, ${go(e.r)})`;
-        return `(${go(e.l)} ${e.op} ${go(e.r)})`;
+        const side = (x: Expr) => x.k === "fn" ? `(${go(x)})` : go(x);   // an arrow is no operand of JavaScript's without its parentheses (`a ?? ((e) => 0)`)
+        return `(${side(e.l)} ${e.op} ${side(e.r)})`;
       }
-      case "un": return `(${e.op}${go(e.e)})`;
+      case "un": return this.asks(e, env, false) ?? `(${e.op}${rawGo(e.e)})`;
       case "draft": throw new CompileError("a draft is an equation's whole expression");
       case "spread": throw new CompileError("spread outside an array literal");
       case "omit": return `__rt.omit(${[go(e.e), ...e.keys.map(k => J(k))].join(", ")})`;   // RG-4b: Solid's live view
@@ -488,11 +720,12 @@ class Gen {
     if (ctx.effect && /^\$\d+$/.test(name)) return `$p[${name.slice(1)}]`;
     const b = env.lookup(name);
     if (!b) {
-      if (BUILTINS.has(name)) return `__B.${name}`;
-      if (ctx.dyn) return name === "log" ? "__B.log" : ctx.imp ? `__rt.dget(${J(name)})` : `__rt.dget(${J(name)}, true)`;
-      if (name === "log" && ctx.imp) return "__B.log";
+      const l = language(name, false, this.mods?.set.conformance); const own = l === "fn" || (l === "log" && (ctx.imp || ctx.dyn)) ? `__B.${name}` : ctx.dyn && (l === "onSettled" || l === "onFlush") ? `__rt.${name}` : null;
+      if (ctx.dyn) return `__rt.dget(${J(name)}${own ? `, ${!ctx.imp}, ${own}` : ctx.imp ? "" : ", true"})`;   // a scenario's row names what the program binds, else the language's function
+      if (own) return own;
       throw new CompileError(`unbound ${name}`);
     }
+    if (b.sub) return b.sub.k === "fn" && !ctx.callee ? this.expr(b.sub, env, { imp: false }) : `(${this.expr(b.sub, env, { imp: false })})`;   // a closure that stands where its name was: parenthesised only where it is called (as the crate prints it)
     if (b.kind === "acc" || b.kind === "src") return ctx.imp ? `__rt.snapshot(${b.js})` : `${b.js}()`;
     return b.js;                                                                                // a component value is the compiled component (MO-11c)
   }
@@ -516,14 +749,22 @@ class Gen {
         return;
       }
       switch (s.k) {
-        case "let": out.push(`${pad}let ${mg(s.name)} = ${e(s.e)};`); env.vars.set(s.name, { kind: "val", js: mg(s.name) }); break;
-        case "expr": out.push(`${pad}${returnLast && i === ss.length - 1 ? "return " : ""}${e(s.e)};`); break;
-        case "return": out.push(`${pad}return${s.e ? " " + e(s.e) : ""};`); break;
+        case "let": this.updaterClosure(s.name, s.line ?? -1, s.e, env); out.push(`${pad}let ${mg(s.name)} = ${e(s.e)};`); env.vars.set(s.name, { kind: "val", js: mg(s.name) }); break;
+        case "expr": this.raw.add(s.e); out.push(`${pad}${returnLast && i === ss.length - 1 ? "return " : ""}${e(s.e)};`); break;   // MO-10i: its value is dropped, or is the callback's result
+        case "return": if (s.e) this.raw.add(s.e); out.push(`${pad}return${s.e ? " " + e(s.e) : ""};`); break;   // MO-10i: a draft is named only in its own callback, whose result is the library's
         case "throw": out.push(`${pad}throw ${e(s.e)};`); break;
         case "write": case "optimistic": {
+          for (const p of s.target.path) if (typeof p !== "string") this.raw.add(p);          // a key is a primitive
           const keys = `[${s.target.path.map(p => typeof p === "string" ? J(p) : e(p)).join(", ")}]`;
+          if (s.k === "write" && s.target.path.length && !s.target.ctx && env.lookup(s.target.name)?.draft) this.raw.add(s.e);   // MO-10i: a value written to a path of a draft goes straight back to the library
           const v = e(s.e);
           if (ctx.dyn && !s.target.ctx && !env.lookup(s.target.name)) { out.push(`${pad}__rt.dset(${J(s.target.name)}, ${keys}, ${v}, ${s.k === "optimistic"});`); break; }
+          { const b = s.target.ctx || s.k !== "write" || !s.target.path.length ? undefined : env.lookup(s.target.name);   // MO-10i: a library's draft, written along its path
+            if (b && b.kind === "val" && !b.w) {
+              const segs = s.target.path.map(p => `[${typeof p === "string" ? J(p) : e(p)}]`);
+              // W-6: \`d.n := v => v + 1\` applies it, the place evaluated once (the object up to the last key, then the key)
+              if (s.e.k === "fn" && !s.e.stmts && s.e.params.length === 1) { const last = s.target.path[s.target.path.length - 1]; out.push(`${pad}{\n${pad}  const __o$d = ${b.js}${segs.slice(0, -1).join("")};\n${pad}  const __k$d = ${typeof last === "string" ? J(last) : e(last)};\n${pad}  __o$d[__k$d] = (${v})(__o$d[__k$d]);\n${pad}}`); break; }
+              out.push(`${pad}${b.js}${segs.join("")} = ${v};`); break; } }
           let w: string;
           if (s.target.ctx) w = `__rt.use(${this.ref(s.target.name, env, { imp: false, dyn: ctx.dyn })}, __o).w`;
           else { const b = env.lookup(s.target.name); if (!b?.w) throw new CompileError(`W-1: ${s.target.name} is not a source`); w = b.w; }
@@ -533,7 +774,12 @@ class Gen {
         case "refresh": { const b = env.lookup(s.name); out.push(`${pad}__rt.refresh(${J(s.name)}, ${b ? b.js : `__rt.lookup(${J(s.name)}).get`});`); break; }
         case "affects": { const b = env.lookup(s.name); out.push(`${pad}__rt.affects(${b ? b.js : `__rt.lookup(${J(s.name)}).get`});`); break; }
         case "action": out.push(`${pad}__rt.action(function* () {\n${this.stmts(s.body, env, { imp: true, gen: true, dyn: ctx.dyn }, ind + 1)}\n${pad}})();`); break;
-        case "sif": out.push(`${pad}if (${e(s.c)}) {\n${this.stmts(s.t, env, ctx, ind + 1)}\n${pad}} else {\n${this.stmts(s.f, env, ctx, ind + 1)}\n${pad}}`); break;
+        case "for": {                                                                        // 07 §5: a loop of imperative scope; its variable is a constant of each turn
+          const place = this.draftPlace(s.e, env); if (place) this.raw.add(s.e);              // MO-10i: a turn of a loop over a path of a draft is a place of that draft
+          const x = e(s.e); const inner = new Env(env); inner.vars.set(s.name, { kind: "val", js: mg(s.name), ...(place ? { draft: true } : {}) });
+          out.push(`${pad}for (const ${mg(s.name)} of [...${x}]) {\n${this.stmts(s.body, inner, ctx, ind + 1)}\n${pad}}`); break;   // the loop visits what `e` holds when it starts (07 §5)
+        }
+        case "sif": this.raw.add(s.c); out.push(`${pad}if (${e(s.c)}) {\n${this.stmts(s.t, env, ctx, ind + 1)}\n${pad}} else {\n${this.stmts(s.f, env, ctx, ind + 1)}\n${pad}}`); break;
         case "try": {
           let t = `${pad}try {\n${this.stmts(s.body, env, ctx, ind + 1)}\n${pad}}`;
           if (s.handler) { const h = new Env(env); if (s.catchName) h.vars.set(s.catchName, { kind: "val", js: mg(s.catchName) }); const v = s.catchName ? mg(s.catchName) : "__e"; t += ` catch (${v}) {\n${s.catchClasses ? `${pad}  if (!__rt.isA(${v}, ${this.classes(s.catchClasses, env)})) throw ${v};   // R-f-6: a typed catch rethrows other classes\n` : ""}${this.stmts(s.handler, h, ctx, ind + 1)}\n${pad}}`; }
@@ -548,37 +794,100 @@ class Gen {
   // ---- views: JSX, which Solid's compiler (@solidjs/compiler) lowers for the DOM, the server and the test renderer ----
   /** A view: a fragment of children. Text is a string child; `{e}` is `{__rt.show(e)}` (a value is formatted, a view is
    *  inserted); control flow is Solid's components. What is a hole, a scope or a memo is the compiler's to decide. */
-  markup(ms: Markup[], env: Env, ind: number): string { return ms.length ? `<>${ms.map(m => this.child(m, env, ind)).join("")}</>` : "null"; }   // an empty view is null, not `<></>` (an empty array loses its slot in the universal renderer: DV-13)
+  markup(ms: Markup[], env: Env, ind: number): string { return `<>${ms.map(m => this.child(m, env, ind)).join("")}</>`; }   // an empty view is `<></>` as any other (it was `null` while the universal renderer lost an empty array's slot: DV-13, fixed in solidjs/solid#4276)
   /** A region's body as a child: its declarations, then its view (a function body, so it is owned where it is called). */
   private regionFn(decls: Decl[], view: Markup[], env: Env, ind: number, param = "", bind?: (e: Env) => string): string {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env); const pre = bind ? bind(inner) : "";
-    return `(${param}) => {\n${pre}${this.block(decls, view, inner, ind + 1)}\n${pad}}`;
+    return `(${param}) => {\n${pre}${this.owned(decls, view, inner, ind + 1)}\n${pad}}`;
+  }
+  /** RG-7a: what a region provides is for what is in it, so it has an owner of its own: in Solid's production build a
+   *  component has none, and a branch's is its condition's, made again and again under what the last one provided. */
+  private owned(decls: Decl[], view: Markup[], env: Env, ind: number, root?: boolean): string {
+    const b = this.block(decls, view, env, ind, undefined, root); const pad = " ".repeat(ind * 2);
+    return decls.some(x => x.k === "provide") ? `${pad}return __rt.inst(() => {\n${b}\n${pad}});` : b;
+  }
+  /** RG-4c: a component's content, a block of the caller's names that is made where it is shown. One `{e}` that asks
+   *  nothing of its place (no `use`, no `await`), or is one closure, is given as the value it is: a function prop is one. */
+  private content(kids: Markup[], env: Env, ind: number, value = false): string {
+    if (value && kids.length === 1 && kids[0].k === "read") return `{${this.expr(kids[0].e, env, { imp: false })}}`;   // children that are a value: the value
+    if (kids.length === 1 && kids[0].k === "read" && (kids[0].e.k === "fn" || !placed(kids[0].e))) return this.child(kids[0], env, ind);
+    return `{__rt.slot(${this.regionFn([], kids, env, ind)})}`;   // asked whether it was given, it is not made
   }
   private region(decls: Decl[], view: Markup[], env: Env, ind: number): string { return `{(${this.regionFn(decls, view, env, ind)})()}`; }
-  private attr(name: string, e: Expr, env: Env): string { return name === "..." ? `{...${this.expr(e, env, { imp: false })}}` : `${name}={${this.expr(e, env, { imp: isHandler(name) })}}`; }   // 07 §4: a spread is Solid's
+  /** R-11a: whether a reader's expression reads ahead where it stands: a probe (`latest`, `pending?`) outside a closure and `peek`,
+   *  or a read of an equation or a source with a question that does, or a call of a fn whose body does. More than Solid
+   *  would count costs one effect; less would let the template's other attributes read ahead with it. */
+  private readsAhead(e: unknown, env: Env, seen = new Set<unknown>()): boolean {
+    if (e === null || typeof e !== "object") return false;
+    if (Array.isArray(e)) return e.some(x => this.readsAhead(x, env, seen));
+    const o = e as Record<string, unknown>;
+    switch (o.k) {
+      case "latest": case "pending": return true;
+      case "fn": case "serverfn": case "peek": return false;
+      case "id": {
+        const b = env.lookup(o.name as string); if (!b) return false;
+        const of = b.of ?? (b.kind === "fn" && b.fn ? [b.fn.decls.flatMap(d => d.k === "eq" ? [d.e] : []), b.fn.tail] : undefined);
+        if (of === undefined || seen.has(b)) return false;
+        seen.add(b); return this.readsAhead(of, b.ofEnv ?? env, seen);
+      }
+    }
+    return Object.entries(o).some(([k, v]) => k !== "k" && this.readsAhead(v, env, seen));
+  }
+  private attr(name: string, e: Expr, env: Env): string { return name === "..." ? `{...${this.expr(e, env, { imp: false })}}` : `${name}={${this.expr(e, env, { imp: isHandler(name), ref: name === "ref" })}}`; }   // 07 §4: a spread is Solid's
+  /** RG-4c: the view a tag shows, `<props.f … />` in a component that does. */
+  private shownFrom(tag: string, env: Env): { view: string; mixed: boolean } | undefined {
+    const u = usedIn(tag); if (u !== undefined && env.lookup(u)?.viewCtx) return { view: `__rt.useGet(${this.ref(u, env, { imp: false })}, __o)`, mixed: false };   // `<use.item … />`: the view a context holds
+    const n = shownIn(tag), b = n && env.lookup(n[0]), mixed = b?.shows?.get(n![1]); return mixed === undefined ? undefined : { view: `${b!.js}.${n![1]}`, mixed };
+  }
   private child(m: Markup, env: Env, ind: number): string {
     const re: Ctx = { imp: false };
     const pad = " ".repeat((ind + 1) * 2);
     switch (m.k) {
       case "text": return `{${J(m.s)}}`;
       case "style": return "";                                                                 // CSS-4: removed; the stylesheet is the module's
-      case "read": return `{__rt.show(${this.expr(m.e, env, re)})}`;
+      // a component's children are a view whoever gave them: `{props.children}` is inserted as it is, where another value
+      // is formatted. A JS library hands a component its text as an array of strings (solid-marked's paragraphs), which
+      // `show` would print as the list it also is (2026-11-24)
+      case "read": { const h = given(m.e, n => env.lookup(n)?.given)?.held ?? (m.e.k === "use" && env.lookup(m.e.name)?.viewCtx ? "view" : undefined); return `{__rt.${h === "children" ? "kids" : h ? "opt" : "show"}(${this.expr(m.e, env, re)})}`; }   // a context that holds a view, shown: one that was not given shows nothing
       case "el": {
         if (m.tag === "") return this.markup(m.children, env, ind);
+        { const p = this.shownFrom(m.tag, env); if (p) return `{__rt.view(${p.view}, V$view => <V$view${m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("")} />${p.mixed ? ", true" : ""})}`; }   // RG-4c: the view the component was given, applied (plain content, as it is)
         if (/^[A-Z]/.test(m.tag)) {
-          const b = env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
-          const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");
-          return m.children.length ? `<${b.js}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : b.shape === "comp" ? `<${b.js}${attrs} />` : `<${b.js}${attrs} children={[]} />`;   // MO-11: a JS component gets JSX's own <X />
+          const dot = m.tag.indexOf("."); const head = dot > 0 && !env.lookup(m.tag) ? env.lookup(m.tag.slice(0, dot)) : undefined;   // MO-11q: `<Dialog.Root>`, a member of a declared JS object
+          const b = head ? { kind: "comp" as const, js: `${head.js}${m.tag.slice(dot)}`, shape: "comp" as const } : env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
+          const attrs = m.attrs.map(a => { const given = this.views.given(m.tag, a.name, a.e); return " " + (given ? `${a.name}={__rt.slot(() => ${this.child({ k: "el", tag: given, attrs: [], children: [], line: m.line }, env, ind + 1).trim()})}` : this.attr(a.name, a.e, env)); }).join("");   // MO-11t: a component given by name to a prop typed `View` is applied there, with no arguments: the element, made where the library reads the prop (JSX's `fallback={<Empty />}`, a getter)
+          const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
+          const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
+          const props = attrs + named.map(v => ` ${v.prop}={${this.regionFn(v.decls, v.body, env, ind + 1, b.shape === "comp" ? v.params.map(mg).join(", ") : viewParam(v), e => { for (const p of v.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}`).join("");
+          const view = b.shape === "comp" ? undefined : kids.length === 1 && kids[0].k === "mview" ? kids[0] : kids.length && "plain" in b && b.plain ? { k: "mview" as const, params: [], decls: [], body: kids } : undefined;   // RG-4c: what is given as plain content where a view is taken is one that asks nothing
+          if (view) return `<${b.js}${props}>{${this.regionFn(view.decls, view.body, env, ind + 2, viewParam(view), e => { for (const p of view.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; })}}</${b.js}>`;
+          return kids.some(c => c.k !== "text" || c.s.trim()) ? `<${b.js}${props}>${this.content(kids, env, ind + 1, !!(b as { kidsValue?: boolean }).kidsValue)}</${b.js}>` :   // RG-4c: content is a block of the caller's names, made and owned where it is shown
+            kids.length ? `<${b.js}${props}>${kids.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : `<${b.js}${props} />`;   // MO-11: a JS component gets JSX's own <X />
         }
-        let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");
+        // R-11a: an attribute that reads ahead is a reader of its own — one render effect, made by the element's `ref` (`__rt.own`); where it
+        // was written, the server's value (`__rt.served`). Solid's compiler computes the others of the template in one effect
+        const own: string[] = []; const userRef = m.attrs.find(a => a.name === "ref");
+        const value = (a: { name: string; e: Expr }) => a.name === "class" && this.styleHash ? `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})` : this.expr(a.e, env, { imp: false });
+        const apart = (a: { name: string; e: Expr }) => a.name !== "..." && !isHandler(a.name) && this.readsAhead(a.e, env);
+        let attrs = m.attrs.map(a => {
+          if (apart(a)) { const v = value(a); own.push(`[${J(a.name)}, () => ${v}]`); return ` ${a.name}={__rt.served(() => ${v})}`; }
+          if (a.name === "ref" && m.attrs.some(apart)) return "";
+          return " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : value(a)}}` : this.attr(a.name, a.e, env));
+        }).join("");
+        if (own.length) attrs += ` ref={__rt.own(${userRef ? this.expr(userRef.e, env, { imp: true, ref: true }) : "undefined"}, ${own.join(", ")})}`;
         if (this.styleHash && !m.attrs.some(a => a.name === "class")) attrs += ` class=${J(this.styleHash)}`;   // CSS-2: every HTML element of the view
-        return VOID_TAGS.has(m.tag) ? `<${m.tag}${attrs} />` : `<${m.tag}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${m.tag}>`;
+        { const tag = jsxTag(m.tag); return VOID_TAGS.has(m.tag) ? `<${tag}${attrs} />` : `<${tag}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${tag}>`; }
       }
       case "mif": {
-        const narrowed = m.c.k === "id" ? env.lookup(m.c.name) : undefined;
-        const t = this.regionFn(m.tDecls, m.t, env, ind + 1, "__item", e => { if (m.c.k === "id" && narrowed && (narrowed.kind === "acc" || narrowed.kind === "src")) { e.vars.set(m.c.name, { kind: "acc", js: `n$${m.c.name}`, w: narrowed.w }); return `${pad}  const n$${m.c.name} = __item;\n`; } return ""; });
-        return `<Show when={${this.expr(m.c, env, re)}} fallback={(${this.regionFn(m.fDecls, m.f, env, ind + 1)})()}>{${t}}</Show>`;
+        const narrowed = m.c.k === "id" && !this.asked(m.c, env) ? env.lookup(m.c.name) : undefined;   // RG-4c: a view asked for is not its answer
+        const t = this.regionFn(m.tDecls, m.t, env, ind + 1, "__item", e => { if (m.c.k === "id" && narrowed && (narrowed.kind === "acc" || narrowed.kind === "src")) { e.vars.set(m.c.name, { kind: "acc", js: `n$${m.c.name}`, w: narrowed.w, given: narrowed.given }); return `${pad}  const n$${m.c.name} = __item;\n`; } return ""; });
+        const asked = m.c.k === "member" && m.c.o.k === "id" ? this.shownFrom(`${m.c.o.name}.${m.c.p}`, env) : undefined;   // RG-4c: a view left out is whatever the caller writes for nothing (`children: []`)
+        return `<Show when={${asked ? `typeof ${asked.view} === "function"` : this.asks(m.c, env, true) ?? this.expr(m.c, env, re)}} fallback={(${this.regionFn(m.fDecls, m.f, env, ind + 1)})()}>{${t}}</Show>`;
+      }
+      case "mview": {                                                                         // MO-11k: the render prop, an arrow over the view
+        const body = this.regionFn(m.decls, m.body, env, ind + 1, m.params.map(mg).join(", "), e => { for (const p of m.params) e.vars.set(p, { kind: "val", js: mg(p) }); return ""; });
+        return `{${body}}`;
       }
       case "mfor": {
         const body = this.regionFn(m.decls, m.body, env, ind + 1, mg(m.name), e => { e.vars.set(m.name, { kind: "val", js: mg(m.name) }); return ""; });
@@ -599,5 +908,24 @@ class Gen {
         return m.classes ? `<__rt.TypedErrored classes={${this.classes(m.classes, env)}} ${fallback}>${body}</__rt.TypedErrored>` : `<Errored ${fallback}>${body}</Errored>`;   // R-f-4: a typed boundary passes other classes up
       }
     }
+  }
+}
+
+/** Whether an expression asks something of the place it is evaluated at: a `use`, an `await`, also in a closure it calls there. */
+function placed(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  if (Array.isArray(e)) return e.some(placed);
+  const o = e as { k?: string };
+  return o.k === "use" || o.k === "await" || Object.values(e).some(placed);
+}
+/** An expression written out as a constant: a literal, or an array, a record, a template or a sign over them. */
+function constant(e: Expr): boolean {
+  switch (e.k) {
+    case "lit": return true;
+    case "un": return constant(e.e);
+    case "tpl": return e.parts.every(p => typeof p === "string" || constant(p));
+    case "arr": return e.items.every(constant);
+    case "rec": return e.fields.every(f => "key" in f && constant(f.v));
+    default: return false;
   }
 }

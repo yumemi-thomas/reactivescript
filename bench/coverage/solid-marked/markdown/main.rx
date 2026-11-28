@@ -1,0 +1,37 @@
+// solid-marked: Markdown rendered at run time, each kind of node by a component of the app's own, given in a record
+// (`builtins`). The heading reads the app's theme, which is provided above the <Markdown> that renders it.
+import { default as Markdown } from "solid-marked/component"
+
+context accent: string
+
+component Page(props: { children?: View }) {
+  <article class="doc">{props.children}</article>
+}
+component Heading(props: { depth: number; id: string; children?: View }) {
+  <h2 id={props.id} class={use accent}>{props.children}</h2>
+}
+component Paragraph(props: { children?: View }) {
+  <p class="para">{props.children}</p>
+}
+component Strong(props: { children?: View }) {
+  <strong>{props.children}</strong>
+}
+component Themed(props: { children: View }) {
+  provide accent = "dark"
+  {props.children}
+}
+
+// the record has a name: every mention of it is the prop, so it is read as the literal it is bound to (MO-11c)
+builtins = { Root: Page, Heading: Heading, Paragraph: Paragraph, Strong: Strong }
+
+export default component App() {
+  source text := `# Field notes
+
+written in **markdown**`
+  <Themed>
+    <Markdown builtins={builtins}>{text}</Markdown>
+  </Themed>
+  <button class="edit" onClick={() => { text := `# Field notes
+
+edited **twice**` }}>edit</button>
+}

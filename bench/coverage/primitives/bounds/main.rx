@@ -1,0 +1,9 @@
+// @solid-primitives/bounds: an element's bounding box, followed as it is resized.
+import { createElementBounds } from "@solid-primitives/bounds"
+
+export default component App() {
+  source box: HTMLDivElement | undefined := undefined
+  bounds = createElementBounds(box)
+  <div class="box" ref={(el: HTMLDivElement) => { box := el }} style="width:120px;height:40px"></div>
+  <p>{bounds.width ?? 0} by {bounds.height ?? 0}</p>
+}

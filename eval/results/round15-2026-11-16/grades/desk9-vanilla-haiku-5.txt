@@ -1,0 +1,14 @@
+== hidden
+77/77 passed
+== overlap
+✗ base: a list that loads while an assignment is out keeps the new assignee
+✗ base: a list that loads while a rename is out keeps the new title
+✗ base: a detail that loads while a rename is out keeps the new title
+✗ base: an earlier rename declined after a later one was accepted keeps the later title
+✗ base: comments that load while a post is out keep the post
+✗ labels that load while an add is out keep the add
+32/38 passed
+== fuzz
+desk9-vanilla-haiku-5: 1/20 seeds found a hole
+  seed 15 step 35: detail title: "retry#3 stack trace attachedassign to guestrenamerename erro", server "Delta"
+    land fetchIssues:open ; row-assign 0 ; focus ; land assign:1,guest ; row-assign 0 ; fail assign:1,guest ; row-assign 0 ; focus ; row-assign 0 ; select #3 ; land fetchLabels:3 ; close ; row-close 0 ; row-close 0 ; land assign:1,guest ; add-label ui ; assign ; rename Alpha ; remove-label 0 ; post fixed? ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land closeIssue:4 ; land fetchIssu

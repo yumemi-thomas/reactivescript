@@ -1,0 +1,14 @@
+✗ HOLD two adds show both, each taking its own id
+    Retro accepted: TEAR — neither expected (expected [col-todo] cards ["#1 Write spec · 0/2","#2 Fix login · 1/3","Plan sprint (adding…)","#8 Retro · 0/0"], got ["#1 Write spec · 0/2","#2 Fix login · 1/3","#8 Retro · 0/0","#8 Retro · 0/0"]) nor held.
+✗ HOLD one of two moves declined puts back only its card
+    locator.click: Timeout 30000ms exceeded.
+✗ HOLD a move into Doing that fills it while a move out is pending disables the rest
+    locator.click: Timeout 30000ms exceeded.
+✗ HOLD an earlier move declined while a later move of the card is out leaves it where the later one put it
+    locator.click: Timeout 30000ms exceeded.
+✗ HOLD a toggle declined after another card was selected puts the first card's count back
+    locator.click: Timeout 30000ms exceeded.
+✗ HOLD a toggle and an item add out together: the progress and the card's count agree
+    locator.click: Timeout 30000ms exceeded.
+
+0/6 passed

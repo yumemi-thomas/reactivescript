@@ -15,9 +15,9 @@ export default component App() {
 }
 ```
 
-The effect's apply receives an error value like any answer (E-12): Solid's
-`error` arm. It arrives as `$0`; reading `data` by name in the apply would
-be a snapshot, and a snapshot of an error throws it (R-f-7).
+A failed input doesn't fire the effect (EF-2a): the failure shows in the
+region that reads it. The next answer fires it, even one equal to the last
+value the apply received.
 
 ## Frames
 
@@ -28,7 +28,7 @@ be a snapshot, and a snapshot of an error throws it (R-f-7).
 | 2       | resolve slow 1         | `1 1 1`      | `log(1)`      |
 | 3       | handler `count := 2`   | `1 1 1`      | —             |
 | 4       | reject data "boom"     | `1 1 1`      | —             |
-| 5       | resolve slow 2         | `2 Error 2`  | `log(#error)` |
+| 5       | resolve slow 2         | `2 Error 2`  | —             |
 | 6       | handler `count := 3`   | `2 Error 2`  | —             |
 | 7       | resolve data 1         | `2 Error 2`  | —             |
 | 8       | resolve slow 3         | `3 1 3`      | `log(1)`      |

@@ -1,0 +1,11 @@
+// @solid-primitives/fullscreen: an element put in fullscreen from a handler.
+import { createFullscreen } from "@solid-primitives/fullscreen"
+
+export default component App() {
+  source box: HTMLDivElement | undefined := undefined
+  fs = createFullscreen(box)
+  <div ref={(el: HTMLDivElement) => { box := el }}>
+    <p>{fs.isActive() ? "fullscreen" : "windowed"}</p>
+    <button onClick={() => { fs.enter() }}>enter</button>
+  </div>
+}

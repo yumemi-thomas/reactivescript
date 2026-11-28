@@ -1,0 +1,4 @@
+context c: { text: string | undefined } = { text: undefined }
+component Part() { k = use c
+  <p>{k.text}</p> }
+export default component App() { <Part /> }

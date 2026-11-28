@@ -1,0 +1,3 @@
+// By hand: every word (the module is the app's own).
+// a query's accessor waits for the answer and throws the request's error where it is read (MO-10l)
+export fn createGreeting(url: string): pending fails(Error) ref { hello: string }

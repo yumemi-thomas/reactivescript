@@ -1,0 +1,2 @@
+export pure fn remSize(): number
+export client fn watchRem(f: handler (n: number) => void): () => void

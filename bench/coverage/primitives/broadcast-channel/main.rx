@@ -1,0 +1,8 @@
+// @solid-primitives/broadcast-channel: the last message another tab posted.
+import { createBroadcastChannel } from "@solid-primitives/broadcast-channel"
+
+export default component App() {
+  channel = createBroadcastChannel<string>("room")
+  <p>{channel.message() ?? "silence"}</p>
+  <button onClick={() => { channel.postMessage("hello from the other tab") }}>say hello</button>
+}

@@ -1,0 +1,1 @@
+export function watchDevices(f) { const md = navigator.mediaDevices; if (!md) return; let alive = true; const read = () => md.enumerateDevices().then((d) => { if (alive) f(d); }); read(); md.addEventListener("devicechange", read); return () => { alive = false; md.removeEventListener("devicechange", read); }; }

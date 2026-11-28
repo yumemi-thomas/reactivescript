@@ -1,0 +1,18 @@
+import pure { load } from "./api.js"
+import { Accordion as Acc, AccordionItem as Item, AccordionHeader as Header, AccordionTrigger as Trigger, AccordionContent as Content } from "@rx-packages/kobalte/collapsible"
+/*TOP*/
+export default component App() {
+  source n: number := 0
+  source other: number := 0
+  source list: string[] := ["a", "b"]
+  source extra: boolean := false
+  source on: string[] := ["a"]
+  slow = await load(n)
+  action bump() { n := n + 1 }
+  /*DECL*/
+  <main><p>{n} {other} {list.join("+")}</p>
+    <button onClick={() => { bump(); extra := !extra; list := [...list, "c"] }}>b</button>
+    <div>/*A*/<Acc value={on} onChange={(v: string[]) => { on := v }}><Item value="a"><Header><Trigger>CHILD</Trigger></Header><Content>b</Content></Item></Acc>/*B*/</div>
+    {errored fallback { <i>e</i> } { {loading fallback { <i>l</i> } { <b>{slow}</b> }} }}
+  </main>
+}

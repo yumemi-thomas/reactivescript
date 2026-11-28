@@ -1,0 +1,8 @@
+// @solid-primitives/state-machine: a light that is on or off, each state with what it can do (light.js).
+import { createLight } from "./light.js"
+
+export default component App() {
+  light = createLight()
+  <p>the light is {light.type}, {light.value}</p>
+  <button onClick={() => { light.to(light.type == "off" ? "on" : "off") }}>toggle</button>
+}

@@ -1,0 +1,43 @@
+== hidden
+✗ base: a declined assignment reverts the row and shows the message
+✗ base: a declined rename reverts the row and the heading and shows the message
+✗ base: a declined close brings the row back in place and shows the message
+✗ base: a declined post removes the row and shows the message
+✗ base: a new post clears the previous error at once
+✗ a declined add removes the label and shows the message
+✗ a declined remove puts the label back where it was and shows the message
+✗ a new label change clears the previous error at once
+✗ a declined close puts the count back
+✗ rows: a declined row assign reverts the row and shows the row error
+✗ rows: a declined row close brings the row back in place, the count back, and shows the row error
+66/77 passed
+== overlap
+✗ base: two issues assigned at once: declining one reverts only that row
+✗ base: a declined assignment keeps a rename in flight on the same issue
+✗ base: a declined rename keeps an assignment in flight on the same issue
+✗ base: an earlier rename declined after a later one was accepted keeps the later title
+✗ base: a declined close keeps an assignment in flight on another issue
+✗ base: a declined assignment keeps a close in flight on another issue
+✗ base: two closes at once: a declined one does not undo the other
+✗ base: two posts at once: a declined one does not take the other with it
+✗ base: settings: a later save failing while an earlier one is out shows its error and then the earlier result
+✗ base: tabs: an assignment that answers after the page was left changes nothing on its return
+✗ an add and a remove at once: a declined add does not undo the remove
+✗ two adds at once: a declined one does not take the other with it
+✗ a label change declined while a rename is out leaves the rename
+✗ two closes at once: a declined one leaves the other off the count
+✗ open issues that load while a close is out keep it off the count
+✗ rows: a declined row close leaves a rename out on another issue
+✗ rows: a row close and a detail close at once: a declined one leaves the other out and off the count
+✗ rows: a row action that answers after the issues page was left changes nothing on its return
+20/38 passed
+== fuzz
+desk9-contract-haiku-2: 4/20 seeds found a hole
+  seed 1 step 32: open row missing: #4
+    user bob ; focus ; land fetchIssues:open ; row-assign 2 ; row-close 0 ; row-assign 0 ; select #3 ; rename Alpha ; land assign:3,bob ; rename Alpha ; row-assign 1 ; land renameIssue:3,Alpha ; focus ; land fetchLabels:3 ; land fetchIssue:3 ; land fetchIssues:open ; fail closeIssue:1 ; post me too ; add-label ui ; land fetchIssues:open ; row-close 1 ; filter closed ; land assign:4,bob ; land fetc
+  seed 3 step 5: open row missing: #1
+    user bob ; land fetchIssues:open ; row-close 0 ; fail closeIssue:1 ; land fetchIssues:open
+  seed 13 step 14: open row missing: #3
+    filter closed ; fail fetchIssues:open ; land fetchIssues:closed ; row-assign 0 ; filter open ; land assign:2,guest ; land fetchIssues:open ; select #3 ; row-close 1 ; land fetchLabels:3 ; fail fetchIssue:3 ; land fetchComments:3 ; fail closeIssue:3 ; land fetchIssues:open
+  seed 18 step 24: two views: row "#4 Typo in footer", detail "#4 Deltafooter says 2019Retryassign to g"
+    land fetchIssues:open ; select #4 ; row-close 0 ; land fetchLabels:4 ; assign ; row-close 0 ; row-close 0 ; assign ; rename Delta ; fail closeIssue:3 ; fail renameIssue:4,Delta ; land closeIssue:1 ; land fetchIssues:open ; filter closed ; land fetchIssues:closed ; land fetchComments:4 ; close ; land closeIssue:4 ; land fetchIssues:closed ; assign ; land fetchIssue:4 ; land assign:4,guest ; lan

@@ -1,0 +1,54 @@
+{
+  "name": "@rx-packages/terracotta",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "files": [
+    "dist",
+    "src",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "rx-lib"
+  },
+  "reactivescript": {
+    "entries": [
+      "src/disclosure.rx",
+      "src/menu.rx",
+      "src/switch.rx"
+    ]
+  },
+  "exports": {
+    "./disclosure": {
+      "types": "./dist/disclosure.d.ts",
+      "worker": "./dist/disclosure.server.js",
+      "browser": "./dist/disclosure.js",
+      "deno": "./dist/disclosure.server.js",
+      "node": "./dist/disclosure.server.js",
+      "default": "./dist/disclosure.js"
+    },
+    "./menu": {
+      "types": "./dist/menu.d.ts",
+      "worker": "./dist/menu.server.js",
+      "browser": "./dist/menu.js",
+      "deno": "./dist/menu.server.js",
+      "node": "./dist/menu.server.js",
+      "default": "./dist/menu.js"
+    },
+    "./switch": {
+      "types": "./dist/switch.d.ts",
+      "worker": "./dist/switch.server.js",
+      "browser": "./dist/switch.js",
+      "deno": "./dist/switch.server.js",
+      "node": "./dist/switch.server.js",
+      "default": "./dist/switch.js"
+    }
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.0",
+    "@solidjs/web": "^2.0.0",
+    "@reactivescript/runtime": "*"
+  }
+}

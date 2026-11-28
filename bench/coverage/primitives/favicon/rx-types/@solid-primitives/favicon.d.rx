@@ -1,0 +1,3 @@
+//@ for @solid-primitives/favicon ^1.0.0
+export type FaviconOptions = import("@solid-primitives/favicon").FaviconOptions
+export fn createFavicon(ref href: string, options?: FaviconOptions): ref string

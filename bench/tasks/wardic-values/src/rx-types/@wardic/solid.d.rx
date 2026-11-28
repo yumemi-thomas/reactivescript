@@ -1,0 +1,13 @@
+//@ for @wardic/solid ^2.0.1
+// As `rx-declare @wardic/solid` drafts them, kept to what the app uses. By hand: `wardic.div` (the draft has `wardic` as
+// a value), the context the provider gives and an element or a value reads, and `pure` on the two primitives.
+export type WardicEnv = import("@wardic/solid").WardicEnv
+export type WardicScaleCorrector = import("@wardic/solid").WardicScaleCorrector
+export type FeaturesProp = import("@wardic/solid").FeaturesProp
+export type WardicProps<Tag extends keyof import("@solidjs/web").JSX.IntrinsicElements, C = {  }, P = WardicMotionProps> = import("@wardic/solid").WardicProps<Tag, C, P>
+export type WardicMotionProps = import("@wardic/solid").WardicMotionProps
+export context wardic
+export component WardicProvider(props: { env: WardicEnv; reducedMotion?: import("@wardic/core/ReducedMotion").Config | undefined; appear?: boolean | "explain" | undefined; nonce?: string | undefined; scaleCorrectors?: Readonly<Record<string, WardicScaleCorrector>> | undefined; features?: FeaturesProp | undefined; strict?: boolean | undefined; children?: View }) provides(wardic)
+export fn createTransform<A, B>(ref source: A, fn_: (a: A) => B): ref B
+export fn createCycle<T>(...items: ReadonlyArray<T>): readonly [ref T, (i?: number) => void]
+export component wardic.div(props: WardicProps<"div">) uses(wardic)

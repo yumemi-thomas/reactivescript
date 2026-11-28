@@ -1,0 +1,7 @@
+// @solid-primitives/lifecycle: whether the component has mounted.
+import { createIsMounted } from "@solid-primitives/lifecycle"
+
+export default component App() {
+  mounted = createIsMounted()
+  <p>{mounted ? "mounted" : "rendering"}</p>
+}

@@ -6,18 +6,22 @@
 // message redacted (SV-5). SV-3: the same modules bundled over ref/compile/rt-web.ts then take the page over — after the
 // last landing, and right after the shell — and every remaining row runs in the browser.
 // node --experimental-strip-types ssr/run.ts [filter]      (default conditions: solid-js resolves to its server build)
+// The scenarios are run by several processes, each with its browser (RX_JOBS, else what is free of the machine's budget — a run is
+// nearly all waiting for frames), and reported in their order whatever the number.
 // env: RX_CRATE=1 serves and hydrates the Rust crate's output (compiler/, compile/lowered.ts); CSR=1 also mounts each table in the browser with no server; NO_HYDRATE=1 serves only; SV_SCOPE=1 renders in
 // Solid's server-component scope (DV-9); DEBUG=1, DEBUG_NAMES=a,b and WAIT=ms help when a table disagrees.
 import { SOLID } from "../solid-version.ts";
-import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
 import { createRequire } from "node:module";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseStmts } from "../src/parse.ts";
 import { checkModules } from "../src/check.ts";
+import { Runtime } from "../src/runtime.ts";
 import { compileDynamic, compileDynamicExpr, CompileError } from "../compile/emit.ts";
-import { buildSync } from "esbuild";
 import { build, type Built } from "../compile/lowered.ts";
 import { createApp, generateHydrationScript } from "../compile/rt-server.ts";
 import { transformDirectives } from "@solidjs/compiler";
@@ -34,11 +38,51 @@ async function serverFunction(req: import("node:http").IncomingMessage, res: imp
   const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
   const headers = new Headers(); for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
   const request = new Request(`http://127.0.0.1${req.url}`, { method: req.method, headers, body: req.method === "GET" || req.method === "HEAD" ? undefined : Buffer.concat(chunks) });
-  const rpc = createApp(); rpcApps.push(rpc); (globalThis as { __rx_app?: unknown }).__rx_app = rpc;
-  const response = await handleServerFunctionRequest(request);
+  // the request's app, made for the runner (its flights are the harness's), handed to the body as an integration would:
+  // in the request's event (12 SF-7a) — the body finds it there, as it finds the one a real request's event makes it
+  const rpc = createApp({ conformance: true }); rpcApps.push(rpc);
+  const response = await handleServerFunctionRequest(request, { createEvent: r => ({ request: r, locals: { [Symbol.for("reactivescript.app")]: rpc } }) });
   res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
   if (response.body) for await (const c of response.body as unknown as AsyncIterable<Uint8Array>) res.write(c);
   res.end();
+}
+
+const filter = process.argv.slice(2).find(a => !a.startsWith("--"));
+const scenarios = new URL("../../scenarios/", import.meta.url);
+const names = readdirSync(scenarios).filter(f => f.endsWith(".md") && f !== "TEMPLATE.md" && !f.startsWith("OPEN-") && (!filter || f.includes(filter))).sort();
+type Result = { name: string; verdict: string; lines: string[] };
+const report = (rs: Result[]) => { for (const r of rs) { console.log(`${r.verdict} ${r.name}`); for (const l of r.lines) console.log(l); } };
+const counted = (rs: Result[]) => { const n = (v: string) => rs.filter(r => r.verdict === v).length; console.log(`\n${n("PASS")} pass, ${n("FAIL")} fail, ${n("SKIP")} skip (server render → ${SOLID}, streamed to Chromium)`); process.exit(n("FAIL") ? 1 : 0); };
+/** What a scenario's result was kept for (scripts/lib/cache.mjs; none where the runner stands alone, a copy of ref/): nothing
+ *  it depends on is different. `null`: results are not kept. */
+const cache = process.env.DEBUG || process.env.DEBUG_NAMES || process.env.DEBUG_RPC || process.env.SSR_STACK ? null : await import(new URL("../../scripts/lib/cache.mjs", import.meta.url).href).catch(() => null) as any;
+const at = (f: string) => fileURLToPath(new URL(f, import.meta.url));
+function kept() {
+  if (!cache?.enabled) return null;
+  if (process.env.RX_SSR_KEYS) return JSON.parse(process.env.RX_SSR_KEYS);
+  const req = createRequire(import.meta.url), solid = (p: string) => cache.treeHash(realpathSync(at(`../node_modules/${p}`)), { skip: (r: string, n: string) => n === "node_modules" || n === "target" || r === "test" || r === "tests" });
+  const keys = { runner: cache.inputs(at("./run.ts"), at("../../scripts/lib/bundle.mjs"), at("../src/scenario.ts"), at("../solid-version.ts")).map((x: string) => x.split(" ").pop()), runtime: ["rt-web.ts", "rt-server.ts", "rt.ts", "server-functions-local.ts", "solid-internals.ts"].map(f => cache.fileHash(at(`../compile/${f}`))),
+    solid: ["@solidjs/compiler", "@solidjs/signals", "@solidjs/web", "solid-js"].map(solid), installed: cache.treeHash(at("../node_modules"), { skip: (r: string, n: string) => n === "typescript" || n === ".package-lock.json" }), browser: cache.browser(req("playwright")) };
+  cache.saveIndex(); return keys;
+}
+const lock = await import(new URL("../../scripts/lib/lock.mjs", import.meta.url).href).catch(() => null) as any;
+const queued = process.env.RX_SHARD === "queue";   // a worker: it is given one scenario at a time
+// (a run of a scenario is mostly waiting for a page that has been given time: half as many again as the cores it was given, at most 16)
+const jobs = Math.min(Math.min(16, Math.ceil(1.5 * (Number(process.env.RX_JOBS) || lock?.cores() || Math.min(4, Math.ceil(availableParallelism() / 2))))), names.length);
+if (!queued && jobs > 1) {
+  // the scenarios are handed out one by one, so that no process waits while another has several left
+  const keys = kept(); if (keys) process.env.RX_SSR_KEYS = JSON.stringify(keys);
+  const todo = names.map((_, i) => i), all: (Result & { at: number })[] = []; let hits = 0, ran = 0;
+  await Promise.all(Array.from({ length: jobs }, () => new Promise<void>(res => {
+    const c = spawn(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { env: { ...process.env, RX_SHARD: "queue" }, stdio: ["ignore", "ignore", "inherit", "ipc"] });
+    let on: number | undefined;
+    c.on("message", (m: any) => { if (m.verdict) { all.push(m); m.hit ? hits++ : ran++; } on = todo.shift(); c.send(on ?? null); });
+    c.on("close", code => { if (on !== undefined && !all.some(r => r.at === on)) all.push({ at: on, name: names[on].replace(/\.md$/, ""), verdict: "FAIL", lines: [`  ✗ no result (its process ended: ${code})`] }); res(); });
+  })));
+  for (const [i, f] of names.entries()) if (!all.some(r => r.at === i)) all.push({ at: i, name: f.replace(/\.md$/, ""), verdict: "FAIL", lines: ["  ✗ no result (no process was left to run it)"] });
+  all.sort((a, b) => a.at - b.at); report(all);
+  if (hits) console.log(`\ncache: ${hits} of ${hits + ran} results used again — --no-cache runs everything`);
+  cache?.prune?.(); counted(all);
 }
 
 process.on("unhandledRejection", () => {});
@@ -54,9 +98,14 @@ let clientJs = "";   // the current table's client bundle (SV-3)
 const http = createServer((req, res) => { if (req.url?.startsWith("/_server")) { serverFunction(req, res).catch(e => { res.statusCode = 500; res.end(String(e)); }); return; } if (req.url === "/favicon.ico") { res.statusCode = 404; res.end(); return; } if (req.url === "/client.js") { res.writeHead(200, { "content-type": "text/javascript" }); res.end(clientJs); return; } res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); const p = pending; pending = null; if (p) p(res); else res.end("no render"); });
 await new Promise<void>(r => http.listen(0, "127.0.0.1", () => r()));
 const port = (http.address() as { port: number }).port;
-const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});   // CHROMIUM: a system browser (as eval/harness/driver.mjs)
-const page = await browser.newPage();
-const pageErrors: string[] = []; page.on("pageerror", (e: Error) => pageErrors.push(e.message)); page.on("console", (m: any) => { if (m.type() === "error" || (m.type() === "warning" && /hydrat/i.test(m.text()))) pageErrors.push(m.text()); });
+let browser: any, page: any;   // started with the first scenario that is run
+const pageErrors: string[] = [];
+async function open() {
+  if (page) return;
+  browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});   // CHROMIUM: a system browser (as eval/harness/driver.mjs)
+  page = await browser.newPage();
+  page.on("pageerror", (e: Error) => pageErrors.push(e.message)); page.on("console", (m: any) => { if (m.type() === "error" || (m.type() === "warning" && /hydrat/i.test(m.text()))) pageErrors.push(m.text()); });
+}
 const textOf = () => page.evaluate(() => {
   const root = document.getElementById("app"); if (!root) return "";
   let s = ""; const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => { for (let p = n.parentElement; p && p !== root; p = p.parentElement) if (p.tagName === "SCRIPT" || p.tagName === "TEMPLATE" || p.tagName === "STYLE") return NodeFilter.FILTER_REJECT; return NodeFilter.FILTER_ACCEPT; } });
@@ -81,7 +130,7 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
   for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
-  const app = createApp();
+  const app = createApp({ conformance: true });
   const got: string[] = []; let ended = false; let chunks = 0; let renderError: unknown = null;
   const doc: string[] = [];
   const served$ = new Promise<void>(resolve => {
@@ -94,12 +143,12 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
     };
   });
   // SV-4: another request for the same page, in flight at the same time — its own app, its own module state
-  if (other) { const b = createApp(); b.stream(main(b), { write: (c: string) => { other.chunks.push(c); }, end: () => {} }); }
+  if (other) { const b = createApp({ conformance: true }); b.stream(main(b), { write: (c: string) => { other.chunks.push(c); }, end: () => {} }); }
   const nav = page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "commit" }).catch(() => {});
   await served$; await nav;
   for (let i = 0; i < 40 && chunks === 0 && !ended && !renderError; i++) await wait(10);
   await wait(40);
-  if (renderError) { lines.push(`  ✗ ${title}: server render threw: ${(renderError as Error).message}`); return false; }
+  if (renderError) { lines.push(`  ✗ ${title}: server render threw: ${(renderError as Error).message}${process.env.SSR_STACK ? " " + String((renderError as Error).stack ?? renderError) : ""}`); return false; }
   got.push(norm(await textOf()));
   for (const r of rows.slice(1)) {
     const m = /^(resolve|reject)\s+(\S+)\s+([\s\S]*)$/.exec(r.action);
@@ -117,15 +166,16 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
   return { got, ended, file: dir + "stream.html" };
 }
 
+const bundler = await import(new URL("../../scripts/lib/bundle.mjs", import.meta.url).href) as any;
 const rtWeb = fileURLToPath(new URL("../compile/rt-web.ts", import.meta.url));
 /** The browser's half of a table (SV-3): its compiled modules over rt-web.ts, bundled for the page. */
-function bundle(dir: string, views: Map<string, string>, entry: string) {
+async function bundle(dir: string, views: Map<string, string>, entry: string) {
   const cdir = dir + "client/"; mkdirSync(cdir, { recursive: true });
   for (const [name, js] of views) writeFileSync(cdir + name, directives(js, dir + name, "client"));   // the server's filename: the same ids
-  writeFileSync(cdir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app") });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
+  writeFileSync(cdir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app"), conformance: true });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
   // the dev builds: Solid reports a hydration key miss, a tag mismatch and unclaimed server nodes on the console
-  const r = buildSync({ entryPoints: [cdir + "client-entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}" });   // (not next's tsconfig paths, which map solid-js to its source)
-  return r.outputFiles[0].text;
+  // (no tsconfig is read: next's `paths` map solid-js to its source)
+  return bundler.bundle(fileURLToPath(new URL("..", import.meta.url)), { entry: cdir + "client-entry.mjs", dir: cdir, conditions: ["browser", "development"] });
 }
 
 /** SV-7b: the `client` JS a program imports (12 SF-5b) — its flights are the browser's: the server never asks them. */
@@ -141,15 +191,17 @@ const c0last = (chains: Chain[]) => chains[0][chains[0].length - 1];
  *  client. The frames after hydration are the client's own (a recorded oracle divergence where there is one; a panic's
  *  message may be redacted, SV-5b). After hydrating: every element the server sent was adopted, and no question the server
  *  answered was asked again. */
-async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string, chains: Chain[], served: number, at: number, label: string, lines: string[]): Promise<boolean> {
+async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string, chains: Chain[], served: number, at: number, label: string, lines: string[], checkFrom = 0): Promise<boolean> {
+  // checkFrom: a variant program's chains before this index are the base table's, replayed only to drive state (their
+  // frames are the base program's, not this one's)
   let out: Built;
   try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) return true; out = build(sc, src, chains.flat().filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7))); }
   catch (e) { if (e instanceof CompileError) return true; lines.push(`  ✗ ${t.title} [${label}]: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
   for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
-  clientJs = bundle(dir, out.views("dom"), out.entry);
-  const app = createApp(); let ended = false; let chunks = 0;
+  clientJs = await bundle(dir, out.views("dom"), out.entry);
+  const app = createApp({ conformance: true }); let ended = false; let chunks = 0;
   const csr = at === 0;   // the baseline: the same bundle mounted on an empty page, no server
   const served$ = new Promise<void>(resolve => {
     pending = res => {
@@ -167,7 +219,11 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   await wait(40);
   // after hydration the client is Solid's client: the spec's frame, or Solid's where an oracle divergence is recorded
   const framesOf = (r: Row) => { const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return div ? [norm(r.frame), norm(div.frame)] : [norm(r.frame)]; };
-  const matches = (r: Row, got: string) => framesOf(r).some(w => w === got || redactedMatch(w, got));
+  // PT-3: hydrating, what is under a portal is made once hydration has settled, and a boundary outside the portal that
+  // has settled keeps its content (Solid's `portal-async-content`): until an answer lands the page is the shell, where a
+  // client render shows the boundary's fallback
+  const shell = shellOf(sc, src);
+  const matches = (r: Row, got: string) => framesOf(r).some(w => w === got || redactedMatch(w, got)) || (shell !== undefined && r.action === "mount" && got === shell);
   // a `hydrated` divergence, or a `## Hydration window` frame (SV-3b, ruled): what the client shows there once it has taken
   // over a served page — from there the rows cannot be followed (a question the scenario lands was never asked), so the run stops with it
   const known = (r: Row) => !scope && sc.divergences.find(d => d.runner === "hydrated" && d.table === t.title && d.instant === r.instant);
@@ -193,7 +249,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
     if (m[1] === "reject") f.reject(value instanceof Error ? value : new Error(String(value))); else f.resolve(value);
     return true;
   };
-  let ok = true; const shown: string[] = []; const mark = lines.length; const rpcBefore = rpcApps.length;
+  let ok = true; const shown: string[] = []; const rpcBefore = rpcApps.length;
   for (let i = 0; i <= chains.length; i++) {   // (i === chains.length: hydrating after the last row)
     const c = chains[i] ?? []; const r = c[0];
     if (i === at && chunks === 0 && at < served) at++;   // nothing has arrived to take over yet (a held shell, SV-1c): the client loads with the shell
@@ -219,22 +275,24 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
         return { fresh, dropped, asked: [...c.app.flights.keys()], left: c.sharedConfig.registry ? c.sharedConfig.registry.size : 0 };
       });
       const cf = clientFns(sc, src); d.asked = d.asked.filter((k: string) => !cf.has(k.split(":")[0]));   // a client question is the browser's to ask (SV-7b)
+      d.asked = d.asked.filter((k: string) => [app, ...rpcApps].some(a => a.flights.has(k)));   // SV-3b: "again" is a question the server asked; one the browser is the first to ask — under a portal, which the server does not render (PT-3) — is its own
       // SV-3a: where hydration leaves the frame as the server drew it, every element is the server's (adopted, none rebuilt);
-      // where the client draws a later frame at once (a landing the stream could not carry, DV-9), it builds what changed
+      // where the client draws a later frame at once (a landing the stream could not carry, DV-26), it builds what changed
       const same = before === norm(await textOf());
       const issues = [same && (d.fresh.length || d.dropped.length) ? `rebuilt instead of adopting: built ${d.fresh.join(" ") || "nothing"}, dropped ${d.dropped.join(" ") || "nothing"}` : "", d.asked.length ? `asked again: ${d.asked.join(", ")}` : "", d.left ? `${d.left} server element(s) never claimed` : "", pageErrors.length ? `page errors: ${pageErrors.join(" | ")}` : ""].filter(Boolean);
-      // DV-15: a recorded `hydrated` divergence at this instant whose frame is the one shown: Solid rebuilt what it should adopt
+      // a recorded `hydrated` divergence at this instant whose frame is the one shown: Solid rebuilt what it should adopt (DV-28b's `<Show>` and DV-15's, until Solid fixed them)
       const rec = known(chains[at - 1][chains[at - 1].length - 1]);
       if (issues.length && rec && issues.every(x => x.startsWith("rebuilt")) && norm(rec.frame) === norm(await textOf())) lines.push(`  ≠ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}  — recorded (hydrated)`);
       else if (issues.length) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}`); }
       shown.push(norm(await textOf()));
       const lastRow = chains[at - 1][chains[at - 1].length - 1]; const got = shown[shown.length - 1];
-      if (!matches(lastRow, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrated after instant ${lastRow.instant}: expected '${framesOf(lastRow).join("' or '")}', got '${got}'`); }
+      if (at - 1 >= checkFrom && !matches(lastRow, got) && rec && norm(rec.frame) === got) lines.push(`  ≠ ${t.title} [${label}] hydrated after instant ${lastRow.instant}: '${got}' — recorded (hydrated)`);   // DV-27: what the page shows once it is taken over
+      else if (at - 1 >= checkFrom && !matches(lastRow, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrated after instant ${lastRow.instant}: expected '${framesOf(lastRow).join("' or '")}', got '${got}'`); }
     }
     if (i === chains.length) break;
     if (i === 0) continue;   // the mount is the request
     if (i < at && !csr) {   // still the server's: a landing streams
-      if (!(await land(r, true))) { if (!ended) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: the server has no flight for ${r.action}`); } break; }
+      if (!(await land(r, true))) { if (!ended) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: the server has no flight for ${r.action}`); break; } at = i; i--; continue; }   // the stream is over and the question is not the server's (under a portal, PT-3): the browser takes the page over here and asks it
       await wait(60); continue;
     }
     try {
@@ -246,6 +304,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
     await page.evaluate(() => { (window as any).__client.flush(); });
     if (process.env.DEBUG_NAMES) console.log("  after", r.instant, "ended=" + ended, await page.evaluate(() => { const sc = (window as any).__client.sharedConfig; return `done=${sc.done} hydrating=${sc.hydrating} HYdone=${(window as any)._$HY.done}`; }), await page.evaluate((names: string[]) => names.map(n => { try { return n + "=" + (window as any).__client.app.fmt((window as any).__client.app.dget(n)); } catch (e) { return n + "!" + (e as Error).message; } }).join(" "), process.env.DEBUG_NAMES.split(",")));
     const got = norm(await textOf()); const last = c[c.length - 1];
+    if (i < checkFrom) continue;   // a base row of a variant program: it drives state only
     const k = known(last); if (k && got === norm(k.frame)) { lines.push(`  ${k.ruled ? "✓" : "≠"} ${t.title} [${label}] instant ${last.instant}: ${got}  — ${k.ruled ? "SV-3b hydration window" : "recorded (hydrated)"}`); break; }
     if (!matches(last, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${last.instant}: expected '${framesOf(last).join("' or '")}', got '${got}'${pageErrors.length ? `  (page: ${pageErrors.join(" | ")})` : ""}`); break; }
     shown.push(got);
@@ -254,13 +313,19 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   const calls = rpcApps.length - rpcBefore; const bodyShipped = /\.serverCall\(/.test(clientJs);
   if (bodyShipped) { ok = false; lines.push(`  ✗ ${t.title} [${label}]: a server function's body is in the browser bundle`); }
   if (ok) lines.push(`  ✓ ${t.title} [${label}]: ${dedupe(shown).map(x => `'${x}'`).join(" → ")}${calls ? `  (${calls} server function request${calls > 1 ? "s" : ""})` : ""}`);
-  // DV-9: a boundary that failed on the server before the client took over is the client's to render, and Solid's client
-  // re-renders it from scratch — asking its questions again — instead of drawing the failure it was sent
-  const dv9 = !scope && at > 0 && chains.slice(0, at).flat().some(r => sc.divergences.some(d => d.runner === "server" && d.table === t.title && d.instant === r.instant));
-  if (!ok && dv9) { for (let i = mark; i < lines.length; i++) lines[i] = lines[i].replace("  ✗ ", "  ≠ ") + (i === mark ? "  — DV-9" : ""); return true; }
   return ok;
 }
 
+/** PT-3: the shell of a program with a portal — its mount with nothing in its portals (Solid's server skips a `<Portal>`'s
+ *  subtree); undefined where the program has none. */
+function shellOf(sc: Scenario, src: string): string | undefined {
+  try {
+    const set = moduleSet(sc, src); let any = false;
+    const empty = (x: unknown): void => { if (!x || typeof x !== "object") return; const o = x as { k?: string; body?: unknown[]; decls?: unknown[] }; if (o.k === "portal" && Array.isArray(o.body)) { o.body = []; o.decls = []; any = true; return; } Object.values(x).forEach(empty); };
+    for (const p of set.programs.values()) empty(p);
+    return any ? norm(new Runtime(set).step([])[0]?.frame ?? "").split(" » ")[0] : undefined;
+  } catch { return undefined; }   // the client's frame stands
+}
 /** SV-1 over a client table: its mount and landings, served; the server's frames, deduplicated, must be the client's in order. */
 async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scenario["tables"][number] | undefined, lines: string[]): Promise<boolean> {
   const src = t.program ?? sc.program;
@@ -273,12 +338,22 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   if (!served.length || served[0][0].action !== "mount") return true;
   // A variant with its own program has no frames for the base's rows: they only drive state, and its own rows are checked.
   const from = t.program ? served.findIndex(c => rows.indexOf(c[0]) >= own) : 0;
-  if (from < 0) { lines.push(`  ~ ${t.title}: a variant program whose own rows begin after a handler`); return true; }
+  if (from < 0) {   // its own rows begin after a handler: served and hydrated, the base's rows driven in the browser, its own checked
+    if (!hydrating) { lines.push(`  ~ ${t.title}: a variant program whose own rows begin after a handler`); return true; }
+    return hydrated(sc, t, src, chains, served.length, served.length, "hydrated, base rows driven", lines, chains.findIndex(c => rows.indexOf(c[0]) >= own));
+  }
   // the client's frames for these instants: the spec's, or the oracle's where a divergence is recorded — every row of a
   // chain, since the server runs no effect (SV-2) and shows the frame before an effect's chain lands
-  // (a `server` divergence: what Solid's server render shows there instead — DV-9)
+  // (a `server` divergence: what Solid's server render shows there instead — DV-26)
   const served1 = (f: string) => f.split(" » ")[0];   // PT-3: the server renders nothing for a portal — the browser does, once it has the page
-  const frameOf = (r: Row) => { const sv = !scope && sc.divergences.find(d => d.runner === "server" && d.table === t.title && d.instant === r.instant); if (sv) return norm(sv.frame); const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return norm(served1(div ? div.frame : r.frame)); };
+  // (07 §4, SV-2: nor does the server call a `ref` — it makes no element. Where a `ref` writes as the view is made, the
+  // server's mount is the frame before it, which the scenario's `## Server frames` gives; the browser shows the mount's)
+  const refMount = t === base && sc.server[0]?.action === "mount" && /\bref=/.test(JSON.stringify(src)) ? sc.server[0] : undefined;
+  // PT-3: …and waits for nothing under it, shows no fallback for it and no failure of it: the shell is the mount of the
+  // program with nothing in its portals (Solid's server skips a `<Portal>`'s subtree), which the client's mount frame
+  // does not say where what is under the portal reached a boundary outside it (`tw`, `tbad`, a held mount)
+  const shell = t === base && !refMount ? shellOf(sc, src) : undefined;
+  const frameOf = (r: Row) => { if (refMount && r.action === "mount") return norm(served1(refMount.frame)); if (shell !== undefined && r.action === "mount" && !sc.divergences.some(d => (d.runner === "server" || d.runner === "oracle") && d.table === t.title && d.instant === r.instant)) return shell; const sv = !scope && sc.divergences.find(d => d.runner === "server" && d.table === t.title && d.instant === r.instant); if (sv) return norm(sv.frame); const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return norm(served1(div ? div.frame : r.frame)); };
   const want = served.slice(from).flatMap(c => c.map(frameOf));
   const res = await serve(sc, src, served.map(c => c[0]), t.title, lines);
   if (!res) return res !== false;
@@ -330,8 +405,8 @@ async function runBeforeHydration(sc: Scenario, lines: string[]): Promise<boolea
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
   for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
-  clientJs = bundle(dir, out.views("dom"), out.entry);
-  const app = createApp(); let chunks = 0;
+  clientJs = await bundle(dir, out.views("dom"), out.entry);
+  const app = createApp({ conformance: true }); let chunks = 0;
   const served$ = new Promise<void>(resolve => {
     pending = res => {
       res.on("error", () => {});
@@ -374,20 +449,44 @@ function redactedMatch(client: string, server: string): boolean {
   return client.startsWith(pre) && client.endsWith(post) && client.length > pre.length + post.length - 1;
 }
 
-const filter = process.argv[2];
-const dir = new URL("../../scenarios/", import.meta.url);
-let pass = 0, fail = 0, skip = 0;
-for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLATE.md" && !f.startsWith("OPEN-") && (!filter || f.includes(filter))).sort()) {
-  const sc = parseScenario(f.replace(/\.md$/, ""), readFileSync(new URL(f, dir), "utf8"), fileURLToPath(dir));
-  const lines: string[] = []; let ok = true;
+/** What a scenario's run is given by the checker and the compiler, as they answer now: each program's modules for each
+ *  target — without the handlers and with a table's —, or that it is refused or not compiled; what each row's action compiles
+ *  to; the questions that are the browser's. With the scenario, the runner, the runtime, Solid and the browser, it is all
+ *  a run depends on. */
+function given(sc: Scenario): unknown {
+  const program = (src: string, handlers: string[], targets: ("ssr" | "dom")[]) => { try { if (checkModules(moduleSet(sc, src)).diags.length) return "refused"; const o = build(sc, src, handlers); return { entry: o.entry, css: o.css, views: targets.map(t => [...o.views(t)]) }; } catch (e) { return `${(e as Error).name}: ${(e as Error).message}`; } };
+  const dynamic = (r: Row) => { try { const h = r.action.startsWith("handler"); const b = parseStmts(h ? r.action.slice(7) : /^(?:resolve|reject)\s+\S+\s+([\s\S]*)$/.exec(r.action)?.[1] ?? ""); return h ? compileDynamic(b) : b.map(x => x.k === "expr" ? compileDynamicExpr(x.e) : x.k); } catch (e) { return String(e); } };
   const base = sc.tables.find(t => t.title === "Frames");
-  for (const t of sc.tables) { try { ok = (await runTable(sc, t, base, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ ${t.title}: ${(e as Error).stack}`); } }
-  if (sc.server.length) { try { ok = (await runServerTable(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Server frames: ${(e as Error).stack}`); } }
-  if (sc.before.length) { try { ok = (await runBeforeHydration(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Before hydration: ${(e as Error).stack}`); } }
-  const skipped = lines.some(l => l.includes("~ ")) && !lines.some(l => l.includes("✗"));
-  console.log(`${ok ? (skipped ? "SKIP" : "PASS") : "FAIL"} ${sc.name}`); for (const l of lines) console.log(l);
-  if (!ok) fail++; else if (skipped) skip++; else pass++;
+  const browsers = (src: string) => { try { return [...clientFns(sc, src)].sort(); } catch (e) { return String(e); } };
+  return { sc: JSON.stringify(sc, (_k, v) => v instanceof Map ? [...v] : v), tables: sc.tables.map(t => {
+    const src = t.program ?? sc.program; const rows = t !== base && base && t.rows.length && t.rows[0].instant > 0 ? [...base.rows.filter(r => r.instant < t.rows[0].instant), ...t.rows] : t.rows;
+    return [program(src, [], ["ssr"]), program(src, rows.filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7)), ["ssr", "dom"]), browsers(src)];
+  }), own: sc.program && (sc.server.length || sc.before.length) ? program(sc.program, [], ["ssr", "dom"]) : null, rows: [...sc.tables.flatMap(t => t.rows), ...sc.server].map(dynamic) };
 }
-console.log(`\n${pass} pass, ${fail} fail, ${skip} skip (server render → ${SOLID}, streamed to Chromium)`);
-await browser.close(); http.close();
-process.exit(fail ? 1 : 0);
+const keys = kept();
+async function run(f: string): Promise<Result & { hit?: boolean }> {
+  const text = readFileSync(new URL(f, scenarios), "utf8");
+  const sc = parseScenario(f.replace(/\.md$/, ""), text, fileURLToPath(scenarios));
+  const go = async () => {
+    await open(); const lines: string[] = []; let ok = true;
+    const base = sc.tables.find(t => t.title === "Frames");
+    for (const t of sc.tables) { try { ok = (await runTable(sc, t, base, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ ${t.title}: ${(e as Error).stack}`); } }
+    if (sc.server.length) { try { ok = (await runServerTable(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Server frames: ${(e as Error).stack}`); } }
+    if (sc.before.length) { try { ok = (await runBeforeHydration(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Before hydration: ${(e as Error).stack}`); } }
+    const skipped = lines.some(l => l.includes("~ ")) && !lines.some(l => l.includes("✗"));
+    return { name: sc.name, verdict: ok ? (skipped ? "SKIP" : "PASS") : "FAIL", lines };
+  };
+  if (!keys) return go();
+  const r = await cache.result("ssr", { ...keys, text, given: given(sc), environment: { ...cache.environment(), RX_CRATE: undefined } }, () => undefined, async () => ({ value: await go(), trace: [] }));
+  r.keep(r.value.verdict === "PASS"); return { ...r.value, hit: r.hit };
+}
+const end = async () => { await browser?.close(); http.close(); };
+if (queued) {
+  process.on("disconnect", () => process.exit(1));   // (the run that asked is gone)
+  await new Promise<void>(done => { process.on("message", async (i: number | null) => { if (i === null) return done(); const r = await run(names[i]); process.send!({ at: i, ...r }); }); process.send!({}); });
+  await end(); process.removeAllListeners("disconnect"); process.disconnect(); process.exit(0);
+}
+const results: Result[] = [];
+for (const f of names) { const r = await run(f); report([r]); results.push(r); }
+await end();
+counted(results);

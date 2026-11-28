@@ -1,0 +1,3 @@
+// By hand: every word (the module is the app's own).
+export component Tabs(props: { children?: View })
+export component Tab(props: { title: string })

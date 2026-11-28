@@ -1,0 +1,2 @@
+// control.js renders the control createControlledProp hands back as the third part of a tuple. Read from the code by rx-declare (09 MO-8v; it was by hand): every word.
+export component TextControl(props: { name: string; initial: string; onChange?: handler (value: string) => void })

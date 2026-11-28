@@ -1,0 +1,9 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type AccordionState<T extends string = string> = import("@ui-sdk/solid/accordion").AccordionState<T>
+export type AccordionItemState = import("@ui-sdk/solid/accordion").AccordionItemState
+export type AccordionValueChangeReason = import("@ui-sdk/solid/accordion").AccordionValueChangeReason
+export component Accordion<A extends string = string, B = unknown>(props: Parameters<typeof import("@ui-sdk/solid/accordion").Accordion<A, B>>[0] & { onValueChange?: (value: A[], details: import("@ui-sdk/core").ChangeDetails<AccordionValueChangeReason>) => void; render?: (props: Record<string, any>, state: AccordionState<A>) => View })
+export component AccordionHeader(props: Parameters<typeof import("@ui-sdk/solid/accordion").AccordionHeader>[0] & { render?: (props: Record<string, any>, state: NoInfer<AccordionItemState>) => View })
+export component AccordionItem(props: Parameters<typeof import("@ui-sdk/solid/accordion").AccordionItem>[0] & { onOpenChange?: (open: boolean, details: import("@ui-sdk/core").ChangeDetails<AccordionValueChangeReason>) => void; onOpenChangeComplete?: (open: boolean) => void; render?: (props: Record<string, any>, state: NoInfer<AccordionItemState>) => View })
+export component AccordionPanel(props: Parameters<typeof import("@ui-sdk/solid/accordion").AccordionPanel>[0] & { render?: (props: Record<string, any>, state: NoInfer<AccordionItemState>) => View })
+export component AccordionTrigger(props: Parameters<typeof import("@ui-sdk/solid/accordion").AccordionTrigger>[0] & { render?: (props: Record<string, any>, state: NoInfer<AccordionItemState>) => View })

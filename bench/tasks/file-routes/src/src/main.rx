@@ -1,0 +1,12 @@
+// The app: what every page shares and the region that holds a first load, and inside them the router the route files
+// make (router.ts, a module of the app's own in TypeScript: filesystem-routing's manifest, given to @solidjs/router).
+// The pages are the route files'; host.d.rx says where the router renders them (09 MO-14): inside this component,
+// where it applies the router's.
+import { Router } from "./router.ts"
+import { team } from "./team.rx"
+
+export default component App() {
+  provide team = { name: "Directory" }
+  <header>Directory</header>
+  loading fallback { <p class="wait">loading…</p> } { <Router /> }
+}

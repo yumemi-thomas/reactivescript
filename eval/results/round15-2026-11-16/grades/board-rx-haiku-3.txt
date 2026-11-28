@@ -1,0 +1,29 @@
+== hidden
+✗ the new-card input starts empty when the board opens again
+✗ a move error stays when another move is accepted
+✗ an added item can be toggled once it has its id
+42/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ a move into a column that is still loading shows once it loads, or waits for it
+✗ an item added while the checklist reloads shows once
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a move into Doing that fills it while a move out is pending disables the rest
+20/26 passed
+== fuzz
+board-rx-haiku-3: 7/20 seeds found a hole
+  seed 8 step 10: detail column: #4 shows in Doing, the detail says "#4 Deltain Donerenamearchiveloading checklistadd"
+    land fetchCards:doing ; right #3 ; select #4 ; fail moveCard:3,done,0 ; left #3 ; rename Alpha ; land fetchCards:todo ; rename Delta ; land moveCard:3,todo,0 ; right #4
+  seed 9 step 25: two views: card "#3 Review PR · 2/2", detail "#3 Deltain Doingrenamearchiveloading checklistadd"
+    land fetchCards:done ; left #5 ; fail moveCard:5,doing,0 ; left #5 ; fail moveCard:5,doing,0 ; left #5 ; tab archive ; tab board ; add Delta 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo ; land fetchArchived: ; land fetchCards:done ; land fetchCards:doing ; fail moveCard:5,doing,0 ; down #3 ; select #4 ; land fetchChecklist:4 ; rename Bravo ; add Alpha 2 ; re
+  seed 10 step 30: duplicate card: #4 shows in todo and doing
+    tab archive ; tab board ; add Alpha 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo ; select #1 ; land fetchCards:done ; land fetchChecklist:1 ; land fetchCards:doing ; add Alpha 2 ; land fetchArchived: ; fail addCard:todo,Alpha 2 ; select #2 ; land fetchChecklist:2 ; toggle 1 ; rename Delta ; land toggleItem:2,22,true ; land fetchCards:doing ; land fetchCards:
+  seed 11 step 24: detail column: #3 shows in Doing, the detail says "#3 Review PRin Donerenamearchiveloading checklistadd"
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:doing ; select #4 ; down #3 ; rename Alpha ; left #4 ; add-item ship 4 ; land renameCard:4,Alpha ; add Delta 5 ; (move
+  seed 14 step 21: detail column: #4 shows in Doing, the detail says "#4 Deployin To dorenamearchive[ ] releasetoggle0/1 doneadd"
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo ; select #2 ; right #1 ; select #2 ; land fetchCards:done ; land fetchChecklist:2 ; right #2 ; add-item ship 2 ; land fetchCards:doing ; land moveCard:1,doing,0 ; land moveCard:2,doing,0 ; toggle 2 ; right #3 ; select #4 ; toggle 0 ; select #4 ; land fetchCards:done ; land fetchCards:doing ; land fetchCh
+  seed 15 step 25: two views: card "#2 Fix login · 1/3", detail "#2 Bravoin To dorenamearchive[x] reprotoggle[ ] patchtoggle[ ] testtoggle1/3 don"
+    land fetchCards:doing ; select #4 ; left #3 ; land fetchCards:done ; fail moveCard:3,todo,0 ; land fetchCards:todo ; archive #4 ; land fetchChecklist:4 ; fail archiveCard:4 ; add Alpha 1 ; up #2 ; select #4 ; select #2 ; land fetchChecklist:2 ; rename Delta ; fail renameCard:2,Delta ; land fetchChecklist:4 ; land moveCard:2,todo,0 ; land fetchCards:todo ; left #3 ; add Alpha 2 ; land addCard:t
+  seed 17 step 19: two views: card "#3 Review PR · 2/2", detail "#3 Alphain Donerenamearchiveloading checklistadd"
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo ; land fetchCards:done ; add Alpha 2 ; land fetchCards:doing ; right #3 ; up #2 ; right #1 ; land addCard:todo,Alpha 2 ; land moveCard:2,todo,0 ; select #10 ; select #3 ; land moveCard:3,done,1 ; land fetchCards:doing ; land fetchChecklist:10 ; add-item docs 3 ; land fetchCards:todo ; rename Alpha

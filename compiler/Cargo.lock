@@ -1055,6 +1055,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "rx-checks"
+version = "0.3.1"
+dependencies = [
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "reactivescript",
+]
+
+[[package]]
+name = "rx-words"
+version = "0.3.1"
+dependencies = [
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_span",
+ "oxc_syntax",
+ "serde_json",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1153,7 +1176,7 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 [[package]]
 name = "solidjs-compiler"
 version = "0.0.0"
-source = "git+https://github.com/solidjs/solid?rev=2105ffb8ca2fced55f5fac0763177fc93f97c2c2#2105ffb8ca2fced55f5fac0763177fc93f97c2c2"
+source = "git+https://github.com/solidjs/solid?rev=7f86b2dee029a82be946918fcaa248ce52d1a96d#7f86b2dee029a82be946918fcaa248ce52d1a96d"
 dependencies = [
  "html5ever",
  "htmlize",

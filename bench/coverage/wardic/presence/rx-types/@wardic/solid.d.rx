@@ -1,0 +1,12 @@
+//@ for @wardic/solid ^2.0.1
+export type WardicEnv = import("@wardic/solid").WardicEnv
+export type WardicScaleCorrector = import("@wardic/solid").WardicScaleCorrector
+export type FeaturesProp = import("@wardic/solid").FeaturesProp
+export type AnimatePresenceProps = import("@wardic/solid").AnimatePresenceProps
+export type Presence = import("@wardic/solid").Presence
+export type WardicProps<Tag extends keyof import("@solidjs/web").JSX.IntrinsicElements, C = {  }, P = WardicMotionProps> = import("@wardic/solid").WardicProps<Tag, C, P>
+export type WardicMotionProps = import("@wardic/solid").WardicMotionProps
+export context wardic
+export component WardicProvider(props: { env: WardicEnv; reducedMotion?: import("@wardic/core/ReducedMotion").Config | undefined; appear?: boolean | "explain" | undefined; nonce?: string | undefined; scaleCorrectors?: Readonly<Record<string, WardicScaleCorrector>> | undefined; features?: FeaturesProp | undefined; strict?: boolean | undefined; children?: View }) provides(wardic)
+export component AnimatePresence(props: AnimatePresenceProps & { ref?: (presence: Presence) => void })
+export component wardic.div(props: WardicProps<"div">) uses(wardic)

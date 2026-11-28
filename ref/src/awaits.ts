@@ -5,15 +5,21 @@
 import type { Expr, Markup } from "./ast.ts";
 
 export type Guard = { e: Expr; neg?: boolean; nullish?: boolean };
-export type Hoisted = { node: Extract<Expr, { k: "await" }>; guards: Guard[] };
+/** `caught`: the `catch` whose operand the `await` is — a matching rejection is the answer, settled where it is awaited (R-f-4),
+ *  as the tail form is, so the reader of a catch's answer holds like the reader of any answer (05 H-4: never a fallback). */
+export type Hoisted = { node: Extract<Expr, { k: "await" }>; guards: Guard[]; caught?: Extract<Expr, { k: "catch" }> };
+export type HoistedCatch = { node: Extract<Expr, { k: "catch" }>; guards: Guard[] };
 
 /** `tail = false`: every await of `root` — a reader of a view, an effect's input or a provision, whose expression is not an
  *  equation's own memo, so even its result-position `await` is a flight of its own (07 §3). */
-export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
+/** `rootCatch = false` (2026-11-27): `root` is a `catch` whose await the caller does not lower in place (a question source's, a
+ *  guessed, keyed or deferred equation's) — it is hoisted and settled as a nested one is. A `catch` that is not `root` (inside
+ *  an `if` arm: `c ? 0 : (await f() catch (e) => -1)`) always is: only an equation's own result has the in-place form. */
+export function nonTailAwaits(root: Expr, tail = true, rootCatch = true): Hoisted[] {
   const out: Hoisted[] = [];
-  const walk = (x: Expr, tail: boolean, g: Guard[]): void => {
+  const walk = (x: Expr, tail: boolean, g: Guard[], caught?: Extract<Expr, { k: "catch" }>): void => {
     switch (x.k) {
-      case "await": if (!tail) out.push({ node: x, guards: g }); walk(x.e, false, g); if (x.init) walk(x.init, false, g); return;
+      case "await": walk(x.e, false, g); if (x.init) walk(x.init, false, g); if (!tail) out.push(caught ? { node: x, guards: g, caught } : { node: x, guards: g }); return;   // one inside another's question first: the outer one reads it
       case "if": walk(x.c, false, g); walk(x.t, tail, [...g, { e: x.c }]); walk(x.f, tail, [...g, { e: x.c, neg: true }]); return;
       case "bin":
         walk(x.l, false, g);
@@ -22,7 +28,7 @@ export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
         else if (x.op === "??") walk(x.r, false, [...g, { e: x.l, nullish: true }]);
         else walk(x.r, false, g);
         return;
-      case "catch": walk(x.e, tail, g); walk(x.alt, false, g); return;
+      case "catch": walk(x.e, tail && x === root && rootCatch, g, x.e.k === "await" ? x : undefined); walk(x.alt, false, g); return;
       case "fn": case "draft": return;                                  // a closure's body runs later; a draft's statements are its own
       default:
         for (const v of Object.values(x as object)) {
@@ -37,17 +43,48 @@ export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
 
 /** 07 §3: the expressions a region's own view reads — readers, attributes (not handlers), `if` conditions, `for` collections,
  *  `loading on(…)` and fallbacks, `portal to(…)` — but not its sub-regions', which are hoisted where they are set up. Their
- *  awaits are hoisted with `nonTailAwaits(e, false)`. An `errored` fallback binds its error, so it stays out. */
-export function viewReaders(ms: Markup[]): Expr[] {
+ *  awaits are hoisted with `nonTailAwaits(e, false)`. An `errored` fallback binds its error, so it stays out.
+ *  `own`: a component whose content is a view (RG-4c), a block of its own. */
+export function viewReaders(ms: Markup[], own: (tag: string) => boolean): Expr[] {
   return ms.flatMap((m): Expr[] => {
     switch (m.k) {
       case "read": return [m.e];
-      case "el": return [...m.attrs.filter(a => !/^on[A-Z:]/.test(a.name)).map(a => a.e), ...viewReaders(m.children)];
+      case "el": return [...m.attrs.filter(a => !(/^on[A-Z:]/.test(a.name) || a.name === "ref")).map(a => a.e), ...(own(m.tag) ? [] : viewReaders(m.children, own))];
       case "mif": return [m.c];
       case "mfor": return [m.xs];
-      case "loading": return [...(m.on ? [m.on] : []), ...viewReaders(m.fallback)];
+      case "mview": return [];
+      case "loading": return [...(m.on ? [m.on] : []), ...viewReaders(m.fallback, own)];
       case "portal": return m.to ? [m.to] : [];
       default: return [];
     }
   });
+}
+
+/** R-f-4 inside an equation: each `x catch alt` that is not the equation's result and holds no `await` — the compiler gives it
+ *  one boundary of its own, made once beside the equation, not a new boundary on every run of the equation's memo. Its guards
+ *  are the conditions under which the equation reaches it. Closures and drafts keep theirs. */
+export function innerCatches(root: Expr): HoistedCatch[] {
+  const out: HoistedCatch[] = [];
+  const hasAwait = (x: unknown): boolean => { if (!x || typeof x !== "object") return false; if (Array.isArray(x)) return x.some(hasAwait); const o = x as Record<string, unknown>; if (o.k === "fn") return false; if (o.k === "await" || o.k === "pre") return true; return Object.values(o).some(hasAwait); };
+  const walk = (x: Expr, root: boolean, g: Guard[]): void => {
+    switch (x.k) {
+      case "catch": if (root) { walk(x.e, false, g); walk(x.alt, false, g); } else if (!hasAwait(x)) out.push({ node: x, guards: g }); return;
+      case "if": walk(x.c, false, g); walk(x.t, false, [...g, { e: x.c }]); walk(x.f, false, [...g, { e: x.c, neg: true }]); return;
+      case "bin":
+        walk(x.l, false, g);
+        if (x.op === "&&") walk(x.r, false, [...g, { e: x.l }]);
+        else if (x.op === "||") walk(x.r, false, [...g, { e: x.l, neg: true }]);
+        else if (x.op === "??") walk(x.r, false, [...g, { e: x.l, nullish: true }]);
+        else walk(x.r, false, g);
+        return;
+      case "fn": case "draft": case "await": case "pre": return;
+      default:
+        for (const v of Object.values(x as object)) {
+          if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) walk(y as Expr, false, g); else if ("v" in y) walk((y as { v: Expr }).v, false, g); else if ("spread" in y) walk((y as { spread: Expr }).spread, false, g); } });
+          else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr, false, g);
+        }
+    }
+  };
+  walk(root, true, []);
+  return out;
 }

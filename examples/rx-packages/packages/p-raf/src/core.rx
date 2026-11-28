@@ -1,0 +1,9 @@
+// createRAF: a loop of animation frames, started and stopped. Derived from @solid-primitives/raf 4.0.0 (MIT, see ../NOTICE).
+import client { onFrame } from "@reactivescript/std/browser"
+export fn createRAF(callback: (t: number) => void) {
+  source running := false
+  action start() { running := true }
+  action stop() { running := false }
+  effect (running) { return $0 ? onFrame((t) => { callback(t) }) : undefined }
+  [running, start, stop]
+}

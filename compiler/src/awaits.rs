@@ -15,6 +15,9 @@ pub struct Hoisted<'a> {
     /// an `ExprKind::Await`
     pub node: &'a Expr,
     pub guards: Vec<Guard<'a>>,
+    /// the `ExprKind::Catch` whose operand the `await` is: a matching rejection is the answer, settled where it is awaited
+    /// (R-f-4), as the tail form is, so the reader of a catch's answer holds like the reader of any answer (05 H-4)
+    pub caught: Option<&'a Expr>,
 }
 
 fn with<'a>(g: &[Guard<'a>], x: Guard<'a>) -> Vec<Guard<'a>> {
@@ -26,44 +29,52 @@ fn with<'a>(g: &[Guard<'a>], x: Guard<'a>) -> Vec<Guard<'a>> {
 /// `tail = false`: every await of `root` — a reader of a view, an effect's input or a provision, whose expression is not an
 /// equation's own memo, so even its result-position `await` is a flight of its own (07 §3).
 pub fn non_tail_awaits(root: &Expr, tail: bool) -> Vec<Hoisted<'_>> {
+    non_tail_awaits_in(root, tail, true)
+}
+/// `root_catch = false` (2026-11-27): `root` is a `catch` whose await the caller does not lower in place (a question source's,
+/// a guessed, keyed or deferred equation's) — hoisted and settled as a nested one is. A `catch` that is not `root` always is
+/// (`nonTailAwaits` in `ref/src/awaits.ts`).
+pub fn non_tail_awaits_in(root: &Expr, tail: bool, root_catch: bool) -> Vec<Hoisted<'_>> {
     let mut out = vec![];
-    walk(Node::E(root), tail, &[], &mut out);
+    walk(Node::E(root), tail, &[], &mut out, None, (root, root_catch));
     out
 }
 
-fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>) {
+fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>, caught: Option<&'a Expr>, root: (&'a Expr, bool)) {
     let g0 = |e| Guard { e, neg: false, nullish: false };
     if let Node::E(x) = n {
         match &x.k {
             ExprKind::Await { e, init, .. } => {
-                if !tail {
-                    out.push(Hoisted { node: x, guards: g.to_vec() });
-                }
-                walk(Node::E(e), false, g, out);
+                // one inside another's question first: the outer one reads it
+                walk(Node::E(e), false, g, out, None, root);
                 if let Some(i) = init {
-                    walk(Node::E(i), false, g, out);
+                    walk(Node::E(i), false, g, out, None, root);
+                }
+                if !tail {
+                    out.push(Hoisted { node: x, guards: g.to_vec(), caught });
                 }
                 return;
             }
             ExprKind::If { c, t, f } => {
-                walk(Node::E(c), false, g, out);
-                walk(Node::E(t), tail, &with(g, g0(c)), out);
-                walk(Node::E(f), tail, &with(g, Guard { e: c, neg: true, nullish: false }), out);
+                walk(Node::E(c), false, g, out, None, root);
+                walk(Node::E(t), tail, &with(g, g0(c)), out, None, root);
+                walk(Node::E(f), tail, &with(g, Guard { e: c, neg: true, nullish: false }), out, None, root);
                 return;
             }
             ExprKind::Bin { op, l, r } => {
-                walk(Node::E(l), false, g, out);
+                walk(Node::E(l), false, g, out, None, root);
                 match op.as_str() {
-                    "&&" => walk(Node::E(r), false, &with(g, g0(l)), out),
-                    "||" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: true, nullish: false }), out),
-                    "??" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: false, nullish: true }), out),
-                    _ => walk(Node::E(r), false, g, out),
+                    "&&" => walk(Node::E(r), false, &with(g, g0(l)), out, None, root),
+                    "||" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: true, nullish: false }), out, None, root),
+                    "??" => walk(Node::E(r), false, &with(g, Guard { e: l, neg: false, nullish: true }), out, None, root),
+                    _ => walk(Node::E(r), false, g, out, None, root),
                 }
                 return;
             }
             ExprKind::Catch { e, alt, .. } => {
-                walk(Node::E(e), tail, g, out);
-                walk(Node::E(alt), false, g, out);
+                let takes = matches!(e.k, ExprKind::Await { .. }).then_some(x);
+                walk(Node::E(e), tail && std::ptr::eq(x, root.0) && root.1, g, out, takes, root);
+                walk(Node::E(alt), false, g, out, None, root);
                 return;
             }
             // a closure's body runs later; a draft's statements are its own
@@ -72,27 +83,30 @@ fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>
         }
     }
     for c in children(n, false) {
-        walk(c, false, g, out);
+        walk(c, false, g, out, None, root);
     }
 }
 
 /// 07 §3: the expressions a region's own view reads — readers, attributes (not handlers), `if` conditions, `for` collections,
 /// `loading on(…)` and fallbacks, `portal to(…)` — but not its sub-regions', which are hoisted where they are set up. An
-/// `errored` fallback binds its error, so it stays out.
-pub fn view_readers(ms: &[Markup]) -> Vec<&Expr> {
+/// `errored` fallback binds its error, so it stays out. `own`: a component whose content is a view (RG-4c), a block of its own.
+pub fn view_readers<'m>(ms: &'m [Markup], own: &dyn Fn(&str) -> bool) -> Vec<&'m Expr> {
     let mut out = vec![];
     for m in ms {
         match &m.kind {
             MarkupKind::Read(e) => out.push(e),
-            MarkupKind::El { attrs, children, .. } => {
+            MarkupKind::El { tag, attrs, children } => {
                 out.extend(attrs.iter().filter(|a| !is_handler(&a.name)).map(|a| &a.e));
-                out.extend(view_readers(children));
+                if !own(tag) {
+                    out.extend(view_readers(children, own));
+                }
             }
             MarkupKind::Mif { c, .. } => out.push(c),
             MarkupKind::Mfor { xs, .. } => out.push(xs),
+            MarkupKind::Mview { .. } => {}
             MarkupKind::Loading { on, fallback, .. } => {
                 out.extend(on.iter());
-                out.extend(view_readers(fallback));
+                out.extend(view_readers(fallback, own));
             }
             MarkupKind::Portal { to, .. } => out.extend(to.iter()),
             _ => {}
@@ -101,8 +115,138 @@ pub fn view_readers(ms: &[Markup]) -> Vec<&Expr> {
     out
 }
 
-/// `/^on[A-Z:]/`
+/// `/^on[A-Z:]/`, or `ref` (called once with the element, 07 §4)
 pub fn is_handler(name: &str) -> bool {
     let b = name.as_bytes();
-    b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':')
+    name == "ref" || (b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':'))
+}
+
+/// R-f-4 inside an equation: each `x catch alt` that is not the equation's result and holds no `await` — hoisted into one
+/// boundary of its own, made once beside the equation, instead of a new boundary on every run of the equation's memo.
+/// Its guards are the conditions under which the equation reaches it. Closures and drafts keep theirs.
+pub fn inner_catches(root: &Expr) -> Vec<Hoisted<'_>> {
+    let mut out = vec![];
+    walk_catch(Node::E(root), true, &[], &mut out);
+    out
+}
+
+fn walk_catch<'a>(n: Node<'a>, root: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>) {
+    let g0 = |e| Guard { e, neg: false, nullish: false };
+    if let Node::E(x) = n {
+        match &x.k {
+            ExprKind::Catch { e, alt, .. } => {
+                if root {
+                    walk_catch(Node::E(e), false, g, out);
+                    walk_catch(Node::E(alt), false, g, out);
+                } else if !has_await(x) {
+                    out.push(Hoisted { node: x, guards: g.to_vec(), caught: None });
+                }
+                return;
+            }
+            ExprKind::If { c, t, f } => {
+                walk_catch(Node::E(c), false, g, out);
+                walk_catch(Node::E(t), false, &with(g, g0(c)), out);
+                walk_catch(Node::E(f), false, &with(g, Guard { e: c, neg: true, nullish: false }), out);
+                return;
+            }
+            ExprKind::Bin { op, l, r } => {
+                walk_catch(Node::E(l), false, g, out);
+                match op.as_str() {
+                    "&&" => walk_catch(Node::E(r), false, &with(g, g0(l)), out),
+                    "||" => walk_catch(Node::E(r), false, &with(g, Guard { e: l, neg: true, nullish: false }), out),
+                    "??" => walk_catch(Node::E(r), false, &with(g, Guard { e: l, neg: false, nullish: true }), out),
+                    _ => walk_catch(Node::E(r), false, g, out),
+                }
+                return;
+            }
+            ExprKind::Fn { .. } | ExprKind::Draft { .. } | ExprKind::Await { .. } | ExprKind::Pre { .. } => return,
+            _ => {}
+        }
+    }
+    for c in children(n, false) {
+        walk_catch(c, false, g, out);
+    }
+}
+
+fn has_await(x: &Expr) -> bool {
+    let mut hit = false;
+    fn go(n: Node<'_>, hit: &mut bool) {
+        if *hit { return; }
+        if let Node::E(x) = n {
+            match &x.k {
+                ExprKind::Await { .. } | ExprKind::Pre { .. } => { *hit = true; return; }
+                ExprKind::Fn { .. } => return,
+                _ => {}
+            }
+        }
+        for c in children(n, false) { go(c, hit); }
+    }
+    go(Node::E(x), &mut hit);
+    hit
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::emit::compile_linked;
+    use crate::modules::load_modules;
+    const HEAD: &str = "import pure { fetch } from \"./data.js\"\ncontext c: string = \"out\"\nfn r() { use c }\ncomponent P(props: { children?: View }) { provide c = \"in\"\n {loading fallback { <i>w</i> } { {props.children} }} }\ncomponent Seen(props: { v?: string }) { <b>{use c}{props.v}</b> }\n";
+    fn said(main: &str, read: &dyn Fn(&str) -> Option<String>) -> String {
+        let read = |f: &str| if f.ends_with("main.rx") { Some(main.to_string()) } else { read(f) };
+        let set = load_modules("/a/main.rx", &read).unwrap_or_else(|e| panic!("{main}: {}", e.0));
+        compile_linked(&set, &[], true).err().map(|e| e.0).unwrap_or_default()
+    }
+    fn app(decls: &str, view: &str) -> String {
+        format!("{HEAD}export default component App() {{\n{decls}\n{view} }}\n")
+    }
+    /// proposals/bugs/36: an `await` in children that read a context is asked where they are shown (RG-4c); it was not compiled
+    #[test]
+    fn an_await_in_children_that_read_a_context_is_compiled() {
+        for (decls, view) in [
+            ("", "<P>{await fetch(use c)}</P>"),
+            ("", "<P>{await* fetch(use c)}</P>"),
+            ("", "<P>{use c}{await fetch(\"q\")}</P>"),
+            ("", "<P>{use c}{false ? await fetch(use c) : \"!\"}</P>"),
+            ("", "<P>{(use c) == \"in\" ? await fetch(\"q\") : \"\"}</P>"),
+            ("", "<P><b class={await fetch(use c)}>x</b></P>"),
+            ("", "<P>{await fetch(\"q\") catch (e) => use c}</P>"),
+            ("", "<P>{await fetch(\"q\") -> use c}</P>"),
+            ("", "<P><Seen v={use c} />{await fetch(\"q\")}</P>"),
+            ("", "<P>{if (use c) == \"in\" { <P>{await fetch(\"q\")}</P> }}</P>"),
+            ("", "<P>{use c}</P><P>{await fetch(\"q\")}</P>"),
+            ("", "<P>{await fetch(r())}</P>"),
+            ("v = use c", "<P>{await fetch(v)}</P>"),
+            ("v = use c\nw = v + \"!\"", "<P>{await fetch(w)}</P>"),
+            ("f = () => use c", "<P>{await fetch(f())}</P>"),
+            ("g = r", "<P>{await fetch(g())}</P>"),
+            ("g = { k: r }", "<P>{await fetch(g.k())}</P>"),
+            ("source g := () => \"\"\nh = () => { g := () => use c }", "<P>{await fetch(g())}</P>"),
+        ] {
+            assert_eq!(said(&app(decls, view), &|_| None), "", "{decls} {view}");
+        }
+        // a prop given a reader in the module; a reader of another module; a JavaScript fn that reads a context
+        let prop = format!("{HEAD}component M(props: {{ ask: () => string }}) {{ <P>{{await fetch(props.ask())}}</P> }}\nexport default component App() {{ <M ask={{r}} /> }}\n");
+        assert_eq!(said(&prop, &|_| None), "");
+        let far = |f: &str| match f {
+            "/a/one.rx" => Some("import { r } from \"./two.rx\"\nexport fn far() { r() }\n".to_string()),
+            "/a/two.rx" => Some("context d: string = \"x\"\nexport fn r() { use d }\n".to_string()),
+            "/a/js.d.rx" => Some("export context d\nexport pure fn useD(): string uses(d)\n".to_string()),
+            _ => None,
+        };
+        for (import, call) in [("import { far as q } from \"./one.rx\"", "q()"), ("import { useD as q } from \"./js.js\"", "q()")] {
+            assert_eq!(said(&format!("{import}\n{}", app("", &format!("<P>{{await fetch({call})}}</P>"))), &far), "", "{import}");
+        }
+    }
+    /// proposals/bugs/37
+    #[test]
+    fn an_await_in_children_is_compiled() {
+        for (decls, view) in [
+            ("", "<P>{await fetch(\"q\")}</P>"),
+            ("", "<P><p><P>{await fetch(\"q\")}</P></p>{await fetch(\"r\")}<Seen /></P>"),
+            ("source k := \"c\"", "<P>{k ? await fetch(k) : \"c\"}<Seen v={await fetch(\"v\")} /></P>"),
+            ("", "<Seen v={use c} /><P>{await fetch(\"q\")}</P>"),
+            ("v = use c\nx = await fetch(v)", "<b>{v}{x}</b><P>{await fetch(\"q\")}</P>"),
+        ] {
+            assert_eq!(said(&app(decls, view), &|_| None), "", "{decls} {view}");
+        }
+    }
 }

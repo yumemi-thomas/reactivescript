@@ -1,0 +1,2 @@
+import { use } from "../../../cover.mjs";
+export default use(import.meta, { pkg: "@solid-primitives/date", title: "the current date: an accessor of a Date and a function that refreshes it", ssr: /this century/, dom: /this century/, note: "createTimeAgo and createTimeDifferenceFromNow are not used: their effect reads `diff`, a const declared after it, and Solid 2 computes an effect where it is made — `Cannot access 'diff' before initialization`, in any app" });

@@ -2,16 +2,20 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseScenario, runScenario } from "./src/scenario.ts";
+import { units } from "./units.ts";
 
 const dir = join(import.meta.dirname, "..", "scenarios");
 const only = process.argv.slice(2);
 let failed = 0;
-for (const f of readdirSync(dir).filter(f => f.startsWith("S-") && f.endsWith(".md")).sort()) {
+for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLATE.md" && !f.startsWith("OPEN-")).sort()) {
   const name = f.replace(/\.md$/, "");
   if (only.length && !only.some(o => name.includes(o))) continue;
-  const r = runScenario(parseScenario(name, readFileSync(join(dir, f), "utf8"), dir));
+  let r; try { r = runScenario(parseScenario(name, readFileSync(join(dir, f), "utf8"), dir)); } catch (e) { r = { ok: false, lines: [`  ✗ ${(e as Error).message}`] }; }
   console.log(`${r.ok ? "PASS" : "FAIL"} ${name}`);
   for (const l of r.lines) console.log(l);
   if (!r.ok) failed++;
+}
+if (!only.length) for (const [name, f] of units) {                    // units.ts: what no scenario reaches
+  try { f(); console.log(`PASS unit ${name}`); } catch (e) { console.log(`FAIL unit ${name}\n  ${(e as Error).message.split("\n").join("\n  ")}`); failed++; }
 }
 process.exit(failed ? 1 : 0);

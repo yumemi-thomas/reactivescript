@@ -1,0 +1,9 @@
+//@ for @tanstack/solid-query ^6.0.0-rc.6
+// @tanstack/solid-query 6 (Solid 2.0), as rows: the client's context, its provider, and the hooks that read it (MO-12)
+export context queryClient
+export component QueryClientProvider(props: { client: any; children?: View }) provides(queryClient)
+export pure fn makeClient(): any instantiates
+// the query's `data` waits and throws where it is read: an accessor, as query.js hands it out, that says so (MO-10l)
+export pure fn useQuery(ref options: { queryKey: any[]; queryFn: () => Promise<any> }): { data: pending fails(Error) ref any; isFetching: ref boolean } uses(queryClient)
+export pure fn useMutation(ref options: { mutationFn: (v: any) => Promise<any>; onSuccess?: handler () => void }): any uses(queryClient)
+export pure fn useQueryClient(): any uses(queryClient)

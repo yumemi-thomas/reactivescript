@@ -1,0 +1,9 @@
+// solid-codemirror: a CodeMirror editor made by a ref, that writes the app's text.
+import { createCodeMirror } from "solid-codemirror"
+
+export default component App() {
+  source text := "let a = 1"
+  { ref: editor } = createCodeMirror({ value: peek text, onValueChange: (next: string) => { text := next } })
+  <div class="editor" ref={editor}></div>
+  <p class="copy">{text}</p>
+}

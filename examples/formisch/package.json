@@ -1,0 +1,18 @@
+{
+  "name": "rx-formisch-example",
+  "private": true,
+  "type": "module",
+  "description": "Formisch (Solid 2 build) and Solid 2's store from .rx: a valibot schema, field render props, a store written through its setter's draft (spec/09 MO-10i). Built and driven by compiler/test/formisch.mjs.",
+  "dependencies": {
+    "@formisch/solid": "1.3.0",
+    "valibot": "1.5.0",
+    "solid-js": "file:../../../solid-next/packages/solid",
+    "@solidjs/web": "file:../../../solid-next/packages/web",
+    "@solidjs/signals": "file:../../../solid-next/packages/signals",
+    "vite": "8.4.0",
+    "@solidjs/vite-plugin": "3.0.1"
+  },
+  "overrides": {
+    "@solidjs/compiler": "file:../../../solid-next/packages/compiler"
+  }
+}

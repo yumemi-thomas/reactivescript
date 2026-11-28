@@ -1,0 +1,31 @@
+// .rx runtime bug: `x catch (e) => alt` read in a handler (here through a component fn) lowers to rt.catchRead, which builds a
+// fresh memo; while an action's `refresh x` is in flight that memo has no committed value, so the click throws NotReadyError
+// (uncaught page error, the click is lost). The same read without `catch` gives the answer on screen; so does plain Solid
+// (untrack(ans) during refresh -> committed value). Also: the checker reports neither R-8 nor GUESS_WHILE_LOADING through the fn.
+// Fixed 2026-11-14: with no observer `catchRead` is a snapshot (R-8; ref/compile/rt-*.ts, scenarios/S-catch-snapshot.md).
+// Run: probe-rx.mjs <desk with this as src/main.rx> catch-read-in-handler-during-refresh.steps.mjs
+import pure { fetchCards } from "./api"
+import { moveCard } from "./api"
+type Row = { id: number; col: string }
+export default component App() {
+  source ans = await fetchCards("doing") -> null
+  board key id = (ans == null ? [] : ans.map(c => ({ id: c.id, col: "doing" })))
+  fn cnt(): number => (ans catch (e) => null) == null ? -1 : 2
+  action move(id: number, n: number) {
+    try {
+      let i = board.findIndex(r => r.id == id)
+      guess board[i].col := "done"
+      await moveCard(id, "done", n)
+      refresh ans
+    } catch (e) {
+      log(e.message)
+    }
+  }
+  errored fallback(e) { <p>err</p> } {
+    <ul>
+      {for r in board {
+        <li><span data-testid="card">#{r.id} {r.col}</span> <button data-testid="right" onClick={() => { move(r.id, cnt()) }}>right</button></li>
+      }}
+    </ul>
+  }
+}

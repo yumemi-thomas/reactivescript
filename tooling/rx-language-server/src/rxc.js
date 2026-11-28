@@ -2,7 +2,7 @@
 // synchronously, so the requests are synchronous calls: into the crate's WebAssembly build, loaded in process (one build
 // for every platform), or, when $RXC names a binary, a short `rxc serve` run per request.
 const { spawnSync } = require("node:child_process");
-const { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } = require("node:fs");
+const { existsSync, mkdirSync, writeFileSync, readFileSync, realpathSync, statSync } = require("node:fs");
 const path = require("node:path");
 
 const repo = path.resolve(__dirname, "../../..");
@@ -20,7 +20,28 @@ function wasmPath() {
   return undefined;
 }
 
-/** The crate in process, over `src/wasm.rs`'s ABI. */
+/** The reading of JavaScript `rx-declare` asks (compiler/words, a crate beside the compiler's): `$RX_WORDS_WASM`, else the
+ *  one bundled beside this file, else the repository's (`cargo build -p rx-words …`). A program is checked without it. */
+function wordsPath() {
+  if (process.env.RX_WORDS_WASM) return process.env.RX_WORDS_WASM;
+  const at = [path.join(__dirname, "words.wasm"), path.join(repo, "compiler/target/wasm32-unknown-unknown/release/rx_words.wasm")];
+  const f = at.find(existsSync);
+  if (!f) throw new Error(`no ${at[1]}: cargo build -p rx-words --release --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml`);
+  return f;
+}
+
+/** Every file of a package's folder and those in it, but the packages in it: undefined past 20,000. */
+function listing(dir) {
+  const out = [], todo = [""];
+  while (todo.length) {
+    const d = todo.pop(); let es; try { es = require("node:fs").readdirSync(path.join(dir, d), { withFileTypes: true }); } catch { continue; }
+    for (const e of es) { if (e.name === "node_modules") continue; const f = d ? `${d}/${e.name}` : e.name; if (e.isDirectory()) todo.push(f); else out.push(f); }
+    if (out.length > 20000) return undefined;
+  }
+  return out;
+}
+
+/** A crate in process, over `src/wasm.rs`'s ABI (compiler/words's is the same). */
 function loadWasm(file) {
   let x;
   const enc = new TextEncoder(), dec = new TextDecoder();
@@ -34,6 +55,8 @@ function loadWasm(file) {
   const env = {
     rx_read(ptr, len) {
       const f = dec.decode(new Uint8Array(x.memory.buffer, ptr, len));
+      if (f[0] === "\x01") { const l = listing(f.slice(1)); return l === undefined ? 0 : put(enc.encode(l.join("\n"))); }   // a package's files
+      if (f[0] === "\0") { try { return put(enc.encode(realpathSync(f.slice(1)))); } catch { return 0; } }   // a path's real one (compiler/words/src/resolve.rs)
       try { if (!statSync(f).isFile()) return 0; return put(readFileSync(f)); } catch { return 0; }
     },
   };
@@ -58,8 +81,23 @@ function viaProcess(method, params) {
   return JSON.parse(line).result;
 }
 
-let wasm;
+let wasm, reader;
+/** RX_TRACE=<file>: each request and its answer, a line each (what a result of a tool depended on: scripts/lib/cache.mjs). */
 function ask(method, params) {
+  let result;
+  // (a request that throws is traced too, answered null: a result made while the build could not be loaded — absent, or
+  // half written by a build running beside — depends on it, and is not kept as though it had been asked nothing)
+  try { result = answer(method, params); } catch (e) { trace(method, params, null); throw e; }
+  trace(method, params, result);
+  return result;
+}
+function trace(method, params, result) {
+  if (process.env.RX_TRACE) require("node:fs").appendFileSync(process.env.RX_TRACE, JSON.stringify({ cwd: process.cwd(), method, params, result, ...(/\.trial\.d\.rx$/.test(params.file ?? "") && existsSync(params.file) ? { trial: readFileSync(params.file, "utf8") } : {}) }) + "\n");   // (a trial is gone by the time it is asked again: its text with it)
+}
+function answer(method, params) {
+  if (method === "words") {
+    try { return (reader ??= loadWasm(wordsPath()))(method, params); } catch (e) { reader = undefined; throw e; }
+  }
   if (process.env.RXC || !wasmPath()) return viaProcess(method, params);
   try {
     return (wasm ??= loadWasm(wasmPath()))(method, params);
@@ -71,7 +109,30 @@ function ask(method, params) {
 
 /** A file's projection (`code`, `mappings`, `ranges`, UTF-16 offsets) and its diagnostics, as the editor has it. */
 function analyze(file, text, prelude) {
-  return ask("analyze", { file, overlays: { [file]: text }, prelude });
+  return ask("analyze", { file, overlays: { [file]: text }, prelude, spa: spaFor(file) });
+}
+
+/** 08 CN-3d: whether `file`'s project is built for the client alone (Solid's `hydratable: false`), which only the build
+ *  knows: the nearest tsconfig.json says so, `"reactivescript": { "spa": true }`, or `rx-tsc --rx-spa` for the run
+ *  (RX_SPA=1). The editor and rx-tsc then report what that build refuses (ASYNC_OUTSIDE_LOADING_BOUNDARY). */
+const spaDirs = new Map();
+function spaFor(file) {
+  if (process.env.RX_SPA === "1") return true;
+  const fs = require("node:fs"), path = require("node:path");
+  const of = dir => {
+    if (spaDirs.has(dir)) return spaDirs.get(dir);
+    let v;
+    try { const t = fs.readFileSync(path.join(dir, "tsconfig.json"), "utf8"); let c; try { c = JSON.parse(t); } catch { c = JSON.parse(t.replace(/\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1")); } v = !!c?.reactivescript?.spa; }
+    catch { const up = path.dirname(dir); v = up === dir ? false : of(up); }
+    spaDirs.set(dir, v); return v;
+  };
+  return of(require("node:path").dirname(require("node:path").resolve(file)));
+}
+
+/** E-5a: the crate's diagnostics for every module `entry` loads, checked as a build checks them: `whole`, the loaded
+ *  modules as the whole program, with `hosts` the modules a JS host imports with ?rx-lib; `spa`, a client-only build. */
+function checkProgram(entry, { whole = false, hosts = [], spa = false } = {}) {
+  return ask("analyze", { file: entry, overlays: {}, prelude: undefined, whole, hosts, spa: spa || spaFor(entry), all: true });
 }
 
 /** Where a file's projection imports the prelude from: written once beside the nearest `node_modules`, so its own
@@ -91,4 +152,23 @@ function preludeFor(file) {
   return at;
 }
 
-module.exports = { analyze, preludeFor, rxcPath, wasmPath };
+/** TY-6: the boundary check for a `.d.rx` against the JS module it declares (`module`, as an import from beside it);
+ *  `text`: the declaration's text, where it is not the file's (a draft not yet written, MO-8m). */
+function boundary(file, module, text) {
+  return ask("boundary", text === undefined ? { file, module } : { file, module, text });
+}
+
+/** TY-4b: the `.d.ts` a `.d.rx` stands for, for a JS module with no TypeScript types of its own. */
+function declaration(file) {
+  return ask("declaration", { file });
+}
+
+/** MO-8k: the declaration a package import from `file` finds (rx-types/, the package's, @rx-types, generated), or null. */
+function lookup(file, spec) {
+  return ask("lookup", { file, spec });
+}
+/** MO-8j, TY-7: a declaration file's rows as the parser reads them: `{ rows: [{ name, kind, line, end, obligations }] }`. */
+function rows(file, text) {
+  return ask("rows", text === undefined ? { file } : { file, text });
+}
+module.exports = { ask, analyze, checkProgram, preludeFor, boundary, declaration, lookup, rows, wasmPath, wordsPath };

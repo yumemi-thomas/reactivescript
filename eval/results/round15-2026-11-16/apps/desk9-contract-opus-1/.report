@@ -1,0 +1,7 @@
+I built the issue desk in `/tmp/claude-0/runs/r15/desk9-contract-opus-1/app.contract` and `/tmp/claude-0/runs/r15/desk9-contract-opus-1/app.ts`, and all 30 visible tests pass. Every optimistic change (assign, rename, close, posting, labels and the row actions) goes through the data module's `overlay`, so when the server declines, the change is undone and the error message shows. I added extra tests for declines, retries, the open-issue count and settings save failures, and they passed. I then removed them, so `tests/visible.mjs` is back to the original 30.
+
+Things I was unsure about:
+- **Pages are switched by a state value, not routes.** That makes leaving a page discard it, but a page has no URL of its own.
+- **Extra fetches after writes:** after each write the app asks the server for the changed data again (the list, detail, comments or labels).
+- **Related help after a rename:** it searches again with the new title while the rename is pending.
+- **Help selection:** a selected help hit stays selected when the query changes; the brief doesn't say either way.

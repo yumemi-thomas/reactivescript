@@ -1,0 +1,9 @@
+// @solid-primitives/masonry: items laid out in columns by their heights.
+import { createMasonry } from "@solid-primitives/masonry"
+
+export default component App() {
+  source columns := 2
+  source cards := [{ name: "a", height: 100 }, { name: "b", height: 50 }, { name: "c", height: 60 }]
+  masonry = createMasonry({ source: () => cards, columns: 2, mapHeight: (card: { name: string, height: number }) => card.height })
+  <p>{masonry().length} cards, {masonry.height()}px tall</p>
+}

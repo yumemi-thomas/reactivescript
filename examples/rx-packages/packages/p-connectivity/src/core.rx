@@ -1,0 +1,11 @@
+// createConnectivitySignal. Derived from @solid-primitives/connectivity 1.0.0 (MIT, see ../NOTICE).
+import client { onWindow } from "@reactivescript/std/browser"
+import pure { online } from "./dom.js"
+export fn createConnectivitySignal() {
+  source on_ := true
+  effect () { on_ := online()
+    let a = onWindow("online", () => { on_ := true })
+    let b = onWindow("offline", () => { on_ := false })
+    return () => { a(); b() } }
+  on_
+}

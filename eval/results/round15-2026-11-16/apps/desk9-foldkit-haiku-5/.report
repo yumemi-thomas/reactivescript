@@ -1,0 +1,3 @@
+I built the issue desk in `/tmp/claude-0/runs/r15/desk9-foldkit-haiku-5/src` (`main.ts` re-exports `Model`, `Message`, `init`, `update`, `view`; logic in `model.ts`, `message.ts`, `update.ts`, `view.ts`). Two of the 15 `./test` runs were used, and all 30 visible tests pass with `tsc` clean. Stale results are dropped by a per-visit counter, and optimistic changes roll back on decline.
+
+Unsure about: the brief gives no text for some controls, so I chose `assign error: declined`, `add label`, `save`, and `retry`. I also made rename, post, and add-label no-ops while the issue's detail, comments, or labels are still loading, since they need that data to act.

@@ -7,6 +7,9 @@
   ],
   "patterns": [
     {
+      "include": "#export-declaration"
+    },
+    {
       "include": "#style"
     },
     {
@@ -45,11 +48,92 @@
           "include": "source.css"
         }
       ]
+    },
+    "export-declaration": {
+      "comment": "A leading `export` puts source.tsx in its export-expression state, where a component's body reads as an object literal and its markup as comparisons, and a declaration's parameter types as plain names. Only a component can be a default export (spec Decl). `export` before `pure`, `server` or `client`, and before an equation, is already matched by the injections below.",
+      "match": "^\\s*(export)\\s+(?:(default)\\s+(?=component\\s+[A-Za-z_$])|(?=(?:component|fn|action|source|context|error|deferred)\\s+[A-Za-z_$]))",
+      "captures": {
+        "1": {
+          "name": "keyword.control.export.rx"
+        },
+        "2": {
+          "name": "keyword.control.default.rx"
+        }
+      }
+    },
+    "control-block": {
+      "comment": "A block after one of .rx's control headers (spec Control: `{for x in E {`, `{if E {`, `} else {`, `fallback (e) {`) holds markup and statements, as a component body does. source.tsx would read it as an object literal and its markup as comparisons. A header opens the rule only when a `{` follows on its line, so the same words in markup text or in TypeScript without a block can't leave a scope open. The rule ends after the last block, so `fallback { ... } { ... }` and `} else {` stay inside it.",
+      "begin": "(?:(?<=\\{)|^)\\s*(for)\\s+([A-Za-z_$][\\w$]*)\\s+(in)(?![\\w$])(?=[^\\n]*\\{)|(?<=\\{)\\s*(if)(?![\\w$])(?!\\s*[:?,)=])(?=[^\\n]*\\{)|(?:(?<=\\})|(?<=\\}\\s)|^\\s*)(else)(?![\\w$])(?=[^\\n]*\\{)|\\b(fallback)(?![\\w$])(?=\\s*[({])(?=[^\\n]*\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.loop.rx"
+        },
+        "2": {
+          "name": "variable.parameter.rx"
+        },
+        "3": {
+          "name": "keyword.control.loop.rx"
+        },
+        "4": {
+          "name": "keyword.control.conditional.rx"
+        },
+        "5": {
+          "name": "keyword.control.conditional.rx"
+        },
+        "6": {
+          "name": "keyword.control.boundary.rx"
+        }
+      },
+      "end": "(?<=\\})(?!\\s*(?:\\{|else\\b))",
+      "patterns": [
+        {
+          "begin": "\\{",
+          "end": "\\}",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.block.rx"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.block.rx"
+            }
+          },
+          "name": "meta.block.control.rx",
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        },
+        {
+          "match": "\\b(else)(?![\\w$])",
+          "captures": {
+            "1": {
+              "name": "keyword.control.conditional.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(if)(?![\\w$])",
+          "captures": {
+            "1": {
+              "name": "keyword.control.conditional.rx"
+            }
+          }
+        },
+        {
+          "include": "source.tsx#expression"
+        }
+      ]
     }
   },
   "injections": {
     "L:source.rx -comment -string -meta.embedded.block.css": {
       "patterns": [
+        {
+          "include": "#control-block"
+        },
         {
           "name": "comment.line.double-slash.rx",
           "match": "//.*$"

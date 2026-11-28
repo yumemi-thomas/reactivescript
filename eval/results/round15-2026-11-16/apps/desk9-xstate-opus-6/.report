@@ -1,0 +1,9 @@
+I built the issue desk in React 19 with XState v5. A root app machine invokes one machine per page, so leaving a tab stops that page and opening it again starts it fresh. The open-issue count lives in the root machine, because it has to outlive the pages. Loads are invoked `fromPromise` actors tied to states, so a stale answer (from an earlier filter, issue, query or hit) is dropped. Each optimistic change (assign, rename, close, post, label, save) is its own spawned request actor: the screen shows the server's data with the changes still waiting applied on top, so a decline puts back exactly what was there. `./check` passes and `./test` passes 30/30, using 4 of the 15 runs.
+
+Where the brief was unclear I chose:
+- **Related hit:** the help page opens with the related search's results already filled in rather than searching again.
+- **Overlapping assigns or renames:** an error shows only for the latest one from the detail.
+- **Leaving the page:** a close still in the air is dropped, so the count keeps its last number.
+- **Title input:** it is not cleared after a rename.
+
+The code is in `/tmp/claude-0/runs/r15/desk9-xstate-opus-6/src/App.tsx`, with the machines in `src/machines/` and the page components in `src/pages/`.

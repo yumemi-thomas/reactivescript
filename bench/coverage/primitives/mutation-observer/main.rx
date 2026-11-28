@@ -1,0 +1,13 @@
+// @solid-primitives/mutation-observer: changes to an element's children are counted.
+import { createMutationObserver } from "@solid-primitives/mutation-observer"
+
+export default component App() {
+  source list: HTMLUListElement | undefined := undefined
+  source seen := 0
+  source items := ["one"]
+  [observe] = createMutationObserver([], (records: MutationRecord[]) => { seen := n => n + records.length })
+  effect (list) { if ($0 != undefined) { observe($0, { childList: true }) } }
+  <ul ref={(el: HTMLUListElement) => { list := el }}>{for item in items { <li>{item}</li> }}</ul>
+  <p>{seen > 0 ? "changes seen" : "no change yet"}</p>
+  <button onClick={() => { items := xs => [...xs, "two"] }}>add</button>
+}

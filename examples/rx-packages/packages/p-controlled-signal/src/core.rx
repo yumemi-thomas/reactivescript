@@ -1,0 +1,27 @@
+// createControllableSignal and createToggleState. Derived from @solid-primitives/controlled-signal 1.0.0 (MIT, see ../NOTICE).
+export type Props<T> = { value?: T; defaultValue?: T; onChange?: (v: T) => void }
+/** The caller's value while it gives one, else its own; a write tells `onChange` when it changes the value. */
+export fn createControllableSignal<T>(ref props: Props<T>) {
+  source mine: T | undefined := peek(props.defaultValue)
+  now = props.value !== undefined ? props.value : mine
+  action set(next: T) {
+    if (next !== now) {
+      if (props.value === undefined) { mine := () => next }
+      if (props.onChange) { props.onChange(next) }
+    }
+  }
+  [now, set]
+}
+export type ToggleProps = { isSelected?: boolean; defaultIsSelected?: boolean; onSelectedChange?: (v: boolean) => void; isDisabled?: boolean; isReadOnly?: boolean }
+export fn createToggleState(ref props: ToggleProps) {
+  source mine := peek(props.defaultIsSelected) ?? false
+  now = props.isSelected ?? mine
+  action setIsSelected(v: boolean) {
+    if (!props.isReadOnly && !props.isDisabled && v != now) {
+      if (props.isSelected == undefined) { mine := v }
+      if (props.onSelectedChange) { props.onSelectedChange(v) }
+    }
+  }
+  action toggle() { setIsSelected(!now) }
+  { isSelected: now, setIsSelected: setIsSelected, toggle: toggle }
+}

@@ -1,0 +1,253 @@
+import pure { fetchIssues, fetchIssue, fetchComments, fetchLabels, search } from "./api"
+import { assign, renameIssue, closeIssue, addComment, addLabel, removeLabel } from "./api"
+
+error IssueNotFound(id: number) => `issue #${id} not found`
+
+// The open-issue count the tab shows. Written by the open list through setOpenCount, read by the app.
+export source openCount: number | null := null
+
+export action setOpenCount(n: number) {
+  openCount := n
+}
+
+fn found(it, id: number) => it == null ? throw IssueNotFound(id) : it
+fn titleOf(rs, id: number, base: string) => rs.reduce((t, r) => (r.id == id ? r.title : t), base)
+fn assigneeOf(gs, id: number, base) => gs.reduce((a, g) => (g.id == id ? g.assignee : a), base)
+
+component OpenCount(props: { n: number }) {
+  effect (props.n) { setOpenCount($0) }
+  <span hidden />
+}
+
+component Related(props: { q: string; onHelp: (q: string, id: number) => void }) {
+  hits = await search(props.q)
+  <div data-testid="related">
+    {errored fallback(e) { <p>related help failed: {e.message}</p> } {
+      loading fallback { <p>finding related help</p> } {
+        if hits.length == 0 {
+          <p>no related help</p>
+        } else {
+          <div>
+            {for h in hits.slice(0, 3) {
+              <button data-testid="related-hit" onClick={() => { props.onHelp(props.q, h.id) }}>{h.name}</button>
+            }}
+          </div>
+        }
+      }
+    }}
+  </div>
+}
+
+export component IssuesPage(props: { onHelp: (q: string, id: number) => void }) {
+  source user := "guest"
+  source filter := "open"
+  source selected := 0
+  source dRename := ""
+  source dComment := ""
+  source dLabel := ""
+
+  // in-flight writes: guesses over constant lists, laid over the answers below
+  source assignG: { id: number; assignee: string }[] = []
+  source renameG: { id: number; title: string }[] = []
+  source closeG: number[] = []
+  source postG: { id: number; author: string; text: string }[] = []
+  source addG: { id: number; label: string }[] = []
+  source removeG: { id: number; label: string }[] = []
+
+  // errors that outlive their action
+  source assignError := ""
+  source renameError := ""
+  source closeError := ""
+  source postError := ""
+  source labelError := ""
+  source rowError := ""
+
+  // server answers
+  issues key id = await fetchIssues(filter)
+  shown key id = issues.filter(i => !(filter == "open" && closeG.some(c => c == i.id))).map(i => ({ id: i.id, title: titleOf(renameG, i.id, i.title), assignee: assigneeOf(assignG, i.id, i.assignee) }))
+  detail = selected == 0 ? { id: 0, title: "", body: "" } : found(await fetchIssue(selected), selected)
+  comments = selected == 0 ? [] : await fetchComments(selected)
+  labels = selected == 0 ? [] : await fetchLabels(selected)
+  shownLabels = labels.filter(l => !removeG.some(r => r.id == selected && r.label == l)).concat(addG.filter(a => a.id == selected && !labels.some(l => l == a.label)).map(a => a.label))
+  pendingPosts = postG.filter(p => p.id == selected)
+
+  action assignOne(id: number, who: string, row: boolean) {
+    onFlush(() => {
+      if (row) { rowError := "" } else { assignError := "" }
+    })
+    try {
+      guess assignG := gs => [...gs, { id: id, assignee: who }]
+      await assign(id, who)
+      refresh issues
+    } catch (e) {
+      if (row) { rowError := e.message } else { assignError := e.message }
+    }
+  }
+
+  action closeOne(id: number, row: boolean) {
+    onFlush(() => {
+      if (row) { rowError := "" } else { closeError := "" }
+    })
+    try {
+      guess closeG := cs => [...cs, id]
+      await closeIssue(id)
+      refresh issues
+    } catch (e) {
+      if (row) { rowError := e.message } else { closeError := e.message }
+    }
+  }
+
+  action renameOne(id: number, title: string) {
+    onFlush(() => { renameError := "" })
+    try {
+      guess renameG := rs => [...rs, { id: id, title: title }]
+      await renameIssue(id, title)
+      refresh issues
+      refresh detail
+    } catch (e) {
+      renameError := e.message
+    }
+  }
+
+  action postOne(id: number, who: string, text: string) {
+    onFlush(() => { postError := "" })
+    try {
+      guess postG := ps => [...ps, { id: id, author: who, text: text }]
+      await addComment(id, who, text)
+      refresh comments
+    } catch (e) {
+      postError := e.message
+    }
+  }
+
+  action addOne(id: number, label: string) {
+    onFlush(() => { labelError := "" })
+    try {
+      guess addG := gs => [...gs, { id: id, label: label }]
+      await addLabel(id, label)
+      refresh labels
+    } catch (e) {
+      labelError := e.message
+    }
+  }
+
+  action removeOne(id: number, label: string) {
+    onFlush(() => { labelError := "" })
+    try {
+      guess removeG := gs => [...gs, { id: id, label: label }]
+      await removeLabel(id, label)
+      refresh labels
+    } catch (e) {
+      labelError := e.message
+    }
+  }
+
+  <div>
+    <div>
+      <label>user <input data-testid="user" value={user} onInput={(e) => { user := e.target.value }} /></label>
+      <button data-testid="filter-open" onClick={() => { filter := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { filter := "closed" }}>closed</button>
+    </div>
+
+    <section data-testid="list">
+      {loading on(filter) fallback { <p>loading {filter} issues</p> } {
+        errored fallback(e) { <p>list error: {e.message}</p> } {
+          <ul>
+            {for r in shown {
+              <li>
+                <span data-testid="issue" onClick={() => {
+                  selected := r.id
+                  onFlush(() => { dRename := ""; assignError := ""; renameError := ""; closeError := ""; postError := ""; labelError := "" })
+                }}>#{r.id} {r.title} ({r.assignee == null ? "unassigned" : r.assignee})</span>{" "}
+                <button data-testid="row-assign" onClick={() => { assignOne(r.id, user, true) }}>assign to {user}</button>{" "}
+                {if filter == "open" {
+                  <button data-testid="row-close" onClick={() => { closeOne(r.id, true) }}>close</button>
+                }}
+              </li>
+            }}
+          </ul>
+          {if filter == "open" { <OpenCount n={shown.length} /> }}
+        }
+      }}
+    </section>
+    {if rowError != "" { <p data-testid="row-error">row error: {rowError}</p> }}
+
+    <section data-testid="detail">
+      {if selected == 0 {
+        <p>select an issue</p>
+      } else {
+        <div>
+          <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+          {loading on(selected) fallback { <p>loading #{selected}</p> } {
+            errored fallback(e) { <p>detail error: {e.message}</p> } {
+              <h2>#{detail.id} {titleOf(renameG, detail.id, detail.title)}</h2>
+              <p>{detail.body}</p>
+              <Related q={detail.title} onHelp={props.onHelp} />
+            }
+          }}
+          <p>
+            <button data-testid="assign" onClick={() => { assignOne(selected, user, false) }}>assign to {user}</button>
+          </p>
+          {if assignError != "" { <p>assign error: {assignError}</p> }}
+          <p>
+            <input data-testid="title-input" value={dRename} onInput={(e) => { dRename := e.target.value }} />
+            <button data-testid="rename" onClick={() => { if (dRename != "") { renameOne(selected, dRename) } }}>rename</button>
+          </p>
+          {if renameError != "" { <p>rename error: {renameError}</p> }}
+          <p>
+            <button data-testid="close" onClick={() => { closeOne(selected, false) }}>close</button>
+          </p>
+          {if closeError != "" { <p>close error: {closeError}</p> }}
+
+          <section data-testid="comments">
+            {loading on(selected) fallback { <p>loading comments</p> } {
+              errored fallback(e) { <p>comments error: {e.message}</p> } {
+                <ul>
+                  {for c in comments { <li data-testid="comment">{c.author}: {c.text}</li> }}
+                  {for p in pendingPosts { <li data-testid="comment">{p.author}: {p.text} (sending…)</li> }}
+                </ul>
+              }
+            }}
+          </section>
+          <p>
+            <input data-testid="comment-input" value={dComment} onInput={(e) => { dComment := e.target.value }} />
+            <button data-testid="post" onClick={() => {
+              if (dComment != "") {
+                let t = dComment
+                onFlush(() => { dComment := "" })
+                postOne(selected, user, t)
+              }
+            }}>post</button>
+          </p>
+          {if postError != "" { <p>post error: {postError}</p> }}
+
+          <section data-testid="labels">
+            {loading on(selected) fallback { <p>loading labels</p> } {
+              errored fallback(e) { <p>labels error: {e.message}</p> } {
+                <ul>
+                  {for l in shownLabels {
+                    <li>
+                      <span data-testid="label">{l}</span>{" "}
+                      <button data-testid="remove-label" onClick={() => { removeOne(selected, l) }}>remove {l}</button>
+                    </li>
+                  }}
+                </ul>
+                <p>
+                  <input data-testid="label-input" value={dLabel} onInput={(e) => { dLabel := e.target.value }} />
+                  <button data-testid="add-label" onClick={() => {
+                    if (dLabel != "" && !shownLabels.some(x => x == dLabel)) {
+                      let l = dLabel
+                      onFlush(() => { dLabel := "" })
+                      addOne(selected, l)
+                    }
+                  }}>add label</button>
+                </p>
+              }
+            }}
+          </section>
+          {if labelError != "" { <p>label error: {labelError}</p> }}
+        </div>
+      }}
+    </section>
+  </div>
+}

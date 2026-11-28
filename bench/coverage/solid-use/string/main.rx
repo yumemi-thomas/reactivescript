@@ -1,0 +1,10 @@
+// solid-use/string: a reactive string from a tagged template (greeting.js). In `.rx` a template is the same value,
+// `\`Hello ${name}\``; a module of the app's own shows the library's.
+import { createGreeting } from "./greeting.js"
+
+export default component App() {
+  source name := "Ada"
+  greeting = createGreeting(name)
+  <p>{greeting}</p>
+  <button onClick={() => { name := "Grace" }}>next</button>
+}

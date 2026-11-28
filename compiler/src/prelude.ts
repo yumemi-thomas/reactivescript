@@ -4,17 +4,26 @@ export declare function await_<T>(v: T): Awaited<T>;
 export declare function awaitS<T>(v: T): T extends AsyncIterable<infer U> ? U : Awaited<T>;
 /** R-1: Solid's memo consumes a promise or a stream its function returns, so an equation's value is never one — `await` says
  *  where it enters (`any`: not known here; Solid still consumes it). */
-type Async<T> = 0 extends (1 & T) ? false : true extends (T extends PromiseLike<any> | AsyncIterable<any> ? true : false) ? true : false;
-export declare function eq<T>(v: T, ok: Async<T> extends true ? "MISSING_AWAIT: an equation's value is a promise or a stream, which Solid consumes; write await e (or await* e for a stream)" : true): T;
+/** [1]: a promise or a stream. Read by its length, so that a type parameter's, which is not known, is neither (TY-2): TypeScript
+ *  takes `true` for a conditional it cannot decide when no instance of its check is sure to match. */
+type Async<T> = 0 extends (1 & T) ? [] : true extends (T extends PromiseLike<any> | AsyncIterable<any> ? true : false) ? [1] : [];
+export declare function eq<T>(v: T, ok: [...Async<T>]["length"] extends 1 ? "MISSING_AWAIT: an equation's value is a promise or a stream, which Solid consumes; write await e (or await* e for a stream)" : true): T;
 export declare function first<T, I>(v: T, init: I): T | I;
 export declare function pre<T>(init?: T): T;
 export declare function pending(v: unknown): boolean;
-/** RG-4b: an object rest, \`{ a, ...rest } = e\` (Solid's \`omit\`). */
+/** RG-4b: an object rest, `{ a, ...rest } = e` (Solid's `omit`). */
 export declare function omit<T, K extends string>(v: T, ...keys: K[]): Omit<T, K>;
 export declare function caught<T, R>(v: T, alt: (e: any) => R): T | R;
 export declare function raise(e: unknown): never;
-/** W-1/W-6: a write checks its value (or its function of the slot) against the target — whose type alone decides it. */
-export declare function set<T>(target: T): (v: T | ((p: T) => T)) => void;
+/** W-1/W-6: a write checks its value (or its function of the slot) against the target — whose type alone decides it. A
+ *  function is applied, so one is no value here, whatever the target holds: Solid's Setter says the same. */
+/** What a source of T is written with (W-6: a function is applied to what it held, so a function is no value to write).
+ *  A type parameter may be a function, so no value of it is one to write: `x := () => v` stores `v` for every T. The
+ *  name is the one the tooling's message reads (tooling/rx-language-server/src/checker.js, `written`). */
+type Written<T> = Exclude<T, Function>;
+export declare function set<T>(target: T): (v: Written<T> | ((p: T) => T)) => void;
+/** …at a path, a draft's too: a function is applied to the path's value there as well (W-6). */
+export declare function setAt<T>(target: T): (v: Written<T> | ((p: T) => T)) => void;
 /** A source's type when none is written: its initializer's, widened — a source is written later (`""` is a string,
  *  `null` and `[]` say nothing yet). With a written type, `src<T>` is that type, not what the initializer narrows it to. */
 export type Widen<T> = 0 extends (1 & T) ? any : [T] extends [null | undefined] ? any : [T] extends [never[]] ? any[] : [T] extends [string] ? string : [T] extends [number] ? number : [T] extends [boolean] ? boolean : T;
@@ -30,12 +39,15 @@ export declare function wire<A extends unknown[], R>(f: (...a: A) => Promise<R>,
 /** 07 §6: a view (`props.children: View`); R-f-10: the class a panic is. */
 export type View = JSX.Element;
 export type Panic = Error;
+/** CP-4a: an entry's default export, a function of the app (`createApp`'s, either build) giving the view `app.mount` takes. */
+export type Main = (app: object) => () => View;
 export interface Ctx<T> { readonly __ctx: T }
-export declare function ctx<T>(d?: T): Ctx<T>;
+export declare function ctx<T>(d?: () => T): Ctx<T>;   // the default is read where a part asks for it (it may name what the module declares after the context)
 export declare function use<T>(c: Ctx<T>): T;
 export declare function provide<T>(c: Ctx<T>, v: NoInfer<T>): void;
+export declare function provideOr<T>(c: Ctx<T>, v: NoInfer<T> | undefined): void;
 export declare function effect(f: () => void | (() => void)): void;
-export declare function draft<T>(seed: T, f: (d: T) => void): T;
+export declare function draft<S, T = S>(seed: S, f: (d: T) => void): T;   // ST-3: the draft has the equation's type where one is written, else its seed's
 export declare function len(x: unknown): number;
 export declare function until<T>(p: () => T): Promise<Exclude<T, false | 0 | "" | null | undefined>>;   // AC-6: Solid's until — the first truthy value
 export declare function onSettled(f: () => void): void;                   // EF-7: imperative scope only, so no cleanup return
@@ -44,7 +56,9 @@ export declare function str(x: unknown): string;
 export declare function map<X, U>(xs: X, f: (x: ElemOf<X>, i: number) => U): U[];
 export declare function filter<X>(xs: X, f: (x: ElemOf<X>) => unknown): ElemOf<X>[];
 export declare function every<X>(xs: X, f: (x: ElemOf<X>) => unknown): boolean;
+export declare function indexOf<X>(xs: X, f: (x: ElemOf<X>) => unknown): number;
 export declare function sum(xs: readonly number[]): number;
 export declare function fail(msg: string): never;
 export declare function fetch(key: string): Promise<any>;
 export declare function log(...a: unknown[]): void;
+export declare function view<T>(v: T): Extract<T, (s: any) => any>;   // RG-4c: `<props.children … />` where it is optional, or plain content is taken as well

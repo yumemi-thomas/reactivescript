@@ -1,0 +1,17 @@
+// @solid-primitives/promise: a promise that settles after a time, awaited by an action.
+import { promiseTimeout } from "@solid-primitives/promise"
+
+export default component App() {
+  source state := "ready"
+  action wait() {
+    state := "waiting"
+    try {
+      await promiseTimeout(60)
+      state := "done"
+    } catch (e) {
+      state := "failed"
+    }
+  }
+  <p>{state}</p>
+  <button onClick={wait}>wait</button>
+}

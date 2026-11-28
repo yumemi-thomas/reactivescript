@@ -1,0 +1,11 @@
+// createSpring: a value that moves toward its target. Derived from @solid-primitives/spring 1.0.0 (MIT, see ../NOTICE); the stepping is the original's makeSpring.
+import client { spring } from "./dom.js"
+export fn createSpring(initial: any, ref options: any) {
+  source value: any := initial
+  source moving := false
+  s = spring(initial, (v, m) => { value := () => v
+    moving := m })
+  action set(target: any, opts: any) { try { await s.set(target, options, opts) } catch (e) { } }
+  effect () { return s.stop }
+  [value, set, { isAnimating: moving }]
+}

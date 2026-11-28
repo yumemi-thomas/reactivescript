@@ -1,0 +1,17 @@
+// A counter on solid-use's atom and its own injection: the count is an atom, the theme is provided to whatever is
+// rendered inside its scope. atom.js and theme.js give the library's shapes names `.rx` can declare.
+import { createAtom } from "./atom.js"
+import { ThemeScope, useTheme } from "./theme.js"
+
+component Badge(props: { count: number }) {
+  theme = useTheme()
+  <b class={theme}>{props.count} in {theme}</b>
+}
+
+export default component App() {
+  source dark: boolean := false
+  [count, setCount] = createAtom(0)
+  <ThemeScope value={dark ? "dark" : "light"}><Badge count={count} /></ThemeScope>
+  <button class="add" onClick={() => { setCount(count + 1) }}>add</button>
+  <button class="dark" onClick={() => { dark := true }}>dark</button>
+}

@@ -1,0 +1,7 @@
+// solid-use/page-visibility: in view, or hidden, as a value.
+import { default as usePageVisibility } from "solid-use/page-visibility"
+
+export default component App() {
+  status = usePageVisibility()
+  <p>{status ? "in view" : "hidden"}</p>
+}

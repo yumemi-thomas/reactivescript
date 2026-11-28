@@ -1,0 +1,17 @@
+// @solid-primitives/keyed: a list keyed by a field, each row given an accessor of its item; an element for the empty list.
+import { Key } from "@solid-primitives/keyed"
+
+component Nobody() {
+  <li>nobody yet</li>
+}
+
+export default component App() {
+  source people := [{ id: 1, name: "Ada" }, { id: 2, name: "Grace" }]
+  <ul>
+    <Key each={[...people]} by="id" fallback={Nobody}>
+      {view (person, index) { <li>{index() + 1}. {person().name}</li> }}
+    </Key>
+  </ul>
+  <button onClick={() => { people := ps => [...ps, { id: 3, name: "Alan" }] }}>add</button>
+  <button id="clear" onClick={() => { people := [] }}>clear</button>
+}

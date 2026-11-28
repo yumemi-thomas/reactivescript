@@ -1,0 +1,9 @@
+// @solid-primitives/presence: an element kept mounted while it animates out.
+import { createPresence } from "@solid-primitives/presence"
+
+export default component App() {
+  source open := true
+  presence = createPresence(open ? "panel" : undefined, { transitionDuration: 60 })
+  <p>{presence.isMounted() ? (presence.isVisible() ? "shown" : "leaving") : "gone"}</p>
+  <button onClick={() => { open := false }}>close</button>
+}

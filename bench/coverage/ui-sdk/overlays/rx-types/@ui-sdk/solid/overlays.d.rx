@@ -1,0 +1,3 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export component OverlayHost(props: OverlayHostProps)
+export type OverlayHostProps = import("@ui-sdk/solid/overlays").OverlayHostProps

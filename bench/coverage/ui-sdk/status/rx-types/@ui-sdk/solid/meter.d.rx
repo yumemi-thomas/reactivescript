@@ -1,0 +1,8 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type MeterState = import("@ui-sdk/solid/meter").MeterState
+export type MeterValueState = import("@ui-sdk/solid/meter").MeterValueState
+export component Meter(props: Parameters<typeof import("@ui-sdk/solid/meter").Meter>[0] & { getValueLabel?: (value: number, details: { formatted: string; percent: number; min: number; max: number; }) => string; render?: (props: Record<string, any>, state: NoInfer<MeterState>) => View })
+export component MeterIndicator(props: Parameters<typeof import("@ui-sdk/solid/meter").MeterIndicator>[0] & { render?: (props: Record<string, any>, state: NoInfer<MeterState>) => View })
+export component MeterLabel(props: Parameters<typeof import("@ui-sdk/solid/meter").MeterLabel>[0] & { render?: (props: Record<string, any>, state: NoInfer<MeterState>) => View })
+export component MeterTrack(props: Parameters<typeof import("@ui-sdk/solid/meter").MeterTrack>[0] & { render?: (props: Record<string, any>, state: NoInfer<MeterState>) => View })
+export component MeterValue(props: Parameters<typeof import("@ui-sdk/solid/meter").MeterValue>[0] & { render?: (props: Record<string, any>, state: NoInfer<MeterValueState>) => View })

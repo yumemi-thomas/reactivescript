@@ -1,0 +1,8 @@
+// @solid-primitives/form: a form's fields, values and validity.
+import { createForm } from "@solid-primitives/form"
+
+export default component App() {
+  form = createForm({ fields: { name: { initial: "" } } })
+  <input class="name" onInput={(event: InputEvent & { currentTarget: HTMLInputElement }) => { form.fields.name.setValue(event.currentTarget.value) }} />
+  <p>{form.dirty ? "edited" : "untouched"}</p>
+}

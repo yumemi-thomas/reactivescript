@@ -1,0 +1,48 @@
+export type Instance = import("./bridge.js").Instance
+export type Scope = import("./bridge.js").Scope
+export type Named = import("./bridge.js").Named
+export type User = import("./bridge.js").User
+export type Part = import("./bridge.js").Part
+export type Attrs = import("./bridge.js").Attrs
+export pure fn create<I extends Instance>(primitive: (options: any) => I, ref options: object): I instantiates
+export pure fn apiOf<I extends Instance>(instance: I): I["api"]
+export pure fn uniqueId(): string instantiates
+export pure fn partOf(instance: Instance, slot: string, named: Named): Part
+export pure fn attrsOf(part: Part, named: Named, user: User, options: object, tick: number): Attrs
+export pure fn stateOf(ref part: Part, ref named: Named, ref options: object, ref tick: number): any instantiates
+export pure fn presentOf(part: Part, named: Named, options: object, tick: number): boolean
+export fn setOptions(instance: Instance, options: object): void
+export fn listen(part: Part, changed: handler (live: boolean) => void): () => void
+export pure fn binder(ref part: Part): (el: Element) => void instantiates
+export fn fire(part: Part, type: string, event: Event, user: any): void
+export fn give(user: any, el: Element): void
+export pure fn classOf(value: any, state: any): any
+export pure fn styleOf(value: any, state: any, own: any): any
+export pure fn viewOf(value: any, state?: any): View
+// `element` is merged into the props an element is rendered with: its `ref` and `on…` are that element's handlers
+export pure fn elementProps(ref rest: any, ref element: { ref?: handler (el: any) => void; onClick?: handler (e: any) => void; onPointerEnter?: handler (e: any) => void; onPointerLeave?: handler (e: any) => void; onFocusIn?: handler (e: any) => void; onFocusOut?: handler (e: any) => void; onKeyDown?: handler (e: any) => void; onKeyUp?: handler (e: any) => void; [k: string]: any }, props: any, state: any, other?: any): Attrs instantiates
+export pure fn register(ref controller: object | null | undefined, ref scope: Scope): boolean instantiates
+export pure fn entryOf(ref controller: object | null | undefined): ref Scope | undefined
+export pure fn portalTarget(container: Element | DocumentFragment | null | undefined): Element | DocumentFragment | null
+export type ToggleInstance = import("./bridge.js").ToggleInstance
+export type ToggleGroupInstance = import("./bridge.js").ToggleGroupInstance
+export type ToggleProps = import("./bridge.js").ToggleProps
+export type ToggleState = import("./bridge.js").ToggleState
+export type DialogTriggerState = import("./bridge.js").DialogTriggerState
+export type ToggleIconProps = import("./bridge.js").ToggleIconProps
+export type ToggleGroupProps = import("./bridge.js").ToggleGroupProps
+export type TabsProps = import("./bridge.js").TabsProps
+export type TabsListProps = import("./bridge.js").TabsListProps
+export type TabsTabProps = import("./bridge.js").TabsTabProps
+export type TabsTabIconProps = import("./bridge.js").TabsTabIconProps
+export type TabsIndicatorProps = import("./bridge.js").TabsIndicatorProps
+export type TabsPanelProps = import("./bridge.js").TabsPanelProps
+export type Container = import("./bridge.js").Container
+export type DialogProps = import("./bridge.js").DialogProps
+export type DialogTriggerProps = import("./bridge.js").DialogTriggerProps
+export type DialogBackdropProps = import("./bridge.js").DialogBackdropProps
+export type DialogContentProps = import("./bridge.js").DialogContentProps
+export type DialogTitleProps = import("./bridge.js").DialogTitleProps
+export type DialogDescriptionProps = import("./bridge.js").DialogDescriptionProps
+export type DialogCloseProps = import("./bridge.js").DialogCloseProps
+export type DialogShortcutProps = import("./bridge.js").DialogShortcutProps

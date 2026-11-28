@@ -1,0 +1,5 @@
+export type Keen = { next: () => void; prev: () => void; go: (i: number, ms?: number) => void; update: (o: any) => void; count: () => number; at: () => number; destroy: () => void; slides: () => Element[] }
+export client fn mount(el: any, options: any, plugins: any[], changed: handler (i: number) => void): Keen
+export client fn watchSlides(el: any, f: handler () => void): () => void
+export fn mark(s: Keen, i: number, name: string): void
+export fn indexIn(s: Keen, target: any): number

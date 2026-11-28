@@ -1,0 +1,24 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+// UI SDK's Dialog in rows, as `rx-declare @ui-sdk/solid/dialog` drafts it, kept to the parts the app uses. The context
+// the root shares with its parts is the app's own claim (each part run alone and inside its root, 2026-11-25 — a part outside it throws "<DialogClose> must be used inside <Dialog>"; the trigger does not, and
+// has no word). By hand: the root's `onOpenChange` is called later (`handler`).
+export context dialog
+export type DialogBackdropState = import("@ui-sdk/solid/dialog").DialogBackdropState
+export type DialogCloseState = import("@ui-sdk/solid/dialog").DialogCloseState
+export type DialogContentState<Payload = unknown> = import("@ui-sdk/solid/dialog").DialogContentState<Payload>
+export type DialogDismissAttemptDetails = import("@ui-sdk/solid/dialog").DialogDismissAttemptDetails
+export type DialogFinalFocus = import("@ui-sdk/solid/dialog").DialogFinalFocus
+export type DialogInitialFocus = import("@ui-sdk/solid/dialog").DialogInitialFocus
+export type DialogOpenChangeDetails<Reason extends string = DialogOpenChangeReason> = import("@ui-sdk/solid/dialog").DialogOpenChangeDetails<Reason>
+export type DialogPayloadChangeReason = import("@ui-sdk/solid/dialog").DialogPayloadChangeReason
+export type DialogTriggerProps = import("@ui-sdk/solid/dialog").DialogTriggerProps
+export type DialogTriggerState = import("@ui-sdk/solid/dialog").DialogTriggerState
+export type DialogProps = import("@ui-sdk/solid/dialog").DialogProps
+export type DialogOpenChangeReason = import("@ui-sdk/solid/dialog").DialogOpenChangeReason
+export component Dialog(props: DialogProps & { onOpenChangeComplete?: (open: boolean) => void; onDismissAttempt?: (details: DialogDismissAttemptDetails) => void; onOpenChange?: handler (open: boolean, details: DialogOpenChangeDetails) => void; onPayloadChange?: (payload: unknown, details: import("@ui-sdk/core").ChangeDetails<DialogPayloadChangeReason>) => void }) provides(dialog)
+export component DialogBackdrop(props: import("@ui-sdk/solid").PartProps<"div", DialogBackdropState> & { render?: (props: Record<string, any>, state: { open: boolean; nested: boolean; nestedOpen: boolean; }) => View }) uses(dialog)
+export component DialogClose(props: Parameters<typeof import("@ui-sdk/solid/dialog").DialogClose>[0] & { action?: (event: Event | undefined, details: import("@ui-sdk/core").ActionDetails) => unknown; render?: (props: Record<string, any>, state: NoInfer<DialogCloseState>) => View }) uses(dialog)
+export component DialogContent<Payload = unknown>(props: Omit<import("@solidjs/web").JSX.HTMLAttributes<HTMLDivElement> & import("@solidjs/web").JSX.Properties<HTMLDivElement>, "style" | "children" | "class"> & { class?: import("@solidjs/web").JSX.ClassValue | ((state: DialogContentState<Payload>) => import("@solidjs/web").JSX.ClassValue); style?: string | import("@solidjs/web").JSX.CSSProperties | ((state: DialogContentState<Payload>) => import("@solidjs/web").JSX.CSSProperties | string | undefined) | undefined; render?: import("@ui-sdk/solid").RenderProp<DialogContentState<Payload>> | undefined; children?: View | ((state: DialogContentState<Payload>) => View) } & import("@ui-sdk/core").PortalProps & { initialFocus?: DialogInitialFocus; finalFocus?: DialogFinalFocus; keepMounted?: boolean; inline?: boolean } & { render?: (props: Record<string, any>, state: DialogContentState<Payload>) => View }) uses(dialog)
+export component DialogDescription(props: Parameters<typeof import("@ui-sdk/solid/dialog").DialogDescription>[0] & { render?: (props: Record<string, any>, state: {}) => View }) uses(dialog)
+export component DialogTitle(props: Parameters<typeof import("@ui-sdk/solid/dialog").DialogTitle>[0] & { render?: (props: Record<string, any>, state: {}) => View }) uses(dialog)
+export component DialogTrigger(props: (Omit<import("@ui-sdk/solid").PartProps<"button", DialogTriggerState>, "value" | "onChange"> & Omit<DialogTriggerProps, "controller">) & Pick<DialogTriggerProps, "controller"> & { render?: (props: Record<string, any>, state: { open: boolean; disabled: boolean; }) => View })

@@ -1,0 +1,2 @@
+// Read from the code by rx-declare (09 MO-8v; it was by hand): every word (the module is the app's own).
+export fn createTotal(ref price: number, tax: number): ref number

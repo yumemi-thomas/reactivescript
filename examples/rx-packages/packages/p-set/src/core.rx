@@ -1,0 +1,7 @@
+// union, intersection, difference, symmetricDifference of two sets. Derived from @solid-primitives/set 1.0.0 (MIT, see ../NOTICE).
+import pure { has } from "./dom.js"
+import { from, setOf } from "@reactivescript/std/object"
+export fn union<T>(ref a: Set<T>, ref b: Set<T>): Set<T> => setOf([...from(a), ...from(b)])
+export fn intersection<T>(ref a: Set<T>, ref b: Set<T>): Set<T> => setOf(from(a).filter(x => has(b, x)))
+export fn difference<T>(ref a: Set<T>, ref b: Set<T>): Set<T> => setOf(from(a).filter(x => !has(b, x)))
+export fn symmetricDifference<T>(ref a: Set<T>, ref b: Set<T>): Set<T> => setOf([...from(a).filter(x => !has(b, x)), ...from(b).filter(x => !has(a, x))])

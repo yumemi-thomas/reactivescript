@@ -121,6 +121,14 @@ by default — see the list at the end.
   exists at JS module scope. (S-server-1: a second request, in flight at
   the same time, keeps its own shell while the first one's questions land.)
 
+- **SV-4a (The request) — proposed 2026-11-19.** The host gives the app
+  its request (the runtime's `createApp({ request })`), and the render runs
+  in Solid's request event for it, so a JS library that locates a server
+  render by that event sees the request being served: `@solidjs/router`
+  matches the page's URL from it (`compiler/test/ssr-router.mjs`). A
+  program's own code does not read the request; what it needs from it, a
+  route's params, comes through the library.
+
 ## SV-5 — What crosses: failures sent, panics redacted (ruled)
 
 - **SV-5a.** A failure whose class is declared — `error C(…)` in a `.rx`
@@ -130,7 +138,73 @@ by default — see the list at the end.
   so a typed boundary or catch decides the same on both sides (S-server-1:
   the `NotFound` boundary takes the `NotFound` the server sent). A class is
   identified by its declaration, not its name: two modules that each
-  declare `NotFound` declare two classes (as two contexts, MO-7).
+  declare `NotFound` declare two classes (as two contexts, MO-7). A JS module's
+  class (`export error C` in its `.d.rx`) is the JS class itself, on both
+  sides, identified by its declaration: the compiler writes it at the
+  import (`jsClass(NotFound, "app/people.d.rx#NotFound")`). That identity
+  is read from the declaration's own place and nothing else (ruled
+  2026-11-22): a package's specifier; or, for the app's own `.d.rx`, the
+  nearest `package.json` above it that has a name, then the path below it
+  (`shop/src/err.d.rx#Gone`; a `package.json` with no name, a
+  `{"type":"module"}` scope, is passed over); with no named one above, the
+  path below the nearest `package.json` above it (`err.d.rx#Gone`,
+  `lib/err.d.rx#Gone`); with none above at all, the file's own name. A
+  folder's own name, or any folder above the package, is never part of
+  it, so it holds no machine path and is the same in every checkout, on
+  every machine and from every entry: the earlier revisions took the
+  folder of the nearest `package.json` above the *entry* for the root of
+  an unnamed project, so a class in a nested unnamed scope was
+  `web/err.d.rx#Gone` from one entry and `err.d.rx#Gone` from another,
+  and two classes could be named alike in one build. An unnamed package
+  has nothing to tell its classes from another unnamed one's, and the
+  compiler does not guess: two declarations that would name a class
+  alike in one program are refused where they are loaded
+  (`DUPLICATE_WIRE_ID`, naming both and the fix, a `"name"` in the
+  `package.json` above one of them). So in an accepted program every
+  declared class has an identity of its own, and both builds agree on
+  it. A rejection of it that
+  a question awaits is sent with that identity: the nearest declared class
+  up the instance's prototype chain, whatever order the program declared
+  them in, so a `Child` of a declared `Base` is sent as `Child` when both
+  are declared and as `Base` when only `Base` is; the declared classes above
+  it go with it (`$classes`), so a client boundary typed with `Base` takes a
+  sent `Child`, giving it `Child`'s class where the client declares it. What is sent is a copy of the instance, of its
+  class (so `instanceof` and a typed boundary still hold on the server):
+  its message, its identity, and the fields its declaration names,
+  `export error HttpError(status, code)`; a bare `export error NotFound`
+  sends the message alone (revised 2026-11-21, after review: Solid
+  serializes an error with every field it holds, a library's `cause`, a
+  response's headers, the stack, so the library's own instance is never
+  the one sent). A field the declaration names that an instance does not
+  have is not sent, and the client reads `undefined` where the row says a
+  value: the failure is still sent as its class, and the server says so
+  once per class and field, naming the declaration, unless the row marks
+  the field optional, `export error HttpError(status, code?)` (revised
+  2026-11-21 after review: it was left out in silence). Each field is copied
+  as the copy's own data property, the value the instance read (revised
+  2026-11-21 after review: a class whose field is a getter, `get status()
+  { return 404 }`, made the copy refuse the assignment). What the client
+  gets back is guaranteed in these terms only: a typed boundary or catch
+  matches it by the identities sent (`$class`, `$classes`), `instanceof`
+  holds for the client's own declared class, and the message and declared
+  fields are there as data. It is not the library's instance rebuilt: the
+  client's object takes the class's prototype without running its
+  constructor, so state the constructor sets up (a private `#field`, a
+  closure, an undeclared property) is not there; a declared field the
+  class defines as a getter arrives as the value sent, own data that
+  shadows the getter, and any other getter or method runs against the
+  copy's data alone. Nothing checks a
+  JS class's fields before it runs (IO-3: the declaration is the trust
+  boundary). The copy is made at a boundary the app owns, an awaited
+  promise or `sendErrors`, and nowhere else (revised 2026-11-21: the first
+  draft marked the class's prototype, so every instance anywhere in the
+  server process was sendable once a program had declared it). A library that
+  serializes a rejection itself, before the program awaits it
+  (`@solidjs/router`'s `query` cache), is given one more boundary, an
+  adapter around the function it caches: `query(sendErrors(fetchPerson),
+  "person")`, from `@reactivescript/runtime`. It marks a rejection or
+  throw of a class the request's app declares, during that app's request
+  only; elsewhere, and on the client, it changes nothing.
 - **SV-5b.** Anything else that reaches a boundary is sent as the generic
   error: an `Error` whose message is Solid's `Internal Server Error`. That
   is every panic (R-f-3), and a rejection of an undeclared class — a JS
@@ -230,6 +304,100 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   as a `hydrated` divergence at the hydration instant until 2026-10-27; at
   `2c9fdd9` the served element is adopted.
 
+- **DV-26 (a failure after the shell, caught above the part) — Solid's,
+  2026-11-26** (`ref/oracle/repros/w3-error-through-a-part.mjs`, at the pin
+  and in 2.0.4; S-server-7). DV-9's fix draws the error fallback in the
+  streamed fragment where the `errored` boundary is right around the
+  `loading` that failed. With anything between them — the `loading` is in a
+  part, inside a `<b>` — the fragment is empty and marked failed: the page
+  shows nothing where the loading fallback was until the client takes it
+  over and draws the error fallback. Recorded as a `server` divergence; the
+  program is ordinary, and nothing is refused. Found by the third review
+  (`p3-err-aw-ifinner-app`); reduced to plain Solid by track 2, step c.
+  *Memo (2026-11-26):* the plain-Solid issue is drafted, not posted
+  (`solid-main.noindex/drafts/2-errored-stream-nested`): reproduced on main
+  (ad1f561), 2.0.4, 2.0.0, rc.23 and rc.21; the remainder of #4287, named as a
+  limit in #4303; the cause in the server `createErrorBoundary`'s
+  `renderOutcome`. *Memo (2026-11-28):* the before-shell case is **fixed on
+  Solid main 510bb8d01** by solidjs/solid#5225 (not in a release yet): the
+  repro's `part` and `prop` with `ms` 1 draw `<p>bad: no</p>` in the shell
+  (at 50a4bfdde `<b></b>`). The after-shell case, which S-server-7 shows,
+  is unchanged at 510bb8d01 (`<template id="100" e></template>`); its fix is
+  a draft upstream (#5237, the rest of issue #5223). S-server-7's `server`
+  record stays. Nothing here changes when it is fixed but this record.
+
+- **DV-27 (a store a `ref` writes while hydrating) — Solid's, 2026-11-26;
+  fixed on Solid main 50a4bfdde (probably #4906, 2026-11-27: the repro shows
+  `2/2/5` hydrated, as rendered; S-server-9's divergence row removed)**
+  (`ref/oracle/repros/dv27-hydrate`, plain Solid compiled by its own
+  compiler; at the pin, 2.0.4 not run; S-server-9). A `ref` writes in the
+  pass that makes its element (07 §4); taking a served page over, a write
+  of a signal is shown, a write of a store (a source whose value is an
+  array or a record, ST-1) is made but its reader does not run again for
+  it: the page keeps the server's text until the next change of the store.
+  Recorded as a `hydrated` divergence; the program is ordinary, and nothing
+  is refused. Found by track 3 beside SC-4c's programs. *Memo (2026-11-27):*
+  nothing to file: `solid-main.noindex/drafts/6-ref-store-write-hydration`
+  (not posted) finds it in every release since rc.21 and fixed on Solid's
+  main by solidjs/solid#4906 (stores on the thin engine); at the new pin,
+  50a4bfdde, `ref/oracle/repros/dv27-hydrate` shows `2/2/5` hydrated (at
+  30e7805eb, `1/2/5`). Released 2.0.4 and earlier still have it.
+
+- **DV-28 (a `ref` reads an earlier `ref`'s write in the same pass) —
+  two things, split 2026-11-27.** *DV-28a, rendered — Solid's rule, at a
+  grain the language does not transcribe.* #4768 is deliberate (agreed with
+  Solid's maintainer): a `ref` runs in the pass that builds its element and
+  reads what the element was built for; #5110 (ruling of 2026-11-20) makes
+  its other reads the screen's and keeps #4767's (a `ref` born into a hold
+  reads the hold's values). 02 SC-4c states that principle and follows both
+  halves a program can name: the hold's values for an element made under a
+  hold, the screen for the elements one pass makes. What is left differs
+  only in *which pass* makes a nested region: Solid makes a `<For>` row, and
+  a `<Show>` written after the writer, after the writer's write has landed,
+  and a `<Show>` written before it in the writer's own pass — an order of
+  its compiler's output and of `lowerShow`, not of the program. The
+  interpreter makes the regions of one instant together. Recorded as an
+  `oracle` divergence, not as a bug. *DV-28b, hydrated — Solid's bug*: a
+  row's `ref` reads the screen where the same row rendered reads the write,
+  and a `<Show>`'s served content is thrown away and made again, its `ref`
+  called twice (draft 5). Recorded as a `hydrated` divergence until
+  2026-11-28: **fixed on Solid main 510bb8d01** by solidjs/solid#5235 (issue
+  #5232; not in a release yet). Hydration keeps the served element and calls
+  its `ref` once, and the `ref` reads what the page was served with — the
+  screen, as SC-4c says (draft 5's `minimal` and `standalone`, run against
+  both checkouts: `ref calls: 2`, served node detached at 50a4bfdde; `ref
+  calls: 1`, kept at 510bb8d01). S-server-8 hydrated is `a000bc12`, the
+  language's frame; its `hydrated` rows are removed. DV-28a's `oracle` rows
+  stay (a client render still shows the write to the row and the `<Show>`:
+  Solid's order of passes, not a bug). The text
+  below is the record of 2026-11-26, which took both for one regression:
+  Solid's, a regression in 2.0.0-rc.22, 2026-11-26 (S-server-8; the
+  plain-Solid issue is drafted, not posted:
+  `solid-main.noindex/drafts/5-hydration-rebuilds-show`, which supersedes
+  draft 4). A `ref` reads the screen as the pass found it (02 SC-4c), as
+  Solid did until rc.21, rendered and hydrated alike (run here with that
+  draft's harness at rc.21: every `ref` reads the value before, nothing is
+  replaced). Since rc.22 — the release of #4768, which runs a `ref`'s
+  callback "untracked in the creating pass's context" (related: #5098,
+  another rc.22 regression bisected to #4768, and #5110) — a client render
+  shows an earlier `ref`'s write to a `ref` in a `<For>` row and in a
+  `<Show>`; hydrating, a row's `ref` reads the screen, and the `<Show>`'s
+  served content is thrown away and made again, its `ref` called twice, the
+  second time reading the write. Solid's maintainer ruled what a `ref` reads
+  on 2026-11-20: "refs are like event handlers or effect callbacks"
+  (solidjs/solid#5110, which fixes #5098 and is in the pin) — the screen, as
+  SC-4c says; what is left is the order of the pass. The minimal case is an ordinary
+  UI-library one: `<button ref={setAnchor}>` and a popover in `<Show>` whose
+  `ref` reads `anchor()`. Recorded as `oracle` and `hydrated` divergences;
+  nothing is refused, and the interpreter is not made to follow it.
+  *What a user writes that is the same on every Solid:* each `ref` stores
+  its own element (`ref={(e: Element) => { pop := e }}`), and what needs two
+  of them reads them once the view is made, `effect (anchor, pop) { … }` (or
+  an equation); a `ref` that counts writes by a function of the value
+  (`n := v => v + 1`). (A first version of SC-4c refused the reading,
+  `REF_READS_REF_WRITE`, a006d85a; withdrawn: a Solid bug is no reason to
+  refuse a program.)
+
 Ruled 2026-10-26 (Ryan): DV-9, DV-14 and DV-15 are Solid bugs, not intended
 behaviour — the server draws a failed boundary's fallback and the client
 adopts it; each replayed event is its own instant; a hydrated fallback is
@@ -266,10 +434,46 @@ author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
   also gives the same result on both machines is the author's assertion
   too (CN-5), and when it does not — `toLocaleString` with the server's
   locale and time zone is the classic case — Solid's runtime reports
-  `HYDRATION_MISMATCH` (bin R). The language's remedies are the ones it
+  `HYDRATION_MISMATCH` (bin R) where the structure differs. (Measured
+  2026-11-22, `bench/tasks/ssr-divergence`: where only a text differs —
+  the usual case for a formatted value — Solid 2.0's development build
+  adopts the server's node and says nothing, so that mismatch is silent.
+  The ruling stands: `pure` is the one unchecked word, and a run-time
+  comparison of every text would be a check the language does not add.)
+  The language's remedies are the ones it
   already has: what depends on the browser is `client` JS (a client
   question, SV-7b), and a locale or a time zone can be an argument the
   server receives.
+
+  *Where it is caught (2026-11-24).* Whether a development build could
+  report it was looked at again, with the two places a comparison could
+  live. (1) Hydration, where the server's node and the client's value
+  meet: that is Solid's `insert`, which while hydrating returns the
+  client's value without reading the node (`@solidjs/web` 2.0.2,
+  `insertExpression`; its development build checks the structure — a tag
+  that is not the expected one — and no text), and the compiled program
+  hands `insert` a value, never the node: a comparison there is Solid's
+  to add. (2) The calls: record each `pure` JS call's answer on the
+  server and compare it in the browser. That is not sound. `pure` says a
+  call writes nothing but its own state (09 MO-8a), not that it is a
+  function of its arguments — a primitive answers an accessor, an id
+  maker a fresh id — so answers are comparable only call for call, and a
+  streamed render and its hydration do not make their calls in one
+  order. So no run-time comparison is added, as ruled. What can be run is
+  the word itself: `rx-verify` calls a `pure` fn with the probe's
+  arguments on both sides — its own process has a browser's globals
+  (`--dom`) or has not, and a second one is started the other way — and a
+  plain answer that is steady on each side (two calls alike) and differs
+  between them refutes the row: `whereNow: declared pure, but it answers
+  differently on the server and in the browser ("the server" with no
+  window, "the browser" with one)`. A row so refuted is not recorded as
+  verified, and strict declarations (09 MO-8j) refuse it. It is a test,
+  with the reach of one: a value both sides compute alike under the
+  machine it is run on (a locale that happens to match) is not
+  contradicted. `server` and `client` fns run on one side and are not
+  asked. `bench/tasks/ssr-divergence` counts its variant — what only the
+  browser knows declared `pure`, and read by the view — as caught by
+  `rx-verify`; the checkers accept it, and hydration says nothing.
   *Where more could be done (not adopted):* the server could record each
   such call's result during the mount and the browser adopt it — one
   serialized value per call, so a long list of formatted cells doubles
@@ -290,6 +494,17 @@ author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
   in a heading, an `<li>`/`<dd>`/`<dt>` in its own kind. A view's root is
   an unknown place. Executable: S-server-4; `repros/sv7d-table/` shows the
   page it prevents — served rows in a `<tbody>`, a later row outside it.
+  *A value shown is its text (2026-11-26).* `{n}` in the table modes is
+  text as written text is, wherever it is written: in place, as content,
+  in a view with a parameter, through a context that holds a view, as a
+  component's root (the row `roots #text` of its shape). What is no
+  value is not text: a view the component was given, under whatever
+  name; a field of a view's parameter declared `View`; a view a context
+  holds; a loop; a choice of the component's views; a call of a JavaScript
+  fn its declaration says answers `View` (2026-11-26, L7: trusted as a
+  JavaScript component in the same place is; a result not said, or a
+  value's, is text). A field of the props whose type is not read is as it
+  was. S-server-6.
 - **SV-7e (The wire).** An answer must survive the trip: a value the
   serializer cannot carry is `WIRE_VALUE` (12 SF-6a), at run time while
   types are text, statically once they are not.

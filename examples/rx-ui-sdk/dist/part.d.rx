@@ -1,0 +1,2 @@
+//@ signature part.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).
+export pure fn usePart(ref it: Instance, slot: string, ref named: Named, ref user: User, ref options: object): { part: ref; attrs: ref; now: value; tick: ref } instantiates

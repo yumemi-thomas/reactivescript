@@ -1,0 +1,9 @@
+// Drafted by rx-declare from ./api.js's TypeScript types. Check every TODO, then delete it; rx-tsc checks the rest (TY-6).
+// TODO loadUser: what does its promise reject with? add rejects(<classes>) (default Error)
+export fn loadUser(id: number): Promise<{ id: number; team: string; }>
+// TODO loadTeam: what does its promise reject with? add rejects(<classes>) (default Error)
+export fn loadTeam(team: string): Promise<{ name: string; size: number; }>
+// TODO loadNews: what does its promise reject with? add rejects(<classes>) (default Error)
+export fn loadNews(): Promise<string[]>
+// TODO all: what does its promise reject with? add rejects(<classes>) (default Error)
+export fn all<T extends readonly unknown[] | []>(ps: T): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }>

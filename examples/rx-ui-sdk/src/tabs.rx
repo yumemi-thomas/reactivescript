@@ -1,0 +1,110 @@
+// Tabs and its parts over @ui-sdk/core's `tabs`.
+// Derived from tabs.jsx of @ui-sdk/solid 0.1.0-beta.17 (Apache-2.0, see ../NOTICE).
+import { fire, give, setOptions } from "./bridge.js"
+import { create, uniqueId, binder, elementProps } from "./bridge.js"
+import { presentOf } from "./bridge.js"
+import { classOf, styleOf, viewOf } from "./bridge.js"
+import { tabs as primitive } from "./core.js"
+import { Scope } from "./bridge.js"
+import { usePart } from "./part.rx"
+import { TabsProps, TabsListProps, TabsTabProps, TabsTabIconProps, TabsIndicatorProps, TabsPanelProps } from "./bridge.js"
+
+context tabs: Scope
+
+export component Tabs(props: TabsProps) {
+  { value, defaultValue, onValueChange, orientation, activation, loop, hiddenUntilFound, controller, debug, render, ref: user, ...rest } = props
+  options = { value: value, defaultValue: defaultValue, onValueChange: onValueChange, orientation: orientation, activation: activation, loop: loop, hiddenUntilFound: hiddenUntilFound, controller: controller, debug: debug }
+  it = create(primitive, options)
+  effect (it, options) { setOptions($0, $1) }
+  { part, attrs, now } = usePart(it, "root", {}, rest, options)
+  bind = binder(part)
+  on_ = { ref: (e: Element) => { bind(e); give(user, e) } }
+  provide tabs = { it: it, options: options }
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <div {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</div>
+  }}
+}
+
+export component TabsList(props: TabsListProps) {
+  { render, ref: user, ...rest } = props
+  scope = use tabs
+  { part, attrs, now } = usePart(scope.it, "list", {}, rest, scope.options)
+  bind = binder(part)
+  on_ = {
+    ref: (e: Element) => { bind(e); give(user, e) },
+    onKeyDown: (e: Event) => { fire(part, "keydown", e, props.onKeyDown) }
+  }
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <div {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</div>
+  }}
+}
+
+export component TabsTab(props: TabsTabProps) {
+  { value, disabled, render, ref: user, ...rest } = props
+  scope = use tabs
+  { part, attrs, now } = usePart(scope.it, "tab", { value: value, disabled: disabled }, rest, scope.options)
+  bind = binder(part)
+  on_ = {
+    ref: (e: Element) => { bind(e); give(user, e) },
+    onClick: (e: Event) => { fire(part, "click", e, props.onClick) }
+  }
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <button {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</button>
+  }}
+}
+
+export component TabsTabIcon(props: TabsTabIconProps) {
+  { mirror, render, ref: user, ...rest } = props
+  scope = use tabs
+  id = uniqueId()
+  { part, attrs, now } = usePart(scope.it, "tab-icon", { mirror: mirror, id: props.id ?? id }, rest, scope.options)
+  bind = binder(part)
+  on_ = { ref: (e: Element) => { bind(e); give(user, e) } }
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <span {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</span>
+  }}
+}
+
+export component TabsIndicator(props: TabsIndicatorProps) {
+  { render, ref: user, ...rest } = props
+  scope = use tabs
+  { part, attrs, now } = usePart(scope.it, "indicator", {}, rest, scope.options)
+  bind = binder(part)
+  on_ = { ref: (e: Element) => { bind(e); give(user, e) } }
+  {if render != undefined {
+    all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+    {viewOf(render(all, now))}
+  } else {
+    <span {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</span>
+  }}
+}
+
+export component TabsPanel(props: TabsPanelProps) {
+  { value, keepMounted, hiddenUntilFound, render, ref: user, ...rest } = props
+  scope = use tabs
+  named = { value: value, keepMounted: keepMounted, hiddenUntilFound: hiddenUntilFound }
+  { part, attrs, now, tick } = usePart(scope.it, "panel", named, rest, scope.options)
+  present = presentOf(part, named, scope.options, tick)
+  {if present {
+    bind = binder(part)
+    on_ = { ref: (e: Element) => { bind(e); give(user, e) } }
+    {if render != undefined {
+      all = elementProps(rest, { ...attrs, ...on_, class: classOf(props.class, now), style: styleOf(props.style, now, attrs.style) }, peek props, peek now)
+      {viewOf(render(all, now))}
+    } else {
+      <div {...rest} {...attrs} {...on_} class={classOf(props.class, now)} style={styleOf(props.style, now, attrs.style)}>{viewOf(props.children, now)}</div>
+    }}
+  }}
+}

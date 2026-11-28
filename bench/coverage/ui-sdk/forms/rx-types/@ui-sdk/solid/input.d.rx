@@ -1,0 +1,5 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type InputOptions = import("@ui-sdk/solid/input").InputOptions
+export type InputState = import("@ui-sdk/solid/input").InputState
+export type InputValueChangeReason = import("@ui-sdk/solid/input").InputValueChangeReason
+export component Input(props: InputOptions & (Omit<import("@ui-sdk/solid").PartProps<"input", InputState>, "value" | "defaultValue" | "onSelect">) & { onValueChange?: (value: string, details: import("@ui-sdk/core").ChangeDetails<InputValueChangeReason>) => void; render?: (props: Record<string, any>, state: { filled: boolean; disabled: boolean; readOnly: boolean; required: boolean; }) => View })

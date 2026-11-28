@@ -62,19 +62,6 @@ change and lands with the body's end (AC-7).
 ## Rejected variants
 
 ```rx
--- reject: GUESS_NO_QUESTION
--- handler: pick()
-export default component App() {
-  source selected := 1
-  action pick() { guess selected := 2; await fetch("x") }
-
-  <p>{selected}</p>
-}
-```
-
-`selected` is declared with `:=` — it has no question for a guess to confirm against (ST-5c).
-
-```rx
 -- reject: RG-7b
 context room: number
 component Room(props: { id: number }) {

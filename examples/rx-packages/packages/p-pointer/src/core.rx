@@ -1,0 +1,14 @@
+// createPointerPosition. Derived from @solid-primitives/pointer 1.0.0 (MIT, see ../NOTICE).
+import client { watchPointer } from "./dom.js"
+import { stateOf } from "./dom.js"
+export fn createPointerPosition(ref config: any) {
+  source state: any := peek(config.value) ?? stateOf(undefined, false)
+  source pointer: number | undefined := undefined
+  effect (config.target) { return watchPointer($0, config.pointerTypes, (kind, e) => {
+    if (kind == "enter" && pointer == undefined) { pointer := e.pointerId
+      state := () => stateOf(e, true) }
+    else if (kind == "move" && e.pointerId == pointer) { state := () => stateOf(e, true) }
+    else if (kind == "leave" && e.pointerId == pointer) { pointer := undefined
+      state := () => stateOf(e, false) } }) }
+  state
+}

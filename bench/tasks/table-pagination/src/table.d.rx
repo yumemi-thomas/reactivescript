@@ -1,0 +1,11 @@
+// The table adapter in rows. A table is given cell components, and the view renders each with the adapter's <FlexRender>
+// (as @tanstack/solid-table 9 has it): the table's row names that component, so a cell is checked among its children,
+// wherever the app applies it (09 MO-11u).
+export type CellContext<TData extends import("@tanstack/table-core").RowData, TValue> = import("./table.js").CellContext<TData, TValue>
+export type Table<TData extends import("@tanstack/table-core").RowData> = import("./table.js").Table<TData>
+export pure fn getCoreRowModel<TData extends import("@tanstack/table-core").RowData>(): io ((table: Table<TData>) => () => import("@tanstack/table-core").RowModel<TData>)
+export pure fn getPaginationRowModel<TData extends import("@tanstack/table-core").RowData>(opts?: { initialSync: boolean; }): io ((table: Table<TData>) => () => import("@tanstack/table-core").RowModel<TData>)
+// The result's type is what the app reads of the table. `instantiates`: the table keeps state of its own (its page), so
+// it is made once where it is bound, whatever its parameter is.
+export fn createTable<T>(ref options: Omit<import("@tanstack/table-core").TableOptions<T>, "state" | "onStateChange" | "renderFallbackValue">): { getHeaderGroups: () => import("@tanstack/table-core").HeaderGroup<T>[]; getRowModel: () => { rows: { id: string; getVisibleCells: () => import("@tanstack/table-core").Cell<T, unknown>[] }[] }; getState: () => { pagination: { pageIndex: number; pageSize: number } }; getPageCount: () => number; getCanNextPage: () => boolean; getCanPreviousPage: () => boolean; nextPage: () => void; previousPage: () => void; setPageIndex: (index: number) => void } renders(FlexRender)
+export component FlexRender<T extends import("@tanstack/table-core").RowData>(props: { cell?: import("@tanstack/table-core").Cell<T, unknown>; header?: import("@tanstack/table-core").Header<T, unknown> })

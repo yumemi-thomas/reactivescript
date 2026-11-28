@@ -1,0 +1,49 @@
+{
+  "name": "@rx-primitives/media",
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "files": [
+    "dist",
+    "src",
+    "index.js",
+    "index.d.ts"
+  ],
+  "scripts": {
+    "build": "rx-lib"
+  },
+  "reactivescript": {
+    "entries": [
+      "src/core.rx",
+      "src/page.rx"
+    ]
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "worker": "./dist/core.server.js",
+      "browser": "./dist/core.js",
+      "deno": "./dist/core.server.js",
+      "node": "./dist/core.server.js",
+      "default": "./dist/core.js"
+    },
+    "./page": {
+      "types": "./dist/page.d.ts",
+      "worker": "./dist/page.server.js",
+      "browser": "./dist/page.js",
+      "deno": "./dist/page.server.js",
+      "node": "./dist/page.server.js",
+      "default": "./dist/page.js"
+    }
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.0",
+    "@solidjs/web": "^2.0.0",
+    "@reactivescript/runtime": "*"
+  }
+}

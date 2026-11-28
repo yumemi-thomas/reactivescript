@@ -1,0 +1,152 @@
+# S-module-12 — callbacks into JS: a function type declared `handler` takes an imperative closure
+
+Rules: MO-10g, W-2, SC-3, R-io-3, MO-8.
+
+## Modules
+
+```rx
+-- module: ./query.d.rx
+// a mutation hook whose options carry callbacks, and a helper that takes one directly
+export pure fn useMutation(ref options: { mutationFn: (v: string) => Promise<string>; onSuccess?: handler () => void; retry: number }): any instantiates
+export pure fn onIdle(run: handler () => void): any instantiates
+// a function type with no word: nothing says when the library calls it (a comparator, a mapper), so it is pure
+export pure fn sortWith(cmp: (a: number, b: number) => number): any instantiates
+// a query hook that calls queryFn inside its own computation: a function type with no word, pure (MO-10g)
+export pure fn useQuery(ref options: { queryKey: any[]; queryFn: () => Promise<string[]> }): any instantiates
+```
+
+```rx
+-- module: ./ui.d.rx
+// a JS component whose prop `valueChange` is a callback (any name, not only on*), said with `handler`
+export component Slider(props: { value: number; valueChange: handler (v: number) => void; label: string })
+// a JS component that calls `format` as it renders: no word, pure
+export component Gauge(props: { value: number; format: (v: number) => string })
+```
+
+```rx
+-- module: ./api.d.rx
+export fn addTodo(text: string): Promise<string>
+export pure fn fetchTodos(): Promise<string[]>
+```
+
+A closure created in reactive scope is a pure function (SC-3), so a
+statement-bodied one is `REACTIVE_WRITE_IN_OWNED_SCOPE` (W-2). Where a
+declaration marks a parameter's, or a record field's, function type
+`handler`, the library calls it later, outside any computation, as the DOM
+calls an event handler: a closure passed there is checked as a handler's
+is, in imperative scope (MO-10g). The word is the statement; a function
+type alone says nothing of when it is called (a comparator is called while
+the library computes), so without the word a closure stays pure, as
+anywhere else in reactive scope. That is also the right reading of a
+function the library calls inside a computation of its own (a query's
+`queryFn`): its reads are the library's to track and a write there is
+refused by Solid, so no second word says it (`tracked` was one, and is
+refused: the checker read nothing from it that the missing `handler` did
+not say).
+
+## Program
+
+```rx
+import { useMutation, onIdle, useQuery } from "./query.js"
+import { addTodo, fetchTodos } from "./api.js"
+import { Slider, Gauge } from "./ui.js"
+
+export default component App() {
+  source saved := 0
+  source idle := false
+  add = useMutation({ mutationFn: addTodo, onSuccess: () => { saved := saved + 1 }, retry: 0 })
+  watcher = onIdle(() => { idle := true })
+  source level := 3
+  todos = useQuery({ queryKey: ["todos", level], queryFn: () => fetchTodos() })
+  <button onClick={() => { add.mutate("milk") }}>add</button>
+  <p>{saved} {idle}</p>
+  <Slider value={level} valueChange={v => { level := v }} label="level" />
+  <Gauge value={level} format={v => `${v} of 10`} />
+}
+```
+
+Accepted: `onSuccess` and `run` are declared function types, so their
+closures write sources as a handler's would; so is `Slider`'s `valueChange`,
+a JS component's prop declared as a function, whatever its name.
+`queryFn` and `format` carry no word: their closures are expressions, pure,
+as a reactive scope's must be.
+
+## Rejected variants
+
+```rx
+-- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
+import { useMutation } from "./query.js"
+import { addTodo } from "./api.js"
+export default component App() {
+  source saved := 0
+  add = useMutation({ mutationFn: addTodo, retry: () => { saved := 1; 0 } })
+  <p>{saved}</p>
+}
+```
+
+`retry` is declared a `number`: a statement closure there is a reactive
+scope's, and refused.
+
+```rx
+-- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
+export default component App() {
+  source saved := 0
+  shown = [1, 2].map(n => { saved := n; n })
+  <p>{shown}</p>
+}
+```
+
+A closure handed to anything but a declared callback is still pure.
+
+```rx
+-- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
+import { sortWith } from "./query.js"
+export default component App() {
+  source calls := 0
+  sorted = sortWith((a, b) => { calls := calls + 1; a - b })
+  <p>{calls}</p>
+}
+```
+
+`cmp` is a function type with no `handler`: the library may call it while
+it computes (a comparator does), so the declaration does not let a closure
+write there. A function type alone is not a callback (MO-10g, revised
+2026-11-21).
+
+```rx
+-- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
+import { Slider } from "./ui.js"
+export default component App() {
+  source level := 3
+  <Slider value={level} valueChange={v => { level := v }} label={[1].map(n => { level := n; "x" })[0]} />
+}
+```
+
+`label` is declared a `string`: a statement closure in its argument is a
+reactive scope's.
+
+```rx
+-- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
+import { useQuery } from "./query.js"
+import { fetchTodos } from "./api.js"
+export default component App() {
+  source fetched := 0
+  todos = useQuery({ queryKey: ["todos"], queryFn: () => { fetched := fetched + 1; fetchTodos() } })
+  <p>{fetched}</p>
+}
+```
+
+`queryFn` is a function type with no `handler`: the library calls it inside
+its own computation, where a write is refused, so a statement closure there
+is a reactive scope's.
+
+```rx
+-- reject: REACTIVE_WRITE_IN_OWNED_SCOPE
+import { Gauge } from "./ui.js"
+export default component App() {
+  source shown := 0
+  <Gauge value={3} format={v => { shown := v; "x" }} />
+}
+```
+
+A function prop without `handler` is not a handler, whatever its name.

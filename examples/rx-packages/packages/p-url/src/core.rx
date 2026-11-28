@@ -1,0 +1,9 @@
+// createURLRecord. Derived from @solid-primitives/url 0.2.0 (MIT, see ../NOTICE).
+import pure { recordOf, withField, withRecord } from "./dom.js"
+import pure { isString } from "@reactivescript/std/is"
+export fn createURLRecord(url: string, base?: string) {
+  source rec: any := recordOf(url, base)
+  action set(a: any, b: any) { let next = isString(a) ? withField(rec, a, b) : withRecord(rec, a)
+    rec := () => next }
+  [rec, set]
+}

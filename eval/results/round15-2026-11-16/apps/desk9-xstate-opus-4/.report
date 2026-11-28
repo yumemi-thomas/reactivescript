@@ -1,0 +1,13 @@
+I built the issue desk in React 19 and XState v5. All 30 visible tests pass and `./check` is clean, using 4 of the 15 allowed runs.
+
+- **Structure:** one app machine (`src/appMachine.ts`) runs each tab's page as its own machine, so leaving a page stops it and opening it again starts fresh. The issues, help and settings machines are in `src/issuesMachine.ts`, `src/helpMachine.ts` and `src/settingsMachine.ts`, and the server requests are in `src/requests.ts`.
+- **Immediate updates:** assign, rename, close, comments and labels show on screen straight away while the request is in flight. If the server declines, the screen goes back to the server's last answer. Answers for an issue or search the user has already moved away from are ignored.
+- **Uncertain points**, where I guessed because the brief doesn't say:
+  - Assigning with an empty user name is disabled.
+  - Clicking the issue or help result that is already selected does nothing.
+  - A help selection stays selected when the query changes.
+  - The related-help search uses the issue's title as loaded, not one renamed afterwards.
+  - Comment, label and rename text has surrounding spaces trimmed before it is sent.
+  - A late failure from an older save is not shown once a newer save has started.
+
+Every test run also logs one browser error for a missing file (a 404). I couldn't tell which file, and it didn't affect any test.

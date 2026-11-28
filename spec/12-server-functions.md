@@ -126,12 +126,19 @@ rule the checker can state precisely.
   values the wire carries — no functions, no reactive accessors, no
   instances of undeclared classes. While types are text to the checker
   (07 §2), this is checked at run time (`WIRE_VALUE`, bin R, naming the
-  function and the argument); with types, statically.
+  function and the argument, or the result's path), in a development and a
+  production build alike — the failure is sent as it is and said on the
+  server; with types, statically (not yet: the checkers do not read
+  TypeScript's types, and rx-tsc's projection does not refuse it).
 - **SF-6b (Failures).** A failure thrown in a server function reaches the
   caller as SV-5 says: a declared class with its class and fields, anything
   else as the generic `Error`. A call can also fail in transit, so every
   server function's row includes `fails(Error)` — a caller discharges it
-  like any other `Error` (R-f-4).
+  like any other `Error` (R-f-4). A declared class is known on the wire by
+  its declaration — the module's path below its package and its name
+  (SV-5a; `DUPLICATE_WIRE_ID` where two would be named alike) — never by
+  the order a side made its classes in; a JS class its `.d.rx` declares is
+  known to a server fn's body itself, whatever app the request has.
 
 ## SF-7 — Where it runs in `ref/` (and in the product)
 
@@ -147,7 +154,13 @@ rule the checker can state precisely.
   there, and nothing reactive can be among it. A module's error classes are
   the module's (one class however many apps), so the class a body throws is
   the class a caller's catch tests. The call site keeps its own wrapper
-  (SF-2: question or request).
+  (SF-2: question or request). The body reads its app once, at its start
+  (`globalThis.__rx_app`): called in place, the caller's; answering a
+  request, that request's own (its event's, made for it where it has
+  none) — never another request's or the last render's. In Vite the pass
+  is Solid's plugin's, on only with `solid({ serverFunctions: true })`; a
+  browser build of a module with a server fn fails with it off
+  (`compiler/vite.mjs`), so no body reaches a browser.
 - **SF-7b (In `ref/`).** The client runners (interpreter, oracle,
   compiled) have no network: the body runs in place behind a wire that
   copies arguments and result (SF-6a) and redacts undeclared failures
@@ -156,8 +169,10 @@ rule the checker can state precisely.
   directly inside the page's request event; after hydration — and on a
   page the browser renders alone — each call is an HTTP request to
   Solid's `handleServerFunctionRequest` (`@solidjs/web/server-functions`),
-  run in a request of its own (SV-4), and the runner checks that no server
-  body is in the browser bundle. (S-sf-1: four requests after hydration.)
+  run in a request of its own (SV-4) — the runner hands that request its
+  app in the request's event, as an integration would, and sets nothing
+  global — and the runner checks that no server body is in the browser
+  bundle. (S-sf-1: four requests after hydration.)
 ---
 
 ## Diagnostics this document adds

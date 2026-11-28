@@ -1,0 +1,6 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type CollapsibleOpenChangeReason = import("@ui-sdk/solid/collapsible").CollapsibleOpenChangeReason
+export type CollapsibleState = import("@ui-sdk/solid/collapsible").CollapsibleState
+export component Collapsible(props: Parameters<typeof import("@ui-sdk/solid/collapsible").Collapsible>[0] & { onOpenChange?: (open: boolean, details: import("@ui-sdk/core").ChangeDetails<CollapsibleOpenChangeReason>) => void; onOpenChangeComplete?: (open: boolean) => void; render?: (props: Record<string, any>, state: NoInfer<CollapsibleState>) => View })
+export component CollapsiblePanel(props: Parameters<typeof import("@ui-sdk/solid/collapsible").CollapsiblePanel>[0] & { render?: (props: Record<string, any>, state: NoInfer<CollapsibleState>) => View })
+export component CollapsibleTrigger(props: Parameters<typeof import("@ui-sdk/solid/collapsible").CollapsibleTrigger>[0] & { render?: (props: Record<string, any>, state: NoInfer<CollapsibleState>) => View })

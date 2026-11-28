@@ -1,0 +1,6 @@
+I built the issue desk in `src/`, with `App.tsx` as the root, separate issues, help and settings pages, and shared request helpers in `src/util.ts`. `./check` is clean and `./test` passes 30/30, using 2 of the 15 runs. Every quick change (assign, rename, close, comments, labels, save) shows straight away and undoes only itself if the server says no, so several can be in flight at once. Late answers for an old filter, issue, query or hit are ignored.
+
+Where the brief left room, I chose:
+- **Search:** re-typing a query asks the server again rather than reusing old results.
+- **Related help:** searches the issue's title as loaded from the server, not a rename still in flight. Opening a related hit fills the help page with those hits, then searches again.
+- **Save errors:** only the newest save's failure is shown, so an older failed save doesn't cover a newer one still in flight.

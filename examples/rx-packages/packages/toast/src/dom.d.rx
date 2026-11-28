@@ -1,0 +1,2 @@
+export fn nextId(): number
+export fn measure(element: any): number

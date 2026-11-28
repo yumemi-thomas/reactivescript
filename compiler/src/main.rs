@@ -1,8 +1,9 @@
 //! `rxc`: the crate's command line.
 //!
-//!   rxc check file.rx...   diagnostics, as `ref/check.ts` prints them (`--spa`: see below)
+//!   rxc check file.rx...   diagnostics, as `ref/check.ts` prints them (`--spa`, `--whole-program`: see below)
 //!   rxc check --json file.rx...
-//!                          the same as `{diagnostics: [{file, line, range, code, rule, message}]}`, ranges per CP-8
+//!                          the same as `{diagnostics: [{file, line, range, code, rule, message}], advice: […]}`, ranges per CP-8;
+//!                          `advice` (99, the advisory rows) is about a correct program and never fails the check
 //!   rxc project app.rx     TY-1c: the program's TSX projection, each file with its mappings onto the `.rx`
 //!                          (`[generated offset, source offset, length]`, CP-8), and the prelude it imports; with no
 //!                          file, reads `[{id, entry, files}]` on stdin, as `conform` does (`ref/crate.ts --project`)
@@ -13,6 +14,8 @@
 //!   rxc model file.rx...   the resolved model (CP-6) of each module, as JSON
 //!   rxc conform            reads `[{id, entry, files: {path: source}}]` on stdin and prints, per program, every module's
 //!                          AST, the diagnostics, the printed signatures and the models: what `ref/crate.ts` compares.
+//!                          `conformance: true` in a request (here, `lower`, `project`): a scenario's program, where
+//!                          `fetch` and `fail` are the scenario prelude's (11 CP-4c)
 //!   rxc lower              reads `[{id, entry, files, extra: [statements], renderer}]` on stdin and prints, per program,
 //!                          each compiled module through Solid's compiler for the universal (over `renderer`), dom and ssr
 //!                          targets, and the stylesheet: what `ref/crate.ts --lower` compares and `ref/compile/run.ts`
@@ -25,13 +28,17 @@
 //!                          its dependencies by `.rx` path, or `{diagnostics: [...]}` / `{error}`.
 //!   --spa                  (check, compile, app) a client-only build: a reader with no `loading` above it that can
 //!                          have no value yet is an error, as its first load would show nothing (08 CN-3d).
+//!   --whole-program        (check) the modules loaded are the whole program: a kept `peek` of a prop or a provision is
+//!                          decided by every application and provision in them (E-5a); `conform` takes `whole: true`.
+//!   --host m.rx            (with --whole-program) a module a JS host imports with ?rx-lib (CP-4d): JS applies its
+//!                          exported components with props the program cannot see; `conform` takes `hosts`.
 
 use reactivescript::app::{self, read_disk};
-use reactivescript::check::check_modules;
+use reactivescript::check::{check_modules, check_modules_hosts};
 use reactivescript::emit::{compile_modules, lower_view, Target};
 use reactivescript::parse::parse_stmts;
 use reactivescript::project::{project_modules, unverified, PRELUDE};
-use reactivescript::modules::load_modules;
+use reactivescript::modules::{load_conformance, load_modules};
 use reactivescript::serve;
 use reactivescript::signature::print_signature;
 use serde_json::{json, Map, Value};
@@ -45,9 +52,14 @@ fn abs(f: &str) -> String {
     std::path::absolute(f).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| f.to_string()).replace('\\', "/")
 }
 
-fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
+/// A request's program: a conformance build's (CP-4c) where the request says so.
+fn load_request(r: &Value, entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Result<reactivescript::modules::ModuleSet, reactivescript::parse::ParseError> {
+    if r["conformance"] == json!(true) { load_conformance(entry, read) } else { load_modules(entry, read) }
+}
+
+fn conform_one(r: &Value, entry: &str, files: &HashMap<String, String>, spa: bool, whole: bool, hosts: &[String]) -> Value {
     let read = |p: &str| files.get(p).cloned();
-    let set = match load_modules(entry, &read) {
+    let set = match load_request(r, entry, &read) {
         Ok(s) => s,
         Err(e) => return json!({ "error": e.0 }),
     };
@@ -55,7 +67,7 @@ fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
     for p in &set.order {
         asts.insert(p.clone(), set.programs[p].to_json());
     }
-    let checked = check_modules(&set, false);
+    let checked = check_modules_hosts(&set, spa, whole, hosts); // 08 CN-3d: a client-only build where the request says so; E-5a: the whole program
     let mut sigs = Map::new();
     for p in &set.order {
         sigs.insert(p.clone(), json!(print_signature(&checked.sigs[p])));
@@ -83,15 +95,16 @@ fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
         "order": set.order,
         "asts": asts,
         "diags": checked.diags.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
+        "advice": checked.advice.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
         "sigs": sigs,
         "models": models,
     })
 }
 
 /// TY-1c: each module's projection with its mappings onto the `.rx` (CP-8), and how many of them fail to hold (none).
-fn project_one(entry: &str, files: &HashMap<String, String>) -> Value {
+fn project_one(r: &Value, entry: &str, files: &HashMap<String, String>) -> Value {
     let read = |p: &str| files.get(p).cloned();
-    let set = match load_modules(entry, &read) {
+    let set = match load_request(r, entry, &read) {
         Ok(s) => s,
         Err(e) => return json!({ "error": e.0 }),
     };
@@ -112,7 +125,7 @@ fn lower_one(r: &Value) -> Value {
     let files: HashMap<String, String> = r["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
     let entry = r["entry"].as_str().unwrap();
     let read = |p: &str| files.get(p).cloned();
-    let set = match load_modules(entry, &read) {
+    let set = match load_request(r, entry, &read) {
         Ok(s) => s,
         Err(e) => return json!({ "error": e.0 }),
     };
@@ -164,7 +177,7 @@ fn parse_error_text(f: &str, e: &reactivescript::parse::ParseError) -> String {
     };
     format!("{}:{}: error {} [{}] {}", v["file"].as_str().unwrap_or(f), at, e.3, v["rule"].as_str().unwrap_or("07"), msg)
 }
-/// A parse error as `diagnostic_json` writes a diagnostic: from where the parser stopped to the end of that line.
+/// A parse error as `serve::Diagnostics` writes a diagnostic: from where the parser stopped to the end of that line.
 fn parse_error_json(f: &str, e: &reactivescript::parse::ParseError) -> Value {
     let file = e.2.clone().unwrap_or_else(|| abs(f));
     let src = read_disk(&file);
@@ -174,6 +187,9 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // 08 CN-3d: a client-only build (dom, not hydratable)
     let spa = args.iter().any(|a| a == "--spa");
+    let whole = args.iter().any(|a| a == "--whole-program"); // E-5a
+    // E-5a, whole program: `--host m.rx` names a module a JS host imports with ?rx-lib (CP-4d): JS applies its components
+    let hosts: Vec<String> = args.windows(2).filter(|w| w[0] == "--host").map(|w| abs(&w[1])).collect();
     let Some(cmd) = args.first() else {
         eprintln!("usage: rxc check|model file.rx... | rxc conform < request.json");
         std::process::exit(2);
@@ -188,7 +204,10 @@ fn main() {
                 .map(|r| {
                     let files: HashMap<String, String> = r["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
                     let entry = r["entry"].as_str().unwrap();
-                    let mut v = std::panic::catch_unwind(|| conform_one(entry, &files)).unwrap_or_else(|e| {
+                    let spa = r["spa"].as_bool().unwrap_or(false);
+                    let whole = r["whole"].as_bool().unwrap_or(false);
+                    let hosts: Vec<String> = r["hosts"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+                    let mut v = std::panic::catch_unwind(|| conform_one(r, entry, &files, spa, whole, &hosts)).unwrap_or_else(|e| {
                         let msg = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
                         json!({ "panic": msg })
                     });
@@ -206,7 +225,7 @@ fn main() {
                 .iter()
                 .map(|r| {
                     let files: HashMap<String, String> = r["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
-                    let mut v = std::panic::catch_unwind(|| project_one(r["entry"].as_str().unwrap(), &files)).unwrap_or_else(|_| json!({ "panic": true }));
+                    let mut v = std::panic::catch_unwind(|| project_one(r, r["entry"].as_str().unwrap(), &files)).unwrap_or_else(|_| json!({ "panic": true }));
                     v["id"] = r["id"].clone();
                     v
                 })
@@ -272,6 +291,10 @@ fn main() {
                 }
             };
             let module_name = opt("--module-name").unwrap_or_else(|| "@solidjs/web".into());
+            if read_disk(&abs(file)).is_none() {
+                eprintln!("{file}: error MODULE_NOT_FOUND [MO-6] no module {file}: the file does not exist or cannot be read");
+                std::process::exit(1);
+            }
             let set = match load_modules(&abs(file), &read_disk) {
                 Ok(s) => s,
                 Err(e) => {
@@ -315,13 +338,27 @@ fn main() {
             };
             let target = app::target(opt("--target").as_deref().unwrap_or("dom"));
             let module_name = opt("--module-name").unwrap_or_else(|| "@solidjs/web".into());
-            println!("{}", serde_json::to_string(&app::app(&abs(file), target, &module_name, spa)).unwrap());
+            let library = args.iter().any(|a| a == "--lib");   // CP-4d: the entry's exports, for a JS host
+            let unchecked = args.iter().any(|a| a == "--unchecked");   // MO-14g: for the tool that asks a router's module for its routes
+            println!("{}", serde_json::to_string(&app::app_with(&abs(file), target, &module_name, spa, library, false, &[], unchecked)).unwrap());
         }
         "check" | "model" => {
             let mut bad = 0;
             let as_json = cmd == "check" && args.iter().any(|a| a == "--json");
             let mut found: Vec<Value> = vec![];
-            for f in args[1..].iter().filter(|a| !a.starts_with("--")) {
+            let mut advice: Vec<Value> = vec![];
+            for f in args[1..].iter().enumerate().filter(|(i, a)| !a.starts_with("--") && args[*i] != "--host").map(|(_, a)| a) {
+                // a file that is not there is an error, not an empty program that checks
+                if read_disk(&abs(f)).is_none() {
+                    bad += 1;
+                    let msg = format!("no module {f}: the file does not exist or cannot be read");
+                    if as_json {
+                        found.push(json!({ "file": abs(f), "line": 0, "code": "MODULE_NOT_FOUND", "rule": "MO-6", "msg": msg }));
+                    } else {
+                        eprintln!("{f}: error MODULE_NOT_FOUND [MO-6] {msg}");
+                    }
+                    continue;
+                }
                 let set = match load_modules(&abs(f), &read_disk) {
                     Ok(s) => s,
                     Err(e) => {
@@ -334,13 +371,22 @@ fn main() {
                         continue;
                     }
                 };
-                let checked = check_modules(&set, spa);
+                let mut ranges = serve::Diagnostics::new(&set);
+                let checked = check_modules_hosts(&set, spa, whole, &reactivescript::modules::hosts_as_keys(&set, &hosts));
                 for d in &checked.diags {
                     bad += 1;
                     if as_json {
-                        found.push(serve::diagnostic_json(&set, d));
+                        found.push(ranges.json(d));
                     } else {
                         eprintln!("{}:{}: error {} [{}] {}", d.file.as_deref().unwrap_or(f), d.line, d.code, d.rule, d.msg);
+                    }
+                }
+                // 99, the advisory rows: advice about a correct program — printed, never counted
+                for d in &checked.advice {
+                    if as_json {
+                        advice.push(ranges.json(d));
+                    } else {
+                        eprintln!("{}:{}: advice {} [{}] {}", d.file.as_deref().unwrap_or(f), d.line, d.code, d.rule, d.msg);
                     }
                 }
                 if cmd == "model" {
@@ -360,7 +406,7 @@ fn main() {
                 }
             }
             if as_json {
-                println!("{}", serde_json::to_string_pretty(&json!({ "diagnostics": found })).unwrap());
+                println!("{}", serde_json::to_string_pretty(&json!({ "diagnostics": found, "advice": advice })).unwrap());
             }
             std::process::exit(if bad > 0 { 1 } else { 0 });
         }

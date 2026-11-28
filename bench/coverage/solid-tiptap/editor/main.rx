@@ -1,0 +1,8 @@
+// solid-tiptap: a Tiptap editor over an element of the app's, and what it holds.
+import { editor } from "./editor.js"
+
+export default component App() {
+  { mount, html } = editor("<p>hello</p>")
+  <div class="doc" ref={mount}></div>
+  <pre class="html">{html}</pre>
+}

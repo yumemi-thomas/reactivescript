@@ -1,0 +1,4 @@
+src/ derives from @ui-sdk/solid 0.1.0-beta.17 (https://github.com/vercel-labs/ui, Apache License 2.0, see LICENSE):
+use-primitive.tsx, toggle.tsx, tabs.tsx, dialog.tsx, dialog-parts.tsx, popup.tsx and controller-target.ts, rewritten in
+ReactiveScript with a JavaScript bridge. upstream/vite.config.ts and upstream/vitest.rx.config.ts derive from the
+project's own configurations. @ui-sdk/core is used as published. The changes are this repository's, not the project's.

@@ -1,0 +1,14 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type PopoverProps = import("@ui-sdk/solid/popover").PopoverProps
+export type PopoverOpenChangeReason = import("@ui-sdk/solid/popover").PopoverOpenChangeReason
+export type PopoverPayloadChangeReason = import("@ui-sdk/solid/popover").PopoverPayloadChangeReason
+export type PopoverContentState<Payload = unknown> = import("@ui-sdk/solid/popover").PopoverContentState<Payload>
+export type PopoverContentProps = import("@ui-sdk/solid/popover").PopoverContentProps
+export type PopoverTriggerState = import("@ui-sdk/solid/popover").PopoverTriggerState
+export type PopoverTriggerProps = import("@ui-sdk/solid/popover").PopoverTriggerProps
+export component Popover(props: PopoverProps & { onOpenChange?: (open: boolean, details: import("@ui-sdk/core").ChangeDetails<PopoverOpenChangeReason>) => void; onOpenChangeComplete?: (open: boolean) => void; onPayloadChange?: (payload: unknown, details: import("@ui-sdk/core").ChangeDetails<PopoverPayloadChangeReason>) => void; onDismissAttempt?: (...args: Parameters<NonNullable<Parameters<typeof import("@ui-sdk/solid/popover").Popover>[0]["onDismissAttempt"]>>) => void })
+export component PopoverClose(props: Parameters<typeof import("@ui-sdk/solid/popover").PopoverClose>[0] & { render?: (props: Record<string, any>, state: {}) => View })
+export component PopoverContent<Payload = unknown>(props: import("@ui-sdk/solid").PartProps<"div", PopoverContentState<Payload>> & PopoverContentProps & { render?: (props: Record<string, any>, state: PopoverContentState<Payload>) => View })
+export component PopoverDescription(props: Parameters<typeof import("@ui-sdk/solid/popover").PopoverDescription>[0] & { render?: (props: Record<string, any>, state: {}) => View })
+export component PopoverTitle(props: Parameters<typeof import("@ui-sdk/solid/popover").PopoverTitle>[0] & { render?: (props: Record<string, any>, state: {}) => View })
+export component PopoverTrigger(props: (Omit<import("@ui-sdk/solid").PartProps<"button", PopoverTriggerState>, "value" | "onChange"> & PopoverTriggerProps) & { render?: (props: Record<string, any>, state: { open: boolean; disabled: boolean; }) => View })

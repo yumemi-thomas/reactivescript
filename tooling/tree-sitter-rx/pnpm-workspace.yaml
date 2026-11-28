@@ -1,0 +1,4 @@
+allowBuilds:
+  tree-sitter-cli: true
+  tree-sitter-javascript: false
+  tree-sitter-typescript: false

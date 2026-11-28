@@ -1,0 +1,32 @@
+// A cart the whole page shares, the way a Solid app makes a `CartProvider`: a context of the app's own, a provider
+// component that holds the state and provides it with the action that changes it, and readers anywhere under it.
+type Line = { name: string; qty: number }
+context cart: { lines: Line[]; add: (name: string) => void }
+
+component CartProvider(props: { children: View }) {
+  source held: Line[] := []
+  action add(name: string) { held := ls => [...ls, { name: name, qty: 1 }] }
+  provide cart = { lines: held, add: add }
+  {props.children}
+}
+
+component Badge() {
+  c = use cart
+  <span class="badge">{len(c.lines)} in the cart</span>
+}
+component Shelf(props: { items: string[] }) {
+  c = use cart
+  <ul>{for name in props.items { <li><button class="add" onClick={() => { c.add(name) }}>{name}</button></li> }}</ul>
+}
+component Summary() {
+  c = use cart
+  <ol class="summary">{for line in c.lines { <li>{line.name} × {line.qty}</li> }}</ol>
+}
+
+export default component App() {
+  <CartProvider>
+    <header><Badge /></header>
+    <Shelf items={["tea", "milk"]} />
+    <Summary />
+  </CartProvider>
+}

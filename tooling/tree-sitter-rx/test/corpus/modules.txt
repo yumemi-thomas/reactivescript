@@ -1,0 +1,2235 @@
+========================================
+Import, io
+========================================
+
+import { saveUser } from "./api"
+
+---
+
+(program
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          name: (identifier))))
+    source: (string
+      (string_fragment))))
+
+========================================
+Import pure with alias
+========================================
+
+import pure { fetchUser, format as fmt } from "./api"
+
+---
+
+(program
+  (import_statement
+    (pure)
+    (import_clause
+      (named_imports
+        (import_specifier
+          name: (identifier))
+        (import_specifier
+          name: (identifier)
+          alias: (identifier))))
+    source: (string
+      (string_fragment))))
+
+========================================
+Import server and client sides
+========================================
+
+import server pure { db } from "./db"
+import client { viewport } from "./browser"
+
+---
+
+(program
+  (import_statement
+    side: (side)
+    (pure)
+    (import_clause
+      (named_imports
+        (import_specifier
+          name: (identifier))))
+    source: (string
+      (string_fragment)))
+  (import_statement
+    side: (side)
+    (import_clause
+      (named_imports
+        (import_specifier
+          name: (identifier))))
+    source: (string
+      (string_fragment))))
+
+========================================
+Import with a fails row
+========================================
+
+import pure { getUser, NotFound } from "./api" fails NotFound | Gone
+
+---
+
+(program
+  (import_statement
+    (pure)
+    (import_clause
+      (named_imports
+        (import_specifier
+          name: (identifier))
+        (import_specifier
+          name: (identifier))))
+    source: (string
+      (string_fragment))
+    (fails_clause
+      (type_identifier)
+      (type_identifier))))
+
+========================================
+Default import
+========================================
+
+import Chart from "./chart.js"
+
+---
+
+(program
+  (import_statement
+    (import_clause
+      (identifier))
+    source: (string
+      (string_fragment))))
+
+========================================
+Export default component
+========================================
+
+export default component App() {
+  <p>hi</p>
+}
+
+---
+
+(program
+  (export_statement
+    declaration: (component_declaration
+      name: (identifier)
+      parameters: (formal_parameters)
+      body: (view_block
+        (jsx_element
+          open_tag: (jsx_opening_element
+            name: (identifier))
+          (jsx_text)
+          close_tag: (jsx_closing_element
+            name: (identifier)))))))
+
+========================================
+Exported declarations
+========================================
+
+export source count := 0
+export total = count * 2
+export type Id = number
+export action reset() { count := 0 }
+
+---
+
+(program
+  (export_statement
+    declaration: (source_declaration
+      name: (identifier)
+      value: (number)))
+  (export_statement
+    declaration: (equation
+      name: (identifier)
+      value: (binary_expression
+        left: (identifier)
+        right: (number))))
+  (export_statement
+    declaration: (type_alias_declaration
+      name: (type_identifier)
+      value: (predefined_type)))
+  (export_statement
+    declaration: (action_declaration
+      name: (identifier)
+      parameters: (formal_parameters)
+      body: (statement_block
+        (write_statement
+          target: (identifier)
+          value: (number))))))
+
+========================================
+Declaration file rows
+========================================
+
+export type NoteRow = { id: number }
+export error Conflict
+export server pure fn dbNotes(q: string): Promise<NoteRow[]>
+export server fn dbSave(id: number): Promise<NoteRow> rejects(Conflict)
+export client pure fn viewport(): Promise<number>
+export pure fn counter(ref start: number): number instantiates
+
+---
+
+(program
+  (export_statement
+    declaration: (type_alias_declaration
+      name: (type_identifier)
+      value: (object_type
+        (property_signature
+          name: (property_identifier)
+          type: (type_annotation
+            (predefined_type))))))
+  (export_statement
+    declaration: (error_declaration
+      name: (type_identifier)))
+  (export_statement
+    declaration: (fn_signature
+      side: (side)
+      (pure)
+      name: (identifier)
+      parameters: (formal_parameters
+        (required_parameter
+          pattern: (identifier)
+          type: (type_annotation
+            (predefined_type))))
+      return_type: (type_annotation
+        (generic_type
+          name: (type_identifier)
+          type_arguments: (type_arguments
+            (array_type
+              (type_identifier)))))))
+  (export_statement
+    declaration: (fn_signature
+      side: (side)
+      name: (identifier)
+      parameters: (formal_parameters
+        (required_parameter
+          pattern: (identifier)
+          type: (type_annotation
+            (predefined_type))))
+      return_type: (type_annotation
+        (generic_type
+          name: (type_identifier)
+          type_arguments: (type_arguments
+            (type_identifier))))
+      (rejects_clause
+        (type_identifier))))
+  (export_statement
+    declaration: (fn_signature
+      side: (side)
+      (pure)
+      name: (identifier)
+      parameters: (formal_parameters)
+      return_type: (type_annotation
+        (generic_type
+          name: (type_identifier)
+          type_arguments: (type_arguments
+            (predefined_type))))))
+  (export_statement
+    declaration: (fn_signature
+      (pure)
+      name: (identifier)
+      parameters: (formal_parameters
+        (required_parameter
+          (ref_modifier)
+          pattern: (identifier)
+          type: (type_annotation
+            (predefined_type))))
+      return_type: (type_annotation
+        (predefined_type))
+      (row_word))))
+
+========================================
+A default import named server or client
+========================================
+
+import server from "./x"
+import client, { a } from "./api"
+import server { b } from "./y"
+
+---
+
+(program
+  (import_statement
+    (import_clause
+      (identifier))
+    (string
+      (string_fragment)))
+  (import_statement
+    (import_clause
+      (identifier)
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (import_statement
+    (side)
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment))))
+
+========================================
+A signature that returns an accessor
+========================================
+
+export pure fn createDebounced(ref source: string, ms: number): ref string
+export pure fn createToggle(initial: boolean): [ref boolean, (v: boolean) => void]
+
+---
+
+(program
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (ref_modifier)
+          (identifier)
+          (type_annotation
+            (predefined_type)))
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (ref_type
+          (ref_modifier)
+          (predefined_type)))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (tuple_type
+          (ref_type
+            (ref_modifier)
+            (predefined_type))
+          (function_type
+            (formal_parameters
+              (required_parameter
+                (identifier)
+                (type_annotation
+                  (predefined_type))))
+            (predefined_type)))))))
+
+========================================
+Declaration file rows: contexts, placement and type parameters
+========================================
+
+export context router
+export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]
+export pure fn defineRoute<const S extends string>(route: { path: S }): RouteDefinition
+export pure fn createRouter(config: { routes: RouteDefinition[] }): Component provides(router) nests(children in component)
+export pure fn createRoute(options: { path: string }): any
+export pure fn mount(app: Component): void
+export pure fn useParams(): ref any uses(router)
+export pure fn persisted(init: string, signal?: number): [ref string, (v: string) => void]
+export const promoteForm: any
+export type RouteParams<S> = import("@solidjs/router").RouteParams<S>
+
+---
+
+(program
+  (export_statement
+    (context_declaration
+      (identifier)))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (type_identifier))))
+      (type_annotation
+        (tuple_type
+          (type_identifier)
+          (function_type
+            (formal_parameters
+              (required_parameter
+                (identifier)
+                (type_annotation
+                  (function_type
+                    (formal_parameters
+                      (required_parameter
+                        (draft_modifier)
+                        (identifier)
+                        (type_annotation
+                          (type_identifier))))
+                    (union_type
+                      (type_identifier)
+                      (predefined_type))))))
+            (predefined_type))))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)
+          (constraint
+            (predefined_type))))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))))))
+      (type_annotation
+        (type_identifier))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (array_type
+                    (type_identifier))))))))
+      (type_annotation
+        (type_identifier))
+      (provides_clause
+        (identifier))
+      (nests_clause
+        (property_identifier)
+        (property_identifier))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))))))
+      (type_annotation
+        (predefined_type))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (type_identifier))))
+      (type_annotation
+        (predefined_type))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters)
+      (type_annotation
+        (ref_type
+          (ref_modifier)
+          (predefined_type)))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type)))
+        (optional_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (tuple_type
+          (ref_type
+            (ref_modifier)
+            (predefined_type))
+          (function_type
+            (formal_parameters
+              (required_parameter
+                (identifier)
+                (type_annotation
+                  (predefined_type))))
+            (predefined_type))))))
+  (export_statement
+    (const_signature
+      (identifier)
+      (type_annotation
+        (predefined_type))))
+  (export_statement
+    (type_alias_declaration
+      (type_identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (import_type
+        (member_expression
+          (call_expression
+            (import)
+            (arguments
+              (string
+                (string_fragment))))
+          (property_identifier))
+        (type_arguments
+          (type_identifier))))))
+
+========================================
+Declaration file rows: callbacks and field rows
+========================================
+
+export pure fn debounce(callback: handler (...args: any[]) => void, wait?: number): (...args: any[]) => void instantiates
+export pure fn useQuery(ref options: { queryFn: () => Promise<any>; onSettled?: handler () => void }): { data: pending fails(Error) ref any; isFetching: ref boolean } uses(queryClient)
+export pure fn createJson(url: string): pending fails(HttpError | Error) ref User
+export pure fn createStream(want: boolean): [pending ref MediaStream | undefined, () => void]
+
+---
+
+(program
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (callback_type
+              (function_type
+                (formal_parameters
+                  (required_parameter
+                    (rest_pattern
+                      (identifier))
+                    (type_annotation
+                      (array_type
+                        (predefined_type)))))
+                (predefined_type)))))
+        (optional_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (function_type
+          (formal_parameters
+            (required_parameter
+              (rest_pattern
+                (identifier))
+              (type_annotation
+                (array_type
+                  (predefined_type)))))
+          (predefined_type)))
+      (row_word)))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (ref_modifier)
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (function_type
+                    (formal_parameters)
+                    (generic_type
+                      (type_identifier)
+                      (type_arguments
+                        (predefined_type))))))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (callback_type
+                    (function_type
+                      (formal_parameters)
+                      (predefined_type)))))))))
+      (type_annotation
+        (object_type
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (row_type
+                (row_type
+                  (fails_row
+                    (type_identifier))
+                  (ref_type
+                    (ref_modifier)
+                    (predefined_type))))))
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (ref_type
+                (ref_modifier)
+                (predefined_type))))))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (row_type
+          (row_type
+            (fails_row
+              (type_identifier)
+              (type_identifier))
+            (ref_type
+              (ref_modifier)
+              (type_identifier)))))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (tuple_type
+          (row_type
+            (ref_type
+              (ref_modifier)
+              (union_type
+                (type_identifier)
+                (literal_type
+                  (undefined)))))
+          (function_type
+            (formal_parameters)
+            (predefined_type)))))))
+
+========================================
+Declaration file components
+========================================
+
+export component Outlet(props: {}) uses(router)
+export component Dialog.Title(props: { id?: string; as?: any }) uses(coreDialog)
+export component RouterProvider(props: { router: any }) provides(router)
+export component Boundary(props: { fallback: catches(NotFound) (e: Error) => View; children: View }) fails(Timeout) shape(Item[])
+export component Form(props: { of: any; onSubmit: handler (output: any, event: any) => any })
+
+---
+
+(program
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type))))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (member_component_name
+        (identifier)
+        (property_identifier))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))))))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))))))
+      (provides_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (catches_type
+                    (type_identifier)
+                    (function_type
+                      (formal_parameters
+                        (required_parameter
+                          (identifier)
+                          (type_annotation
+                            (type_identifier))))
+                      (type_identifier)))))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))))))
+      (fails_row
+        (type_identifier))
+      (shape_clause
+        (array_type
+          (type_identifier)))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (callback_type
+                    (function_type
+                      (formal_parameters
+                        (required_parameter
+                          (identifier)
+                          (type_annotation
+                            (predefined_type)))
+                        (required_parameter
+                          (identifier)
+                          (type_annotation
+                            (predefined_type))))
+                      (predefined_type))))))))))))
+
+========================================
+Declaration file components with type parameters
+========================================
+
+export component Picker<Option>(props: { value?: Option }) uses(kit)
+
+---
+
+(program
+  (export_statement
+    (component_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))))))
+      (uses_clause
+        (identifier)))))
+
+========================================
+Declaration file rows: an import type as an array's element
+========================================
+
+export fn list(): { items: ref import("kit").Item[]; rows: import("kit").Row<string>[] }
+
+---
+
+(program
+  (export_statement
+    (fn_signature
+      (identifier)
+      (formal_parameters)
+      (type_annotation
+        (object_type
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (ref_type
+                (ref_modifier)
+                (array_type
+                  (member_expression
+                    (call_expression
+                      (import)
+                      (arguments
+                        (string
+                          (string_fragment))))
+                    (property_identifier))))))
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (array_type
+                (import_type
+                  (member_expression
+                    (call_expression
+                      (import)
+                      (arguments
+                        (string
+                          (string_fragment))))
+                    (property_identifier))
+                  (type_arguments
+                    (predefined_type)))))))))))
+
+========================================
+Declaration file components: props named by their type, the fields that carry words after it
+========================================
+
+export component Picker<Option>(props: import("kit").PickerProps<Option> & { onPick?: handler (v: Option) => void; item?: Component }) uses(kit)
+export component Plain(props: import("kit").PlainProps)
+
+---
+
+(program
+  (export_statement
+    (component_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (intersection_type
+              (import_type
+                (member_expression
+                  (call_expression
+                    (import)
+                    (arguments
+                      (string
+                        (string_fragment))))
+                  (property_identifier))
+                (type_arguments
+                  (type_identifier)))
+              (object_type
+                (property_signature
+                  (property_identifier)
+                  (type_annotation
+                    (callback_type
+                      (function_type
+                        (formal_parameters
+                          (required_parameter
+                            (identifier)
+                            (type_annotation
+                              (type_identifier))))
+                        (predefined_type)))))
+                (property_signature
+                  (property_identifier)
+                  (type_annotation
+                    (type_identifier))))))))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (member_expression
+              (call_expression
+                (import)
+                (arguments
+                  (string
+                    (string_fragment))))
+              (property_identifier))))))))
+
+========================================
+Declaration file rows: a fn with several signatures
+========================================
+
+export pure fn pick(from: string[], at: number): string
+export pure fn pick(from: number[], at: number, fallback?: number): number
+
+---
+
+(program
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (array_type
+              (predefined_type))))
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (predefined_type))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (array_type
+              (predefined_type))))
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type)))
+        (optional_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (predefined_type)))))
+
+================================================================================
+Declaration file rows: what a draft writes for a type with no name (MO-8q)
+================================================================================
+
+export fn pick<T>(rows: readonly T[], by: Parameters<typeof import("kit").pick<T>>[1]): T | undefined
+export fn watch<T>(ref opts: ReturnType<NonNullable<Parameters<typeof import("kit").watch<T>>[0]>>): void
+export fn guard<T>(test: (x: unknown) => x is T): T
+export fn fail(error: import("kit").Types["error"], at: import("kit").Box<string>["value"]["line"]): void
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (fn_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (readonly_type
+              (array_type
+                (type_identifier)))))
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (lookup_type
+              (generic_type
+                (type_identifier)
+                (type_arguments
+                  (type_query
+                    (instantiation_expression
+                      (member_expression
+                        (call_expression
+                          (import)
+                          (arguments
+                            (string
+                              (string_fragment))))
+                        (property_identifier))
+                      (type_arguments
+                        (type_identifier))))))
+              (literal_type
+                (number))))))
+      (type_annotation
+        (union_type
+          (type_identifier)
+          (literal_type
+            (undefined))))))
+  (export_statement
+    (fn_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (ref_modifier)
+          (identifier)
+          (type_annotation
+            (generic_type
+              (type_identifier)
+              (type_arguments
+                (generic_type
+                  (type_identifier)
+                  (type_arguments
+                    (lookup_type
+                      (generic_type
+                        (type_identifier)
+                        (type_arguments
+                          (type_query
+                            (instantiation_expression
+                              (member_expression
+                                (call_expression
+                                  (import)
+                                  (arguments
+                                    (string
+                                      (string_fragment))))
+                                (property_identifier))
+                              (type_arguments
+                                (type_identifier))))))
+                      (literal_type
+                        (number))))))))))
+      (type_annotation
+        (predefined_type))))
+  (export_statement
+    (fn_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (function_type
+              (formal_parameters
+                (required_parameter
+                  (identifier)
+                  (type_annotation
+                    (predefined_type))))
+              (type_predicate
+                (identifier)
+                (type_identifier))))))
+      (type_annotation
+        (type_identifier))))
+  (export_statement
+    (fn_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (lookup_type
+              (member_expression
+                (call_expression
+                  (import)
+                  (arguments
+                    (string
+                      (string_fragment))))
+                (property_identifier))
+              (literal_type
+                (string
+                  (string_fragment))))))
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (lookup_type
+              (lookup_type
+                (import_type
+                  (member_expression
+                    (call_expression
+                      (import)
+                      (arguments
+                        (string
+                          (string_fragment))))
+                    (property_identifier))
+                  (type_arguments
+                    (predefined_type)))
+                (literal_type
+                  (string
+                    (string_fragment))))
+              (literal_type
+                (string
+                  (string_fragment)))))))
+      (type_annotation
+        (predefined_type)))))
+
+================================================================================
+A printed signature: the .d.rx of a compiled .rx module (MO-13a)
+================================================================================
+
+//@ signature ui.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).
+export error NotFound(id)
+export error Plain()
+export type Theme
+export source products: pending fails(Error) = …
+export source selected := …
+export discount: pending fails(Error | NotFound)
+export total
+export limit: io
+export pure fn qtyOf(id)
+export pure fn useLabel(ref amount: number, unit): pending fails(Error) { set: io; text: ref pending fails(Error) { go: io; … }; max: value; pair: [ref, io] } rejects(Offline | Timeout) instantiates uses(./ui.rx#who)
+export main: { set: io; pair.1: io; … }
+export server fn add(id) rejects(Error)
+export server pure fn count()
+export action setCoupon
+export context who: string
+export context theme: source pending Theme = …
+export component Panel(props: { title; children: catches(Error) provides(./theme.rx#theme) }) shape(roots section; children-at section)
+export component Card(props: { children: catches(*) }) shape(roots p div; closes-p; children-at div)
+export component Badge(props: {}) uses(./ui.rx#who, loading) shape(roots b)
+export component Save(props: { v: unrendered action go catches(nothing) }) fails(Error | Offline) shape(roots button)
+export component Pick(props: { n; ...props }) made retains(onPick: module, onFocus: ./form.rx#fields) shape(roots u)
+export component Q(props: { query: takes(data pending fails(Error), result.more pending); router: provides(./tsr.d.rx#router) }) shape()
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_error
+      (type_identifier)
+      (identifier)))
+  (signature_export
+    (signature_error
+      (type_identifier)))
+  (signature_export
+    (signature_type
+      (type_identifier)))
+  (signature_export
+    (signature_source
+      (identifier)
+      (signature_rows
+        (fails_row
+          (type_identifier)))))
+  (signature_export
+    (signature_source
+      (identifier)))
+  (signature_export
+    (signature_equation
+      (identifier)
+      (signature_rows
+        (fails_row
+          (type_identifier)
+          (type_identifier)))))
+  (signature_export
+    (signature_equation
+      (identifier)))
+  (signature_export
+    (signature_equation
+      (identifier)
+      (signature_rows)))
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (signature_parameter
+        (identifier))))
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (signature_parameter
+        (ref_modifier)
+        (identifier)
+        (predefined_type))
+      (signature_parameter
+        (identifier))
+      (signature_rows
+        (fails_row
+          (type_identifier))
+        (signature_parts
+          (signature_part
+            (part_path)
+            (signature_rows))
+          (signature_part
+            (part_path)
+            (signature_rows
+              (fails_row
+                (type_identifier))
+              (signature_parts
+                (signature_part
+                  (part_path)
+                  (signature_rows)))))
+          (signature_part
+            (part_path)
+            (signature_rows))
+          (signature_part
+            (part_path)
+            (signature_rows
+              (signature_tuple
+                (signature_rows)
+                (signature_rows))))))
+      (rejects_clause
+        (type_identifier)
+        (type_identifier))
+      (row_word)
+      (signature_uses
+        (context_key))))
+  (signature_export
+    (signature_equation
+      (identifier)
+      (signature_rows
+        (signature_parts
+          (signature_part
+            (part_path)
+            (signature_rows))
+          (signature_part
+            (part_path)
+            (signature_rows))))))
+  (signature_export
+    (signature_fn
+      (side)
+      (identifier)
+      (signature_parameter
+        (identifier))
+      (rejects_clause
+        (type_identifier))))
+  (signature_export
+    (signature_fn
+      (side)
+      (pure)
+      (identifier)))
+  (signature_export
+    (signature_action
+      (identifier)))
+  (signature_export
+    (signature_context
+      (identifier)
+      (predefined_type)))
+  (signature_export
+    (signature_context
+      (identifier)
+      (row_type
+        (type_identifier))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier))
+      (signature_prop
+        (property_identifier)
+        (signature_catches
+          (type_identifier))
+        (signature_provides
+          (context_key)))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier)
+        (signature_catches))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_uses
+        (context_key))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier)
+        (row_word)
+        (identifier)
+        (signature_catches
+          (type_identifier)))
+      (fails_row
+        (type_identifier)
+        (type_identifier))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier))
+      (signature_prop)
+      (row_word)
+      (signature_retains
+        (property_identifier)
+        (property_identifier)
+        (context_key))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier)
+        (signature_takes
+          (signature_path)
+          (fails_row
+            (type_identifier))
+          (signature_path)))
+      (signature_prop
+        (property_identifier)
+        (signature_provides
+          (context_key)))
+      (signature_shape))))
+
+================================================================================
+The marker is a comment where it is not the first line: a JS declaration
+================================================================================
+
+export pure fn load(id: string): Promise<number>
+//@ signature
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (generic_type
+          (type_identifier)
+          (type_arguments
+            (predefined_type))))))
+  (comment))
+
+================================================================================
+Declaration: keyof an import type
+================================================================================
+
+export type Tag<T extends keyof import("pkg").JSX.Elements> = T
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    declaration: (type_alias_declaration
+      name: (type_identifier)
+      type_parameters: (type_parameters
+        (type_parameter
+          name: (type_identifier)
+          constraint: (constraint
+            (index_type_query
+              (member_expression
+                object: (member_expression
+                  object: (call_expression
+                    function: (import)
+                    arguments: (arguments
+                      (string
+                        (string_fragment))))
+                  property: (property_identifier))
+                property: (property_identifier))))))
+      value: (type_identifier))))
+
+================================================================================
+A declared component's props that take a view (09 MO-11t)
+================================================================================
+
+export component Rows<T>(props: { each: T[]; fallback?: View; icon?: string | View; children: (item: T) => View }) provides(kit)
+export component Later(props: import("kit").LaterProps & { fallback?: View | undefined })
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (component_signature
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (array_type
+                    (type_identifier))))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (union_type
+                    (predefined_type)
+                    (type_identifier))))
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (function_type
+                    (formal_parameters
+                      (required_parameter
+                        (identifier)
+                        (type_annotation
+                          (type_identifier))))
+                    (type_identifier))))))))
+      (provides_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (intersection_type
+              (member_expression
+                (call_expression
+                  (import)
+                  (arguments
+                    (string
+                      (string_fragment))))
+                (property_identifier))
+              (object_type
+                (property_signature
+                  (property_identifier)
+                  (type_annotation
+                    (union_type
+                      (type_identifier)
+                      (literal_type
+                        (undefined)))))))))))))
+
+================================================================================
+A declaration names another module's context (09 MO-12e)
+================================================================================
+
+export context client from "@demo/query"
+export pure fn useTodos(): { data: ref string } uses(client)
+export component Frame(props: { children?: View }) provides(client)
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (context_declaration
+      (identifier)
+      (string
+        (string_fragment))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters)
+      (type_annotation
+        (object_type
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (ref_type
+                (ref_modifier)
+                (predefined_type))))))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))))))
+      (provides_clause
+        (identifier)))))
+
+================================================================================
+A host declaration: the view a JS host makes of the route files (09 MO-14)
+================================================================================
+
+import { Layout } from "./routes/layout.rx"
+import { Home, Person as Page } from "./pages.rx"
+export context router from "@demo/router"
+export default component provides(router) nests(children in component) = {
+  component: Layout,
+  children: [{ component: Home }, { component: Page }]
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))
+        (import_specifier
+          (identifier)
+          (identifier))))
+    (string
+      (string_fragment)))
+  (export_statement
+    (context_declaration
+      (identifier)
+      (string
+        (string_fragment))))
+  (export_statement
+    (host_view
+      (provides_clause
+        (identifier))
+      (nests_clause
+        (property_identifier)
+        (property_identifier))
+      (object
+        (pair
+          (property_identifier)
+          (identifier))
+        (pair
+          (property_identifier)
+          (array
+            (object
+              (pair
+                (property_identifier)
+                (identifier)))
+            (object
+              (pair
+                (property_identifier)
+                (identifier)))))))))
+
+================================================================================
+A host declaration: the components the host renders through, imported from JavaScript (09 MO-14f)
+================================================================================
+
+import { App } from "./main.rx"
+import { Root, Home } from "./pages.rx"
+import { AppRouter } from "./router.tsx"
+import { Outlet } from "@demo/router"
+export default component nests(children in component) = [
+  { component: App, children: [{ component: Root, children: [{ component: Home }] }] }
+]
+
+--------------------------------------------------------------------------------
+
+(program
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (import_statement
+    (import_clause
+      (named_imports
+        (import_specifier
+          (identifier))))
+    (string
+      (string_fragment)))
+  (export_statement
+    (host_view
+      (nests_clause
+        (property_identifier)
+        (property_identifier))
+      (array
+        (object
+          (pair
+            (property_identifier)
+            (identifier))
+          (pair
+            (property_identifier)
+            (array
+              (object
+                (pair
+                  (property_identifier)
+                  (identifier))
+                (pair
+                  (property_identifier)
+                  (array
+                    (object
+                      (pair
+                        (property_identifier)
+                        (identifier)))))))))))))
+
+================================================================================
+A declaration file's row: where the library renders the components a fn is given (09 MO-11u)
+================================================================================
+
+export context toastRegion
+export component Toaster(props: {})
+export component Toast.List(props: {}) uses(toastRegion)
+export fn toast(message: string | Component): number renders(Toaster)
+export pure fn createRoute(options: { component: Component }): any instantiates renders(Toast.List)
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (context_declaration
+      (identifier)))
+  (export_statement
+    (component_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type))))))
+  (export_statement
+    (component_signature
+      (member_component_name
+        (identifier)
+        (property_identifier))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type))))
+      (uses_clause
+        (identifier))))
+  (export_statement
+    (fn_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (union_type
+              (predefined_type)
+              (type_identifier)))))
+      (type_annotation
+        (predefined_type))
+      (renders_clause
+        (identifier))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (type_identifier)))))))
+      (type_annotation
+        (predefined_type))
+      (row_word)
+      (renders_clause
+        (member_component_name
+          (identifier)
+          (property_identifier))))))
+
+================================================================================
+A printed signature: the places a component applies a host, and what a call's components need there (09 MO-11u)
+================================================================================
+
+//@ signature frame.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).
+export component Frame(props: { children: provides(./theme.rx#accent) }) hosts(./kit.d.rx#Toaster provides(./kit.d.rx#region, ./theme.rx#accent); ./kit.d.rx#Toast.List catches(Offline)) shape(children-at )
+export hosts(./kit.d.rx#Toaster catches(*))
+export renders ./kit.d.rx#Toaster from toast:7 fails(Error | Offline) uses(./theme.rx#accent, loading)
+export renders ./tsr.d.rx#RouterProvider from createRootRoute:12 hosts(./kit.d.rx#Toaster provides(./tsr.d.rx#router))
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier)
+        (signature_provides
+          (context_key)))
+      (signature_hosts
+        (signature_host
+          (context_key)
+          (signature_provides
+            (context_key)
+            (context_key)))
+        (signature_host
+          (context_key)
+          (signature_catches
+            (type_identifier))))
+      (signature_shape
+        (shape_words))))
+  (signature_export
+    (signature_hosts
+      (signature_host
+        (context_key)
+        (signature_catches))))
+  (signature_export
+    (signature_renders
+      (context_key)
+      (identifier)
+      (number)
+      (fails_row
+        (type_identifier)
+        (type_identifier))
+      (signature_uses
+        (context_key))))
+  (signature_export
+    (signature_renders
+      (context_key)
+      (identifier)
+      (number)
+      (signature_hosts
+        (signature_host
+          (context_key)
+          (signature_provides
+            (context_key)))))))
+
+================================================================================
+A declaration file's row: a method of a value the file declares (09 MO-8t)
+================================================================================
+
+export const toaster: { dismiss(id: number): void }
+export fn toaster.show(toast: Component): number renders(Toast.List)
+export fn toast(message: string): number
+export pure fn toast.history(): string[]
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (const_signature
+      (identifier)
+      (type_annotation
+        (object_type
+          (method_signature
+            (property_identifier)
+            (formal_parameters
+              (required_parameter
+                (identifier)
+                (type_annotation
+                  (predefined_type))))
+            (type_annotation
+              (predefined_type)))))))
+  (export_statement
+    (fn_signature
+      (method_name
+        (identifier)
+        (property_identifier))
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (type_identifier))))
+      (type_annotation
+        (predefined_type))
+      (renders_clause
+        (member_component_name
+          (identifier)
+          (property_identifier)))))
+  (export_statement
+    (fn_signature
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (predefined_type))))
+      (type_annotation
+        (predefined_type))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (method_name
+        (identifier)
+        (property_identifier))
+      (formal_parameters)
+      (type_annotation
+        (array_type
+          (predefined_type))))))
+
+================================================================================
+A printed signature's optional parameter
+================================================================================
+
+//@ signature a.rx
+export pure fn f(ref a: number, b?: { x?: number }) instantiates
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (signature_parameter
+        (ref_modifier)
+        (identifier)
+        (predefined_type))
+      (signature_parameter
+        (identifier)
+        (object_type
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (predefined_type)))))
+      (row_word))))
+
+================================================================================
+A printed signature's type parameters
+================================================================================
+
+//@ signature a.rx
+export pure fn f<T>(ref a: T) instantiates
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (signature_parameter
+        (ref_modifier)
+        (identifier)
+        (type_identifier))
+      (row_word))))
+
+================================================================================
+A printed signature's view rows
+================================================================================
+
+//@ signature a.rx
+export component T(props: { element: view? { attrs: any; state: S } provides(./t.rx#root); children: view | View; row: view { v: string } value(v) })
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier)
+        (signature_view
+          (object_type
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (predefined_type)))
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (type_identifier)))))
+        (signature_provides
+          (context_key)))
+      (signature_prop
+        (property_identifier)
+        (signature_view))
+      (signature_prop
+        (property_identifier)
+        (signature_view
+          (object_type
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (predefined_type))))
+          (part_path))))))
+
+================================================================================
+A signature: a generic component and a generic type
+================================================================================
+
+//@ signature lib.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).
+export type Item<T, U = string> = { v: T; label: U }
+export type Render<T> = (r: { item: T }) => View
+export component List<T extends { id: number }>(props: { items; children: view { item: T; i: number } value(i, item) }) shape(roots ul; closes-p; children-at ul li)
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_type
+      (type_identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier))
+        (type_parameter
+          (type_identifier)
+          (default_type
+            (predefined_type))))
+      (object_type
+        (property_signature
+          (property_identifier)
+          (type_annotation
+            (type_identifier)))
+        (property_signature
+          (property_identifier)
+          (type_annotation
+            (type_identifier))))))
+  (signature_export
+    (signature_type
+      (type_identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)))
+      (function_type
+        (formal_parameters
+          (required_parameter
+            (identifier)
+            (type_annotation
+              (object_type
+                (property_signature
+                  (property_identifier)
+                  (type_annotation
+                    (type_identifier)))))))
+        (type_identifier))))
+  (signature_export
+    (signature_component
+      (identifier)
+      (type_parameters
+        (type_parameter
+          (type_identifier)
+          (constraint
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (predefined_type)))))))
+      (signature_prop
+        (property_identifier))
+      (signature_prop
+        (property_identifier)
+        (signature_view
+          (object_type
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (type_identifier)))
+            (property_signature
+              (property_identifier)
+              (type_annotation
+                (predefined_type))))
+          (part_path)
+          (part_path)))
+      (signature_shape
+        (shape_words)))))
+
+================================================================================
+A namespace import, and a member applied (MO-6d)
+================================================================================
+
+import * as Select from "./select.rx"
+export default component App() {
+  o: Select.Opt = { value: "a" }
+  <Select.Root><Select.Item value={o.value}>A</Select.Item></Select.Root>
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (import_statement
+    (import_clause
+      (namespace_import
+        (identifier)))
+    (string
+      (string_fragment)))
+  (export_statement
+    (component_declaration
+      (identifier)
+      (formal_parameters)
+      (view_block
+        (equation
+          (identifier)
+          (type_annotation
+            (nested_type_identifier
+              (identifier)
+              (type_identifier)))
+          (object
+            (pair
+              (property_identifier)
+              (string
+                (string_fragment)))))
+        (jsx_element
+          (jsx_opening_element
+            (member_expression
+              (identifier)
+              (property_identifier)))
+          (jsx_element
+            (jsx_opening_element
+              (member_expression
+                (identifier)
+                (property_identifier))
+              (jsx_attribute
+                (property_identifier)
+                (jsx_expression
+                  (member_expression
+                    (identifier)
+                    (property_identifier)))))
+            (jsx_text)
+            (jsx_closing_element
+              (member_expression
+                (identifier)
+                (property_identifier))))
+          (jsx_closing_element
+            (member_expression
+              (identifier)
+              (property_identifier))))))))
+
+================================================================================
+A printed signature: a prop whose key is no identifier, quoted
+================================================================================
+
+//@ signature b.rx
+export component B(props: { ...props; n; "tc-button"; "a:b": view }) retains("on-pick": module)
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop)
+      (signature_prop
+        (property_identifier))
+      (signature_prop
+        (string
+          (string_fragment)))
+      (signature_prop
+        (string
+          (string_fragment))
+        (signature_view))
+      (signature_retains
+        (string
+          (string_fragment))))))
+
+================================================================================
+A printed signature: the paths of its parameters a fn calls while it runs
+================================================================================
+
+//@ signature lib.rx
+export pure fn ap(fs, r) calls(fs.*, r.go)
+export pure fn one(f) instantiates calls(f)
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (signature_parameter
+        (identifier))
+      (signature_parameter
+        (identifier))
+      (signature_calls
+        (part_path)
+        (part_path))))
+  (signature_export
+    (signature_fn
+      (pure)
+      (identifier)
+      (signature_parameter
+        (identifier))
+      (row_word)
+      (signature_calls
+        (part_path)))))
+
+================================================================================
+A printed signature: a shape whose root is text
+================================================================================
+
+//@ signature t.rx
+export component T(props: { n }) shape(roots #text span; closes-p)
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    (signature_component
+      (identifier)
+      (signature_prop
+        (property_identifier))
+      (signature_shape
+        (shape_words)))))
+
+================================================================================
+A re-export
+================================================================================
+
+export { Root, Item as SelectItem } from "./root.rx"
+
+--------------------------------------------------------------------------------
+
+(program
+  (export_statement
+    (export_clause
+      (export_specifier
+        (identifier))
+      (export_specifier
+        (identifier)
+        (identifier)))
+    (string
+      (string_fragment))))
+
+================================================================================
+A printed signature's re-export (MO-6e)
+================================================================================
+
+//@ signature index.rx
+export component Own(props: {})
+export { ThemeProvider as Root, theme } from "../theme.rx"
+
+--------------------------------------------------------------------------------
+
+(program
+  (signature_pragma)
+  (signature_export
+    declaration: (signature_component
+      name: (identifier)))
+  (signature_export
+    declaration: (signature_reexport
+      (export_clause
+        (export_specifier
+          name: (identifier)
+          alias: (identifier))
+        (export_specifier
+          name: (identifier)))
+      source: (string
+        (string_fragment)))))
+
+========================================
+Declaration file rows: a function part of a result that does something
+========================================
+
+export pure fn emitter(props: { on: (name: string) => void }): io ((name: string) => boolean)
+export pure fn makeClipboard(): { read: () => string; write: io (t: string) => boolean }
+export pure fn pair(): [() => string, io ((t: string) => boolean)]
+
+---
+
+(program
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters
+        (required_parameter
+          (identifier)
+          (type_annotation
+            (object_type
+              (property_signature
+                (property_identifier)
+                (type_annotation
+                  (function_type
+                    (formal_parameters
+                      (required_parameter
+                        (identifier)
+                        (type_annotation
+                          (predefined_type))))
+                    (predefined_type))))))))
+      (type_annotation
+        (io_type
+          (parenthesized_type
+            (function_type
+              (formal_parameters
+                (required_parameter
+                  (identifier)
+                  (type_annotation
+                    (predefined_type))))
+              (predefined_type)))))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters)
+      (type_annotation
+        (object_type
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (function_type
+                (formal_parameters)
+                (predefined_type))))
+          (property_signature
+            (property_identifier)
+            (type_annotation
+              (io_type
+                (function_type
+                  (formal_parameters
+                    (required_parameter
+                      (identifier)
+                      (type_annotation
+                        (predefined_type))))
+                  (predefined_type)))))))))
+  (export_statement
+    (fn_signature
+      (pure)
+      (identifier)
+      (formal_parameters)
+      (type_annotation
+        (tuple_type
+          (function_type
+            (formal_parameters)
+            (predefined_type))
+          (io_type
+            (parenthesized_type
+              (function_type
+                (formal_parameters
+                  (required_parameter
+                    (identifier)
+                    (type_annotation
+                      (predefined_type))))
+                (predefined_type)))))))))

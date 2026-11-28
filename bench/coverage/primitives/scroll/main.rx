@@ -1,0 +1,8 @@
+// @solid-primitives/scroll: the window's scroll position.
+import { createScrollPosition } from "@solid-primitives/scroll"
+
+export default component App() {
+  pos = createScrollPosition()
+  <p style="position:fixed;top:0">scrolled {pos.y}</p>
+  <div style="height:3000px"></div>
+}

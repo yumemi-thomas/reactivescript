@@ -1,0 +1,15 @@
+// The app's root, which Solid's start mode renders inside its document (vite.config.ts: `start.app`) — on the server
+// for each request, then hydrated. It provides what every page shares and holds a first load, around the router the
+// route files make (router.ts: filesystem-routing's manifest, given to @solidjs/router). The pages are the route
+// files'; host.d.rx says where the router renders them (09 MO-14): inside this component, where it applies the router's.
+import { Router } from "./router.ts"
+import { team } from "./team.rx"
+
+source clicks := 0
+
+export default component App() {
+  provide team = { name: "Directory" }
+  <header>Directory</header>
+  <button class="counter" onClick={() => { clicks := clicks + 1 }}>clicks: {clicks}</button>
+  loading fallback { <p class="wait">loading…</p> } { <Router /> }
+}

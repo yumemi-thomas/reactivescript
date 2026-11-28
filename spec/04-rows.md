@@ -28,6 +28,104 @@ and where they may not go.
   bin S — Solid's runtime `ACTION_CALLED_IN_OWNED_SCOPE` has no runtime
   form here). Carrying an `io` value (storing it, passing it) is not a
   call; its type carries the row: `io (n: number) => Promise<void>`.
+  *Given by name to what calls it now (2026-11-26).* In reactive scope
+  an action or an `io` value given by name is called there, as its
+  closure `(x) => name(x)` is, where the callee calls it while the call
+  runs: the language's methods and functions that call what they are
+  given (`map`, `filter`, `some`, `every`, `find`, `reduce`, `forEach`,
+  `flatMap`, `toSorted`, `replace`), and a fn of the module whose body
+  calls that parameter. What may keep it (a JavaScript import, a prop, a
+  record, a fn that hands it back) carries it. S-check-4.
+  *A value that holds io (2026-11-26).* An expression holds io at a path
+  when it is an action, a handler prop, an `io` part, or a list or record
+  literal, a spread, a choice or a name of one with such an item or field
+  (`[inc]` at `*`, `{ go: inc }` at `go`, `[{ go: inc }]` at `*.go`). The
+  parameter of a closure given to one of those methods over a list, and
+  the row of a `for` over one, holds what an item holds: calling it, or a
+  field of it, in reactive scope is `ACTION_CALLED_IN_OWNED_SCOPE`
+  (`[inc].map((g) => g())`, `{for g in fs { <li>{str(g())}</li> }}`). A fn
+  calls the paths of a parameter its body calls while it runs — by a path
+  of it, given to one of those methods (each item is then given), or given
+  to a parameter of another fn that calls it: a fixpoint over the module's
+  fns, and across modules by the signature's `calls(…)` (09 MO-9b). A call
+  in reactive scope that gives such a fn a value holding io at a path it
+  calls is refused, an instantiation's call too (`run([inc])`,
+  `go({ go: inc })`, `ap(inc)` of another module). Carrying is as before:
+  `[inc].map((g) => g)`, `len([inc])`, a fn that keeps its parameter. Open:
+  an io value inside a value whose type is not read (a prop typed `any`),
+  and one given to JavaScript that calls it at once (bugs/05). S-check-6.
+  **R-io-3d** *The fact follows the value (2026-11-27).* What a value holds
+  is a fact about the value, whatever form made it: the checkers read every
+  form of an expression, and a form they do not read gives the value
+  everything it was made from. The forms that are read keep the paths: a
+  name, a field, an item (an index that is not written out is any item, a
+  key that is not written out any field), a list or record literal with its
+  spreads (a spread adds, it removes nothing), a choice, `??` `||` `&&`,
+  `latest`, `peek`, a `catch`'s two answers, a rest of a record; the methods
+  of a list that answer an item (`at`, `find`, `findLast`, `pop`, `shift`),
+  the same items (`filter`, `slice`, `toSorted`, `toReversed`, `concat`,
+  `flat`, `with`, …) or a list a closure makes of them (`map`, `flatMap`);
+  and a closure of an expression, which answers what its body holds
+  (`mk = () => inc`, `mk()()`). The methods of plain data that answer a
+  primitive answer nothing that can be called. Every other form — a call of
+  a fn of `.rx` with what it was given (a parameter its result can reach), a
+  method that is in none of those lists, a closure called with arguments —
+  answers a value that *may* hold io somewhere (`?`): calling it, a field of
+  it or an item of it in reactive scope is `ACTION_CALLED_IN_OWNED_SCOPE`
+  too (`pick(fs)()`, `fs.reduce((a, f) => f)()`), but for a method of plain
+  data (`total(rows).toFixed(1)`, `names.join(",")`). The callee of a call
+  is read in whatever form it is written (`(a > 2 ? inc : dec)()`,
+  `fs.at(0)()`, `(fs[5] ?? fs[0])()`), and so are the paths of a parameter
+  a fn calls (`calls(xs.?)`: somewhere in it). A callee that is a closure
+  the module writes — by a name, or a field or an item of a literal — calls
+  what its body calls of what it is given (`run = (f) => f()`, `run(inc)`).
+  A closure written among the arguments of a call of `.rx` may be handed
+  the other arguments, and a fn given there by name that calls its
+  parameter may be handed them too: what they call of it, the others must
+  not hold (`each((h) => h(), inc)`, `each(callIt, inc)`). What the module's
+  text does not make — JavaScript's, a prop's, a context's, a source's — is
+  its declaration's to say (MO-10b), as before. Giving a value on is never
+  refused by this rule: only a call is. S-check-9.
+  **R-io-3e** *A caller is followed too (2026-11-27).* A second fact follows
+  a value as io does, through the same forms and with the same default: where
+  it holds a *caller* — an expression closure, or a fn by its name, that
+  calls a path of what it is given (`(h) => h()`, `(r) => r.go()`), or gives
+  that path to a caller of the scope around it. What a call hands on, no
+  argument may hold as io where a caller it reaches calls it: (1) a callee
+  no form says the inside of (`pick(cs)(inc)`, `cs.at(0)(inc)`,
+  `col.render(row)` with `col` a row of a mapped list) calls what the
+  callers it holds call, of the call's arguments; (2) a fn, or a closure the
+  module writes, that calls a path of an argument at which that argument
+  holds a caller (`all([(h) => h()], inc)`, `all({ run: … }, inc)`,
+  `all([callIt], inc)`) may hand that caller any part of any argument, and a
+  caller it hands on in turn; (3) a parameter nothing binds — a fn's, or a
+  closure's that no call beside it gives a value — called with a value that
+  holds io by itself (`fn hand(f) => f(inc)`) is refused there: the one
+  conservative arm, since what the parameter is given is its caller's to
+  say and the io value is not an argument of that call. A closure that calls
+  nothing of what it is given is no caller, so table code stays accepted
+  (`col.render(row)` with handlers in the rows and `render: (r) => r.label`).
+  A signature carries the fact beside the io parts, as a path with `!`
+  (where the caller is, `!`, what it calls): `{ 0.render.!.go: calls; … }`
+  (09 MO-9b). JavaScript's, a prop's and a context's values are their
+  declaration's, as before. S-check-10.
+  **R-io-3f** *A source holds what it is given (2026-11-27).* Only its own
+  block writes a source (W-5), so the module shows every value it is given:
+  its initializer, each `:=` and `guess` (a function is applied, W-6: what
+  it answers of the value it is given; a path writes that path), what a
+  draft's body writes into it, and what the module's calls of an action
+  give the parameter a write names. Both facts of each are the source's, and
+  a call of it, of a part of it or of a row of it in reactive scope is
+  refused as a call of the value would be (`source h := inc`, `x = h()`;
+  `source hs := [inc]`, `{for f in hs { … f() … }}`). An exported source's
+  signature carries them (`export source h: io := …`). A source given a
+  value the module's text does not make is its declaration's. S-check-10.
+  *An action a value carries (2026-11-24).* What a name, a field, an item
+  or a fn's result holds is followed through the literals that say it: an
+  action handed back by a fn (`{ n: n, set: set }`, `[n, set]`, `set`), of
+  this module or another (`set: io` in the signature, 09 MO-9b, MO-13i), is one
+  where it is called (`ACTION_CALLED_IN_OWNED_SCOPE`). What no literal says
+  (a parameter, a source) is not followed.
 - **R-io-4 (The boundary).** Every JS import is `io`. `import pure { f }
   from …` is the one assertion that lowers taint, and it is unchecked for
   JS (checked when the imported module is `.rx`, where it must agree with
@@ -119,8 +217,40 @@ and where they may not go.
     and takes no failure, so an `errored` region whose content reads `x`
     only under `pending?` never shows its fallback, and a
     `disabled={pending? x}` leaves the element enabled; either way the
-    click throws. (Found by the desk9 reference's fuzz seed 11, eval/results/desk9-reference-2026-11-13:
+    click throws. The regions are those of the tree that renders
+    the element (2026-11-24): a component's own content that reads `x`
+    is inside the regions it is applied in, at every place the module
+    applies it. (Found by the desk9 reference's fuzz seed 11, eval/results/desk9-reference-2026-11-13:
     `add-label` sat in a region of its own reading only `pending? shown`.)
+  **R-8a** *What such a read does (ruled 2026-11-27; X15).* The check
+  above is the compiler's (`UNGUARDED_SNAPSHOT`, when an app is built); the
+  reference checker does not make it, and a scenario's handler row runs
+  whatever is covered. So a run can reach the read. A run's read of a
+  value that has never had one fails there, as `latest` of it does (R-12;
+  Solid's rule: a node with no committed value has nothing to serve): the
+  statement throws, what the run wrote before it stands, what follows does
+  not run, and a `try` in the handler takes it (`n := 1; got := A + "!"`
+  writes `n` and not `got`). `pending? x` is a verdict and reads no value.
+  (The interpreter dropped the whole run, earlier writes too; compiled code
+  handed Solid's pending mark on, and `got` read `#pending!` on the
+  screen.) S-await-3.
+
+  **Through components** [taken by default 2026-11-25]. A callback prop
+  (`<Column onMove={(c, i) => { … }} />`) is a handler: it runs on the
+  child's click. It is covered where it is written, as above, or when the
+  element hands the component the value by another prop that the component
+  reads in an `errored` region's content (or, for the absent half, a
+  `loading` region's, or a `disabled`), since that region goes when the
+  value fails. A handler inside a component that reads `props.f` is covered
+  when, at every site, the value bound to `f` is covered there, or the
+  component's region around the element (or the element's `disabled`) reads
+  a prop that site binds to the same value. A value that takes its failure
+  from another (`n = rows.length`) is covered wherever that one is. A
+  component from another module is trusted to show what it is handed.
+  (Found by the r17 board apps 1 and 6, eval/results/rerun-2026-11-23: a
+  column's `onMove` written in the board read the other columns' lists, and
+  a lane's handler read `props.lens`, a memo over all three; with a column
+  failed, the click threw the failure out of the page.)
 
   Neither is `UNGUARDED_SNAPSHOT` (static). The check adds nothing at run
   time and Solid has no equivalent: `untrack` of a pending node throws there
@@ -163,19 +293,48 @@ and where they may not go.
   the probe-derived part of what it reads; its plain reads are R-11's). This
   is Solid F-6 ("a display-ahead read is a world of its own") as a type; what
   it means for the screen is 05.
-- **R-11 (Probes never hold; posture is per read).** A probe never holds the
-  instant it reads ahead of (F-6). Only the probe reads ahead: the row
-  `lane(x)` is the probe's, and every other read in the pass keeps its own
-  (Solid D-25, decision 1 of solidjs/solid#4695). A plain read of a source
-  the same pass also probes is the screen's: `[pending? x, x]` is `[true,
-  committed]` while `x`'s change is held, in either order, in a view reader
-  and in an equation alike, and the two are atomic because they are one
-  pass (D-23, V-1; S-solid-27). A plain read of any *other* held value makes
-  the pass the hold's work (H-3), whatever it probes beside it
-  (S-solid-27's equation variants; an `on` expression likewise, H-6,
-  S-solid-49). A pass's posture is decided by its reads in that pass: never
-  inherited from what created it or what it reads, never carried into its
-  next pass (S-solid-50).
+- **R-11 (Probes never hold; posture is the pass's).** A probe never holds
+  the instant it reads ahead of (F-6). A pass *reads ahead* when it probes
+  (`latest`, `pending?`) anywhere in it, when it reads an equation whose
+  last pass read ahead, or when its own last pass did (one pass: the
+  carry-over). A pass that reads ahead reads every held value it reads
+  plainly as the screen shows it, and joins no hold (H-3): `[pending? x, x]`
+  is `[true, committed]` while `x`'s change is held, in either order, in a
+  view reader and in an equation alike, the two atomic because they are one
+  pass (D-23, V-1; S-solid-27), and so is `[pending? x, k]` with `k` held
+  beside it (S-solid-27's second equation variant, S-posture-1; an `on`
+  expression likewise re-arms now, H-6, S-solid-49). A pass that does not
+  read ahead and reads a held value plainly is the hold's work. Posture
+  depends on history: an equation that probed on its last pass and probes
+  nothing now still reads ahead, and the pass after that does not
+  (S-solid-50 and its variant). It is not inherited from what created the
+  pass. This is Solid's rule as Solid runs it (D-25, its pass-wide posture
+  and carry-over; DV-21, closed 2026-11-27). Where two reads should keep
+  their own postures, they are computations kept apart up to the screen —
+  an equation that reads the probe makes its readers read ahead too
+  (advice `PROBE_BESIDE_HELD_READ`, 99).
+- **R-11a (An attribute is a reader; one that reads ahead is one in the
+  compiled code too, 2026-11-27).** Each attribute of markup is a reader of
+  its own (V-1): `class={sel == it ? "on" : "off"}` beside
+  `disabled={pending? detail}` reads `sel` plainly, and a new selection
+  shows at once. Solid's JSX compiler computes the changing attributes of
+  one template in one render effect, so in compiled code a probe among them
+  would make the pass of all of them read ahead (R-11). The emitters
+  therefore give an attribute that reads ahead — its expression probes
+  outside a closure and `peek`, or reads an equation or a source with a
+  question whose expression does, or calls a fn whose body does — a render
+  effect of its own: `__rt.own(ref, [name, () => value]…)` as the element's
+  `ref`, whose effects are made while the element is built (the ref itself is
+  an effect's callback in Solid, where no primitive may be made) and set the
+  attribute as a spread sets it; the attribute where it was written is
+  `__rt.served(() => value)`, the value on the server and nothing in the
+  browser, so the served page carries it and hydration keeps it. A handler
+  and a spread are not split (a spread is already an effect of its own). The
+  test counts more than Solid would (a read of an equation that probed only
+  in a branch not taken); more costs one effect, less would be wrong. Not
+  covered: a prop that probes, read by a child's attribute beside another
+  — the child cannot see it (advice is the remedy there; see DECISION.md).
+  S-posture-3.
 - **R-12 (Probes in imperative scope).** `latest x` and `pending? x` are
   readable in imperative scope as snapshots of the verdict / in-flight value
   at that moment. On a first load there is no owner to hold, so `pending?
@@ -229,14 +388,43 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
     content: `A` and `B`. `fallback(e)` or a bare `fallback` discharges
     every class. At run time a failure of another class passes the boundary
     to the next one up — the boundary does not show its fallback for it, and
-    re-decides when the failure it shows changes class (S-fail-1 instant 6).
-  - `e catch (x: A | B) => alt`, an expression: when `e` fails with `A` or
-    `B` its value is `alt`, with `x` the error; other failures and pending
-    pass through untouched. `catch (x) => alt` discharges every class. It
-    binds looser than every operator, `?:` included — `c ? a : b catch …`
-    catches the conditional; parenthesise to catch one arm. Over an
-    equation's `await`, a matching rejection is an answer:
-    `user = await fetchUser(id) catch (e: NotFound) => null` lands `null`.
+    re-decides when the failure it shows changes class (S-fail-1 instant 6),
+    after a pending answer as well (S-fail-10; Solid keeps it, 05 DV-31).
+  - `await e catch (x: A | B) => alt`, at the `await` only: when the
+    promise rejects with `A` or `B` the answer is `alt`, with `x` the error;
+    other failures and pending pass through untouched. `catch (x) => alt`
+    discharges every class. It binds looser than every operator, `?:`
+    included. A matching rejection is an answer, so it never becomes an
+    errored value: `user = await fetchUser(id) catch (e: NotFound) => null`
+    lands `null`. In imperative scope it follows a statement-level `await`
+    (AC-1); `try`/`catch` (AC-7) takes any other failure there, a snapshot
+    read's included (R-f-7).
+    **R-f-4a** *The answer is an expression of its reader (ruled 2026-11-27).*
+    `alt` is reactive scope like the rest of the expression it is written in:
+    it reads its sources where the `await` is read, not inside the `await`.
+    `{await load(s) catch (e) => "none" + t}` shows `none5` after `t := 5`,
+    in the result form (`x = await … catch …`) and anywhere else. The `await`
+    is settled where it is awaited, to its answer or to the failure it
+    caught — a failure of computing its operand too —, and the reader computes
+    the catch's answer from that; so nothing is read after an `await` (Solid's
+    `UNTRACKED_READ_AFTER_AWAIT`), and no boundary stands between the reader
+    and what it reads (05 H-4: the reader of a catch's answer holds as the
+    reader of any answer does). S-fail-9. Wherever the checker takes it —
+    a source with a question (`source x = await f() catch …`), an arm of an
+    equation (`c ? 0 : (await f() catch …)`), an equation a guess sits over,
+    a keyed or deferred one — it is lowered so: only a plain equation's own
+    result has a form in place (an inner memo, the flight, read through a
+    boundary; `refresh` re-asks the inner memo, AC-4); every other is hoisted
+    and settled (2026-11-27: the build had refused them with a compiler's
+    message, after the checker and the editor took them; S-catch-lowered).
+    A `catch` after anything but an `await` is `CATCH_NOT_ON_AWAIT` (bin S;
+    ruled 2026-11-19, Ryan: "only for things with await"). Principle: a
+    failure belongs to its own section. A value that failed is shown by an
+    `errored` region where it is read, whose retry re-asks the question that
+    failed; a catch over a read turned one pane's failure into another's
+    value (S-fail-4) and gave handlers a quiet way to read another pane's
+    failed data (found by the eval board, r15prep: the board reference
+    needed no catch once handlers read only their own pane).
   - An effect: its apply receives the failure as a value (`$0…`, H-12), so
     its inputs are discharged.
   - `pending? e` is a verdict and never reads `e`'s failure; `latest e` and
@@ -346,8 +534,9 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
 - `S-row-5`: `fn load(id) => await fetch(id)`; `x = load(id)` pending (R-3).
 - `S-fail-1` ✓: typed classes — a class caught into a value, a typed
   boundary taking its class, another class passing it to the root, recovery
-  through both (R-f-1..5, R-f-9); four rejected variants.
+  through both (R-f-1..5, R-f-9); five rejected variants incl.
+  `CATCH_NOT_ON_AWAIT`.
 - `S-fail-2` ✓: failures through components — children under the
-  component's boundary, a prop checked where it is read, a tail `await …
+  component's boundary, a prop checked where it is read, an `await …
   catch` (R-f-4, R-f-5); five rejected variants incl. R-f-6.
 - `S-action-1` ✓: a panic ends a body (DV-2); two R-f-6 rejections.

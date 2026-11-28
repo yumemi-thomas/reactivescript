@@ -1,0 +1,12 @@
+// Wardic's easing functions: plain functions of a number, used in an equation and given to a transition.
+import { DomLive } from "@wardic/dom"
+import { wardic as Motion, WardicProvider, easeInOut } from "@wardic/solid"
+
+export default component App() {
+  source t := 0.5
+  eased = easeInOut(t)
+  <WardicProvider env={DomLive}>
+    <Motion.div animate={{ opacity: 1 }} transition={{ duration: 0.05, ease: easeInOut }}>eased {eased}</Motion.div>
+    <button onClick={() => { t := 1 }}>end</button>
+  </WardicProvider>
+}

@@ -1,0 +1,15 @@
+// Wardic's gestures: an element's response to the pointer as props, and a sensor read by the app (sensors.js gives the
+// sensor's two uses two names: Wardic's is one function that is the ref and the reading).
+import { DomLive } from "@wardic/dom"
+import { wardic as Motion, WardicProvider } from "@wardic/solid"
+import { createHoverSensor } from "./sensors.js"
+
+component Card() {
+  hover = createHoverSensor()
+  <div class="card" ref={hover.ref} style="width:120px;height:60px">
+    <Motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>{hover.hovered ? "hovered" : "not hovered"}</Motion.div>
+  </div>
+}
+export default component App() {
+  <WardicProvider env={DomLive}><Card /></WardicProvider>
+}

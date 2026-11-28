@@ -1,0 +1,8 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type ProgressState = import("@ui-sdk/solid/progress").ProgressState
+export type ProgressValueState = import("@ui-sdk/solid/progress").ProgressValueState
+export component Progress(props: Parameters<typeof import("@ui-sdk/solid/progress").Progress>[0] & { getValueLabel?: (value: number | null, details: { formatted: string; percent: number | null; min: number; max: number; }) => string; render?: (props: Record<string, any>, state: NoInfer<ProgressState>) => View })
+export component ProgressIndicator(props: Parameters<typeof import("@ui-sdk/solid/progress").ProgressIndicator>[0] & { render?: (props: Record<string, any>, state: NoInfer<ProgressState>) => View })
+export component ProgressLabel(props: Parameters<typeof import("@ui-sdk/solid/progress").ProgressLabel>[0] & { render?: (props: Record<string, any>, state: NoInfer<ProgressState>) => View })
+export component ProgressTrack(props: Parameters<typeof import("@ui-sdk/solid/progress").ProgressTrack>[0] & { render?: (props: Record<string, any>, state: NoInfer<ProgressState>) => View })
+export component ProgressValue(props: Parameters<typeof import("@ui-sdk/solid/progress").ProgressValue>[0] & { render?: (props: Record<string, any>, state: NoInfer<ProgressValueState>) => View })

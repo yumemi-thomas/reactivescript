@@ -1,0 +1,3 @@
+export type Node = import("./icons.js").Node
+export const check: Node[]
+export const circle: Node[]

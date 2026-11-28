@@ -1,0 +1,4 @@
+//@ for @solid-primitives/resize-observer ^4.0.0
+// As rx-declare drafts it. Read from the code by rx-declare (09 MO-8v; it was by hand): the callback is called later (`handler`), and the observer is made once where it
+// is written (`pure … instantiates`): its own cleanup is the component's.
+export fn makeResizeObserver<T extends Element>(callback: handler (entries: (ResizeObserverEntry & { readonly target: T })[], observer: ResizeObserver) => void, options?: ResizeObserverOptions): { observe: (ref_: T) => void; unobserve: (ref_: T) => void } instantiates

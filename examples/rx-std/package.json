@@ -1,0 +1,35 @@
+{
+  "name": "rx-primitives",
+  "private": true,
+  "type": "module",
+  "description": "An experiment: @solid-primitives packages rewritten in ReactiveScript. Development dependencies only: the original packages (for their helpers and for comparison), vitest and jsdom for their tests.",
+  "devDependencies": {
+    "@solid-primitives/a11y": "1.0.0",
+    "@solid-primitives/controlled-props": "^1.0.0",
+    "@solid-primitives/history": "1.0.0",
+    "@solid-primitives/keyboard": "2.0.0",
+    "@solid-primitives/keyed": "3.0.0",
+    "@solid-primitives/media": "4.0.0",
+    "@solid-primitives/pagination": "1.0.0",
+    "@solid-primitives/presence": "1.0.0",
+    "@solid-primitives/resize-observer": "4.0.0",
+    "@solid-primitives/sortable": "1.0.0",
+    "@solid-primitives/storage": "5.0.1",
+    "@solid-primitives/timer": "1.4.5",
+    "@solid-primitives/utils": "7.0.1",
+    "@solidjs/compiler": "file:../../../solid-next/packages/compiler",
+    "@solidjs/signals": "file:../../../solid-next/packages/signals",
+    "@solidjs/vite-plugin": "3.0.1",
+    "@solidjs/web": "file:../../../solid-next/packages/web",
+    "esbuild": "^0.28.2",
+    "jsdom": "^31.0.1",
+    "rolldown": "1.2.19",
+    "solid-js": "file:../../../solid-next/packages/solid",
+    "typescript": "^6.0.3",
+    "vite": "8.4.0",
+    "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "@solidjs/compiler": "file:../../../solid-next/packages/compiler"
+  }
+}

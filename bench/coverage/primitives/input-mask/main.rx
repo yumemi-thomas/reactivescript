@@ -1,0 +1,7 @@
+// @solid-primitives/input-mask: an input kept to a pattern, by a handler the primitive makes.
+import { createInputMask } from "@solid-primitives/input-mask"
+
+export default component App() {
+  mask = createInputMask("99/99/9999")
+  <input class="date" placeholder="dd/mm/yyyy" onInput={(event: InputEvent) => { mask(event) }} />
+}

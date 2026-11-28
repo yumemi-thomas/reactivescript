@@ -1,0 +1,1 @@
+export fn place(ref open: boolean): { reference: (el: HTMLElement) => void; floating: (el: HTMLElement) => void; styles: ref import("@solidjs/web").JSX.CSSProperties }

@@ -1,0 +1,7 @@
+// @solid-primitives/gestures: a tap on an element, by a function given to its ref.
+import { tap } from "@solid-primitives/gestures"
+
+export default component App() {
+  source taps := 0
+  <div class="pad" style="width:120px;height:60px;touch-action:none" ref={tap({ callback: () => { taps := n => n + 1 } })}>tapped {taps}</div>
+}

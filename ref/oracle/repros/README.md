@@ -1,8 +1,11 @@
 # Repros for Solid 2.0 (`next`)
 
 Standalone scripts against Solid's `next` branch built from source at the
-commit in `ref/SOLID_NEXT` (every one re-run there, `0847122`, 2026-10-26) —
-no ReactiveScript code involved. Run from `ref/oracle/` after `npm install`:
+commit in `ref/SOLID_NEXT` (every one re-run there, `0847122`, 2026-10-26; and
+again at `30e7805` on 2026-11-27: every bug marked fixed shows the ruled
+output; DV-26, DV-27 and DV-28 still reproduce; and at `510bb8d01` on
+2026-11-28, see the last section) — no ReactiveScript code
+involved. Run from `ref/oracle/` after `npm install`:
 
 ```
 node --conditions=browser --conditions=development repros/dv3-signals.mjs [effect-in-fallback|read-in-fallback]
@@ -10,7 +13,7 @@ node --conditions=browser --conditions=development repros/dv3-web.mjs [element-f
 node --conditions=browser --conditions=development repros/dv4-signals.mjs [store|memo] [boundary|none]
 node --conditions=browser --conditions=development repros/dv10-lane-effects.mjs [one|two]
 node repros/dv9-ssr-after-shell.mjs [client|server-component] [ms]      # the server build: no --conditions
-node repros/dv9-hydrate/run.mjs                                           # server + Chromium (playwright, esbuild)
+node repros/dv9-hydrate/run.mjs                                           # server + Chromium (playwright, rolldown)
 node repros/dv11-hydrate/run.mjs
 node repros/dv12-hydrate/run.mjs
 node --conditions=browser repros/dv13-universal-empty.mjs
@@ -20,6 +23,11 @@ node --conditions=browser --conditions=development repros/dv17-boundary-merges-m
 node --conditions=browser --conditions=development repros/dv18-projection-relanding.mjs [row-memo|direct]
 node --conditions=browser --conditions=development repros/dv19-latest-reask.mjs
 node --conditions=browser --conditions=development repros/4690-guess-reask-refresh.mjs
+node --conditions=browser --conditions=development repros/pin-4906-target.mjs
+node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
+node --conditions=browser --conditions=development repros/keyed-guess-refresh-tear.mjs [fresh]   # DV-30, open
+node --conditions=browser repros/dv30-refresh-then-guess.mjs [nokey|key] [guess|noguess] [norefresh]   # DV-30 reduced
+node --conditions=browser --conditions=development repros/dv31-rethrow-then-caught.mjs [sync|async] [later] [component] [derived] [typed] [three] [effect] [own]   # DV-31, open: STUCK with `async own effect`
 ```
 
 The hydration repros are each one `app.jsx`, compiled by Solid's own
@@ -115,10 +123,12 @@ fallback's computation; when the inner switches back to its content that
 computation is disposed, and the outer is not told the error's source is
 gone.
 
-**How we lower around it.** The inner fallback returns a marker carrying
-the error instead of throwing; a memo around the inner boundary reads it
-and throws. That memo is an ordinary dependent of the boundary, so it
-re-runs and recovers when the content does (S-fail-1 instants 6–8).
+**How we lowered around it, until 2026-11-27.** The inner fallback returned
+a marker carrying the error instead of throwing; a memo around the inner
+boundary read it and threw. At the pin this repro shows `ok0` at the ✗ (the
+fix is #4277), so the workaround is gone: a typed boundary's fallback and a
+reactive `catch` throw a failure of another class themselves, as the server
+runtime always did (S-fail-1 instants 6–8 on every runner).
 
 ---
 
@@ -398,6 +408,10 @@ over `createSignal(async)`.
 **Observed on 2.0.0-rc.21 (next @ 2105ffb8).** `store.length` 2, `untrack` 2, `latest` 3. Before the re-ask lands,
 `latest` is 2. The signal form: `detail().title` "New", `latest` "Old".
 
+**At the pin (30e7805, 2026-11-27).** The signal form answers `latest` "New". The store form still answers `latest` 3
+after the re-ask: nothing displays the store here, and decision 3 is about a slot that displays a guess
+(S-latest-reask, which displays it, is right on every runner). Not recorded as a divergence.
+
 **Found by** the round 8 timing fuzzer on the chain4 reference desk, regraded on rc.21 (2026-11-05): a tab count read
 with `latest issues` beside a list with a close in flight.
 
@@ -417,4 +431,105 @@ guess is pending; the write lands.
 the old truth once the write lands, until the re-ask lands. An effect beside a rendered reader keeps it. Without the
 outside re-ask every reader keeps it. An `effect` over a source nothing renders is a legal `.rx` program, so
 S-guess-reask-refresh's effect-only variant records it (instants 5 and 6).
+
+
+## DV-27 — a store a `ref` writes while hydrating (fixed on Solid main 50a4bfdde, probably #4906)
+
+`node repros/dv27-hydrate/run.mjs`: hydrated `1/2/5` at 30e7805eb (the store's write made, its reader not run again),
+`2/2/5` at 50a4bfdde, as rendered. spec/10-server.md DV-27; S-server-9's divergence row is removed.
+
+## The pin move to 50a4bfdde (Solid #4906) — ours, not Solid's
+
+```
+node --conditions=browser --conditions=development repros/pin-4906-target.mjs
+node --conditions=browser --conditions=development repros/pin-effect-store.mjs [plain|answer|guess]
+node --conditions=browser --conditions=development repros/keyed-guess-refresh-tear.mjs [fresh]   # DV-30, open
+node --conditions=browser repros/dv30-refresh-then-guess.mjs [nokey|key] [guess|noguess] [norefresh]   # DV-30 reduced
+node --conditions=browser --conditions=development repros/dv31-rethrow-then-caught.mjs [sync|async] [later] [component] [derived] [typed] [three] [effect] [own]   # DV-31, open: STUCK with `async own effect`
+```
+
+#4906 runs stores on the thin engine and deletes the deep one, whose record a proxy answered as `store[$TARGET]`.
+On the thin engine every value answers `$TARGET` with `undefined`. `pin-4906-target.mjs` prints, for a store, a row, a
+list, an optimistic store, a projection and its row, a derived store, a merge and an omit view and plain values, what
+`$TARGET`, `$PROXY` and `$RECORD` answer: at 30e7805eb `[$TARGET] !== undefined` is true exactly for the store proxies;
+at 50a4bfdde it is false for all, and `v[$PROXY] === v && v[$RECORD] === undefined` is true exactly for the store
+proxies on both. Our runtimes (`ref/compile/rt.ts`, `rt-web.ts`, `rt-server.ts`, `ref/oracle/lower.ts`,
+`ref/compile/keyed.ts`) asked `$TARGET`, so on 50a4bfdde a store was taken for a plain object: an effect's input was the
+store itself, never copied (S-effect-store-1, -3: no effect after the first); `pre` and a kept value were not copied
+(S-pre-1, -2, S-region-7, S-keyed-alias, S-store-7); `keyedWrite` found no kept row (S-store-kept-row). In plain Solid
+the same effects fire on both pins (`pin-effect-store.mjs`: `["A,C"]`, `["x,C"]`, `["B,C"]`).
+
+`==` through a store (ST-2) compared `x[$TARGET].v`, the deep engine's raw; it is now the proxy itself (one per record
+in a store), and a proxy against a plain object compares by `snapshot()`, the record while nothing below it was written.
+
+---
+
+## DV-30 — a guess on an optimistic store holds no switch once a refresh of it has landed (open, 2026-11-27)
+
+**Reduced** (the user's, 2026-11-28): `node --conditions=browser repros/dv30-refresh-then-guess.mjs nokey guess`
+prints `open | a,z TORN` (expected `all | a,z`); `key guess` the same; `nokey guess norefresh` holds (`all | a,z`).
+No key, no refresh in the action, no first action: one plain `refresh(todos)` that lands is enough. `createOptimistic`
+(a signal) holds; an unrelated signal written between the steps hides it. Torn on 50a4bfdde, 510bb8d01 and npm 2.0.4.
+The first form, as found:
+
+`keyed-guess-refresh-tear.mjs`: `createOptimisticStore(async () => fetch(filter()), [], { key: "id" })` and an action
+that guesses a row (`setTodos(ts => [...ts, { id }])`), awaits, and refreshes. After one add has settled, a second
+add's guess is out and `filter` is switched. **Expected** (H-11, Solid D-34; what the `fresh` argument shows): the
+switch joins the guess's hold — `all | a,x,z` until the action ends, then `open | o,z`. **Actual** at 50a4bfdde:
+`open | a,x,z` for the whole action. Found by the claims hunt at 41142a46 (finding 4). Not filed here. The same at
+510bb8d01.
+
+## DV-31 — an outer boundary keeps a rethrown failure after the inner one takes the next (open, 2026-11-28)
+
+`dv31-rethrow-then-caught.mjs async own effect` prints `| outer:nf | outer:nf | ok0 STUCK`. **Expected**: R-f-4
+and D-41 (a value replaces the error) give `| outer:nf | inner:toolong | ok0`. The inner boundary takes `TooLong`
+and its fallback throws anything else. The outer takes what reaches it. `which` 1 throws `NotFound` and the outer
+shows it. `which` 2 throws `TooLong` after its answer lands: the inner fallback returns a value, and the outer stays
+on `outer:nf`. All three of these are needed, and any other mode can be added. `async`: the answer is pending in
+between (`sync own effect` is ok). `own`: the inner boundary is made inside the outer one's content and handed out
+unread, as JSX nests `<Errored>`, so the reader resolves the accessors (made beside and read in the content, `async
+effect`, it is ok). `effect`: the failing read is a render effect's, as `insert`'s is (`async own` is ok).
+`component` (`<Errored>` with the typed fallback's memo, as `TypedErrored` is) and `three` (an untyped boundary
+above) stick alike. The same on 510bb8d01 and npm 2.0.4. It was first run here in the forms without `own`, all of
+which recover, and was taken as "not shown to be Solid's". scenarios/S-fail-10 and spec/05 DV-31. Not filed here.
+
+**Cause** (traced in an instrumented copy of the pin's `dist/dev.js`, 2026-11-28; `boundaries.ts`). While the
+outer boundary shows its fallback, the render effect going pending passes it by and is recorded there as a reader
+(`catchStatus`: `if (b._fallback && b._type > flags) record(b, node)`, D-38/D-41), its own source. When it then
+fails with `TooLong`, `catchStatus` stops at the inner boundary, which catches it, and never reaches the outer one.
+The outer's `prune` keeps any reader with `r._statusFlags & STATUS_ERROR`, so it keeps this one, although the error
+belongs to a boundary below it. A pending phase in the content while the outer shows its fallback is enough: the
+first failure may be synchronous, may come from an answer (`null` that a memo turns into a throw) and does not have
+to be a rejection. The synchronous form never records the reader at the outer boundary. **Candidate fix**, the
+`caughtBelow` counterpart for errors: in `prune`, an error boundary does not keep an errored reader that an error
+boundary between them has recorded:
+
+```js
+function errorBelow(b, r) {
+  if (!(r._statusFlags & STATUS_ERROR)) return false;
+  for (let l = boundaryOf(r); l && l !== b; l = l._parent) if (l._type & STATUS_ERROR && l._readers.has(r)) return true;
+  return false;
+}
+// prune: … && !(mask & STATUS_ERROR && caughtBelow(b, r, s)) && !(mask & STATUS_ERROR && errorBelow(b, r))) || …
+```
+
+With it, this repro prints `inner:toolong` in every mode. The oracle shows S-fail-10's spec frames, with no
+divergence rows. Of the other 263 oracle scenarios none changes. Solid's own test suite was not run with it (the
+pin is read only here).
+
+## The pin move to 510bb8d01 (2026-11-28)
+
+Every repro here was run on both pins (`rx-pin2.noindex/logs/repros-{old,new}.txt`, and by hand the ones with an `ms`
+argument or a mode the header leaves optional, `byhand.txt`). Two lines moved, both to the ruled output:
+
+- `cleanup-action-write.mjs action` (DV-29): `… | set(false) T` at 50a4bfdde, `F | T | F | T | F` at 510bb8d01 —
+  Solid's #5236 (issue #5233). S-effect-cleanup-action's `oracle` row is removed.
+- `w3-error-through-a-part.mjs part 1` and `prop 1` (DV-26, before the shell): `<main><b></b></main>` at 50a4bfdde,
+  `<main><p>bad: no</p></main>` at 510bb8d01 — #5225. After the shell (`ms` 200) both still stream
+  `<template id="100" e></template>`: DV-26 stays open there (#5237, open), and so does S-server-7's `server` row.
+
+Outside this folder: X1's draft (`solid-main.noindex/drafts/1-reconcile-kept-row/repro.mjs none`) keeps both rows at
+510bb8d01 (#5222); DV-28b's draft 5 (`minimal/run.mjs main` with `SOLID_CHECKOUT`) calls the hydrated `ref` once and
+keeps the served node at 510bb8d01 (#5235). Every other line is the same on both pins: DV-19's store form (#5234,
+open), DV-30, DV-10, DV-21/22's neighbours, the fixed DVs' ruled outputs.
 

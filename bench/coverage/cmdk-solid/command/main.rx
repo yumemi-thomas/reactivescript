@@ -1,0 +1,15 @@
+// cmdk-solid: a command menu, filtered as the user types, that runs the item picked.
+import { Command, CommandInput, CommandList, CommandItem, CommandEmpty } from "cmdk-solid"
+
+export default component App() {
+  source ran := "nothing"
+  <Command label="Commands">
+    <CommandInput class="q" placeholder="type" />
+    <CommandList>
+      <CommandEmpty>none</CommandEmpty>
+      <CommandItem value="open" onSelect={(v: string) => { ran := v }}>Open file</CommandItem>
+      <CommandItem value="save" onSelect={(v: string) => { ran := v }}>Save file</CommandItem>
+    </CommandList>
+  </Command>
+  <p>ran {ran}</p>
+}

@@ -1,0 +1,11 @@
+// UI SDK's utilities: plain functions over numbers and dates, lifted over the app's state.
+import { clamp, formatNumber } from "@ui-sdk/solid/number"
+import { addDays, formatDate } from "@ui-sdk/solid/date"
+
+export default component App() {
+  source quantity := 3
+  bounded = clamp(quantity, 1, 10)
+  <p class="n">{formatNumber(bounded)} of 10</p>
+  <p class="d">{formatDate(addDays("2026-01-30", 3))}</p>
+  <button onClick={() => { quantity := 50 }}>change</button>
+}

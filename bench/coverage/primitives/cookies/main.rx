@@ -1,0 +1,8 @@
+// @solid-primitives/cookies: the user's theme, kept in a cookie.
+import { createUserTheme } from "@solid-primitives/cookies"
+
+export default component App() {
+  [theme, setTheme] = createUserTheme("theme", { defaultValue: "light" })
+  <p class={theme}>theme: {theme}</p>
+  <button onClick={() => { setTheme("dark") }}>dark</button>
+}

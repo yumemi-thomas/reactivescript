@@ -130,6 +130,11 @@ impl<'a> Build<'a> {
                 b,
             ),
             S::IfThen(c, t) => Statement::new_if_statement(SPAN, self.expr(c), self.stmt(t), None, b),
+            S::ForOf(n, e, body) => {
+                let d = VariableDeclarator::new(SPAN, BindingPattern::new_binding_identifier(SPAN, self.s(n), b), None, None, false, b);
+                let left = ForStatementLeft::new_variable_declaration(SPAN, VariableDeclarationKind::Const, self.vec([d]), false, b);
+                Statement::new_for_of_statement(SPAN, false, left, self.expr(e), Statement::new_block_statement(SPAN, self.block(body), b), b)
+            }
             S::Block(ss) => Statement::new_block_statement(SPAN, self.block(ss), b),
             S::Try { block, param, handler, fin } => {
                 let block = self.block_stmt(block);
@@ -182,6 +187,7 @@ impl<'a> Build<'a> {
                 ImportOrExportKind::Value,
                 b,
             ),
+            S::ImportBare(src) => Statement::new_import_declaration(SPAN, None, StringLiteral::new(SPAN, self.s(src), None, b), None, None, ImportOrExportKind::Value, b),
             S::ExportDefault(f) => {
                 let (params, body) = self.func_parts(f, FormalParameterKind::FormalParameter);
                 let decl = ExportDefaultDeclarationKind::new_function_declaration(
@@ -264,6 +270,7 @@ impl<'a> Build<'a> {
             return Expression::new_chain_expression(SPAN, el, b);
         }
         match e {
+            E::Id(n) if n == "this" => Expression::new_this_expression(SPAN, b),
             E::Id(n) => Expression::new_identifier(SPAN, self.s(n), b),
             E::Str(s) => Expression::new_string_literal(SPAN, self.s(s), None, b),
             E::Num(n) => Expression::new_numeric_literal(SPAN, *n, None, NumberBase::Decimal, b),

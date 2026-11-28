@@ -1,0 +1,1 @@
+export pure fn entries(source: any): ref (() => void)[] | null instantiates

@@ -1,0 +1,5 @@
+The sprint board is built in Exact at `/tmp/claude-0/runs/r15/board-contract-haiku-6/app.contract` (view) and `app.ts` (data module, which answers every source with a reply shape and echoes a per-visit session number). All 26 visible tests pass and `./check` is clean; I used 9 of the 15 check/test runs. Every write is optimistic, and a declined reply restores the card, row or item and shows its error, with replies from a page the user has left ignored. Not verified: the brief's extra hidden tests, and any browser behaviour beyond the visible tests.
+
+Known gaps:
+- Two writes to the same card in flight, where the first is declined, can leave the board out of step with the server, because each revert restores the state from before its own write.
+- A declined move, archive or rename restores the card as it was when the write was sent, so a rename made while that write was pending is lost.

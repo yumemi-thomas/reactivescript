@@ -1,0 +1,19 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type SelectProps<T = string, Multiple extends boolean | undefined = false> = import("@ui-sdk/solid/select").SelectProps<T, Multiple>
+export type SelectOpenChangeReason = import("@ui-sdk/solid/select").SelectOpenChangeReason
+export type SelectQueryChangeReason = import("@ui-sdk/solid/select").SelectQueryChangeReason
+export type ListAnnouncement = import("@ui-sdk/solid/select").ListAnnouncement
+export type ListHighlightDetails = import("@ui-sdk/solid/select").ListHighlightDetails
+export type SelectContentState = import("@ui-sdk/solid/select").SelectContentState
+export type SelectContentProps = import("@ui-sdk/solid/select").SelectContentProps
+export type SelectItemState = import("@ui-sdk/solid/select").SelectItemState
+export type SelectItemProps<T = string> = import("@ui-sdk/solid/select").SelectItemProps<T>
+export type SelectTriggerState = import("@ui-sdk/solid/select").SelectTriggerState
+export type SelectTriggerProps = import("@ui-sdk/solid/select").SelectTriggerProps
+export type SelectValueState = import("@ui-sdk/solid/select").SelectValueState
+export type SelectValueProps = import("@ui-sdk/solid/select").SelectValueProps
+export component Select<T = string, Multiple extends boolean | undefined = false>(props: SelectProps<T, Multiple> & { onOpenChange?: (open: boolean, details: import("@ui-sdk/core").ChangeDetails<SelectOpenChangeReason>) => void; onOpenChangeComplete?: (open: boolean) => void; onQueryChange?: (query: string, details: import("@ui-sdk/core").ChangeDetails<SelectQueryChangeReason>) => void; onLoadMore?: () => void; announcement?: (change: ListAnnouncement) => string | null | undefined; itemToValue?: (value: T) => string; itemToLabel?: (value: T) => string; isItemEqualToValue?: (itemValue: T, value: T) => boolean; onHighlight?: (value: T | null, details: ListHighlightDetails) => void; onDismissAttempt?: (...args: Parameters<NonNullable<Parameters<typeof import("@ui-sdk/solid/select").Select>[0]["onDismissAttempt"]>>) => void; onValueChange?: handler (...args: Parameters<NonNullable<Parameters<typeof import("@ui-sdk/solid/select").Select>[0]["onValueChange"]>>) => ReturnType<NonNullable<Parameters<typeof import("@ui-sdk/solid/select").Select>[0]["onValueChange"]>> })
+export component SelectContent(props: import("@ui-sdk/solid").PartProps<"div", SelectContentState> & SelectContentProps & { render?: (props: Record<string, any>, state: SelectContentState) => View })
+export component SelectItem<T = string>(props: Omit<import("@ui-sdk/solid").PartProps<"div", SelectItemState>, ("value" | "onChange" | "onSelect")> & SelectItemProps<T> & { render?: (props: Record<string, any>, state: { highlighted: boolean; selected: boolean; disabled: boolean; }) => View })
+export component SelectTrigger(props: (Omit<import("@ui-sdk/solid").PartProps<"button", SelectTriggerState>, ("value" | "onChange" | "onSelect")> & SelectTriggerProps) & { render?: (props: Record<string, any>, state: { open: boolean; disabled: boolean; readOnly: boolean; required: boolean; placeholder: boolean; }) => View })
+export component SelectValue(props: Omit<import("@ui-sdk/solid").PartProps<"span", SelectValueState>, ("value" | "onChange" | "onSelect")> & SelectValueProps & { render?: (props: Record<string, any>, state: { value: unknown; label: string; labels: string[]; placeholder: boolean; }) => View; getMoreLabel?: (count: number) => string })

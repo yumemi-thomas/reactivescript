@@ -1,0 +1,9 @@
+// solid-use/props: some of an object's fields, by name.
+import { pickProps } from "solid-use/props"
+
+export default component App() {
+  source person := { name: "Ada", born: 1815, email: "ada@example.com" }
+  card = pickProps(person, ["name", "born"])
+  <p>{card.name}, born {card.born}</p>
+  <button onClick={() => { person.name := "Ada Lovelace" }}>rename</button>
+}

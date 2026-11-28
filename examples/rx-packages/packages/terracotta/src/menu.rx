@@ -1,0 +1,157 @@
+// Menu, MenuItem, RadioGroup and its parts, Listbox and its parts. Derived from components/menu, radio-group and listbox of terracotta 2.0.0 (MIT, see ../NOTICE).
+import { call, give, pressKey, roam, focusFirst, focus, click, leaves } from "./dom.js"
+import pure { uniqueId, flag, same } from "./dom.js"
+import { fromEntries } from "@reactivescript/std/object"
+import { Div, Ul, Li, Label, Button as ButtonProps } from "./types.js"
+import { createDisclosure, State, Options } from "./disclosure.rx"
+
+context menu: { id: string }
+export component Menu(props: Div) {
+  { onKeyDown, children, ref: user, ...rest } = props
+  id = uniqueId()
+  source el: any := undefined
+  provide menu = { id: id }
+  <div tc-menu="" id={id} role="menu" {...rest} ref={(e: Element) => { el := e; give(user, e) }} onKeyDown={(e) => { call(e, onKeyDown); roam(e, el, `[tc-owner="${id}"]:not([tc-disabled])`, "both") }}>{children}</div>
+}
+export component MenuItem(props: Omit<Li, "children"> & { disabled?: boolean; children?: View | ((s: { disabled: boolean }) => View) }) {
+  { disabled, onClick, onKeyDown, onKeyUp, children: shown, ...rest } = props
+  m = use menu
+  <li tc-button="" tc-menu-item="" tc-owner={m.id} role="menuitem" tabindex={0 - 1} {...fromEntries([["disabled", disabled]])} tc-disabled={flag(disabled)} aria-disabled={disabled ? "true" : disabled == undefined ? undefined : "false"} {...rest}
+    onClick={(e) => { if (disabled) { e.preventDefault() } else { call(e, onClick) } }} onKeyDown={(e) => { call(e, onKeyDown); pressKey(e, disabled) }} onKeyUp={(e) => { call(e, onKeyUp); pressKey(e, disabled) }}><props.children disabled={disabled ?? false} /></li>
+}
+
+type By = (a: any, b: any) => boolean
+/** What is selected of a list: one or several values, its own or the caller's. */
+type Pick = { on: any[]; active: any; hasActive: boolean; disabled: boolean; by: By | undefined; select: (v: any) => void; focus: (v: any) => void; blur: (v: any) => void }
+type PickOptions = { value: any; defaultValue: any; multiple: boolean; toggleable: boolean; disabled: boolean; by: By | undefined; onChange: ((v: any) => void) | undefined }
+fn list(v: any, multiple: boolean): any[] => v === undefined ? [] : multiple ? v : [v]
+fn createPick(ref of: PickOptions): Pick {
+  source mine: any[] := list(peek of.defaultValue, peek of.multiple)
+  source active: { v: any } | undefined := undefined
+  picked = of.value === undefined ? mine : list(of.value, of.multiple)
+  action select(v: any) {
+    if (!of.disabled) {
+      let has = picked.some(x => same(of.by, x, v))
+      let next = of.multiple ? has ? picked.filter(x => !same(of.by, x, v)) : [...picked, v] : has && of.toggleable ? [] : [v]
+      mine := next
+      if (of.onChange) { of.onChange(of.multiple ? next : next[0]) }
+    }
+  }
+  action enter(v: any) { active := { v: v } }
+  action blur(v: any) { let was = active
+    if (was && same(of.by, was.v, v)) { active := undefined } }
+  { on: picked, active: active ? active.v : undefined, hasActive: active != undefined, disabled: of.disabled, by: of.by, select: select, focus: enter, blur: blur }
+}
+fn holds(p: Pick, v: any): boolean => p.on.some(x => same(p.by, x, v))
+context pick: Pick
+fn data(p: Pick): any => ({ "tc-disabled": flag(p.disabled), "tc-has-selected": flag(p.on.length > 0), "tc-has-active": flag(p.hasActive) })
+type Option = { isSelected: boolean; isActive: boolean; disabled: boolean }
+
+type Named = { label: string; description: string; labelOn: boolean; descriptionOn: boolean; owner: string; stop: any; set: (part: "label" | "description", on: boolean) => void }
+context named: Named
+export type RadioGroupProps = Omit<Div, "onChange"> & { value?: any; defaultValue?: any; onChange?: (v: any) => void; disabled?: boolean; toggleable?: boolean; by?: By }
+export component RadioGroup(props: RadioGroupProps) {
+  { value, defaultValue, onChange, disabled = false, toggleable = false, by, onKeyDown, children, ref: user, ...rest } = props
+  p = createPick({ value: value, defaultValue: defaultValue, multiple: false, toggleable: toggleable, disabled: disabled, by: by, onChange: onChange })
+  label = uniqueId()
+  description = uniqueId()
+  owner = uniqueId()
+  source there: { label?: boolean; description?: boolean } := {}
+  source el: any := undefined
+  action set(part: "label" | "description", on_: boolean) { there[part] := on_ }
+  provide pick = p
+  provide named = { label: label, description: description, labelOn: there.label ?? false, descriptionOn: there.description ?? false, owner: owner, stop: p.on.length > 0 ? p.on[0] : undefined, set: set }
+  <div tc-radio-group="" role="radiogroup" aria-labelledby={there.label ? label : undefined} aria-describedby={there.description ? description : undefined} {...data(p)} aria-disabled={disabled ? "true" : "false"} {...rest} ref={(e: Element) => { el := e; give(user, e) }}
+    onKeyDown={(e) => { call(e, onKeyDown); if (!disabled && e.key.startsWith("Arrow")) { click(roam(e, el, "[tc-radio-group-option]:not([tc-disabled])", "both")) } }}>{children}</div>
+}
+export component RadioGroupLabel(props: Label) {
+  { children, ...rest } = props
+  n = use named
+  effect () { n.set("label", true); return () => { n.set("label", false) } }
+  <label tc-radio-group-label="" id={n.label} {...rest}>{children}</label>
+}
+export component RadioGroupDescription(props: Div) {
+  { children, ...rest } = props
+  n = use named
+  effect () { n.set("description", true); return () => { n.set("description", false) } }
+  <div tc-radio-group-description="" id={n.description} {...rest}>{children}</div>
+}
+export component RadioGroupOption(props: Omit<Div, "children"> & { value: any; disabled?: boolean; children?: View | ((s: Option) => View) }) {
+  { value, disabled, onClick, onKeyDown, onKeyUp, onFocus, onBlur, children: shown, ...rest } = props
+  p = use pick
+  n = use named
+  label = uniqueId()
+  description = uniqueId()
+  source there: { label?: boolean; description?: boolean } := {}
+  action set(part: "label" | "description", on_: boolean) { there[part] := on_ }
+  on_ = holds(p, value)
+  off = disabled || p.disabled
+  now = p.hasActive && same(p.by, p.active, value)
+  provide named = { label: label, description: description, labelOn: there.label ?? false, descriptionOn: there.description ?? false, owner: (use named).owner, stop: (use named).stop, set: set }
+  <div tc-button="" tc-radio-group-option="" tc-owner={n.owner} role="radio" tabindex={on_ ? 0 : 0 - 1} aria-labelledby={there.label ? label : undefined} aria-describedby={there.description ? description : undefined} tc-disabled={flag(off)} aria-disabled={off ? "true" : "false"} tc-checked={flag(on_)} aria-checked={on_ ? "true" : "false"} tc-active={flag(now)} {...rest}
+    onClick={(e) => { call(e, onClick); if (!off) { p.select(value) } }} onKeyDown={(e) => { call(e, onKeyDown); pressKey(e, off) }} onKeyUp={(e) => { call(e, onKeyUp); pressKey(e, off) }} onFocus={(e) => { call(e, onFocus); if (!off) { p.focus(value) } }} onBlur={(e) => { call(e, onBlur); p.blur(value) }}><props.children isSelected={on_} isActive={now} disabled={off} /></div>
+}
+
+type Box = { label: string; button: string; options: string; hasLabel: boolean; labelled: (on: boolean) => void; multiple: boolean; horizontal: boolean; anchor: any; setAnchor: (e: any) => void }
+context box: Box
+context open: State
+export type ListboxProps = Omit<Div, "onChange"> & { value?: any; defaultValue?: any; onSelectChange?: (v: any) => void; onDisclosureChange?: (v: boolean) => void; isOpen?: boolean; defaultOpen?: boolean; onOpen?: () => void; onClose?: () => void; disabled?: boolean; multiple?: boolean; horizontal?: boolean; toggleable?: boolean; by?: By }
+export component Listbox(props: ListboxProps) {
+  { value, defaultValue, onSelectChange, onDisclosureChange, isOpen, defaultOpen, onOpen, onClose, disabled = false, multiple = false, horizontal = false, toggleable = false, by, children, ...rest } = props
+  p = createPick({ value: value, defaultValue: defaultValue, multiple: multiple, toggleable: toggleable, disabled: disabled, by: by, onChange: onSelectChange })
+  s = createDisclosure({ defaultOpen: defaultOpen, isOpen: isOpen, disabled: disabled, onChange: onDisclosureChange, onOpen: onOpen, onClose: onClose })
+  owner = uniqueId()
+  label = uniqueId()
+  button = uniqueId()
+  options = uniqueId()
+  source hasLabel := false
+  source anchor: any := undefined
+  action labelled(v: boolean) { hasLabel := v }
+  action setAnchor(e: any) { anchor := e }
+  provide pick = p
+  provide open = s
+  provide box = { label: label, button: button, options: options, hasLabel: hasLabel, labelled: labelled, multiple: multiple, horizontal: horizontal, anchor: anchor, setAnchor: setAnchor }
+  <div tc-listbox="" id={owner} {...data(p)} tc-expanded={flag(s.isOpen)} {...rest}>{children}</div>
+}
+export component ListboxLabel(props: Label) {
+  { children, ...rest } = props
+  b = use box
+  p = use pick
+  s = use open
+  effect () { b.labelled(true); return () => { b.labelled(false) } }
+  <label tc-listbox-label="" id={b.label} {...data(p)} tc-expanded={flag(s.isOpen)} {...rest}>{children}</label>
+}
+export component ListboxButton(props: ButtonProps) {
+  { disabled, onClick, onKeyDown, children, ref: user, ...rest } = props
+  b = use box
+  p = use pick
+  s = use open
+  off = s.disabled || disabled
+  <button tc-button="" tc-listbox-button="" id={b.button} role="button" tabindex={off ? 0 - 1 : 0} disabled={off} aria-haspopup="listbox" aria-controls={b.options} aria-labelledby={b.hasLabel ? `${b.label} ${b.button}` : undefined} {...data(p)} tc-disabled={flag(off)} aria-disabled={off == undefined ? undefined : off ? "true" : "false"} tc-expanded={flag(s.isOpen)} aria-expanded={s.isOpen ? "true" : "false"} {...rest} ref={(e: Element) => { b.setAnchor(e); give(user, e) }}
+    onClick={(e) => { call(e, onClick); if (!off) { s.toggle() } }} onKeyDown={(e) => { call(e, onKeyDown); if (!off && (e.key == "ArrowUp" || e.key == "ArrowDown")) { e.preventDefault(); s.toggle() } }}>{children}</button>
+}
+export component ListboxOptions(props: Ul & { unmount?: boolean }) {
+  { unmount = true, onKeyDown, onFocusOut, children, ref: user, ...rest } = props
+  b = use box
+  p = use pick
+  s = use open
+  source el: any := undefined
+  effect (s.isOpen ? el : undefined) { let e = $0
+    if (e) { focusFirst(e, "[tc-selected]:not([tc-disabled])", "[tc-listbox-option]:not([tc-disabled])") }
+    return e ? () => { focus(b.anchor) } : undefined }
+  {if s.isOpen || !unmount {
+    <ul tc-listbox-options="" id={b.options} role="listbox" aria-multiselectable={b.multiple ? "true" : "false"} aria-labelledby={b.hasLabel ? b.label : b.button} aria-orientation={b.horizontal ? "horizontal" : "vertical"} tabindex={p.disabled ? 0 - 1 : 0} {...data(p)} aria-disabled={p.disabled ? "true" : "false"} tc-expanded={flag(s.isOpen)} {...rest} ref={(e: Element) => { el := e; give(user, e) }}
+      onKeyDown={(e) => { call(e, onKeyDown); if (e.key == "Escape") { e.stopPropagation(); s.close() } else { roam(e, el, "[tc-listbox-option]:not([tc-disabled])", b.horizontal ? "horizontal" : "vertical") } }} onFocusOut={(e) => { call(e, onFocusOut); if (s.isOpen && e.relatedTarget && leaves(e, el, b.anchor)) { s.close() } }}>{children}</ul>
+  }}
+}
+export component ListboxOption(props: Omit<Li, "children"> & { value: any; disabled?: boolean; children?: View | ((s: Option) => View) }) {
+  { value, disabled, onClick, onKeyDown, onKeyUp, onFocus, onBlur, onMouseEnter, children: shown, ...rest } = props
+  b = use box
+  p = use pick
+  s = use open
+  on_ = holds(p, value)
+  off = disabled || p.disabled
+  now = p.hasActive && same(p.by, p.active, value)
+  <li tc-button="" tc-listbox-option="" tc-owner={b.options} role="option" tabindex={0 - 1} tc-disabled={flag(off)} aria-disabled={off ? "true" : "false"} tc-selected={flag(on_)} aria-selected={on_ ? "true" : "false"} tc-active={flag(now)} {...rest}
+    onClick={(e) => { call(e, onClick); if (!off) { p.select(value); if (!b.multiple) { s.close() } } }} onMouseEnter={(e) => { call(e, onMouseEnter); if (!off) { focus(e.currentTarget) } }} onKeyDown={(e) => { call(e, onKeyDown); pressKey(e, off) }} onKeyUp={(e) => { call(e, onKeyUp); pressKey(e, off) }} onFocus={(e) => { call(e, onFocus); if (!off) { p.focus(value) } }} onBlur={(e) => { call(e, onBlur); p.blur(value) }}><props.children isSelected={on_} isActive={now} disabled={off} /></li>
+}

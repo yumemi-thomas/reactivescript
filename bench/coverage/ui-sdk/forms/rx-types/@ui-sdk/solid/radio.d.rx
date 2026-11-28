@@ -1,0 +1,9 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type RadioState = import("@ui-sdk/solid/radio").RadioState
+export type RadioProps = import("@ui-sdk/solid/radio").RadioProps
+export type RadioGroupOptions<T extends string = string> = import("@ui-sdk/solid/radio").RadioGroupOptions<T>
+export type RadioGroupState = import("@ui-sdk/solid/radio").RadioGroupState
+export type RadioGroupValueChangeReason = import("@ui-sdk/solid/radio").RadioGroupValueChangeReason
+export component Radio(props: Omit<import("@ui-sdk/solid").PartProps<"button", RadioState>, "value" | "onSelect"> & RadioProps & { render?: (props: Record<string, any>, state: { checked: boolean; disabled: boolean; readOnly: boolean; required: boolean; }) => View })
+export component RadioGroup<T extends string = string>(props: RadioGroupOptions<T> & Omit<import("@ui-sdk/solid").PartProps<"div", RadioGroupState>, "onChange" | "onSelect"> & { onValueChange?: handler (value: T | null, details: import("@ui-sdk/core").ChangeDetails<RadioGroupValueChangeReason>) => void; render?: (props: Record<string, any>, state: { value: string | null; disabled: boolean; readOnly: boolean; required: boolean; }) => View })
+export component RadioIndicator(props: Parameters<typeof import("@ui-sdk/solid/radio").RadioIndicator>[0] & { render?: (props: Record<string, any>, state: NoInfer<RadioState>) => View })

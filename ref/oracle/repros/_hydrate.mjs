@@ -5,9 +5,10 @@
 // the setters it drives.
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { transform } from "@solidjs/compiler";
-import { buildSync } from "esbuild";
+import { bundle } from "../../../scripts/lib/bundle.mjs";
 const { chromium } = createRequire(import.meta.url)("playwright");
 export const wait = ms => new Promise(r => setTimeout(r, ms));
 
@@ -28,7 +29,7 @@ window.repro = {
   asked: () => asked.join(","),
 };
 `);
-  const client = buildSync({ entryPoints: [`${out}client.mjs`], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser"], tsconfigRaw: "{}", logLevel: "silent" }).outputFiles[0].text;
+  const client = await bundle(fileURLToPath(new URL("../..", import.meta.url)), { entry: `${out}client.mjs`, dir });
   const { App } = await import(`${out}app.ssr.mjs`);
   const { renderToStream, generateHydrationScript } = await import("@solidjs/web");
   const { createComponent } = await import("solid-js");

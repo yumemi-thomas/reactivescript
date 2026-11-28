@@ -1,0 +1,32 @@
+== hidden
+45/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ an add accepted while To do reloads shows the card once
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a move into Doing that fills it while a move out is pending disables the rest
+✗ a move declined after the board was left shows no move error on the next visit
+✗ an archive declined after the board was left shows no archive error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+18/26 passed
+== fuzz
+board-rx-opus-1: 9/20 seeds found a hole
+  seed 2 step 37: detail column: #4 shows in Doing, the detail says "#-1 undefinedin renamearchiveloading checklist"
+    add Alpha 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; tab archive ; tab board ; land fetchArchived: ; add Bravo 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; add Alpha 3 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; add Delta 4 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; fail fetchCards:done ; fail fetchCards:todo ; retry-done ; tab a
+  seed 7 step 12: detail column: #5 shows in Done, the detail says "#5 Write specin To dorenamearchiveloading checklist"
+    land fetchCards:todo ; up #2 ; select #1 ; up #1 ; up #2 ; land fetchCards:done ; fail moveCard:1,todo,0 ; up #1 ; land moveCard:2,todo,0 ; select #5 ; add Delta 1 ; add Delta 2
+  seed 10 step 31: count: card "#2 Delta · 1/3", progress "2/3 done"
+    tab archive ; tab board ; add Alpha 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; select #1 ; land fetchCards:done ; land fetchChecklist:1 ; land fetchCards:doing ; add Alpha 2 ; land fetchArchived: ; fail addCard:todo,Alpha 2 ; select #2 ; land fetchChecklist:2 ; toggle 1 ; rename Delta ; land toggleItem:2,22,true ; land fetchCards:doing ; land fetchCards
+  seed 12 step 15: heading: head-doing counts 2, the column shows 1 cards
+    land fetchCards:todo ; select #1 ; add Bravo 1 ; select #2 ; land fetchChecklist:1 ; down #2 ; up #2 ; down #1 ; land fetchCards:doing ; fail addCard:todo,Bravo 1 ; land fetchCards:done ; right #4 ; land moveCard:2,todo,2 ; select #2 ; left #5
+  seed 13 step 11: detail column: #4 shows in Doing, the detail says "#-1 undefinedin renamearchiveloading checklist"
+    add Alpha 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; fail fetchCards:todo ; land fetchCards:doing ; retry-todo ; up #4 ; down #4 ; select #4 ; up #4 ; land moveCard:4,doing,1 ; fail fetchCards:todo
+  seed 14 step 15: heading: head-done counts 2, the column shows 1 cards
+    add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; select #2 ; up #2 ; select #2 ; land fetchCards:done ; land fetchChecklist:2 ; down #2 ; add-item ship 2 ; land fetchCards:doing ; land moveCard:2,todo,0 ; land moveCard:2,todo,1 ; toggle 2 ; right #3
+  seed 15 step 18: duplicate card: #1 shows in todo and doing
+    land fetchCards:doing ; select #4 ; up #4 ; land fetchCards:done ; fail moveCard:4,doing,0 ; land fetchCards:todo ; rename Bravo ; fail fetchChecklist:4 ; select #4 ; land renameCard:4,Bravo ; add Alpha 1 ; add Alpha 2 ; land fetchCards:todo ; add Bravo 3 ; select #5 ; land fetchCards:doing ; down #1 ; right #1
+  seed 16 step 32: count: card "#1 Alpha · 0/3", progress "0/4 done"
+    add Delta 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; fail fetchCards:doing ; add Alpha 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; add Alpha 3 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; up #2 ; select #1 ; land moveCard:2,todo,0 ; retry-doing ; rename Alpha ; fail renameCard:1,Alpha ; add Delta 4 ; retry-doing ; rename B
+  seed 18 step 21: detail column: #5 shows in Doing, the detail says "#-1 undefinedin renamearchiveloading checklist"
+    land fetchCards:doing ; land fetchCards:done ; select #3 ; right #4 ; land fetchChecklist:3 ; land moveCard:4,done,1 ; left #5 ; select #4 ; fail moveCard:5,doing,1 ; land fetchChecklist:4 ; land fetchCards:doing ; land fetchCards:done ; add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; left #4 ; add Bravo 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; down #

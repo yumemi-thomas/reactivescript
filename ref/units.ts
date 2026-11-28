@@ -1,0 +1,745 @@
+// Unit checks for what the scenarios cannot reach (the crate holds the same cases as #[test]s, under the same names).
+// Run by run.ts after the scenarios; exits non-zero on the first failure.
+import { deepStrictEqual } from "node:assert";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readDisk } from "./disk.ts";
+import { packageRelative, besideDeclaration, isPrintedSignature, relativeModule } from "./src/modules.ts";
+import { looksLikeTypes, quotedEnd, parseProgram, parseDeclarations, holdsComponent, fieldRows } from "./src/parse.ts";
+import { printSignature, parseSignature } from "./src/signature.ts";
+import { parseScenario } from "./src/scenario.ts";
+import { loadModules, hostProgram, applyAlias, typeParamNames, expandType } from "./src/modules.ts";
+import { checkModules, tyStep, tyScalar } from "./src/check.ts";
+
+const files = (fs: Record<string, string>) => (p: string) => fs[p];
+
+// ---- MO-10k (ruled 2026-11-22): the guarantees, over every way a value is handed on ----
+// Not a list of cases: each confined value is put through every wrapper below and every pair of them (one inside the
+// other), and each result into every way out. The crate runs the same matrix (`check.rs`, the tests of these names).
+const LIB = "export fn stashJs(x: any): void\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: number): any instantiates\nexport pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport fn later(f: handler () => void): void\n";
+/** The ways an expression hands a value on: `X` is the value. */
+const WRAPS = [
+  "X", "[X]", "[X][0]", "({ a: X })", "({ a: X }).a", "keep(X)", "keep(keep(X))", "id(id(X))", "o.f(X)", "[(y) => y][0](X)", "(true ? keep : keep)(X)", "mk(X)()",
+  "(() => X)()", "[].concat([X])", "[].concat([X])[0]", "(true ? X : null)", "(X ?? null)", "(X || null)", "map([X], (y) => y)", "map([X], (y) => y)[0]",
+  "filter([X], (y) => true)", "[X, 1].filter((y) => true)", "[...[X]]", "({ ...({ a: X }) })", "X.part", "X[\"part\"]", "X[k]", "(peek X)",
+];
+function wrapped(of: string): string[] {
+  const one = WRAPS.map(w => w.replaceAll("X", of)); const out = [...one];
+  for (const w of WRAPS) for (const inner of one.slice(1)) out.push(w.replaceAll("X", inner));
+  return out;
+}
+function codesOf(main: string): string[] {
+  const src = `import { stashJs, createClock, createLabel, createStore, later } from "./lib.js"\nfn keep(x) { x }\nfn mk(x) { () => x }\nsource held: any := null\ncontext ctx: any\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any }) { <button onClick={() => { held := props.t }}>ok</button> }\n${main}`;
+  const set = loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/lib.d.rx" ? LIB : undefined);
+  return checkModules(set).diags.map(d => d.code);
+}
+const LOCALS = "  o = { f: (x) => x }\n  id = (x) => x\n  k = \"part\"\n";
+const must = (ok: boolean, what: string, src: string) => { if (!ok) throw new Error(`${what}:\n${src}`); };
+export const units: [string, () => void][] = [
+  ["a_read_through_what_may_be_an_instance_changes", () => {   // E-10, E-5a
+    for (const e of wrapped("clock")) for (const [read, code] of [["createLabel(E.now())", "SNAPSHOT_ARGUMENT"], ["createLabel(E.size)", "SNAPSHOT_ARGUMENT"], ["peek E.now()", "SNAPSHOT_KEPT"]]) {
+      const src = `export default component App() {\n  clock = createClock()\n${LOCALS}  label = ${read.replaceAll("E", e)}\n  <p>{label}</p>\n}\n`;
+      must(codesOf(src).includes(code), `accepted (${code})`, src);
+    }
+    const src = `export default component App() {\n  clock = createClock()\n  c = clock\n${LOCALS}  a = createLabel(peek clock.format())\n  b = createLabel(peek c.format())\n  d = createLabel(clock)\n  <p>{a} {b} {d}</p>\n}\n`;
+    deepStrictEqual(codesOf(src), []);
+  }],
+  ["a_draft_is_named_only_in_its_callback", () => {   // MO-10i
+    const store = "  [todos, setTodos] = createStore<{ done: number }>({ done: 0 })\n";
+    for (const e of wrapped("d")) {
+      let src = `export default component App() {\n${store}${LOCALS}  <button onClick={() => { setTodos((d) => { later(() => { held := ${e} }) }) }}>x</button>\n}\n`;
+      must(codesOf(src).includes("DRAFT_ESCAPES"), "accepted", src);
+      src = `export default component App() {\n${store}${LOCALS}  <button onClick={() => { setTodos((d) => { held := ${e}; let v = ${e}; later(() => { held := v }) }) }}>x</button>\n}\n`;
+      must(codesOf(src).includes("DRAFT_ESCAPES") === e.includes("(() =>"), "a read of the draft in its callback is a copy", src);
+    }
+  }],
+  ["each_confined_value_has_a_closed_set_of_operations", () => {   // MO-10k (closed 2026-11-22); mirrors the crate's test
+    const LIB2 = "export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]\nexport pure fn createClock(): any instantiates\nexport pure fn createLabel(width: any): any instantiates\nexport fn later(f: handler () => void): void\nexport fn stashJs(x: any): void\n";
+    const run = (main: string): string[] => {
+      const src = `import { createStore, createClock, createLabel, later, stashJs } from "./lib.js"\nsource held: any := null\nsource n := 0\ncomponent Cell() { <b>c</b> }\ncomponent Grid(props: { t: any; onF: (x: any) => void }) { <button onClick={() => { held := props.t }}>ok</button> }\n${main}`;
+      return checkModules(loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/lib.d.rx" ? LIB2 : undefined)).diags.map(d => d.code);
+    };
+    let src = "";
+    // MO-10i: what is called on a draft is a method of plain data, by name; a function it calls is a closure written there
+    const store = "  [todos, setTodos] = createStore<{ items: { n: number }[] }>({ items: [] })\n";
+    for (const body of ["d.items.forEach(keep)", "d.items.map(keep)", "d.items.sort(keep)", "d.items.each((x) => x)", "d.items.push.bind(d.items)", "d.valueOf.call(d)", "d.items[\"forEach\"](keep)", "d.items[m]((x) => x)", "d.items.forEach((row) => { later(() => { held := row }) })", "d.items.slice(0).forEach(keep)"]) {
+      src = `export default component App() {\n${store}  <button onClick={() => { let keep = (x) => { held := x }; let m = "forEach"; setTodos((d) => { ${body} }) }}>x</button>\n}\n`;
+      must(run(src).includes("DRAFT_ESCAPES"), "accepted", src);
+    }
+    deepStrictEqual(run(`export default component App() {\n${store}  <button onClick={() => { setTodos((d) => { d.items.forEach((row) => { held := row; row.n := 1 }); held := d.items.values(); held := d.items.map((row) => row).filter((row) => row.n > 0); d.items.push({ n: 1 }); d.items.sort((a, b) => a.n - b.n); held := d.items.valueOf() }) }}>x</button>\n}\n`), []);
+    // E-10, E-5a: a closure kept in a value reads, when it is called, what its body reads
+    for (const holder of ["box.read()", "fs[0]()", "mk()()", "again.read()", "({ read: () => n }).read()", "[() => n][0]()", "pick.any()", "boxes[0].read()"]) for (const [read, code] of [["createLabel(E)", "SNAPSHOT_ARGUMENT"], ["peek E", "SNAPSHOT_KEPT"]]) {
+      src = `export default component App() {\n  box = { read: () => n }\n  fs = [() => n]\n  mk = () => () => n\n  again = box\n  pick = true ? box : { any: () => 1 }\n  boxes = [box]\n  label = ${read.replaceAll("E", holder)}\n  <p onClick={() => { n := n + 1 }}>{label}</p>\n}\n`;
+      must(run(src).includes(code), `accepted (${code})`, src);
+    }
+    // …and a slot the expression itself names is that slot: another field, a literal's own item
+    deepStrictEqual(run("export default component App() {\n  clock = createClock()\n  box = { read: () => n, unit: () => \"u\" }\n  a = createLabel(box.unit())\n  b = createLabel([clock, 5][1])\n  c = createLabel({ a: clock, b: 5 }.b)\n  d = peek [() => n, () => 1][1]()\n  <p onClick={() => { n := n + 1 }}>{a} {b} {c} {d} {box.read()}</p>\n}\n"), []);
+  }],
+  ["a_declared_type_is_read_a_step_at_a_time", () => {   // MO-10k: `tyStep`, `tyScalar`
+    const t = "{ label: string; count: () => number; rows: { id: string; cells: any[] }[]; state?: { page: number } | undefined; get: (k: string) => readonly (\"a\" | \"b\")[] }";
+    const f = (k: string) => ({ field: k });
+    deepStrictEqual(tyStep(t, f("label")), "string");
+    deepStrictEqual(tyStep(tyStep(t, f("count"))!, "call"), "number");
+    const row = tyStep(tyStep(t, f("rows"))!, "elem")!;
+    deepStrictEqual([tyStep(row, f("id")), tyScalar(tyStep(row, f("cells"))!)], ["string", false]);
+    deepStrictEqual(tyStep(tyStep(t, f("state"))!, f("page")), "number");
+    deepStrictEqual(tyScalar(tyStep(tyStep(tyStep(t, f("get"))!, "call")!, "elem")!), true);
+    deepStrictEqual(tyStep(t, f("valueOf")), undefined);
+    deepStrictEqual(["any", "Row", "string | Row", "{ a: string }", "() => string", "string[]"].map(tyScalar), [false, false, false, false, false, false]);
+    deepStrictEqual(["string", "number | undefined", "\"a\" | \"b\"", "boolean | null", "(string)", "1 | 2"].map(tyScalar), [true, true, true, true, true, true]);
+  }],
+  ["a_wire_id_is_the_declarations_own_place", () => {   // SV-5a (ruled 2026-11-22)
+    let read = files({ "/w/app/package.json": `{"name":"shop"}`, "/w/app/a/package.json": `{"type":"module"}` });
+    deepStrictEqual(packageRelative("/w/app/a/err.d.rx", read), "shop/a/err.d.rx");
+    deepStrictEqual(packageRelative("/w/app/src/err.d.rx", read), "shop/src/err.d.rx");
+    read = files({ "/w/app/package.json": `{"type":"module"}`, "/w/app/web/package.json": `{"type":"module"}`, "/w/app/server/package.json": `{"type":"module"}` });
+    deepStrictEqual([packageRelative("/w/app/web/err.d.rx", read), packageRelative("/w/app/server/err.d.rx", read), packageRelative("/w/app/shared/err.d.rx", read)], ["err.d.rx", "err.d.rx", "shared/err.d.rx"]);
+    read = files({ "/home/u/package.json": "{}", "/home/u/work/proj/package.json": `{"type":"module"}` });
+    deepStrictEqual(packageRelative("/home/u/work/proj/err.d.rx", read), "err.d.rx");
+    read = files({});
+    deepStrictEqual([packageRelative("/w/x/err.d.rx", read), packageRelative("a/err.d.rx", read)], ["err.d.rx", "err.d.rx"]);
+    read = files({ "/w/app/package.json": "{}" });
+    deepStrictEqual(packageRelative("/w/x/err.d.rx", read), "err.d.rx");
+  }],
+  ["a_wire_id_holds_no_machine_path_and_no_checkout_name", () => {   // SV-5a
+    for (const root of ["/private/tmp/x/my-app", "/home/ci/build-101", "/Users/a/dev/proj"]) {
+      const read = files({ [`${root}/package.json`]: `{"type":"module","private":true}` });
+      deepStrictEqual(packageRelative(`${root}/err.d.rx`, read), "err.d.rx");
+      deepStrictEqual(packageRelative(`${root}/lib/err.d.rx`, read), "lib/err.d.rx");
+    }
+  }],
+  ["a_wire_id_does_not_depend_on_the_entry_and_two_classes_never_share_one", () => {   // SV-5a (ruled 2026-11-22)
+    const D = "export error Gone\nexport pure fn load(id: string): Promise<string> rejects(Gone)\n";
+    const MAIN = "export default component App() {\n  errored fallback(e: Gone) { <p>gone</p> } {\n    loading fallback { <p>…</p> } {\n      v = await load(\"1\")\n      <p>{v}</p>\n    }\n  }\n}\n";
+    const fs: Record<string, string> = {
+      "/w/app/package.json": `{"type":"module"}`, "/w/app/web/package.json": `{"type":"module"}`, "/w/app/server/package.json": `{"type":"module"}`,
+      "/w/app/web/err.d.rx": D, "/w/app/server/err.d.rx": D,
+      "/w/app/main.rx": `import { load, Gone } from "./web/err.js"\n${MAIN}`,
+      "/w/app/web/main.rx": `import { load, Gone } from "./err.js"\n${MAIN}`,
+      "/w/app/server/main.rx": `import { load, Gone } from "../web/err.js"\n${MAIN}`,
+      "/w/app/server/both.rx": `import { load, Gone } from "../web/err.js"\nimport { Gone as Gone2 } from "./err.js"\n${MAIN}`,
+    };
+    deepStrictEqual(["/w/app/main.rx", "/w/app/web/main.rx", "/w/app/server/main.rx"].map(e => loadModules(e, files(fs)).declarationIds!.get("/w/app/web/err.d.rx")), ["err.d.rx", "err.d.rx", "err.d.rx"]);
+    let err: any; try { loadModules("/w/app/server/both.rx", files(fs)); } catch (e) { err = e; }
+    deepStrictEqual([err?.code, /"err\.d\.rx#Gone"/.test(err?.message), /\/w\/app\/web\/err\.d\.rx/.test(err?.message), /"name"/.test(err?.message)], ["DUPLICATE_WIRE_ID", true, true, true]);
+    const set = loadModules("/w/app/server/both.rx", files({ ...fs, "/w/app/web/package.json": `{"name":"web"}` }));
+    deepStrictEqual([set.declarationIds!.get("/w/app/web/err.d.rx"), set.declarationIds!.get("/w/app/server/err.d.rx")], ["web/err.d.rx", "err.d.rx"]);
+  }],
+  ["a_kit_known_by_its_signatures_sends_each_name_to_the_module_that_declares_it", () => {   // MO-6e, a package's entry (2026-11-26)
+    const H = (m: string) => `//@ signature ${m} (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).\n`;
+    const fs: Record<string, string> = {
+      "/k/theme.d.rx": H("theme.rx") + "export type Theme = { accent: string }\nexport context theme: Theme\nexport component ThemeProvider(props: { children: provides(./theme.rx#theme) }) shape(roots section; closes-p; children-at section)\nexport component Badge(props: { label }) uses(./theme.rx#theme) shape(roots b)\n",
+      "/k/kit/tag.d.rx": H("tag.rx") + "export component Tag(props: { text }) uses(../theme.rx#theme) shape(roots em)\n",
+      "/k/kit/index.d.rx": H("index.rx") + "export { ThemeProvider as Root, theme, Badge, Theme } from \"../theme.rx\"\nexport { Tag } from \"./tag.rx\"\n",
+      "/c/a.d.rx": H("a.rx") + "export { X } from \"./b.rx\"\n", "/c/b.d.rx": H("b.rx") + "export { X } from \"./a.rx\"\n",
+      "/m/a.d.rx": H("a.rx") + "export { X } from \"./gone.rx\"\n",
+      "/app.rx": "import { Root, Tag, theme as kitTheme } from \"./k/kit/index.rx\"\nimport { ThemeProvider, Badge } from \"./k/theme.rx\"\ncomponent Own() {\n  provide kitTheme = { accent: \"navy\" }\n  <Badge label=\"own\" />\n}\nexport default component App() {\n  <Root accent=\"teal\"><Tag text=\"b\" /></Root>\n  <ThemeProvider accent=\"red\"><Tag text=\"c\" /></ThemeProvider>\n  <Own />\n}\n",
+      "/cyc.rx": "import { X } from \"./c/a.rx\"\nexport default component App() { <p>{X}</p> }\n",
+      "/gone.rx": "import { X } from \"./m/a.rx\"\nexport default component App() { <p>{X}</p> }\n",
+    };
+    fs["/late.rx"] = fs["/app.rx"].replace("  <Own />", "  <Own /><Tag text=\"late\" />");
+    const set = loadModules("/app.rx", files(fs));
+    deepStrictEqual(checkModules(set).diags.map(d => d.code), []);
+    const imps = set.programs.get("/app.rx")!.decls.flatMap(d => d.k === "import" ? [{ names: d.names, resolved: d.resolved, through: d.through }] : []);
+    deepStrictEqual(imps[0], { names: [{ name: "ThemeProvider", alias: "Root" }, { name: "theme", alias: "kitTheme" }], resolved: "/k/theme.rx", through: { resolved: "/k/kit/index.rx", names: { Root: "Root", kitTheme: "theme" } } });
+    deepStrictEqual(imps[1], { names: [{ name: "Tag", alias: "Tag" }], resolved: "/k/kit/tag.rx", through: { resolved: "/k/kit/index.rx", names: { Tag: "Tag" } } });
+    deepStrictEqual(checkModules(loadModules("/late.rx", files(fs))).diags.map(d => d.code), ["CONTEXT_NOT_FOUND"]);
+    deepStrictEqual(loadModules("/cyc.rx", files(fs)).diags.map(d => d.code), ["MODULE_CYCLE"]);
+    deepStrictEqual(loadModules("/gone.rx", files(fs)).diags.map(d => d.code), ["MODULE_NOT_FOUND"]);
+    const sig = parseSignature(fs["/k/kit/index.d.rx"], "/k/kit/index.rx");
+    deepStrictEqual(printSignature(sig).split("\n").slice(1).join("\n"), fs["/k/kit/index.d.rx"].split("\n").slice(1).join("\n"));
+  }],
+  ["type_arguments_with_a_brace_in_a_string", () => {   // R4 (RFC 11): the crate's type_arguments_are_parsed_completely cases
+    for (const t of ["`x${\"}\"}`", "`x${'}'}`", "`x${`}`}`", "`x${\"{\"}`", "{ k: `x${\"}\"}` }", "\"}\""]) deepStrictEqual([t, looksLikeTypes(t)], [t, true]);
+    for (const t of ["`x${\"}\" + 1}`", "`x${\"}\"`"]) deepStrictEqual([t, looksLikeTypes(t)], [t, false]);
+  }],
+  ["a_brace_in_a_string_type_argument_keeps_the_call", () => {   // R4
+    for (const [src, targs] of [["x = f<`k${\"}\"}` | T>(1)\n", "`k${\"}\"}` | T"], ["x = f<\"}\", T>(1)\n", "\"}\", T"], ["x = f<{ a: `${'}'}`; b: T }>(1)\n", "{ a: `${'}'}`; b: T }"]]) {
+      const json = JSON.stringify(parseProgram(src));
+      if (!json.includes(`"targs":${JSON.stringify(targs)}`)) throw new Error(`${src}: ${json}`);
+    }
+  }],
+  ["a_relative_js_import_is_declared_by_its_whole_name_then_its_stem", () => {   // MO-8a
+    let read = files({ "/w/old.cjs.d.rx": "", "/w/old.d.rx": "", "/w/v.d.rx": "", "/w/lib.d.rx": "" });
+    deepStrictEqual(["./old.cjs", "./v.jsx", "./lib.mjs", "./lib.js", "./api"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/old.cjs.d.rx", "/w/v.d.rx", "/w/lib.d.rx", "/w/lib.d.rx", "/w/api.d.rx"]);
+    read = files({ "/w/v.jsx.d.rx": "" });
+    deepStrictEqual(["./v.jsx", "./old.cjs"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/v.jsx.d.rx", "/w/old.d.rx"]);
+    read = files({ "/w/x.d.rx": "", "/w/y.tsx.d.rx": "", "/w/y.d.rx": "", "/w/z.d.rx": "" });   // TypeScript's are JavaScript's (RFC 23)
+    deepStrictEqual(["./x.tsx", "./y.tsx", "./z.mts", "./z.cts"].map(f => besideDeclaration("/w/main.rx", f, read)), ["/w/x.d.rx", "/w/y.tsx.d.rx", "/w/z.d.rx", "/w/z.d.rx"]);
+  }],
+  ["a_guess_needs_something_to_wait_for", () => {   // 06 AC-3 (2026-11-22): mirrors the crate's test
+    const API = "export fn save(k: string): Promise<void>\nexport fn track(k: string): void\n";
+    const run = (body: string) => {
+      const src = `import { save, track } from "./api.js"\nexport default component App() {\n  source n := ""\n  source shown = n\n  action other() { n := "x" }\n  <button onClick={() => {\n${body.split("; ").map(l => `    ${l}`).join("\n")}\n  }}>{shown}</button>\n}\n`;
+      const set = loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/api.d.rx" ? API : undefined);
+      const c = checkModules(set) as { diags: { code: string; line: number }[]; advice: { code: string; line: number }[] };
+      return [...c.diags.map(d => `${d.code}@${d.line - 6}`), ...c.advice.map(a => `advice ${a.code}@${a.line - 6}`)];   // the body's first statement is line 1
+    };
+    // nothing to wait for: the guess alone, beside a local, a hook, a closure that is only made
+    deepStrictEqual(run("guess shown := \"a\""), ["GUESS_OUTSIDE_HOLD@1"]);
+    deepStrictEqual(run("let v = \"a\"; onFlush(() => { n := \"\" }); guess shown := v"), ["GUESS_OUTSIDE_HOLD@3"]);
+    deepStrictEqual(run("let f = () => { track(\"k\") }; if (n == \"\") { guess shown := \"a\" }"), ["GUESS_OUTSIDE_HOLD@2"]);
+    // something it could wait for: an await, a refresh, affects, a write, a call
+    for (const more of ["try { await save(\"a\") } catch (e) { n := \"\" }", "refresh shown", "affects shown", "n := \"b\"", "other()", "track(\"k\")", "let g = () => { track(\"k\") }; g()"])
+      deepStrictEqual(run(`guess shown := "a"; ${more}`), [], more);
+    // advice: the first guess after an await; not a later guess, not a guess before it
+    deepStrictEqual(run("try { await save(\"a\"); guess shown := \"a\" } catch (e) { n := \"\" }"), ["advice GUESS_AFTER_AWAIT@2"]);
+    deepStrictEqual(run("guess shown := \"a\"; try { await save(\"a\"); guess shown := \"b\"; await save(\"b\") } catch (e) { n := \"\" }"), []);
+  }],
+  ["a_waterfall_is_advised_once_for_each_question", () => {   // 99, the advisory rows (2026-11-22): mirrors the crate's test
+    const API = "export pure fn ask(k: string): Promise<string>\nexport fn load(k: string): Promise<string>\nexport fn save(k: string): Promise<void>\n";
+    const advice = (body: string) => {
+      const src = `import { ask, load, save } from "./api.js"\nexport default component App() {\n  source n := ""\n  action go() {\n    try {\n${body.split("; ").map(l => `      ${l}`).join("\n")}\n    } catch (e) { n := "" }\n  }\n  <button onClick={() => { go() }}>{n}</button>\n}\n`;
+      const set = loadModules("/app.rx", p => p === "/app.rx" ? src : p === "/api.d.rx" ? API : undefined);
+      const c = checkModules(set) as { diags: { code: string }[]; advice: { code: string; line: number; msg: string }[] };
+      deepStrictEqual(c.diags.map(d => d.code), [], src);
+      return c.advice.map(a => `${a.code}@${a.line - 5}${/declared io/.test(a.msg) ? " io" : ""}`);
+    };
+    // the first statement of the body is line 1
+    deepStrictEqual(advice("let a = await ask(\"a\"); let b = await ask(\"b\"); n := a + b"), ["ASYNC_WATERFALL@2"]);
+    // once: the second is told to move, and the third reads the first's answer
+    deepStrictEqual(advice("let a = await ask(\"a\"); let b = await ask(\"b\"); let c = await ask(a); n := b + c"), ["ASYNC_WATERFALL@2"]);
+    // a third that reads neither waits for the first too: its own advice, once
+    deepStrictEqual(advice("let a = await ask(\"a\"); let b = await ask(a); let c = await ask(\"c\"); n := b + c"), ["ASYNC_WATERFALL@3"]);
+    // an io fn awaited for its answer is a question: advised, with what only its declaration knows
+    deepStrictEqual(advice("let a = await load(\"a\"); let b = await load(\"b\"); n := a + b"), ["ASYNC_WATERFALL@2 io"]);
+    deepStrictEqual(advice("let a = await ask(\"a\"); let b = await load(\"b\"); n := a + b"), ["ASYNC_WATERFALL@2 io"]);
+    // a command — an io call awaited for nothing — is a point of order: nothing after it is held up by what came before
+    deepStrictEqual(advice("await save(\"a\"); await save(\"b\"); n := \"\""), []);
+    deepStrictEqual(advice("let a = await ask(\"a\"); await save(a); let b = await ask(\"b\"); n := a + b"), []);
+    // what one needs of the other is no waterfall
+    deepStrictEqual(advice("let a = await load(\"a\"); let b = await load(a); n := b"), []);
+  }],
+  ["a_folder_named_as_a_module_is_no_module", () => {   // MO-6: MODULE_NOT_FOUND, as the crate says, not a read error (EISDIR)
+    const dir = mkdtempSync(join(tmpdir(), "rx-dir-"));
+    try {
+      mkdirSync(join(dir, "x.rx")); writeFileSync(join(dir, "main.rx"), 'import { a } from "./x.rx"\nexport default component App() {\n  <p>{a}</p>\n}\n');
+      deepStrictEqual(readDisk(join(dir, "x.rx")), undefined);
+      const run = (f: string) => { try { return execFileSync(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./check.ts", import.meta.url)), f], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); } catch (e) { return String((e as { stdout?: string }).stdout); } };
+      deepStrictEqual([/error MODULE_NOT_FOUND \[MO-6\]/.test(run("x.rx")), /EISDIR|parse error/.test(run("x.rx"))], [true, false]);
+      deepStrictEqual([/MODULE_NOT_FOUND/.test(run("main.rx")), /EISDIR|parse error/.test(run("main.rx"))], [true, false]);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }],
+  ["a_component_row_may_have_type_parameters", () => {   // MO-8d: `component Picker<Option>(…)`, on a member component too; the props are read as they were
+    const decls = parseDeclarations("export component Picker<Option, G = never>(props: { value?: Option; options: Option[]; onPick?: handler (v: Option) => void }) uses(kit)\nexport component Kit.Row<T extends { id: string }>(props: { row: T })\nexport component Plain(props: { id: string })\n");
+    deepStrictEqual(decls.map(d => d.kind === "comp" ? d.tparams : "?"), ["<Option, G = never>", "<T extends { id: string }>", undefined]);
+    const picker = decls[0] as Extract<typeof decls[number], { kind: "comp" }>;
+    deepStrictEqual(picker.props.map(p => p.name), ["value", "options", "onPick"]);
+    deepStrictEqual(picker.uses, ["kit"]);
+  }],
+  ["a_component_row_may_name_its_props_type", () => {   // MO-8o: `props: Kit.SelectProps<Option> & { … }` — the library's type, and the record of the fields that carry words
+    const decls = parseDeclarations("export type PickerProps<O> = { value?: O; options: O[]; onPick?: (v: O) => void; label?: string }\nexport component Picker<Option>(props: PickerProps<Option> & { onPick?: handler (v: Option) => void; item?: Component }) uses(kit)\nexport component Kit.Row(props: import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>)\nexport component Plain(props: { id: string })\nexport context kit\n");
+    const comps = decls.filter((d): d is Extract<typeof decls[number], { kind: "comp" }> => d.kind === "comp");
+    deepStrictEqual(comps.map(d => d.propsType), ["{ value?: Option; options: Option[]; onPick?: (v: Option) => void; label?: string }",   /* MO-8x: the file's own alias, written out */ "import(\"./kit.js\").RowProps<{ a: \")\" } & { b: 1 }>", undefined]);
+    deepStrictEqual(comps[0].props.map(p => [p.name, !!p.callback, p.component]), [["onPick", true, false], ["item", false, true]]);
+    deepStrictEqual(comps[0].uses, ["kit"]);
+    deepStrictEqual(comps[1].props, []);
+    let failed = false; try { parseDeclarations("export component A(props: & { a: string })\n"); } catch { failed = true; }
+    deepStrictEqual(failed, true);
+    const more = parseDeclarations("export component B(props: { id: string } & Extra & { onPick?: handler () => void })\nexport component C(props: { id: string } & Extra)\n") as typeof comps;
+    deepStrictEqual(more.map(d => [d.propsType, d.props.length]), [["{ id: string } & Extra", 1], ["{ id: string } & Extra", 0]]);
+  }],
+  ["a_declared_prop_may_be_readonly", () => {   // MO-11a, MO-10b: `readonly` before a declared prop is TypeScript's modifier, not part of its name; a prop may itself be named `readonly`
+    const decls = parseDeclarations("export component Group(props: { readonly children?: View; readonly id?: string | undefined; readonly onPick?: handler (v: string) => void; readonly?: boolean; readonly readonly: boolean })\n");
+    const comp = decls[0] as Extract<typeof decls[number], { kind: "comp" }>;
+    deepStrictEqual(comp.props.map(p => [p.name, p.optional, !!p.callback]), [["children", true, false], ["id", true, false], ["onPick", true, true], ["readonly", true, false], ["readonly", false, false]]);
+  }],
+  ["a_prop_typed_view_takes_a_component_by_name", () => {   // MO-11t: a prop that takes a view is one typed `View` (alone, optional, or beside a string), other than `children`; a function giving a view is a render prop, a `Component` a component value
+    const decls = parseDeclarations("export component Rows(props: KitProps & { fallback?: View; icon: View | undefined; label?: string | View; children?: View; item: (n: number) => View; as?: Component; either?: View | (() => View); title?: string })\n");
+    const comp = decls[0] as Extract<typeof decls[number], { kind: "comp" }>;
+    deepStrictEqual(comp.props.filter(p => p.view).map(p => p.name), ["fallback", "icon", "label"]);
+    deepStrictEqual(comp.props.filter(p => p.render).map(p => p.name), ["item"]);
+  }],
+  ["a_props_record_is_held_to_the_props_type", () => {   // MO-8o, TY-6f: what the boundary check holds a record's field by — its name, the type it is written with (the word taken off), the props' type and the row's type parameters — is read here as the crate reads it (the check itself is the crate's to write, 13 TY-6d: compiler/src/project.rs `boundary_checks`, the unit of this name there)
+    const decls = parseDeclarations("export component Picker<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>(props: import(\"./kit.js\").PickerProps<Option, G, T> & { onPick?: handler (v: Option) => void; item?: Component; slot?: any })\nexport component Plain(props: PlainProps)\nexport component Rec(props: { onPick?: handler () => void })\n");
+    const comps = decls.filter((d): d is Extract<typeof decls[number], { kind: "comp" }> => d.kind === "comp");
+    deepStrictEqual(comps.map(d => [d.name, d.line, d.propsType, d.tparams]), [
+      ["Picker", 1, "import(\"./kit.js\").PickerProps<Option, G, T>", "<const Option, G = never, T extends Tag = \"div\", K extends keyof K = any, F extends (a: Option) => void = (a: Option) => void, R extends R[]>"],
+      ["Plain", 2, "PlainProps", undefined],
+      ["Rec", 3, undefined, undefined],
+    ]);
+    deepStrictEqual(comps[0].props.map(p => [p.name, p.optional, p.type]), [["onPick", true, "(v: Option) => void"], ["item", true, "Component"], ["slot", true, "any"]]);
+    deepStrictEqual(comps[1].props, []);   // props that are a type alone: nothing written again, nothing to hold
+  }],
+  ["an_export_has_one_row", () => {   // MO-8b: a fn with several signatures is declared by one row; a second row of its name is refused (it was MO-8p's overload)
+    for (const bad of [
+      "export pure fn on(ref target: Window, type_: string): () => void\nexport pure fn on(ref target: Document, type_: string, options?: boolean): () => void\n",
+      "export fn on(a: number): void\nexport fn on(a: string): void\n",
+    ]) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual(/declared again: an export has one row/.test(msg), true, bad); }
+    deepStrictEqual(parseDeclarations("export fn on(a: number | string): void\nexport fn other(): void\n").map(d => d.name), ["on", "other"]);
+  }],
+  ["a_word_no_longer_in_the_vocabulary_is_refused", () => {   // MO-8i (pruned 2026-11-22): each by name, with what says it now — never read as type text
+    for (const [bad, word] of [
+      ["export pure fn f(route: any): any forwards\n", "forwards"],
+      ["export pure fn f(config: any): Component nests(children in component) joins(path)\n", "joins"],
+      ["export pure fn f(): any instantiates methods(format)\n", "methods"],
+      ["export fn f(): void trusted\n", "trusted"],
+      ["export component C(props: {}) trusted\n", "trusted"],
+      ["export pure fn f(options: { template: Component }): any renders(root)\n", "renders\\(root"],
+      ["export pure fn f(options: { template: Component }): any renders(root, theme)\n", "renders\\(root"],
+      ["export pure fn f(ref options: { queryFn: tracked () => Promise<any> }): any\n", "tracked"],
+      ["export component C(props: { onCompare: tracked (v: number) => number })\n", "tracked"],
+      // withdrawn 2026-11-23 (MO-8r, Settled): a plain field's rows, wherever in the result (before a `ref` part they are MO-10l's); `renders` alone
+      ["export pure fn useQ(): { data: pending fails(Error) any; n: number }\n", "pending"],
+      ["export pure fn useQ(): { inner: { data: fails(Error) any } }\n", "pending"],
+      ["export pure fn useQ(): { inner: { data: pending ref any } }\n", "pending"],   // a `ref` below the first level is no part (MO-10b)
+      ["export pure fn useQ(): [pending string, () => void]\n", "pending"],
+      ["export pure fn useQ(): pending fails(Error) string[]\n", "pending"],
+      ["export pure fn useQ(): { load: () => pending ref string }\n", "pending"],
+      ["export pure fn createTable(options: { cell: Component }): any renders\n", "renders` alone"],
+      ["export pure fn createTable(options: { cell: Component }): { rows: any[] } renders uses(kit)\n", "renders` alone"],
+      // withdrawn 2026-11-23 (MO-8r, Settled, the third): components that travel in values, and the tree they nest in
+      ["export pure fn createRoute(options: { component?: Component }): any renders(later)\n", "renders\\(later\\)"],
+      ["export pure fn createRoute(options: { getParentRoute: () => any; component?: Component }): any renders(later) nests(component under getParentRoute)\n", "renders\\(later\\)"],
+      ["export pure fn createRoute(options: any): any carries\n", "renders\\(later\\)"],
+      ["export component RouterProvider(props: { router: renders any }) provides(router)\nexport context router\n", "renders\\(later\\)"],
+      ["export pure fn createRoute(options: any): Component nests(component under getParentRoute)\n", "nests\\(component under parent\\)"],
+      ["export pure fn createRoute(options: any): any under(getParentRoute in component)\n", "nests\\(component under parent\\)"],
+      ["export component Outlet(props: {}) outlet\n", "outlet"],
+    ] as const) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual(new RegExp("`" + word + ".*is not a word of a declaration").test(msg), true, `${bad} → ${msg}`); }
+    // `signal init: T` is no parameter word: the row does not parse
+    { let msg = ""; try { parseDeclarations("export pure fn makePersisted(signal init: string): [ref string, (v: string) => void]\n"); } catch (e) { msg = (e as Error).message; } deepStrictEqual(msg !== "", true); }
+    // and a name that is one of them is still a name where a name goes
+    deepStrictEqual(parseDeclarations("export pure fn f(signal: string, tracked: boolean, methods?: string[]): { trusted: boolean; forwards: string }\n").map(d => d.kind === "fn" ? d.params : []), [["signal", "tracked", "methods"]]);
+    deepStrictEqual(parseDeclarations("export pure fn f(): { pending: ref boolean; fails: number; renders: string; outlet: boolean }\nexport pure fn g(outlet: any, nests: any, later: any): any\n").length, 2);
+  }],
+  ["an_accessor_that_waits_or_fails_says_so_before_ref", () => {   // MO-10l: `pending` and `fails(…)` before a `ref` part of a declared result — the whole result, an item of its tuple, a field of its record — and nowhere else; the words are taken out of the type text
+    const fn = (src: string) => parseDeclarations(src)[0] as Extract<ReturnType<typeof parseDeclarations>[number], { kind: "fn" }>;
+    const whole = fn("export pure fn createJson(url: string): pending fails(HttpError | Error) ref { name: string } uses(http)\nexport context http\n");
+    deepStrictEqual([whole.waits, whole.held, whole.ret, whole.shape, whole.instantiates], [[true, ["HttpError", "Error"]], undefined, "{ name: string }", "ref", true]);
+    const tuple = fn("export pure fn createStream(want: any): [pending fails(Error) ref MediaStream | undefined, { stop: () => void }]\n");
+    deepStrictEqual([tuple.waits, tuple.held, tuple.ret], [undefined, [["0", true, ["Error"]]], "[MediaStream | undefined, { stop: () => void }]"]);
+    const rec = fn("export pure fn useQuery(): { data: pending fails(Error) ref string[]; error: fails(Error) ref unknown; readonly isFetching?: pending ref boolean; refetch: () => void }\n");
+    deepStrictEqual([rec.waits, rec.held], [undefined, [["data", true, ["Error"]], ["error", false, ["Error"]], ["isFetching", true, []]]]);
+    deepStrictEqual(rec.ret, "{ data: string[]; error: unknown; readonly isFetching?: boolean; refetch: () => void }");
+    const plain = fn("export pure fn createSignal(): [ref number, (v: number) => void]\n");
+    deepStrictEqual([plain.waits, plain.held, plain.ret], [undefined, undefined, "[number, (v: number) => void]"]);
+    // a word is one only at the head of a part (2026-11-26; `ref ` was taken out of the text wherever it stood): a string literal, a type argument and a parameter keep theirs
+    const lit = fn("export pure fn label(): \"ref label\"\n");
+    deepStrictEqual([lit.ret, lit.shape ?? "value"], ["\"ref label\"", "value"]);
+    const kinds = fn("export pure fn kinds(): [ref \"ref a\" | \"pending ref b\", \"a, ref b\", Map<\"ref k\", number>]\n");
+    deepStrictEqual([kinds.ret, kinds.shape], ["[\"ref a\" | \"pending ref b\", \"a, ref b\", Map<\"ref k\", number>]", { items: ["ref", "value", "value"] }]);
+    const spaced = fn("export pure fn useQ(): { data: pending ref string, n: number }\n");
+    deepStrictEqual([spaced.ret, spaced.held], ["{ data: string, n: number }", [["data", true, []]]]);
+    // … and so do `handler` and `draft`, the words before a function type and before a callback's parameter
+    const on = fn("export fn on(kind: \"handler (x)\" | \"draft s: T\", run: handler (e: \"handler (y)\") => void, set: (draft s: { n: number }) => void): void\n");
+    deepStrictEqual([on.ptypes, on.cbs], [["\"handler (x)\" | \"draft s: T\"", "(e: \"handler (y)\") => void", "(s: { n: number }) => void"], [null, [true, []], null]]);
+    parseDeclarations("export fn on(kind: \"handler x\"): void\n");
+    deepStrictEqual(fieldRows("{ q: { data: pending fails(E) string; note: \"pending x\" }; n: number }"), { text: "{ q: { data: string; note: \"pending x\" }; n: number }", held: [["q.data", true, ["E"]]] });
+  }],
+  ["a_projects_declarations_are_looked_for_up_to_its_folder", () => {   // MO-8k, MO-14a (2026-11-24): the nearest folder whose package.json has a name; a scope's is passed over
+    const row = "export pure fn f(n: number): number\n", main = "import { f } from \"kit\"\nexport default component App() { <p>{f(1)}</p> }\n";
+    const codes = (o: Record<string, string>) => checkModules(loadModules("/w/app/src/main.rx", files({ "/w/app/src/main.rx": main, ...o }))).diags.map(d => d.code);
+    const named = { "/w/app/package.json": "{\"name\":\"app\"}", "/w/app/src/package.json": "{\"type\":\"module\"}" };
+    deepStrictEqual([codes({ ...named, "/w/app/rx-types/kit.d.rx": row }), codes({ ...named, "/w/rx-types/kit.d.rx": row }), codes({ "/w/rx-types/kit.d.rx": row })], [[], ["IO_IN_REACTIVE"], []]);
+  }],
+  ["a_declaration_names_another_modules_context", () => {   // MO-12e: `export context c from "<module>"` names the context that module's declaration declares, under that declaration's key: found as an import from the declaration's own file would find it, and through a module that takes it from another
+    const fs = files({
+      "/app/rx-types/@demo/query.d.rx": "export context client\nexport component ClientProvider(props: { children?: View }) provides(client)\n",
+      "/app/src/todos.d.rx": "export context client from \"@demo/query\"\nexport pure fn useTodos(): ref string uses(client)\n",
+      "/app/src/deep/count.d.rx": "export context client from \"../todos.js\"\nexport pure fn useCount(): ref number uses(client)\n",
+      "/app/src/typo.d.rx": "export context klient from \"@demo/query\"\nexport pure fn useTypo(): ref number uses(klient)\n",
+      "/app/src/main.rx": "import { ClientProvider } from \"@demo/query\"\nimport { useTodos } from \"./todos.js\"\nimport { useCount } from \"./deep/count.js\"\ncomponent Todos() {\n  t = useTodos()\n  n = useCount()\n  <p>{t}{n}</p>\n}\nexport default component App() {\n  <ClientProvider><Todos /></ClientProvider>\n}\n",
+      "/app/src/bare.rx": "import { useCount } from \"./deep/count.js\"\nexport default component App() {\n  n = useCount()\n  <p>{n}</p>\n}\n",
+      "/app/src/typo.rx": "import { useTypo } from \"./typo.js\"\nexport default component App() {\n  n = useTypo()\n  <p>{n}</p>\n}\n",
+    });
+    const codes = (entry: string) => checkModules(loadModules(entry, fs)).diags.map(d => d.code);
+    const set = loadModules("/app/src/main.rx", fs);
+    const at = (dts: string) => { const c = set.declarations!.get(dts)!.find(d => d.kind === "context") as { from?: string; resolved?: string }; return [c.from, c.resolved]; };
+    deepStrictEqual([at("/app/rx-types/@demo/query.d.rx"), at("/app/src/todos.d.rx"), at("/app/src/deep/count.d.rx")], [[undefined, undefined], ["@demo/query", "/app/rx-types/@demo/query.d.rx"], ["../todos.js", "/app/rx-types/@demo/query.d.rx"]]);
+    deepStrictEqual([codes("/app/src/main.rx"), codes("/app/src/bare.rx"), codes("/app/src/typo.rx")], [[], ["CONTEXT_NOT_FOUND"], ["NOT_EXPORTED", "CONTEXT_NOT_FOUND"]]);
+    let failed = false; try { parseDeclarations("export context client from query\n"); } catch { failed = true; }
+    deepStrictEqual(failed, true);
+  }],
+  ["a_host_declaration_places_the_components_a_js_host_renders", () => {   // MO-14: `host.d.rx`, found at or above a program — the `.rx` components a JS host renders (a file-based router's route files), imported by name, and the view it makes of them in a factory's words; checked as the app's view, what it says on the declaration's line
+    const HOST = "// what the file router does with the route files\nimport { Layout } from \"./routes/layout.rx\"\nimport { Home } from \"./routes/index.rx\"\nimport { Person, Banner } from \"./routes/person.rx\"\nexport context router from \"./router.js\"\nexport default component provides(router) nests(children in component) = [\n  { component: Layout, children: [{ component: Home }, { component: Person }] }\n]\n";
+    const LAYOUT = "import { NotFound } from \"../people.js\"\nexport default component Layout(props: { children?: View }) {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <main>{props.children}</main> }\n  }\n}\n";
+    const app = (host: string | null = HOST, layout = LAYOUT) => files({
+      "/app/src/router.d.rx": "export context router\nexport pure fn useParams(): { id: string } instantiates uses(router)\n",
+      "/app/src/people.d.rx": "export error NotFound\nexport pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)\n",
+      "/app/src/routes/layout.rx": layout,
+      "/app/src/routes/index.rx": "export default component Home() { <h1>People</h1> }\n",
+      "/app/src/routes/person.rx": "import { useParams } from \"../router.js\"\nimport { fetchPerson } from \"../people.js\"\nexport default component Person() {\n  params = useParams()\n  person = await fetchPerson(params.id)\n  <h1>{person.name}</h1>\n}\nexport component Banner() {\n  params = useParams()\n  <p>{params.id}</p>\n}\n",
+      ...(host === null ? {} : { "/app/src/host.d.rx": host }),
+    });
+    const diags = (fs: (p: string) => string | undefined, entry = "/app/src/routes/person.rx", spa = false, whole = false) => checkModules(loadModules(entry, fs), spa, whole).diags.map(d => `${d.code}@${(d.file ?? entry).split("/").pop()}:${d.line}`);
+    // the route files as they are, each a page that relies on its layout and on the router: accepted from any of them
+    deepStrictEqual([diags(app()), diags(app(), "/app/src/routes/layout.rx"), diags(app(), "/app/src/routes/index.rx", true)], [[], [], []]);
+    // with no declaration, a route file's default component is a mounted view, and nothing is above it
+    deepStrictEqual(diags(app(null)), ["UNHANDLED_FAILURE@person.rx:6", "CONTEXT_NOT_FOUND@person.rx:4"]);
+    // the layout's regions hold its pages: without one, the page's failure (or, in a client-only build, its first load) is the host's
+    deepStrictEqual(diags(app(HOST, LAYOUT.replace(/  errored[^\n]*\n    (loading[^\n]*)\n  \}\n/, "  $1\n"))), ["UNHANDLED_FAILURE@host.d.rx:6"]);
+    deepStrictEqual(diags(app(HOST, LAYOUT.replace(/loading fallback \{ <p>loading…<\/p> \} \{ (<main>\{props\.children\}<\/main>) \}/, "$1")), "/app/src/routes/person.rx", true), ["ASYNC_OUTSIDE_LOADING_BOUNDARY@host.d.rx:6"]);
+    // a page the host renders beside the layout, not in it; a host that provides no router
+    deepStrictEqual(diags(app(HOST.replace("children: [{ component: Home }, { component: Person }] }", "children: [{ component: Home }] }, { component: Person }"))), ["UNHANDLED_FAILURE@host.d.rx:6"]);
+    deepStrictEqual(diags(app(HOST.replace(" provides(router)", ""))), ["CONTEXT_NOT_FOUND@host.d.rx:6"]);
+    // a component the declaration imports and leaves out of its tree is rendered where no one says: in a whole-program
+    // build it is checked under a root of its own (CP-4d), as every export of a module a host renders that is not placed
+    deepStrictEqual([diags(app(), "/app/src/routes/person.rx", false, true), diags(app(HOST.replace("{ component: Person }] }", "{ component: Person }, { component: Banner }] }")), "/app/src/routes/person.rx", false, true)], [["CONTEXT_NOT_FOUND@person.rx:1"], []]);
+    // the tree names what the declaration imports
+    deepStrictEqual(diags(app(HOST.replace("component: Home", "component: Nope"))), ["UNBOUND@host.d.rx:6"]);
+    const refused = (text: string) => { try { parseDeclarations(text); return false; } catch { return true; } };
+    deepStrictEqual(["import Layout from \"./layout.rx\"\n", "import { Layout } from \"@demo/pages.rx\"\n", "import { Layout } from \"/abs/layout.rx\"\n", "export default component provides(router)\n", "export default component = 3\n", "export default fn f()\n", "export default component = []\nexport default component = []\n", "export default component uses(router) = []\n"].map(refused), [true, true, true, true, true, true, true, true]);
+    deepStrictEqual(refused("import { Layout as L } from \"../pages/layout.rx\"\nexport context router\nexport default component provides(router) nests(children in component) = { component: L }\n"), false);
+    // lowered text for text, each piece on its line: the declaration's imports, and its tree given to a factory with the row's words
+    const low = hostProgram(HOST, parseDeclarations(HOST), "host.d.rx")!;
+    deepStrictEqual(low.rx.split("\n").map(l => l.trim()), ["", "import { Layout } from \"./routes/layout.rx\"", "import { Home } from \"./routes/index.rx\"", "import { Person, Banner } from \"./routes/person.rx\"", "", "import { jsHostFactory } from \"./host.d.rx.host.js\"; export default component JsHost() { <JsHostView /> }; JsHostView = jsHostFactory([", "{ component: Layout, children: [{ component: Home }, { component: Person }] }", "])", ""]);
+    deepStrictEqual(low.decl, "export context router from \"./router.js\"\nexport pure fn jsHostFactory(tree: unknown): Component provides(router) nests(children in component)\n");
+    // a view written over several lines keeps each line: what it says is on the line it starts on, its tree where it was
+    const SPREAD = HOST.replace("nests(children in component) = [", "nests(children in component) =\n\n[");
+    deepStrictEqual([hostProgram(SPREAD, parseDeclarations(SPREAD), "host.d.rx")!.rx.split("\n").length, SPREAD.split("\n").length, diags(app(SPREAD.replace(" provides(router)", ""))), diags(app(SPREAD))], [11, 11, ["CONTEXT_NOT_FOUND@host.d.rx:6"], []]);
+    // the view's words are on its own line, as a row's are
+    deepStrictEqual(refused("export default component\n  provides(router) = []\n"), true);
+ 
+    // MO-11i: a layout the view nests pages in renders them among its own children — one that renders none is refused
+    // (it was accepted, and its pages checked under nothing)
+    const OUTLET = LAYOUT.replace("(props: { children?: View })", "()").replace("{props.children}", "<Outlet />").replace("import {", "import { Outlet } from \"../router.js\"\nimport {");
+    const outlet = (host = HOST, layout = OUTLET) => { const fs = app(host, layout); return (p: string) => p === "/app/src/router.d.rx" ? fs(p)! + "export component Outlet(props: {}) uses(router)\nexport component AppRouter(props: {}) provides(router)\n" : fs(p); };
+    deepStrictEqual(diags(outlet()), ["NESTED_NOT_RENDERED@host.d.rx:6"]);
+    // MO-14f: a component of the host's own that the declaration imports from JavaScript is one the host renders through —
+    // a layout that applies it renders its pages there, under what the layout has around it
+    const THROUGH = HOST.replace("export context", "import { Outlet } from \"./router.js\"\nexport context");
+    deepStrictEqual([diags(outlet(THROUGH)), diags(outlet(THROUGH), "/app/src/routes/layout.rx", true)], [[], []]);
+    deepStrictEqual(diags(outlet(THROUGH, OUTLET.replace(/  errored[^\n]*\n    loading[^\n]*\n  \}\n/, "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  <main><Outlet /></main>\n"))), ["UNHANDLED_FAILURE@host.d.rx:7"]);
+    deepStrictEqual(diags(outlet(THROUGH, OUTLET.replace(/loading fallback \{ <p>loading…<\/p> \} \{ (<main><Outlet \/><\/main>) \}/, "$1")), "/app/src/routes/person.rx", true), ["ASYNC_OUTSIDE_LOADING_BOUNDARY@host.d.rx:7"]);
+    // …and the app's own component, when it is `.rx` and applies the router: the view names it, the host's records its
+    // children, and what it has around the router's component holds every page. The router is provided by that
+    // component's own row, so a hook above it in the app is still outside the router
+    const HELD = "  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <AppRouter /> }\n  }\n";
+    const ENTRY = (above = "", body = HELD) => "import { AppRouter } from \"../router.js\"\nimport { useParams } from \"../router.js\"\nimport { NotFound } from \"../people.js\"\nexport default component App() {\n" + above + body + "}\n";
+    const BARE = "export default component Layout(props: { children?: View }) {\n  <main>{props.children}</main>\n}\n";
+    const UNDER = "import { App } from \"./routes/app.rx\"\nimport { Layout } from \"./routes/layout.rx\"\nimport { Home } from \"./routes/index.rx\"\nimport { Person } from \"./routes/person.rx\"\nimport { AppRouter } from \"./router.js\"\nexport default component nests(children in component) = [\n  { component: App, children: [{ component: Layout, children: [{ component: Home }, { component: Person }] }] }\n]\n";
+    const entry = (host = UNDER, main = ENTRY()) => { const fs = outlet(host, BARE); return (p: string) => p === "/app/src/routes/app.rx" ? main : fs(p); };
+    deepStrictEqual([diags(entry()), diags(entry(), "/app/src/routes/app.rx", true)], [[], []]);
+    deepStrictEqual(diags(entry(UNDER, ENTRY("  at = useParams()\n"))), ["CONTEXT_NOT_FOUND@host.d.rx:6"]);
+    deepStrictEqual(diags(entry(UNDER, ENTRY("", "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>…</p> } { <AppRouter /> }\n"))), ["UNHANDLED_FAILURE@host.d.rx:6"]);
+    deepStrictEqual(diags(entry(UNDER.replace("import { AppRouter } from \"./router.js\"\n", ""))), ["NESTED_NOT_RENDERED@host.d.rx:5"]);
+    // MO-14f (2026-11-25): an `.rx` component between the layout and the host's own — `Layout` applies `<Frame />`, which
+    // applies `<Outlet />` — renders the layout's pages there: under what the frame has around the outlet, and what the
+    // layout has around the frame. It was NESTED_NOT_RENDERED on the layout
+    const FRAME = "component Frame() {\n  <main><Outlet /></main>\n}\n";
+    const VIA = (frame = FRAME, body = "  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <Frame /> }\n  }\n") => "import { Outlet } from \"../router.js\"\nimport { NotFound } from \"../people.js\"\nexport default component Layout() {\n" + body + "}\n" + frame;
+    deepStrictEqual([diags(outlet(THROUGH, VIA())), diags(outlet(THROUGH, VIA()), "/app/src/routes/layout.rx", true)], [[], []]);   // declared below the layout that applies it
+    deepStrictEqual(diags(outlet(THROUGH, VIA(FRAME, "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>loading…</p> } { <Frame /> }\n"))), ["UNHANDLED_FAILURE@host.d.rx:7"]);   // the frame beside the layout's region
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame() {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } { loading fallback { <p>…</p> } { <main><Outlet /></main> } }\n}\n", "  <Frame />\n")), "/app/src/routes/person.rx", true), []);   // the regions are the frame's own
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame() {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  <main><Outlet /></main>\n}\n", "  <Frame />\n"))), ["UNHANDLED_FAILURE@host.d.rx:7"]);   // … and beside its outlet they hold nothing
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame() {\n  <Inner />\n}\ncomponent Inner() {\n  <main><Outlet /></main>\n}\n"))), []);   // two components between
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame() {\n  <main>no outlet</main>\n}\n"))), ["NESTED_NOT_RENDERED@host.d.rx:7"]);   // a frame with no outlet renders none
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame(props: { children?: View }) {\n  <main>{props.children}</main>\n}\n"))), ["NESTED_NOT_RENDERED@host.d.rx:7"]);   // a component that renders its own children, given none, is not one the host renders through
+    deepStrictEqual(diags(outlet(HOST, VIA())), ["NESTED_NOT_RENDERED@host.d.rx:6"]);   // … nor is the frame, where the declaration does not import the outlet
+    deepStrictEqual(diags(outlet(THROUGH, VIA("component Frame() {\n  <p><Outlet /></p>\n}\n"))), diags(outlet(THROUGH, OUTLET.replace("<main><Outlet /></main>", "<p><Outlet /></p>"))).map(d => d.replace(/:\d+$/, ":7")));   // SV-7d: the pages are placed inside what the frame has around its outlet, as with the outlet written in the layout
+    { // the frame in a module of its own, and the app's own component reaching the router through one
+      const far = (frame: string) => { const fs = outlet(THROUGH, "import { Frame } from \"./frame.rx\"\nimport { NotFound } from \"../people.js\"\nexport default component Layout() {\n  errored fallback(e: NotFound) { <p>{e.message}</p> } {\n    loading fallback { <p>loading…</p> } { <Frame /> }\n  }\n}\n"); return (p: string) => p === "/app/src/routes/frame.rx" ? frame : fs(p); };
+      deepStrictEqual([diags(far("import { Outlet } from \"../router.js\"\nexport component Frame() {\n  <main><Outlet /></main>\n}\n")), diags(far("export component Frame() {\n  <main>none</main>\n}\n"))], [[], ["NESTED_NOT_RENDERED@host.d.rx:7"]]);
+      const SHELL = "component Shell() {\n  <div class=\"shell\"><AppRouter /></div>\n}\n";
+      deepStrictEqual([diags(entry(UNDER, ENTRY("", HELD.replace("<AppRouter />", "<Shell />")) + SHELL)), diags(entry(UNDER, ENTRY("", "  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>ready</p> }\n  loading fallback { <p>…</p> } { <Shell /> }\n") + SHELL))], [[], ["UNHANDLED_FAILURE@host.d.rx:6"]]);
+    }
+    // what is imported from JavaScript is a component its module's declaration declares
+    const fails = (host: string) => { try { loadModules("/app/src/routes/person.rx", outlet(host)); return ""; } catch (e) { return (e as { code?: string }).code ?? "?"; } };
+    deepStrictEqual([fails(THROUGH.replace("{ Outlet }", "{ Inlet }")), fails(THROUGH.replace("\"./router.js\"\nexport", "\"./nowhere.js\"\nexport")), fails(THROUGH)], ["NOT_EXPORTED", "NOT_EXPORTED", ""]);
+  }],
+  ["a_brace_that_closes_nothing_is_refused", () => {   // found 2026-11-23: at a module's top level the parser read it again and again, with no end; the crate refused it
+    let code = ""; try { parseProgram("export default component App() {\n  <p>a</p>\n  }\n}\n"); } catch (e) { code = (e as { code?: string }).code ?? "?"; }
+    deepStrictEqual(code, "PARSE");
+  }],
+  ["a_dependencys_default_component_is_mounted_by_no_one", () => {   // MO-1c: the runtime mounts the entry's default component; another module's is a component like any other, checked where it is applied
+    const app = (main: string) => files({
+      "/app/people.d.rx": "export error NotFound\nexport pure fn fetchPerson(id: string): Promise<{ name: string }> rejects(NotFound)\n",
+      "/app/page.rx": "import { fetchPerson } from \"./people.js\"\nexport fn label(n: number) { `#${n}` }\nexport default component Page() {\n  person = await fetchPerson(\"1\")\n  <h1>{person.name}</h1>\n}\n",
+      "/app/main.rx": main,
+    });
+    const diags = (fs: (p: string) => string | undefined, entry = "/app/main.rx") => checkModules(loadModules(entry, fs)).diags.map(d => `${d.code}@${(d.file ?? entry).split("/").pop()}:${d.line}`);
+    // a module imported for a fn: its default component is applied by no one, and is nobody's failure (it was walked as a mounted view)
+    deepStrictEqual(diags(app("import { label } from \"./page.rx\"\nexport default component App() { <p>{label(1)}</p> }\n")), []);
+    // applied, it is checked where it is applied; as the entry, it is the mounted view
+    deepStrictEqual(diags(app("import { Page } from \"./page.rx\"\nexport default component App() { <Page /> }\n")), ["UNHANDLED_FAILURE@main.rx:2"]);
+    deepStrictEqual(diags(app("import { Page } from \"./page.rx\"\nimport { NotFound } from \"./people.js\"\nexport default component App() { errored fallback(e: NotFound) { <p>no</p> } { <Page /> } }\n")), []);
+    deepStrictEqual(diags(app(""), "/app/page.rx"), ["UNHANDLED_FAILURE@page.rx:5"]);
+  }],
+  ["a_marked_declaration_is_read_as_a_signature", () => {   // MO-13a, MO-13b: `//@ signature` on a declaration a JS import finds makes it the .rx module's signature (MO-9b)
+    deepStrictEqual(["//@ signature x.rx\nexport a", "\n// built\n//@signature\nexport a", "//@ signatures\nexport a", "export a\n//@ signature", "// signature\nexport a", ""].map(isPrintedSignature), [true, true, false, false, false, false]);
+    deepStrictEqual([relativeModule("/app/src/main.rx", "/app/node_modules/kit/dist/index.rx"), relativeModule("main.rx", "node_modules/kit/dist/index.rx"), relativeModule("/app/main.rx", "/app/vendor/x.rx"), relativeModule("a/b/main.rx", "a/x.rx")], ["../node_modules/kit/dist/index.rx", "./node_modules/kit/dist/index.rx", "./vendor/x.rx", "../x.rx"]);
+    const rows = "export pure fn load(id)\nexport source n := …\nexport component Badge(props: {}) uses(./theme.rx#theme) shape(roots b)\n";
+    const pkg = (marked: boolean) => files({
+      "/app/node_modules/kit/package.json": `{"name":"kit","exports":{".":{"browser":"./dist/index.js","default":"./dist/index.js"},"./theme":"./dist/theme.js"}}`,
+      "/app/node_modules/kit/dist/index.d.rx": marked ? `//@ signature index.rx\n${rows}` : "export pure fn load(id: string): Promise<number>\n",
+      "/app/node_modules/kit/dist/theme.d.rx": "//@ signature theme.rx\nexport context theme: string\nexport component Themed(props: { children: provides(./theme.rx#theme) }) shape(roots div; children-at div)\n",
+      "/app/vendor/kit.d.rx": `//@ signature kit.rx\n${rows}`,
+      "/app/main.rx": `import { load } from "kit"\nexport default component App() {\n  v = await load("a")\n  <p>{v}</p>\n}\n`,
+      "/app/write.rx": `import { n } from "kit"\nexport default component App() {\n  <button onClick={() => { n := 1 }}>{n}</button>\n}\n`,
+      "/app/bare.rx": `import { Badge } from "kit"\nexport default component App() {\n  <Badge />\n}\n`,
+      "/app/themed.rx": `import { Badge } from "kit"\nimport { Themed, theme } from "kit/theme"\ncomponent Own() {\n  provide theme = "x"\n  <Badge />\n}\nexport default component App() {\n  <Themed><Badge /></Themed>\n  <Own />\n}\n`,
+      "/app/local.rx": `import { n, Badge } from "./vendor/kit.js"\nexport default component App() {\n  <p>{n}</p>\n}\n`,
+    });
+    const codes = (entry: string, marked = true) => { const set = loadModules(entry, pkg(marked)); return checkModules(set).diags.map(d => d.code); };
+    // the marker: an .rx import in everything but its specifier — resolved to the module the signature stands for
+    const set = loadModules("/app/main.rx", pkg(true));
+    deepStrictEqual([set.programs.get("/app/main.rx")!.decls[0].k === "import" && (set.programs.get("/app/main.rx")!.decls[0] as { resolved?: string }).resolved, [...set.signatures!.keys()], [...set.declarations!.keys()]], ["/app/node_modules/kit/dist/index.rx", ["/app/node_modules/kit/dist/index.rx"], []]);
+    deepStrictEqual(codes("/app/main.rx"), []);                               // MO-9b: `rejects(…)` absent — nothing that rejects
+    deepStrictEqual(codes("/app/main.rx", false), ["UNHANDLED_FAILURE"]);     // MO-8a: unmarked, the same row is a JS fn's, and absent is Error
+    deepStrictEqual(codes("/app/write.rx"), ["WRITE_TO_NON_SOURCE"]);         // MO-2a across the package boundary
+    deepStrictEqual(codes("/app/bare.rx"), ["CONTEXT_NOT_FOUND"]);            // MO-13b: `./theme.rx#theme` is the package's own module
+    deepStrictEqual(codes("/app/themed.rx"), []);                             // … provided by its component, and by the app with the context it exports
+    const local = loadModules("/app/local.rx", pkg(true));                    // beside a relative JS module (MO-8a), the same
+    deepStrictEqual([[...local.signatures!.keys()], checkModules(local).diags.map(d => d.code)], [["/app/vendor/kit.rx"], []]);
+  }],
+  ["renders_names_the_component_a_fns_components_render_beneath", () => {   // MO-11u: `renders(H)` after a fn: the components it is given are checked among H's children, at every application of H in the program (in whichever module), with what H itself uses and provides; with none, under a root of their own
+    const fs = files({
+      "/app/kit.d.rx": "export context region\nexport error Lost\nexport pure fn load(): Promise<string> rejects(Lost)\nexport component Region(props: { children?: View }) provides(region)\nexport component Toaster(props: {}) uses(region)\nexport component Toast(props: { children?: View }) uses(region)\nexport fn toast(message: string | Component): number renders(Toaster)\nexport pure fn createRoute(options: { component: Component }): any renders(Toaster)\nexport fn plain(message: string | Component): number\nexport component Markdown(props: { builtins?: { Heading?: Component<{ depth: number }> }; tabs?: Component[]; table?: Record<string, Component>; one?: Component; meta?: { title: string }; children?: View })\n",
+      "/app/theme.rx": "export context accent: string\n",
+      "/app/saved.rx": "import { toast, Toast } from \"./kit.js\"\nimport { accent } from \"./theme.rx\"\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nexport action save() {\n  toast(Saved)\n}\n",
+      "/app/frame.rx": "import { Toaster, Region } from \"./kit.js\"\nimport { accent } from \"./theme.rx\"\nexport component Frame(props: { children?: View }) {\n  provide accent = \"dark\"\n  {props.children}\n  <Region><Toaster /></Region>\n}\nexport component Bare(props: { children?: View }) {\n  {props.children}\n  <Region><Toaster /></Region>\n}\n",
+      "/app/good.rx": "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nexport default component App() {\n  provide accent = \"dark\"\n  <button onClick={() => { toast(Saved) }}>save</button>\n  <Region><Toaster /></Region>\n}\n",
+      "/app/beside.rx": "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\ncomponent Editor() {\n  provide accent = \"dark\"\n  <button onClick={() => { toast(Saved) }}>save</button>\n}\nexport default component App() {\n  <Editor />\n  <Region><Toaster /></Region>\n}\n",
+      "/app/two.rx": "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\ncomponent Themed() {\n  provide accent = \"dark\"\n  <Region><Toaster /></Region>\n}\nexport default component App() {\n  <button onClick={() => { toast(Saved) }}>save</button>\n  <Themed />\n  <Region><Toaster /></Region>\n}\n",
+      "/app/nosite.rx": "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nexport default component App() {\n  provide accent = \"dark\"\n  <button onClick={() => { toast(Saved) }}>save</button>\n}\n",
+      "/app/noword.rx": "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nexport default component App() {\n  provide accent = \"dark\"\n  <button onClick={() => { plain(Saved) }}>save</button>\n  <Region><Toaster /></Region>\n}\n",
+      "/app/route.rx": "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nroute = createRoute({ component: Saved })\nexport default component App() {\n  provide accent = \"dark\"\n  <p>{route ? \"made\" : \"\"}</p>\n  <Region><Toaster /></Region>\n}\n",
+      "/app/routebad.rx": "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nroute = createRoute({ component: Saved })\nexport default component App() {\n  <p>{route ? \"made\" : \"\"}</p>\n  <Region><Toaster /></Region>\n}\n",
+      "/app/unbound.rx": "import { toast, plain, createRoute, Toast, Toaster, Region } from \"./kit.js\"\ncontext accent: string\ncomponent Saved() {\n  <Toast><b class={use accent}>saved</b></Toast>\n}\nexport default component App() {\n  <button onClick={() => { createRoute({ component: Saved }) }}>save</button>\n}\n",
+      "/app/fails.rx": "import { toast, load, Toaster, Region } from \"./kit.js\"\ncomponent Loads() {\n  text = await load()\n  <i>{text}</i>\n}\nexport default component App() {\n  <button onClick={() => { toast(Loads) }}>save</button>\n  loading fallback { <p>…</p> } { <Region><Toaster /></Region> }\n}\n",
+      "/app/held.rx": "import { toast, load, Toaster, Region } from \"./kit.js\"\ncomponent Loads() {\n  text = await load()\n  <i>{text}</i>\n}\nexport default component App() {\n  <button onClick={() => { toast(Loads) }}>save</button>\n  errored fallback(e) { <p>lost</p> } { loading fallback { <p>…</p> } { <Region><Toaster /></Region> } }\n}\n",
+      "/app/waits.rx": "import { toast, load, Toaster, Region } from \"./kit.js\"\ncomponent Loads() {\n  text = await load()\n  <i>{text}</i>\n}\nexport default component App() {\n  <button onClick={() => { toast(Loads) }}>save</button>\n  errored fallback(e) { <p>lost</p> } { <Region><Toaster /></Region> }\n}\n",
+      "/app/cross.rx": "import { save } from \"./saved.rx\"\nimport { Frame } from \"./frame.rx\"\nexport default component App() {\n  <Frame><button onClick={() => { save() }}>save</button></Frame>\n}\n",
+      "/app/crossbad.rx": "import { save } from \"./saved.rx\"\nimport { Bare } from \"./frame.rx\"\nexport default component App() {\n  <Bare><button onClick={() => { save() }}>save</button></Bare>\n}\n",
+    });
+    const diags = (name: string, spa = false) => { const entry = `/app/${name}.rx`; return checkModules(loadModules(entry, fs), spa).diags.map(x => `${x.code}@${(x.file ?? entry).split("/").pop()}:${x.line}`); };
+    deepStrictEqual(diags("good"), []);   // a toast that reads the app's context and the library's region, under the app's provision and a toaster in its region
+    deepStrictEqual(diags("beside"), ["CONTEXT_NOT_FOUND@beside.rx:8"]);   // the context provided above the call, not above the toaster
+    deepStrictEqual(diags("two"), []);   // two toasters, one without the provision: which one the call is for is the library's to say
+    deepStrictEqual(diags("nosite"), ["CONTEXT_NOT_FOUND@nosite.rx:8"]);   // no toaster in the program: held to what the toaster itself uses (the region's context is credited, the app's is not)
+    deepStrictEqual(diags("noword"), ["CONTEXT_NOT_FOUND@noword.rx:4", "CONTEXT_NOT_FOUND@noword.rx:4"]);   // the row without the word: a root of its own (MO-11s), nothing credited
+    deepStrictEqual(diags("route"), []);   // a `pure` fn with the word is a constructor (`instantiates` inferred), bound at the module's top
+    deepStrictEqual(diags("routebad"), ["CONTEXT_NOT_FOUND@routebad.rx:6"]);   // ... and its component is held to the same
+    deepStrictEqual(diags("unbound"), ["INSTANTIATION_NOT_BOUND@unbound.rx:7", "CONTEXT_NOT_FOUND@unbound.rx:7"]);   // ... so it is bound, not called from a handler
+    deepStrictEqual(diags("fails"), ["UNHANDLED_FAILURE@fails.rx:7"]);   // a failure, with no errored region above the toaster
+    deepStrictEqual(diags("held"), []);   // ... and with one
+    deepStrictEqual(diags("held", true), []);   // a client-only build: the first load is held by the region above the toaster
+    deepStrictEqual(diags("waits", true), ["ASYNC_OUTSIDE_LOADING_BOUNDARY@waits.rx:7"]);   // ... and is not, with none
+    deepStrictEqual(diags("cross"), []);   // the call in one module, the toaster in another: judged at the program
+    deepStrictEqual(diags("crossbad"), ["CONTEXT_NOT_FOUND@saved.rx:7"]);   // ... on the line of the call, in its module
+    // MO-9: the requirement and the place are rows of the modules' printed signatures, and read back
+    const c = checkModules(loadModules("/app/cross.rx", fs));
+    const [saved, frame] = [printSignature(c.sigs.get("/app/saved.rx")!), printSignature(c.sigs.get("/app/frame.rx")!)];
+    deepStrictEqual([saved, frame], ["//@ signature saved.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).\nexport action save\nexport renders ./kit.d.rx#Toaster from toast:7 uses(./theme.rx#accent)\n", "//@ signature frame.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).\nexport component Frame(props: { children: provides(./theme.rx#accent) }) hosts(./kit.d.rx#Toaster provides(./kit.d.rx#region, ./theme.rx#accent)) shape(children-at )\nexport component Bare(props: { children }) hosts(./kit.d.rx#Toaster provides(./kit.d.rx#region)) shape(children-at )\n"]);
+    deepStrictEqual([printSignature(parseSignature(saved, "/app/saved.rx")), printSignature(parseSignature(frame, "/app/frame.rx"))], [saved, frame]);
+    // the word names one component, of the same file; a factory has no use for it
+    for (const [bad, why] of [["export fn toast(c: Component): number renders(Toaster)\n", "declares no component Toaster"], ["export component Toaster(props: {})\nexport fn toast(c: Component): number renders(toaster)\n", "renders(H)"], ["export component A(props: {})\nexport fn toast(c: Component): number renders(A) renders(A)\n", "twice"], ["export component A(props: {})\nexport pure fn make(c: Component): Component renders(A)\n", "hands back a Component"], ["export component A(props: {})\nexport fn toast(c: Component): number renders(A, theme)\n", "renders(H)"]] as [string, string][]) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual([bad, msg.includes(why)], [bad, true]); }
+    { const ds = parseDeclarations("export component Toast.List(props: {})\nexport fn show(c: Component): number renders(Toast.List)\nexport pure fn createRoute(o: any): any renders(Toast.List)\n") as { kind: string; renders?: string; instantiates?: boolean }[]; deepStrictEqual(ds.slice(1).map(x => [x.renders, !!x.instantiates]), [["Toast.List", false], ["Toast.List", true]]); }
+  }],
+  ["a_component_inside_a_record_or_an_array_in_a_prop_is_a_value_there", () => {   // MO-11c (2026-11-24): a JS component's prop whose declared type holds a `Component` inside a record or an array takes the components written in the literal it is given, each applied among the application's children
+    const fs = files({
+      "/app/kit.d.rx": "export context region\nexport error Lost\nexport pure fn load(): Promise<string> rejects(Lost)\nexport component Region(props: { children?: View }) provides(region)\nexport component Toaster(props: {}) uses(region)\nexport component Toast(props: { children?: View }) uses(region)\nexport fn toast(message: string | Component): number renders(Toaster)\nexport pure fn createRoute(options: { component: Component }): any renders(Toaster)\nexport fn plain(message: string | Component): number\nexport component Markdown(props: { builtins?: { Heading?: Component<{ depth: number }> }; tabs?: Component[]; table?: Record<string, Component>; one?: Component; meta?: { title: string }; children?: View })\n",
+      "/app/md.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  provide accent = \"dark\"\n  <Markdown builtins={{ Heading: Heading }} tabs={[Plain, Heading]} table={{ h1: Heading, deep: [Plain] }} one={Plain}>{\"# hi\"}</Markdown>\n}\n",
+      "/app/mdbad.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown builtins={{ Heading: Heading }}>{\"# hi\"}</Markdown>\n}\n",
+      "/app/mdmeta.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown meta={{ title: \"x\", icon: Plain }} />\n}\n",
+      "/app/mdone.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown one={{ a: Plain }} />\n}\n",
+      "/app/mdname.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  tabs = [Plain]\n  <Markdown tabs={tabs} />\n}\n",
+      "/app/mdnamed.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nbuiltins = { Heading: Heading }\nexport default component App() {\n  provide accent = \"dark\"\n  tabs = [Plain, Heading]\n  <Markdown builtins={builtins} tabs={tabs} />\n  <Markdown tabs={tabs} />\n}\n",
+      "/app/mdnamedbad.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nbuiltins = { Heading: Heading }\nexport default component App() {\n  <Markdown builtins={builtins} />\n}\n",
+      "/app/mdelse.rx": "import { Markdown, plain } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  tabs = [Plain]\n  first = tabs[0]\n  <Markdown tabs={tabs} />\n}\n",
+      "/app/mdcall.rx": "import { Markdown, plain } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  tabs = [Plain]\n  <Markdown tabs={tabs} />\n  <button onClick={() => { plain(tabs) }}>x</button>\n}\n",
+      "/app/mdshadow.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  tabs = [Plain]\n  <Markdown tabs={tabs} />\n  for tabs in [[1]] { <i>{tabs.length}</i> }\n}\n",
+      "/app/mdexport.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport tabs = [Plain]\nexport default component App() {\n  <Markdown tabs={tabs} />\n}\n",
+      "/app/mdundeclared.rx": "import { Markdown } from \"./kit.js\"\ncontext accent: string\ncomponent Heading() {\n  <h2 class={use accent}>x</h2>\n}\ncomponent Plain() {\n  <p>y</p>\n}\nexport default component App() {\n  <Markdown other={{ a: Plain }} />\n}\n",
+    });
+    const diags = (name: string) => { const entry = `/app/${name}.rx`; return checkModules(loadModules(entry, fs)).diags.map(x => `${x.code}@${(x.file ?? entry).split("/").pop()}:${x.line}`); };
+    deepStrictEqual(diags("md"), []);   // a record, a list, a table and a nested list of components, and a direct one
+    deepStrictEqual(diags("mdbad"), ["CONTEXT_NOT_FOUND@mdbad.rx:4"]);   // checked as applied there: the heading's context is not above the component
+    deepStrictEqual(diags("mdmeta"), ["COMPONENT_AS_VALUE@mdmeta.rx:10"]);   // a record in a prop whose type holds no component
+    deepStrictEqual(diags("mdone"), ["COMPONENT_AS_VALUE@mdone.rx:10"]);   // a record in a prop typed `Component`
+    deepStrictEqual(diags("mdname"), []);   // (2026-11-25) a list bound to a name and given only to such a prop is read as the literal
+    deepStrictEqual(diags("mdnamed"), []);   // … a module's binding and a component's, the second given to two applications
+    deepStrictEqual(diags("mdnamedbad"), ["CONTEXT_NOT_FOUND@mdnamedbad.rx:4"]);   // … checked as applied where it is given
+    deepStrictEqual(diags("mdelse"), ["COMPONENT_AS_VALUE@mdelse.rx:10"]);   // … read elsewhere too (`tabs[0]`): a value
+    deepStrictEqual(diags("mdcall"), ["COMPONENT_AS_VALUE@mdcall.rx:10"]);   // … given to a fn too
+    deepStrictEqual(diags("mdshadow"), []);   // … a second binding of the name (a loop's variable) is another name: a mention is the name's by its scope (2026-11-26; it was counted as written)
+    deepStrictEqual(diags("mdexport"), ["COMPONENT_AS_VALUE@mdexport.rx:9"]);   // … exported: a signature says nothing of what a value holds
+    deepStrictEqual(diags("mdundeclared"), ["COMPONENT_AS_VALUE@mdundeclared.rx:10"]);   // an undeclared prop
+    deepStrictEqual(["{ Heading?: Component<{ depth: number }> }", "Component[]", "Record<string, Component>", "Partial<{ a: Component }> | undefined", "readonly [Component, string]", "Component", "string | Component", "(c: Component) => void", "{ render: (c: Component) => View }", "{ title: string }", "Array<{ view: Component; path: string }>"].map(t => holdsComponent(t)), [true, true, true, true, true, false, false, false, false, false, true]);
+  }],
+  ["a_method_of_a_declared_value_has_a_row_of_its_own", () => {   // MO-8t (2026-11-25): `export fn toaster.show(…)` beside `export const toaster` (or beside `export fn toast`): a fn's row, word for word; the call `toaster.show(x)` is a call of that fn. A method with no row is read by its type (a declared value's, as a declared result's), and a method of an io import is io
+    const KIT = "export context region\nexport error Refused\nexport component Toaster(props: {}) uses(region)\nexport component Region(props: { children?: View }) provides(region)\nexport const toaster: { show(c: Component): number; dismiss(id: number): void; count(): number; flush(): Promise<void>; \"odd-name\"?(): void; get<T>(k: string): T }\nexport fn toaster.show(c: Component): number renders(Toaster)\nexport fn toast(m: string): number\nexport fn toast.success(m: string): number\nexport pure fn toast.history(): string[]\nexport pure fn toast.load(id: string): Promise<string> rejects(Refused)\n";
+    const fs = (main: string) => files({ "/app/kit.d.rx": KIT, "/app/main.rx": `import { toaster, toast, Toaster, Region } from "./kit.js"\n${main}` });
+    const diags = (main: string) => checkModules(loadModules("/app/main.rx", fs(main))).diags.map(x => `${x.code}@${x.line}`);
+    const app = (body: string) => `export default component App() {\n${body}}\n`;
+    deepStrictEqual(diags(app("  past = toast.history()\n  <button onClick={() => { toast.success(\"a\") }}>{past.length}{toaster.count()}{toaster.get(\"k\")}</button>\n")), []);   // a pure method anywhere, an io one from a handler; a method with no row that answers a value is a read
+    deepStrictEqual(diags(app("  <p>{toast.success(\"a\")}</p>\n")), ["IO_IN_REACTIVE@3"]);   // the row says `fn`: io
+    deepStrictEqual(diags(app("  <button onClick={toast.success(\"a\")}>x</button>\n")), ["IO_IN_REACTIVE@3"]);   // called where the handler is given
+    deepStrictEqual(diags(app("  <p>{toaster.dismiss(1)}</p>\n")), ["IO_IN_REACTIVE@3"]);   // no row: its type answers nothing (a method written `m(): void`, as a field `m: () => void` is)
+    deepStrictEqual(diags(app("  <p>{toaster.flush()}</p>\n")), ["IO_IN_REACTIVE@3"]);   // … or a promise
+    deepStrictEqual(diags(app("  <p>{toast.dismiss(1)}</p>\n")), ["IO_IN_REACTIVE@3"]);   // no row, of a declared `fn`: io as its object is
+    deepStrictEqual(diags(app("  v = await toast.load(\"1\")\n  <p>{v}</p>\n")), ["UNHANDLED_FAILURE@4"]);   // a method's `rejects(E)`
+    const SAVED = "context accent: string\ncomponent Saved() {\n  <i class={use accent}>s</i>\n}\n";
+    deepStrictEqual([diags(SAVED + app("  provide accent = \"x\"\n  <button onClick={() => { toaster.show(Saved) }}>x</button>\n  <Region><Toaster /></Region>\n")), diags(SAVED + app("  <button onClick={() => { toaster.show(Saved) }}>x</button>\n  <Region><Toaster /></Region>\n"))], [[], ["CONTEXT_NOT_FOUND@7"]]);   // `renders(Toaster)` on the method: the component is checked beneath <Toaster>
+    // the object is the import by its scope: under another binding of the name the member is that binding's (a loop's variable, a parameter, a local), and a declaration that shadows the import is MO-1d's refusal, said once
+    deepStrictEqual(diags(app("  <ul>{for toast in [\"a\"] { <li>{toast}{toast.success(\"a\")}</li> }}</ul>\n")), []);
+    deepStrictEqual(diags(app("  <ul>{for t in [\"a\"] { <li>{toast.success(t)}</li> }}</ul>\n")), ["IO_IN_REACTIVE@3"]);
+    deepStrictEqual(diags(app("  <button onClick={(toast) => { toast.success(\"a\") }}>{[1].map((toast) => toast.success)}</button>\n")), []);
+    deepStrictEqual(diags(`component Inner() {\n  toast = { success: (m) => m }\n  <p>{toast.success("a")}</p>\n}\n${app("  <Inner />\n")}`), ["SHADOWED_IMPORT@3"]);
+    deepStrictEqual(checkModules(loadModules("/app/main.rx", files({ "/app/main.rx": "import { notify } from \"./undeclared.js\"\nimport pure { read } from \"./undeclared.js\"\nexport default component App() {\n  <p>{notify.success(\"a\")}{read.all()}</p>\n}\n" }))).diags.map(x => `${x.code}@${x.line}`), ["IO_IN_REACTIVE@4"]);   // a method of an import with no declaration is io as the import is; of a `pure` import, pure
+    // the loader names each mention by its row: the callee is the name `toaster.show`, and a method with no row stays a member
+    { const set = loadModules("/app/main.rx", fs(app("  <button onClick={() => { toaster.show(Toaster); toaster.dismiss(1) }}>x</button>\n"))); const text = JSON.stringify(set.programs.get("/app/main.rx")); deepStrictEqual([text.includes('{"k":"id","name":"toaster.show"}'), text.includes('"p":"dismiss"'), text.includes('"p":"show"')], [true, true, false]); }
+    // the rows: one step from a `const` or a `fn` the same file declares
+    for (const [bad, why] of [["export fn toaster.show(c: Component): number\n", "declares no const or fn toaster"], ["export component Toast(props: {})\nexport fn Toast.show(): void\n", "declares no const or fn Toast"], ["export const a: {}\nexport fn a.b.c(): void\n", "one step"], ["export const a: {}\nexport fn a.b(): void\nexport fn a.b(): void\n", "declared again"], ["export const a: {}\nexport pure fn a.b(draft xs: number[]): void\n", "not `pure`"]] as [string, string][]) { let msg = ""; try { parseDeclarations(bad); } catch (e) { msg = (e as Error).message; } deepStrictEqual([bad, msg.includes(why)], [bad, true]); }
+    { const ds = parseDeclarations(KIT) as { kind: string; name: string; pure?: boolean; renders?: string; rejects?: string[] }[]; deepStrictEqual(ds.filter(x => x.kind === "fn").map(x => [x.name, !!x.pure, x.renders ?? null, x.rejects ?? null]), [["toaster.show", false, "Toaster", null], ["toast", false, null, null], ["toast.success", false, null, null], ["toast.history", true, null, null], ["toast.load", true, null, ["Refused"]]]); }
+    // a method in a record type is the field it is
+    deepStrictEqual(["go", "get", "plain", "q", "ro", "none"].map(f => tyStep("{ go(to: string): void; get<T>(k: string): T; plain: number; \"q\"?(): Promise<void>; readonly ro(a: { x: (n: number) => void }): string }", { field: f })), ["(to: string) => void", "(k: string) => T", "number", "() => Promise<void>", "(a: { x: (n: number) => void }) => string", undefined]);
+  }],
+  ["a_scenario_is_read_whole_or_refused", () => {   // scenarios/TEMPLATE.md: what no runner reads is not run, and nothing said so
+    const P = "## Program\n\n```rx\nsource a := 1\n```\n\n", F = "## Frames\n\n| instant | action | frame |\n| --- | --- | --- |\n| 0 | mount | `1` |\n";
+    const says = (md: string) => { try { parseScenario("S-x", "# S-x\n\n" + md); return ""; } catch (e) { return (e as Error).message.split("\n").slice(1).map(l => l.trim().replace(/^S-x, /, "")).join("; "); } };
+    const block = (h: string, b: string) => `${P}## ${h}\n\n\`\`\`rx\n${b}\n\`\`\`\n`;
+    for (const md of [P + F, block("Accepted variants", "-- accept\nsource a := 1"), block("Accepted variants", "-- accept: whole-program\n-- untyped\nsource a := 1"), block("Rejected variants", "-- reject: X-1\n-- handler: a := 2\n<style>\n  --c: red\n</style>"), block("Rejected variants, and what is accepted", "-- accept\nx = 1"), P + "```text\nan illustration\n```\n", P + F.replace("frame |", "frame | note |").replace("`1` |", "`1` | why |").replace("--- |\n|", "--- | --- |\n|")]) deepStrictEqual(says(md), "");
+    for (const [md, why] of [
+      [P + "## Accepted\n\n```rx\n-- accept\nx = 1\n```\n", "a heading no runner reads"], [P + "## frames\n\n| instant | action | frame |\n| --- | --- | --- |\n| 0 | mount | `a` |\n", "a table, which nothing reads"], [P + P, "the heading twice"], [F, "no such heading"], ["```rx\nx = 1\n```\n" + P, "before the first heading"],
+      [P + F + "\n```rx\nx = 1\n```\n", "a block, which nothing reads under this heading"], [block("What writing it found", "x = 1"), "a block, which nothing reads"], [P + "```rx\nx = 1\n```\n", "2 blocks, of which one is read"], ["## Program\n\ntext\n", "no program"], [P + "```rx\nx = 1\n", "not closed"], [P + "  ```rx\nx = 1\n  ```\n", "indented"],
+      [block("Rejected variants", "source a := 1"), "begins with no directive"], [block("Accepted variants", "-- reject: X-1\na = 1"), "begins with no directive"], [block("Rejected variants", "-- rejects: X-1"), "begins with no directive"], [block("Modules", "x = 1"), "does not begin with -- module"], [P + "## Rejected variants\n\n| fragment | rule |\n| --- | --- |\n| x | y |\n", "a table, which nothing reads"], [P + "## Modules\n", "no module"],
+      [block("Rejected variants", "-- reject: X-1\n-- client\na = 1"), "a line no runner knows"], [block("Rejected variants", "-- reject: X-1\n  -- spa\na = 1"), "a line no runner knows"], [block("Accepted variants", "-- accept\n-- spa\na = 1"), "a line no runner knows"], [block("Rejected variants", "-- types: TS1\n-- spa\na = 1"), "not read together"], [block("Rejected variants", "-- reject: X-1\n-- host: ./x.rx\na = 1"), "not read together"],
+      [P + F.split("\n").slice(0, 4).join("\n"), "a table with no row"], [P + "## Frames\n", "a table with no row"], [P + F.replace("frame |", "shown |"), "a column nothing reads: shown"], [P + F.replace("| 0 |", "| now |"), "an instant"], [P + F + "\n| 1 | mount | `1` |\n", "two tables"],
+      [P + F + "## Divergences\n\n(none)\n", "no row (`- …`)"], [P + F + "## Divergences\n\n- oracle Frames 0: `2`\n", "a row no runner reads"], [P + F + "## Divergences\n\n- oracle \"Frames\" instant 3: `2`\n", 'no row "Frames" instant 3'],
+    ]) if (!says(md).includes(why)) throw new Error(`expected ${JSON.stringify(why)}, got ${JSON.stringify(says(md))} for\n${md}`);
+  }],
+  ["an_optional_parameter_is_the_last_and_is_printed", () => {   // E-9a, MO-9b
+    const says = (ps: string) => { try { const p = parseProgram(`export fn f(${ps}) => 1\n`); const d = p.decls[0]; return d.k === "fn" ? d.params.map(q => [q.ref ? "ref" : "", q.name, q.opt ? "?" : "", q.type ?? ""].join(" ")).join(",") : ""; } catch (e) { return (e as Error).message.includes("E-9a") ? "E-9a" : "PARSE"; } };
+    deepStrictEqual(["a: number, b?: number", "a?, b?", "ref a, b?: { x?: number }", "a ? : number", "a? : T", "a?: number, b", "a?: number, ref b", "ref a?: number", "...a"].map(says),
+      [" a  number, b ? number", " a ? , b ? ", "ref a  , b ? { x?: number }", "PARSE", " a ? T", "E-9a", "E-9a", "ref a ? number", "PARSE"]);
+    const text = printSignature(checkModules(loadModules("/a.rx", files({ "/a.rx": "export fn f(a: number, b?: { x?: number }, c?) => 1\nexport fn g(ref a: number, b?: () => void) { x = a + 1\n  x }\n" }))).sigs.get("/a.rx")!);
+    deepStrictEqual(text.trim().split("\n").slice(1), ["export pure fn f(a: number, b?: { x?: number }, c?)", "export pure fn g(ref a: number, b?: () => void) instantiates"]);
+    const back = parseSignature(text, "/a.rx"); deepStrictEqual(printSignature(back), text);
+    deepStrictEqual([...back.exports.values()].map(e => e.kind === "fn" ? e.params.map(p => [p.name, !!p.opt]) : []), [[["a", false], ["b", true], ["c", true]], [["a", false], ["b", true]]]);
+  }],
+  ["a_props_key_that_is_no_identifier_is_printed_quoted_and_read_back", () => {   // MO-9b, X5: `"tc-button"` was printed bare
+    const src = 'export component B(props: { "tc-button": string; "a:b"?: string; n: number; onPick: (v: number) => void }) { <b {...props} onClick={() => { props.onPick(1) }}>{props.n}{props["tc-button"]}{props["a:b"] ?? ""}</b> }\n';
+    const text = printSignature(checkModules(loadModules("/a.rx", files({ "/a.rx": src }))).sigs.get("/a.rx")!);
+    const row = text.trim().split("\n")[1];
+    for (const k of ['"tc-button"', '"a:b"', "n"]) if (!row.includes(`; ${k}`) && !row.includes(`{ ${k}`)) throw new Error(`${k} not in ${row}`);
+    const back = parseSignature(text, "/a.rx"); deepStrictEqual(printSignature(back), text);
+    const b = back.exports.get("B"); deepStrictEqual(b?.kind === "comp" ? Object.keys(b.sig.props).sort() : [], ["*", "a:b", "n", "tc-button"]);
+  }],
+  ["what_a_fn_calls_of_its_parameters_is_printed_and_read_back", () => {   // MO-9b, W2: `calls(…)`
+    const src = "fn inner(g: any) => g.go()\nexport fn ap(f: any, fs: any[], r: any, k: number) => f() + len(fs.map((x) => x())) + inner(r) + k\nexport fn keep(f: any) => [f]\n";
+    const text = printSignature(checkModules(loadModules("/a.rx", files({ "/a.rx": src }))).sigs.get("/a.rx")!);
+    deepStrictEqual(text.trim().split("\n").slice(1), ["export pure fn ap(f: any, fs: any[], r: any, k: number) calls(f, fs.*, fs.map, r.go)", "export pure fn keep(f: any)"]);
+    const back = parseSignature(text, "/a.rx"); deepStrictEqual(printSignature(back), text);
+    const ap = back.exports.get("ap"); deepStrictEqual(ap?.kind === "fn" ? ap.calls : [], ["f", "fs.*", "fs.map", "r.go"]);
+  }],
+  ["a_generic_fns_type_parameters_are_text_and_printed" , () => {   // 07 §2, MO-9b
+    const says = (s: string) => { try { const d = parseProgram(`fn f${s} => 1\n`).decls[0]; return d.k === "fn" ? `${d.tparams ?? "-"} ${d.params.map(p => p.name)}` : d.k; } catch { return "PARSE"; } };
+    deepStrictEqual(["(a)", "<T>(a: T)", "<T extends (x: number) => string, U = T>(a: T)", "<const T extends { a: Array<Array<number>> }>(a)", "<T>\n  (a)", "<T", "<T>", "(a)<T>"].map(says), ["- a", "<T> a", "<T extends (x: number) => string, U = T> a", "<const T extends { a: Array<Array<number>> }> a", "<T> a", "PARSE", "PARSE", "PARSE"]);
+    const src = "export fn f<T>(xs: T[], by: (x: T) => number) => 1\nexport fn g<\n  T extends (x: Array<Array<number>>) => string,\n  U = T\n>(ref a: T) { x = a == null\n  x }\nexport fn h(a) => 1\n";
+    const sig = checkModules(loadModules("/a.rx", files({ "/a.rx": src }))).sigs.get("/a.rx")!; const text = printSignature(sig);
+    deepStrictEqual(text.trim().split("\n").slice(1), ["export pure fn f<T>(xs: T[], by: (x: T) => number)", "export pure fn g< T extends (x: Array<Array<number>>) => string, U = T >(ref a: T) instantiates", "export pure fn h(a)"]);
+    deepStrictEqual(printSignature(parseSignature(text, "/a.rx")), text);
+    for (const e of ["a<b>(c)", "a<b && b>(c)", "[a<b, b>(c)]"]) deepStrictEqual([e, parseProgram(`fn f(a, b, c) => ${e}\n`).decls[0]], [e, parseProgram(`fn f(a, b, c) => ${e.replace("a<b", "a < b").replace("b>(", "b > (")}\n`).decls[0]]);
+  }],
+  ["a_namespace_is_the_named_imports_of_its_members", () => {   // MO-6d; `compiler/src/check.rs` holds the same case
+    const p = parseProgram(`import * as Select from "./select.rx"\nimport * as M from "./menu.rx"\nfn label(o: Select.Opt, xs: Array<Select.Opt | M.Entry>): string => o.label\nexport default component App() {\n  o: Select.Opt = { value: "Select.Item" }\n  <Select.Root><Select.Item value={o.value}>Select.Label <M.Item.Sub /></Select.Item></Select.Root>\n}\n`);
+    deepStrictEqual(p.decls.flatMap(d => d.k === "import" ? [[d.ns, d.names.map(n => `${n.name} as ${n.alias}`).join(", ")]] : []), [["Select", "Item as Select$Item, Opt as Select$Opt, Root as Select$Root"], ["M", "Entry as M$Entry, Item as M$Item"]]);
+    const text = JSON.stringify(p);
+    deepStrictEqual(["o: Select$Opt", "Array<Select$Opt | M$Entry>", '"tag":"Select$Root"', '"tag":"Select$Item"', '"tag":"M$Item.Sub"', '"Select.Item"', "Select.Label "].map(t => text.includes(JSON.stringify(t).slice(1, -1)) || text.includes(t)), [false, true, true, true, true, true, true]);
+    for (const bad of ['import * as select from "./s.rx"\n', 'import * Select from "./s.rx"\n']) { let refused = false; try { parseProgram(bad); } catch { refused = true; } deepStrictEqual(refused, true); }
+  }],
+  ["a_generic_alias_is_read_with_its_arguments", () => {   // 07 §2; `compiler/src/modules.rs` holds the same cases
+    const says = (body: string, tp: string, args: string[]) => applyAlias(body, tp, args) ?? "-";
+    deepStrictEqual([
+      says("{ children: C; n: A }", "<A, C = View>", ["number"]), says("{ children: C; n: A }", "<A, C>", ["number"]), says("{ T: T; f: (T: number) => T; g: X.T }", "<T>", ["string"]),
+      says("{ v: T }", "<T>", ["a | b"]), says("T extends (infer U)[] ? U : never", "<T>", ["number[]"]), says("T extends (infer T)[] ? T : never", "<T>", ["x"]), says("{ [T in K]: 1 }", "<T, K>", ["a", "b"]),
+      says("{ f: <T>(x: T) => T }", "<T>", ["a"]), says("{ v: T }", "<T>", ["a", "b"]), says("{ a: \"T\"; b: T }", "<T extends string = \"x\">", []), says("(x: T) => U", "<T, U = (y: T) => void>", ["n"]),
+    ], ["{ children: View; n: number }", "-", "{ T: string; f: (T: number) => string; g: X.T }", "{ v: (a | b) }", "number[] extends (infer U)[] ? U : never", "-", "-", "-", "-", "{ a: \"T\"; b: \"x\" }", "(x: n) => ((y: T) => void)"]);
+    deepStrictEqual(typeParamNames("<const T extends readonly string[], in out U = T, V>"), ["T", "U", "V"]);
+    const types = new Map([["Slot", "{ children: C }"], ["Slot<", "<C = View>"], ["Render", "(r: { item: T }) => View"], ["Render<", "<T>"]]);
+    deepStrictEqual([expandType("Slot", types), expandType("Slot<number>[]", types), expandType("View | Render<Row>", types), expandType("Other<Row>", types)], ["{ children: View }", "{ children: number }[]", "View | ((r: { item: Row }) => View)", "Other<Row>"]);
+    const src = "export type Item<T, U = string> = { v: T; label: U }\nexport type Render<T> = (r: { item: T }) => View\nexport component List<T extends { id: number }>(props: { items: T[]; children: Render<T> }) { <ul>{for x in props.items { <li><props.children item={x} /></li> }}</ul> }\n";
+    const sig = checkModules(loadModules("/a.rx", files({ "/a.rx": src }))).sigs.get("/a.rx")!; const text = printSignature(sig);
+    deepStrictEqual(text.trim().split("\n").slice(1), ["export type Item<T, U = string> = { v: T; label: U }", "export type Render<T> = (r: { item: T }) => View", "export component List<T extends { id: number }>(props: { items; children: view { item: T } value(item) }) shape(roots ul; closes-p; children-at ul li)"]);
+    deepStrictEqual(printSignature(parseSignature(text, "/a.rx")), text);
+  }],
+  ["what_a_package_fn_answers_javascript_is_its_rows", () => {   // MO-13i, E-9b: never the body's form
+    // examples/rx-std's keyboard: `createKeyHold` names a value in its body, and hands JavaScript an accessor, as the
+    // original does, because its row instantiates (`ref key`). Lifting the local (E-9b) changed it in silence once.
+    const f = new URL("../examples/rx-std/packages/keyboard/src/core.rx", import.meta.url).pathname;
+    const row = printSignature(checkModules(loadModules(f, readDisk)).sigs.get(f)!).split("\n").find(l => l.startsWith("export pure fn createKeyHold("));
+    deepStrictEqual(row?.replace(/ calls\(.*\)$/, ""), "export pure fn createKeyHold(ref key: string) instantiates");
+  }],
+  ["a_fn_that_only_names_values_is_lifted", () => {   // E-9b
+    const LIB = "import pure { createClock, jsPure, ask } from \"./js.js\"\nimport { lib, libMade } from \"./lib.rx\"\nsource s := 1\ncontext ctx: number = 1\nfn plain(a) => a\nfn named(a) { z = a\n  z }\nfn made(a) { source q := a\n  q }\nfn named2(a) { z = made(a)\n  z }\n";
+    const js = "export pure fn createClock(): { now: ref number } instantiates\nexport pure fn jsPure(a: number): number\nexport pure fn ask(a: number): Promise<number>\n", lib = "export fn lib(a) { z = a\n  z }\nexport fn libMade(a) { source q := a\n  q }\n";
+    const kind = (body: string, signed: boolean) => {
+      const fs: Record<string, string> = { "/app.rx": `${LIB}export fn f(n, r) { ${body.split("; ").join("\n  ")} }\n`, "/js.d.rx": js, "/lib.rx": lib };
+      if (signed) { const sig = checkModules(loadModules("/lib.rx", files({ "/lib.rx": lib }))).sigs.get("/lib.rx")!; delete fs["/lib.rx"]; fs["/lib.d.rx"] = printSignature(sig); }
+      const x = checkModules(loadModules("/app.rx", files(fs))).sigs.get("/app.rx")!.exports.get("f"); return x?.kind === "fn" ? x.instantiating ? "bound" : "lifted" : "";
+    };
+    const cases = [["n + 1", "lifted"], ["x = n + 1; x", "lifted"], ["x = y; y = n; x", "lifted"], ["{ a, b } = r; a + b", "lifted"], ["x: number = n; x", "lifted"], ["x = plain(n); x", "lifted"], ["x = named(n); x", "lifted"], ["x = f(n); x", "lifted"], ["x = lib(n); x", "lifted"], ["x = peek s; x", "lifted"], ["x = latest s; x", "lifted"], ["x = () => n; x", "lifted"], ["x = jsPure(n); x", "lifted"], ["x = len(r); x", "lifted"],
+      ["source x := 1; x", "bound"], ["x = made(n); x", "bound"], ["x = libMade(n); x", "bound"], ["x = named2(n); x", "bound"], ["x = createClock(); x.now", "bound"], ["x = await ask(n); x", "bound"], ["x = n; await ask(x)", "bound"], ["x = pre s -> 0; x", "bound"], ["x = n; pre s -> x", "bound"], ["x = use ctx; x", "bound"], ["x = n; use ctx", "bound"], ["deferred x = n; x", "bound"], ["x key id = r; x", "bound"], ["effect (n) { log(n) }; n", "bound"], ["x = n; effect (x) { log(x) }; x", "bound"], ["type T = number; n", "lifted"], ["x = n; type T = number; x", "lifted"], ["provide ctx = n; n", "bound"], ["action a() { s := 1 }; a", "bound"], ["fn g() => n; g()", "bound"]];
+    for (const signed of [false, true]) deepStrictEqual(cases.map(([b]) => [b, kind(b, signed)]), cases);
+    // in a component's block, and where a fn's name is another's, bound elsewhere, that instantiates: as that one (the side that is refused, not the one that is frozen)
+    const codes = (main: string) => checkModules(loadModules("/m.rx", files({ "/m.rx": main }))).diags.map(d => d.code);
+    deepStrictEqual(codes("export default component App() {\n  fn half(n: number) { h = n / 2\n    h }\n  <p>{half(1)}</p>\n}\n"), []);
+    deepStrictEqual(codes("fn mk(n) => n\nfn f(n) { x = mk(n)\n  x }\ncomponent Other() {\n  fn mk(n) { source q := n\n    q }\n  v = mk(1)\n  <b>{v}</b>\n}\nexport default component App() { <p>{f(1)} <Other /></p> }\n"), ["INSTANTIATION_NOT_BOUND"]);
+    // a bound call of one is an equation: a `peek` kept in it is one that is kept (E-5a), where it was a snapshot (E-10)
+    const bound = (a: string) => codes(`fn f(n) { x = n + 1\n  x }\nexport default component App() {\n  source s := 1\n  v = f(${a})\n  <p onClick={() => { s := 2 }}>{v}</p>\n}\n`);
+    deepStrictEqual([bound("s"), bound("1"), bound("peek s")], [[], [], ["SNAPSHOT_KEPT"]]);
+  }],
+  ["the_parts_of_what_a_fn_answers_are_in_its_signature", () => {   // MO-13i, MO-9b
+    const set = loadModules("/app/many.rx", files({ "/app/many.rx": "import pure { ask } from \"./ask.js\"\nexport fn many(ref n: number, first: number, cb: () => void) {\n  source s := first\n  x = n * 2\n  alias = x\n  action set(v: number) { s := v }\n  act = set\n  { x: x, alias: alias, act: act, \"data-x\": s, first: first, sum: first + 1, obj: first.y, cb: cb, f: (k) => k + x, list: [x, 1], cond: x > 1 ? set : null, u: peek x }\n}\nexport fn nested(ref n: number) {\n  m = many(n, 1, () => {})\n  q = await ask(n)\n  y = { m: m.act, r: m.x, deep: m.list[1], far: m.obj.z }\n  { ...y, q: q }\n}\nexport fn handed(ref n: number) {\n  m = many(n, 1, () => {})\n  y = { m: m.act, r: m.x, deep: m.list[1], far: m.obj.z }\n  { y: y, q: [m.cond] }\n}\nexport fn waits(ref n: number) {\n  q = await ask(n)\n  l = many(q, 1, () => {})\n  { q: q, x: l.x, n: n }\n}\nexport fn asks(ref n: number) {\n  { a: await ask(n) }\n}\nexport fn own(ref n: number) {\n  h = { at: n, was: pre h -> null }\n  h\n}\nexport fn nothing(ref n: number) {\n  effect (n) {}\n  null\n}\nexport fn self(ref n: number) {\n  s = self(n)\n  { s: s, n: n }\n}\nexport fn only() {\n  action go() {}\n  go\n}\nexport fn picked(ref n: number) {\n  action go() {}\n  n > 1 ? go : go\n}\nexport fn plain(n: number) => ({ n: n })\n" }));
+    const sig = checkModules(set).sigs.get("/app/many.rx")!; const text = printSignature(sig);
+    deepStrictEqual(text.trim().split("\n").slice(1).map(l => l.slice("export pure fn ".length)), ["many(ref n: number, first: number, cb: () => void): { x: ref; alias: ref; act: io; data-x: ref; first: value; sum: value; obj: ref; cb: value; f: value; list: [ref, value]; cond: ref io; u: ref } instantiates", "nested(ref n: number): pending fails(Error) { m: io; … } instantiates", "handed(ref n: number): { y: { m: io; r: ref; deep: value; far: ref }; q: [ref io] } instantiates", "waits(ref n: number): pending fails(Error) { q: ref pending fails(Error); x: ref pending fails(Error); n: ref } instantiates", "asks(ref n: number): pending fails(Error) instantiates", "own(ref n: number) instantiates", "nothing(ref n: number): value instantiates", "self(ref n: number): { s: ref; n: ref } instantiates", "only(): io rejects(Error) instantiates", "picked(ref n: number): ref io rejects(Error) instantiates", "plain(n: number)"]);
+    // read back, it is what was printed: the parts, and those that are actions
+    const back = parseSignature(text, "/app/many.rx"); deepStrictEqual(printSignature(back), text);
+    const actions = (x: typeof sig) => [...x.exports].map(([n, e]) => [n, e.kind === "fn" ? e.actions ?? [] : []]); deepStrictEqual(actions(back), actions(sig));
+    for (const bad of ["export pure fn f(): { a }", "export pure fn f(): { a: ref", "export pure fn f(): { a: io, b: ref }", "export pure fn f(): [ref number]", "export pure fn f(): { a.b: ref }", "export pure fn f(): value pending", "export pure fn f("]) { let refused = false; try { parseSignature(bad, "x.rx"); } catch { refused = true; } deepStrictEqual([bad, refused], [bad, true]); }
+  }],
+  ["a_type_is_read_by_tokens", () => {   // 07 §2: a bracket or a quote in a string, a template or a comment is no bracket
+    const said = (src: string) => parseDeclarations(src).map(d => d.kind === "error" && d.fields ? `${d.name}(${d.fields.join(",")})` : d.kind === "fn" && d.cbs ? `${d.name}[${d.params.filter((_, i) => d.cbs![i]).join(",")}]` : d.kind === "comp" ? `${d.name}{${d.props.map(p => p.name).join(",")}}` : (d as { name: string }).name).join(" ");
+    for (const [src, want] of [
+      ["export type T = { // {\n  a: string\n}\nexport pure fn g(): number\n", "T g"],
+      ["export type T = { // don't (\r\n  a: string }\r\nexport pure fn g(): number // it's\r\n", "T g"],
+      ["export pure fn g(a: string /* ) */): number\n", "g"],
+      ["export interface X { a: \"}\" }\nexport pure fn g(): number\n", "X g"],
+      ["export pure fn g<T extends \">\">(x: T): T\n", "g"],
+      ["export error E(f: () => void, b: string)\nexport pure fn g(): number\n", "E(f,b) g"],
+      ["export type T = `a${`}`}b`\nexport pure fn g(): T\n", "T g"],
+      ["export fn f(cb: handler (a: \")\") => void): void\n", "f[cb]"],
+      ["export component C(props: { a: string /* , b: ( */; c: number /* don't */ })\n", "C{a,c}"],
+      ["export pure fn g(): { a: string /* pending x, fails(E) y */ }\n", "g"],
+      ["export type T = { é: \"é)\" /* ünï ( */ }\nexport pure fn g(a: \"日本)\" | `é${\"}\"}`): number\n", "T g"],
+      ["export type T = `a${b\nexport type U = \"a\nexport type V = 'a\nexport pure fn g(): number\n", "T U V g"],
+      ["export pure fn g(): number\nexport error E(", "g E"],
+      ["export pure fn g(): number\nexport error E(é", "g E(é)"],
+      ["export pure fn g(): number\nexport error E(a: \"é", "g E(a)"],
+      ["export pure fn g(): number\nexport type T = \"a\\", "g T"],
+      ["export pure fn g(): number\nexport type T = `é${", "g T"],
+      ["export pure fn g(): number\nexport type T = a /* é", "g T"],
+      ["export pure fn g(): number\nexport interface X { é", "g X"],
+    ]) deepStrictEqual([src, said(src)], [src, want]);
+    for (const src of [
+      "type T = { // }\n  a: string }",
+      "source x: string /* := */ := \"a\"",
+      "interface X { a: \"}\" }",
+      "interface X {\n  a: string // }\n}",
+      "fn f(x: string /* ) */, y: number): number => y",
+      "component A(props: { a: string /* } */ }) { <p>{props.a}</p> }",
+      "fn f(x: number): (a: number) => boolean => (a) => a > x",
+      "fn f(x: number): { a: boolean } => ({ a: x < 2 })",
+      "fn f(x: number): boolean => (x < 1)",
+      "x = [1].map((y: Array<number>) => y >= 2)",
+    ]) parseProgram(`${src}\nexport default component App() {\n  <p>x</p>\n}\n`);
+    for (const [src, targs] of [["x = f<T /* > */>(1)\n", "T /* > */"], ["x = f<T /* don't */>(1)\n", "T /* don't */"], ["x = f<T // >\n>(1)\n", "T // >"]]) must(JSON.stringify(parseProgram(src)).includes(`"targs":${JSON.stringify(targs)}`), "no type arguments", src);
+    must(!JSON.stringify(parseProgram("source a := 1\nsource b := 2\nsource c := 3\nx = a<b /* see Foo */>(c)\ny = a < b && /* it's */ c > (a)\n")).includes("targs"), "every name is a value's: compared, whatever a comment says", "source a := 1\nsource b := 2\nsource c := 3\nx = a<b /* see Foo */>(c)\ny = a < b && /* it's */ c > (a)\n");
+  }],
+  ["what_nothing_closes_is_read_once", () => {   // text that nothing closes is read once, and no deeper than the stack
+    const within = (what: string, f: () => unknown) => { const at = performance.now(); try { f(); } catch (e) { if (e instanceof RangeError) throw e; } const ms = performance.now() - at; if (ms > 10_000) throw new Error(`${what}: ${ms} ms`); };
+    for (const line of ["`a${b", "`a", "`a${'b", "\"a", "{ a: string", "a /* x", "(a", "<a"]) within(line, () => parseDeclarations(Array.from({ length: 20_000 }, (_, i) => `export type T${i} = ${line}\n`).join("")));
+    const deep = "`${".repeat(100_000); parseDeclarations(`export type T = ${deep}\n`); deepStrictEqual(quotedEnd(deep, 0, []), null);
+    within("a printed signature's white space", () => parseSignature(`export pure fn f(): a${" ".repeat(1_000)}b`, "x.rx"));
+    deepStrictEqual([...parseSignature("export pure fn f(a): pending fails(E)  rejects(A|B)  instantiates  uses(./k.rx#K)", "/x.rx").exports.values()][0], { kind: "fn", params: [{ name: "a", ref: false }], instantiating: true, rows: ["pending"], fails: ["E"], rejects: ["A", "B"], uses: ["/k.rx#K"] });
+  }],
+  ["nested_components_of_a_line_are_reported_as_written", () => {                       // MO-11i (proposals/bugs/39): a line's, where each is written — not by name, nor as a tree is met
+    const set = loadModules("/main.rx", files({ "/main.rx": "import { createRouter } from \"./r.js\"\ncomponent Z() { <b>z</b> }\ncomponent A() { <b>a</b> }\ncomponent M() { <b>m</b> }\ncomponent End() { <b>end</b> }\nQ = createRouter({ routes: [{ component: M, children: [{ component: End }] }] })\nR = createRouter({ routes: [{ component: Z, children: [{ component: M, children: [{ component: End }] }] }, { children: [{ component: End }], component: A }] })\nexport default component App() { <main><Q /><R /></main> }", "/r.d.rx": "export pure fn createRouter(config: { routes: any[] }): Component nests(children in component)" }));
+    deepStrictEqual(checkModules(set).diags.map(d => [d.line, d.code, d.msg.split(" ")[0]]), [[8, "NESTED_NOT_RENDERED", "M"], [8, "NESTED_NOT_RENDERED", "Z"], [8, "NESTED_NOT_RENDERED", "A"]]);
+  }],
+];

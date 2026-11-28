@@ -1,0 +1,7 @@
+// @solid-primitives/connectivity: whether the browser is online.
+import { createConnectivitySignal } from "@solid-primitives/connectivity"
+
+export default component App() {
+  online = createConnectivitySignal()
+  <p>{online ? "online" : "offline"}</p>
+}

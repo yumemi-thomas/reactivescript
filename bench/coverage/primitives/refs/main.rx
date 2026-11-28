@@ -1,0 +1,10 @@
+// @solid-primitives/refs: the elements a component's children rendered.
+import { Refs } from "@solid-primitives/refs"
+
+export default component App() {
+  source count := 0
+  <Refs ref={(els: Element[]) => { count := els.length }}>
+    <i>one</i><i>two</i>
+  </Refs>
+  <p>{count} elements</p>
+}

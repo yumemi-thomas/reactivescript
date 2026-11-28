@@ -1,0 +1,20 @@
+I built the sprint board in React 19 and XState v5, and all 26 visible tests pass (`./check` is clean). I used 4 of the 15 runs. I didn't test overlapping or out-of-order server answers beyond what the visible tests cover.
+
+- **How it's built:** an app machine switches between the two tabs, and each page has its own machine, so leaving a page throws it away. On the board, each column load and the selected card's checklist load runs inside the machine, so a stale checklist answer is dropped when another card is selected. Every change to the server shows on screen at once and sends its request in the background. If a request is declined, only that change is undone and any others still waiting stay on screen.
+- **Unsure 1:** the brief doesn't say whether `title-input` empties after a rename, so I left the typed text in place.
+- **Unsure 2:** I disabled a card's left/right button when the column it would move to hasn't loaded yet.
+- **Unsure 3:** adding a card does nothing until To do has loaded.
+- **Unsure 4:** a card won't swap places with a card still being added.
+- **Unsure 5:** clicking the card that is already selected does nothing, so it doesn't reload a checklist that failed.
+- **Unsure 6:** a rename or checklist error that comes back after you've selected another card is not shown.
+- **Unsure 7:** I added a retry button for a failed archive list, which the brief doesn't ask for.
+
+Files are in /tmp/claude-0/runs/r15/board-xstate-opus-6/src:
+- App.tsx
+- BoardPage.tsx
+- ArchivePage.tsx
+- boardMachine.ts
+- boardModel.ts
+- archiveMachine.ts
+- request.ts
+- styles.css

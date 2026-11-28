@@ -1,0 +1,58 @@
+// A paginated people table on TanStack Table: cell components, pagination buttons, a pager that is a component of its
+// own, given the page numbers and the handlers, and — as shadcn's data table has it — a pagination component given the
+// table itself.
+import { createTable, FlexRender, getCoreRowModel, getPaginationRowModel, CellContext, Table } from "./table.js"
+
+type Person = { name: string; age: number }
+context accent: string
+
+// a cell is given its context by the table, and renders beneath the adapter's <FlexRender> (the table's row says so,
+// 09 MO-11u): what the app provides above the table reaches it
+component NameCell(props: CellContext<Person, unknown>) {
+  tone = use accent
+  <strong class={tone}>{props.row.original.name}</strong>
+}
+component AgeCell(props: CellContext<Person, unknown>) {
+  <em>{props.row.original.age} years</em>
+}
+component Pager(props: { page: number; pages: number; canNext: boolean; onPrev: () => void; onNext: () => void }) {
+  <button class="prev" onClick={() => { props.onPrev() }}>prev</button>
+  <span class="page">page {props.page} of {props.pages}</span>
+  <button class="next" disabled={!props.canNext} onClick={() => { props.onNext() }}>next</button>
+}
+
+// shadcn/ui's DataTablePagination: `<DataTablePagination table={table} />`
+component DataTablePagination(props: { table: Table<Person> }) {
+  <span class="of">{props.table.getPageCount()} pages in all</span>
+  <button class="first" disabled={!props.table.getCanPreviousPage()} onClick={() => { props.table.setPageIndex(0) }}>first</button>
+}
+
+component People(props: { onPick: (id: string) => void }) {
+  source people: Person[] := [{ name: "Ann", age: 31 }, { name: "Bo", age: 44 }, { name: "Cy", age: 27 }]
+  table = createTable({
+    data: people,
+    columns: [{ accessorKey: "name", header: "Name", cell: NameCell }, { accessorKey: "age", header: "Age", cell: AgeCell }],
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: { pagination: { pageIndex: 0, pageSize: 2 } },
+  })
+  <table>
+    <thead>{for group in table.getHeaderGroups() {
+      <tr>{for header in group.headers { <th><FlexRender header={header} /></th> }}</tr>
+    }}</thead>
+    <tbody>{for row in table.getRowModel().rows {
+      <tr class="row" onClick={() => { props.onPick(row.id) }}>{for cell in row.getVisibleCells() { <td><FlexRender cell={cell} /></td> }}</tr>
+    }}</tbody>
+  </table>
+  <Pager page={table.getState().pagination.pageIndex + 1} pages={table.getPageCount()} canNext={table.getCanNextPage()}
+    onPrev={() => { table.previousPage() }} onNext={() => { table.nextPage() }} />
+  <DataTablePagination table={table} />
+  <button class="add" onClick={() => { people := ps => [...ps, { name: "Di", age: 52 }, { name: "Ed", age: 19 }] }}>add two</button>
+}
+
+export default component App() {
+  source picked := ""
+  provide accent = "dark"
+  <People onPick={(id) => { picked := id }} />
+  <p class="picked">picked row {picked}</p>
+}

@@ -1,0 +1,5 @@
+// The app's frame, a plain .rx component in a module of its own: it renders what it is given under its header.
+export component Shell(props: { title: string; children?: View }) {
+  <header>{props.title}</header>
+  {props.children}
+}

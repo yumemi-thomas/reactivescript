@@ -1,0 +1,14 @@
+export context c: { n: number }
+export context d: { n: number }
+export component Root(props: { id?: string; children?: View }) {
+  provide c = { n: 1 }
+  <div>{props.children}</div>
+}
+export component Item(props: { id?: string; value: string; children?: View }) {
+  { id, value, ...rest } = props
+  provide d = { n: 2 }
+  <Root id={id} {...rest} />
+}
+export component Part() { x = use c
+  y = use d
+  <b>{x.n}{y.n}</b> }

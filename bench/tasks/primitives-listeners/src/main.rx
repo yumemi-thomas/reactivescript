@@ -1,0 +1,33 @@
+// A note field on solid-primitives' listeners and schedulers: focus heard by a listener the effect keeps, a bus the
+// component listens to, a save debounced, an animation-frame loop started and stopped.
+import { createEventBus } from "@solid-primitives/event-bus"
+import { debounce } from "@solid-primitives/scheduled"
+import { createRAF } from "@solid-primitives/raf"
+import { makeFocusListener } from "@solid-primitives/focus"
+
+export default component App() {
+  source field: HTMLInputElement | undefined := undefined
+  source focused: boolean := false
+  source last: string := "nothing yet"
+  source typed: number := 0
+  source saved: number := 0
+  source frames: number := 0
+  bus = createEventBus<string>()
+  save = debounce((n: number) => { saved := n }, 80)
+  [running, start, stop] = createRAF(() => { frames := n => n + 1 })
+  effect () {
+    return bus.listen((message: string) => { last := message })
+  }
+  effect (field) {
+    if ($0 != undefined) {
+      let unlisten = makeFocusListener($0, (isActive: boolean) => { focused := isActive })
+      return () => { unlisten() }
+    }
+  }
+  <input class="field" ref={(el: HTMLInputElement) => { field := el }} onInput={() => { let next = typed + 1; typed := next; save(next) }} />
+  <p class="state">{focused ? "editing" : "not editing"}; typed {typed}, saved {saved}; heard {last}</p>
+  <p class="loop">{running ? "running" : "stopped"}{frames > 0 ? ", frames drawn" : ""}</p>
+  <button class="say" onClick={() => { bus.emit("hello") }}>say hello</button>
+  <button class="start" onClick={() => { start() }}>start</button>
+  <button class="stop" onClick={() => { stop() }}>stop</button>
+}

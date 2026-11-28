@@ -1,0 +1,12 @@
+// createAnimate. Derived from @solid-primitives/animation 1.0.2 (MIT, see ../NOTICE).
+import client { animate } from "./dom.js"
+export fn createAnimate(ref target: any, ref keyframes: any, ref options: any) {
+  source animation: any := undefined
+  effect (target, keyframes, options) { let el = $0
+    if (!el) { animation := undefined
+      return undefined }
+    let a = animate(el, $1, $2)
+    animation := () => a
+    return () => { a.cancel() } }
+  animation
+}

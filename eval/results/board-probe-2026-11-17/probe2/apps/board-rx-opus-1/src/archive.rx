@@ -1,0 +1,46 @@
+import pure { fetchArchived } from "./api"
+import { restoreCard } from "./api"
+
+// bumped each time the archive page opens; the app doesn't open on it, so it starts below the guard
+source visit := -1
+export archived key id = visit >= 0 ? await fetchArchived() : []
+export source restoreError: string := ""
+
+export action openArchive() {
+  visit := visit + 1
+  restoreError := ""
+}
+
+export action restore(id: number) {
+  onFlush(() => { restoreError := "" })
+  try {
+    guess archived := rs => rs.filter(r => r.id != id)
+    await restoreCard(id)
+    refresh archived
+  } catch (e) {
+    restoreError := e.message
+    onFlush(() => { restoreError := e.message })
+  }
+}
+
+export component ArchivePage() {
+  <main class="archive">
+    <h2>Archive</h2>
+    <div data-testid="archived">
+      {loading fallback { <p class="muted">loading archive</p> } {
+        {errored fallback(e) { <p class="err">archive error: {e.message}</p> } {
+          {if archived.length == 0 { <p class="muted">nothing archived</p> }}
+          <ul class="cards">
+            {for a in archived {
+              <li class="card">
+                <span data-testid="archived-card" class="title">{`#${a.id} ${a.title}`}</span>
+                <button data-testid="restore" onClick={() => { restore(a.id) }}>restore</button>
+              </li>
+            }}
+          </ul>
+        }}
+      }}
+    </div>
+    {if restoreError != "" { <p class="err" data-testid="restore-error">restore error: {restoreError}</p> }}
+  </main>
+}

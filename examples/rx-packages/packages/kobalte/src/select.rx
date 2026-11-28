@@ -1,0 +1,189 @@
+// Select: one or several of flat options (no sections, no virtual list). Derived from select/*, listbox/* and hidden-select of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
+import { call, give, focus, scrollTo, byKey, typeKey, put, announceChange } from "./dom.js"
+import client { openLayer, float } from "./layer.js"
+import pure { flag, mix, hidden, words, ask, stepKey } from "./dom.js"
+import { Div, Span, Ul, Li, Validation, Button as ButtonProps } from "./types.js"
+import { Portal } from "./portal.js"
+import { form, createForm, useField, FormLabel, FormDescription, FormError } from "./form.rx"
+
+export type Item<T> = { key: string; textValue: string; disabled: boolean; rawValue: T }
+type Select = { open: boolean; items: Item<any>[]; picked: string[]; options: any[]; multiple: boolean; placeholder: string; disabled: boolean; focused: string | undefined; gutter: number
+  trigger: any; list: any; triggerId: string | undefined; valueId: string | undefined; listId: string | undefined; labelled: string | undefined; wrap: boolean
+  show: (at: "first" | "last" | "picked") => void; hide: () => void; pick: (k: string) => void; clear: () => void; focus: (k: string | undefined) => void; triggerRef: (e: any) => void; listRef: (e: any) => void
+  name: (part: "trigger" | "value" | "list" | "by", id: string | undefined) => void }
+context select: Select
+context itemOf: (p: { item: Item<any> }) => View
+type Here = { key: string; id: string; on: boolean; lit: boolean; label: string | undefined; name: (id: string | undefined) => void }
+context here: Here
+fn data(c: Select) => ({ "data-expanded": flag(c.open), "data-closed": flag(!c.open) })
+
+type Common<T> = Omit<Div, "onChange"> & { options: T[]; optionValue?: keyof T | ((o: T) => string); optionTextValue?: keyof T | ((o: T) => string); optionDisabled?: keyof T | ((o: T) => boolean); itemComponent: (p: { item: Item<T> }) => View
+  placeholder?: string; open?: boolean; defaultOpen?: boolean; onOpenChange?: (v: boolean) => void; name?: string; validationState?: Validation; required?: boolean; disabled?: boolean; readOnly?: boolean; gutter?: number; shouldFocusWrap?: boolean; closeOnSelection?: boolean; disallowEmptySelection?: boolean }
+export type RootProps<T> = Common<T> & { value?: T | null; defaultValue?: T; onChange?: (v: T | null) => void }
+export type MultipleProps<T> = Common<T> & { value?: T[]; defaultValue?: T[]; onChange?: (v: T[]) => void }
+component Shell<T>(props: Common<T> & { value?: T[]; defaultValue?: T[]; onChange?: (v: T[]) => void; multiple: boolean }) {
+  { options, optionValue, optionTextValue, optionDisabled, itemComponent: shown, placeholder = "", open, defaultOpen, onOpenChange, value, defaultValue, onChange, multiple, name, validationState, required, disabled, readOnly, gutter = 8, shouldFocusWrap = false, closeOnSelection, disallowEmptySelection = false, id, children, ...rest } = props
+  f = createForm({ id: id, name: name, validationState: validationState, required: required, disabled: disabled, readOnly: readOnly }, "select")
+  items = options.map(o => ({ key: str(ask(o, optionValue)), textValue: str(ask(o, optionTextValue)), disabled: optionDisabled == undefined ? false : ask(o, optionDisabled), rawValue: o }))
+  source mine: string[] := (peek(defaultValue) ?? []).map(o => str(ask(o, peek optionValue)))
+  source opened := peek(defaultOpen) ?? false
+  source focused: string | undefined := undefined
+  source trigger: any := undefined
+  source list: any := undefined
+  source ids: { trigger?: string; value?: string; list?: string; by?: string } := {}
+  now = open ?? opened
+  picked = value === undefined ? mine : value.map(o => str(ask(o, optionValue)))
+  chosen = picked.flatMap(k => items.filter(i => i.key == k).map(i => i.rawValue))
+  action set(v: boolean) { if (v != now) { opened := v
+    if (onOpenChange) { onOpenChange(v) } } }
+  action hide() { set(false); focused := undefined }
+  action show(at: "first" | "last" | "picked") {
+    if (items.length > 0 && !disabled) { focused := picked[0] ?? (at == "last" ? stepKey(items, undefined, 0 - 1, false) : at == "first" ? stepKey(items, undefined, 1, false) : undefined); set(true) }
+  }
+  action write(next: string[]) {
+    mine := next
+    if (onChange) { onChange(next.flatMap(k => items.filter(i => i.key == k).map(i => i.rawValue))) }
+  }
+  action pick(k: string) {
+    if (!readOnly) {
+      let next = multiple ? picked.includes(k) ? picked.filter(x => x != k) : [...picked, k] : picked.includes(k) && !disallowEmptySelection ? [] : [k]
+      write(next)
+      if (closeOnSelection ?? !multiple) { hide() }
+    }
+  }
+  action clear() { write([]) }
+  action focusKey(k: string | undefined) { focused := k }
+  action triggerRef(e: any) { trigger := e }
+  action listRef(e: any) { list := e }
+  action nameOf(part: "trigger" | "value" | "list" | "by", v: string | undefined) { ids[part] := v }
+  provide form = f
+  provide itemOf = props.itemComponent
+  provide select = { open: now, items: items, picked: picked, options: chosen, multiple: multiple, placeholder: placeholder, disabled: disabled ?? false, focused: focused, gutter: gutter, trigger: trigger, list: list, triggerId: ids.trigger, valueId: ids.value, listId: ids.list, labelled: ids.by, wrap: shouldFocusWrap, show: show, hide: hide, pick: pick, clear: clear, focus: focusKey, triggerRef: triggerRef, listRef: listRef, name: nameOf }
+  <div role="group" id={f.id} {...f.data} data-expanded={flag(now)} data-closed={flag(!now)} {...rest}>{children}</div>
+}
+/** One option, or none. */
+export component Root<T>(props: RootProps<T>) {
+  { value, defaultValue, onChange, itemComponent: none, children, ...rest } = props
+  <Shell {...rest} multiple={false} value={value === undefined ? undefined : value === null ? [] : [value]} defaultValue={defaultValue === undefined ? undefined : [defaultValue]} onChange={(v: T[]) => { if (onChange) { onChange(v[0] ?? null) } }}>{view itemComponent (s) { <props.itemComponent item={s.item} /> }}{children}</Shell>
+}
+/** Several. */
+export component Multiple<T>(props: MultipleProps<T>) {
+  { itemComponent: none, children, ...rest } = props
+  <Shell {...rest} multiple={true}>{view itemComponent (s) { <props.itemComponent item={s.item} /> }}{children}</Shell>
+}
+
+export component Label(props: Span) {
+  { id, onClick, children, ...rest } = props
+  f = use form
+  c = use select
+  mine = id ?? f.id + "-label"
+  effect (mine) { f.set("label", $0); return () => { f.set("label", undefined) } }
+  <span id={mine} onClick={(e) => { call(e, onClick); if (!c.disabled) { focus(c.trigger) } }} {...f.data} {...rest}>{children}</span>
+}
+export component Description(props: Div) { <FormDescription {...props} /> }
+export component ErrorMessage(props: Div & { forceMount?: boolean }) { <FormError {...props} /> }
+export component Trigger(props: ButtonProps) {
+  { id, disabled, onPointerDown, onClick, onKeyDown, children, ref: user, ...rest } = props
+  f = use form
+  c = use select
+  field = useField(id ?? f.id + "-trigger", { label: props["aria-label"], by: props["aria-labelledby"], described: props["aria-describedby"] })
+  off = disabled || c.disabled
+  source by := ""
+  effect (field.id) { c.name("trigger", $0); return () => { c.name("trigger", undefined) } }
+  labelled = field.by ?? (props["aria-label"] != undefined ? field.id : undefined)
+  effect (labelled) { c.name("by", $0); return () => { c.name("by", undefined) } }
+  <button type="button" {...rest} ref={(e: Element) => { c.triggerRef(e); give(user, e) }} id={field.id} disabled={off} aria-haspopup="listbox" aria-expanded={c.open ? "true" : "false"} aria-controls={c.open ? c.listId : undefined} aria-labelledby={words(labelled, c.valueId)} aria-describedby={field.described} data-pointer-type={by == "" ? undefined : by}
+    onPointerDown={(e) => { call(e, onPointerDown); by := e.pointerType
+      if (!off && e.pointerType != "touch" && e.button == 0) { e.preventDefault(); if (c.open) { c.hide() } else { c.show("picked") } } }}
+    onClick={(e) => { call(e, onClick); if (!off && by == "touch") { if (c.open) { c.hide() } else { c.show("picked") } } }}
+    onKeyDown={(e) => { call(e, onKeyDown)
+      if (!off) {
+        if (e.key == "Enter" || e.key == " " || e.key == "ArrowDown" || e.key == "ArrowUp") { e.preventDefault(); e.stopPropagation(); if (c.open) { c.hide() } else { c.show(e.key == "ArrowUp" ? "last" : "first") } }
+        else if (!c.multiple && (e.key == "ArrowLeft" || e.key == "ArrowRight")) { e.preventDefault(); let k = stepKey(c.items, c.picked[0], e.key == "ArrowLeft" && c.picked.length > 0 ? 0 - 1 : 1, false); if (k != undefined && k != c.picked[0]) { c.pick(k) } }
+        else if (!c.multiple && e.key.length == 1) { let k = typeKey(c.items, c.picked[0], e.key); if (k != undefined && k != c.picked[0]) { c.pick(k) } }
+      } }} {...f.data} {...data(c)}>{children}</button>
+}
+export component Value(props: Omit<Span, "children"> & { children: (s: { selectedOption: any; selectedOptions: any[]; clear: () => void; remove: (o: any) => void }) => View }) {
+  { id, children: shown, ...rest } = props
+  f = use form
+  c = use select
+  mine = id ?? f.id + "-value"
+  none = c.picked.length == 0
+  effect (mine) { c.name("value", $0); return () => { c.name("value", undefined) } }
+  action remove(o: any) { let k = c.items.find(i => i.rawValue === o); if (k != undefined) { c.pick(k.key) } }
+  <span id={mine} data-placeholder-shown={flag(none)} {...f.data} {...rest}>{if none { {c.placeholder} } else { <props.children selectedOption={c.options[0]} selectedOptions={c.options} clear={c.clear} remove={remove} /> }}</span>
+}
+export component Icon(props: Span) {
+  { children, ...rest } = props
+  c = use select
+  <span aria-hidden="true" {...data(c)} {...rest}>{if props.children { {props.children} } else { {"▼"} }}</span>
+}
+export component Page(props: { children?: View }) { c = use select
+  {if c.open { <Portal>{props.children}</Portal> }} }
+export component Content(props: Div) {
+  { style, children, ref: user, ...rest } = props
+  c = use select
+  source el: any := undefined
+  source at: any := undefined
+  effect (c.open ? el : undefined) { let e = $0
+    return e ? openLayer(e, { modal: false, trigger: c.trigger, autofocus: false, dismiss: () => { c.hide() } }) : undefined }
+  effect (c.open ? at : undefined, c.trigger) { let e = $0
+    let a = $1
+    return e && a ? float(a, e, { placement: "bottom", gutter: c.gutter, sameWidth: true, placed: () => {} }) : undefined }
+  {if c.open {
+    <div ref={(e: Element) => { at := e }} data-popper-positioner="" style={{ position: "absolute", top: "0", left: "0", "min-width": "max-content" }}>
+      <div ref={(e: Element) => { el := e; give(user, e) }} style={mix({ "--kb-select-content-transform-origin": "var(--kb-popper-content-transform-origin)", "pointer-events": "auto", position: "relative" }, style)} {...data(c)} {...rest}>{children}</div>
+    </div>
+  }}
+}
+export component Listbox(props: Omit<Ul, "children">) {
+  { id, onKeyDown, ref: user, ...rest } = props
+  f = use form
+  c = use select
+  source el: any := undefined
+  mine = id ?? f.id + "-listbox"
+  effect (mine) { c.name("list", $0); return () => { c.name("list", undefined) } }
+  effect (c.focused, el) { let e = byKey($1, $0)
+    if (e) { focus(e); scrollTo($1, e) } else { focus($1) } }
+  <ul ref={(e: Element) => { el := e; c.listRef(e); give(user, e) }} id={mine} role="listbox" tabindex={c.focused == undefined ? 0 : 0 - 1} aria-multiselectable={c.multiple ? "true" : undefined} aria-labelledby={c.labelled}
+    onKeyDown={(e) => { call(e, onKeyDown)
+      if (e.key == "ArrowDown" || e.key == "ArrowUp") { e.preventDefault(); c.focus(stepKey(c.items, c.focused, e.key == "ArrowDown" ? 1 : 0 - 1, c.wrap)) }
+      else if (e.key == "Home" || e.key == "End") { e.preventDefault(); c.focus(stepKey(c.items, undefined, e.key == "Home" ? 1 : 0 - 1, false)) }
+      else if (e.key == "Tab") { e.preventDefault() }
+      else if (e.key != " " && e.key.length == 1) { let k = typeKey(c.items, c.focused, e.key); if (k != undefined) { c.focus(k) } } }} {...rest}>{for i in c.items { <use.itemOf item={i} /> }}</ul>
+}
+export component Option(props: Li & { item: Item<any> }) {
+  { item, id, onClick, onKeyDown, onPointerMove, onPointerUp, children, ...rest } = props
+  f = use form
+  c = use select
+  source label: string | undefined := undefined
+  action name(v: string | undefined) { label := v }
+  source by := ""
+  on_ = c.picked.includes(item.key)
+  mine = id ?? `${f.id}-item-${item.key}`
+  provide here = { key: item.key, id: mine, on: on_, lit: c.focused == item.key, label: label, name: name }
+  <li id={mine} role="option" tabindex={item.disabled ? undefined : c.focused == item.key ? 0 : 0 - 1} aria-disabled={item.disabled ? "true" : "false"} aria-selected={on_ ? "true" : "false"} aria-labelledby={label} data-key={item.key} data-selected={flag(on_)} data-highlighted={flag(c.focused == item.key)} data-disabled={flag(item.disabled)}
+    onPointerUp={(e) => { call(e, onPointerUp); by := e.pointerType; if (e.pointerType == "mouse" && !item.disabled) { c.pick(item.key) } }} onClick={(e) => { call(e, onClick); if (by != "mouse" && !item.disabled) { c.pick(item.key) } }} onPointerMove={(e) => { call(e, onPointerMove); if (!item.disabled && e.pointerType == "mouse" && c.focused != item.key) { c.focus(item.key) } }}
+    onKeyDown={(e) => { call(e, onKeyDown); if ((e.key == "Enter" || e.key == " ") && !item.disabled) { e.preventDefault(); c.pick(item.key) } }} {...rest}>{children}</li>
+}
+export component ItemLabel(props: Div) {
+  { id, children, ...rest } = props
+  h = use here
+  mine = id ?? h.id + "-label"
+  effect (mine) { h.name($0); return () => { h.name(undefined) } }
+  <div id={mine} data-selected={flag(h.on)} data-highlighted={flag(h.lit)} {...rest}>{children}</div>
+}
+export component ItemIndicator(props: Div & { forceMount?: boolean }) {
+  { id, forceMount, children, ...rest } = props
+  h = use here
+  {if forceMount || h.on { <div id={id ?? h.id + "-indicator"} aria-hidden="true" data-selected={flag(h.on)} data-highlighted={flag(h.lit)} {...rest}>{children}</div> }}
+}
+/** A native select for the form. */
+export component HiddenSelect() {
+  f = use form
+  c = use select
+  <div style={hidden(undefined)} aria-hidden="true">
+    <input type="text" style="font-size: 16px" tabindex={c.open ? 0 - 1 : 0} disabled={c.disabled} onFocus={() => { focus(c.trigger) }} />
+    <select tabindex={0 - 1} multiple={c.multiple} disabled={c.disabled} required={f.required} name={f.name} value={c.multiple ? c.picked : c.picked[0] ?? ""}><option />{for i in c.items { <option value={i.key} selected={c.picked.includes(i.key)}>{i.textValue}</option> }}</select>
+  </div>
+}

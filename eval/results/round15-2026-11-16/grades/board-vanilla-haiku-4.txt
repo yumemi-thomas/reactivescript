@@ -1,0 +1,11 @@
+== hidden
+45/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+25/26 passed
+== fuzz
+board-vanilla-haiku-4: 2/20 seeds found a hole
+  seed 12 step 42: settled: card: "#4 Alpha · 0/1", server "#4 Deploy · 0/1"
+    land fetchCards:todo ; up #2 ; retry-doing ; (move failed: locator.click: Timeout 2000ms exceeded.) ; retry-done ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land moveCard:2,todo,0 ; retry-done ; (move failed: locator.click: Timeout 2000ms exceeded.) ; retry-todo ; (move failed: locator.click: Timeout 2000ms exceeded.) ; add-item ship 1 ; (move failed: locator.fill: Timeout 2000m
+  seed 20 step 45: settled: todo: shows [1,5,3,10], server [1,10,3] (order not checked)
+    retry-done ; (move failed: locator.click: Timeout 2000ms exceeded.) ; retry-doing ; (move failed: locator.click: Timeout 2000ms exceeded.) ; retry-doing ; (move failed: locator.click: Timeout 2000ms exceeded.) ; add-item docs 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; retry-doing ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; land fetchCards:

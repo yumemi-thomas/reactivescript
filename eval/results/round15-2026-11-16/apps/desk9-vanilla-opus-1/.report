@@ -1,0 +1,9 @@
+I built the issue desk in plain TypeScript under `/tmp/claude-0/runs/r15/desk9-vanilla-opus-1/src` (`main.ts` for the tabs and open-issue count, plus `issues.ts`, `help.ts`, `settings.ts` and `dom.ts`). `./check` passes, and `./test` passes 30 of 30, used 3 of my 15 runs. Optimistic changes are kept as pending entries on top of the server's last answer, so a declined change puts things back where they were even when several are in flight, and answers that arrive after the selection, query, filter or page has changed are ignored.
+
+I was unsure about a few points the brief leaves open:
+- **Opening a related hit:** it reuses the hits it already has instead of searching again.
+- **Help selection:** a selected hit stays selected only while it is still in the results.
+- **Overlapping saves:** only a failure of the latest save shows `Save failed`.
+- **Closing on the closed filter:** a close from the detail still changes the count while the list shows closed issues.
+
+The test run also logged one 404 resource error, which I didn't track down.

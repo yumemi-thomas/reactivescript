@@ -1,0 +1,12 @@
+// solid-floating-ui: a floating element placed beside a button (`useFloating`), by a module of the app's own that hands
+// out what the view needs: two refs and the styles.
+import { place } from "./place.js"
+
+export default component App() {
+  source open := false
+  { reference, floating, styles } = place(open)
+  <button class="ref" ref={reference} onClick={() => { open := o => !o }}>about</button>
+  if (open) {
+    <div class="tip" ref={floating} style={styles}>a note</div>
+  }
+}

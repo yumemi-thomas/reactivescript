@@ -1,0 +1,23 @@
+task                 good accepted  types kept     runtime ok     bad caught   
+---------------------------------------------------------------------------------
+duplicate-keys       3/3 ✓          3/3 ✓          3/3 ✓          1/2 ✗        
+formisch-field-path  3/3 ✓          6/6 ✓          4/4 ✓          4/4 ✓        
+frozen-read          3/3 ✓          3/3 ✓          3/3 ✓          5/5 ✓        
+kobalte-dialog       3/3 ✓          4/4 ✓          5/5 ✓          5/5 ✓        
+listener-cleanup     3/3 ✓          3/3 ✓          4/4 ✓          4/4 ✓        
+query-forward        3/3 ✓          5/5 ✓          3/3 ✓          6/6 ✓        
+router-provider      3/3 ✓          5/5 ✓          4/4 ✓          6/6 ✓        
+sequential-awaits    3/3 ✓          3/3 ✓          2/2 ✓          3/3 ✓        
+source-mutation      3/3 ✓          3/3 ✓          3/3 ✓          4/4 ✓        
+ssr-divergence       3/3 ✓          3/3 ✓          3/3 ✓          2/3 ✗        
+start-route          3/3 ✓          5/5 ✓          8/8 ✓          3/3 ✓        
+store-updater        3/3 ✓          5/5 ✓          5/5 ✓          7/7 ✓        
+table-pagination     3/3 ✓          7/7 ✓          8/8 ✓          7/7 ✓        
+---------------------------------------------------------------------------------
+total                39/39          55/55          55/55          57/59        
+
+Not green (2):
+  ✗ duplicate-keys · bad caught · rows added with a key the list already has (known only when it runs) (dev: duplicate key|DUPLICATE_KEY) — ran silently
+    known: 06 ST-4d, 08 CN-2: a key computed at run time is the data's (bin R). The checker refuses rows written out with one key; it cannot see a key that a click computes, a static check does not become a run-time one, and Solid's development build reports no duplicate either. The variant stays as the measure of that limit.
+  ✗ ssr-divergence · bad caught · a `pure` JS call that answers differently on each side, read by the view (the declaration's assertion: reported when it runs) (dev: HYDRATION_MISMATCH|mismatch) — ran silently
+    known: 10 SV-7c (ruled 2026-10-24), 08 CN-5: `pure` is the author's assertion at the JS boundary, the one unchecked word, and that the function answers alike on both machines is part of it. What only the browser knows is `client` JS, which is checked (SV-7b: the good program). Solid's development build adopts the server's text without comparing it, so nothing reports this mismatch, and the language adds no run-time comparison of its own.

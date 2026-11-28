@@ -1,0 +1,9 @@
+// @solid-primitives/deep: an effect that hears every change inside a store.
+import { trackDeep } from "@solid-primitives/deep"
+import { remember } from "./title.js"
+
+export default component App() {
+  source todos := [{ text: "write", done: false }]
+  effect (trackDeep(todos)) { remember($0.filter((t: { done: boolean }) => t.done).length) }
+  <button onClick={() => { todos[0].done := true }}>finish</button>
+}

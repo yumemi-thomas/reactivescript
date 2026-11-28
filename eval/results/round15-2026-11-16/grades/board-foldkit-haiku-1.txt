@@ -1,0 +1,11 @@
+== hidden
+45/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+25/26 passed
+== fuzz
+board-foldkit-haiku-1: 2/20 seeds found a hole
+  seed 11 step 44: settled: doing: shows [4], server [5,4] (order not checked)
+    add Bravo 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Bravo 2 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Alpha 3 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:doing ; select #4 ; down #3 ; rename Alpha ; up #3 ; archive #4 ; land fetchCards:done ; land moveCard:3,doing,1 ; 
+  seed 12 step 31: settled: card: "#5 Alpha · 3/3", server "#5 Kickoff · 3/3"
+    land fetchCards:todo ; select #1 ; add Bravo 1 ; select #2 ; land fetchChecklist:1 ; down #1 ; up #1 ; up #2 ; land fetchCards:doing ; fail addCard:todo,Bravo 1 ; land fetchCards:done ; right #3 ; land moveCard:1,todo,1 ; select #2 ; left #5 ; land moveCard:3,done,1 ; land moveCard:1,todo,0 ; select #5 ; land fetchChecklist:2 ; fail fetchChecklist:5 ; land moveCard:5,doing,1 ; left #3 ; land m

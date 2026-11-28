@@ -27,6 +27,7 @@ declarations. A declaration at the top level lives for the module's lifetime
 import { fetchUser } from "./api"          // an io value: callable only in imperative scope (IO-2)
 import pure { formatName } from "./format" // a lifted value function: callable anywhere (E-9)
 import { Avatar } from "./Avatar.rx"       // a component; its rows come from Avatar.rx's signature (09 MO-3)
+import * as Select from "./select.rx"      // a namespace: <Select.Root>, <Select.Item>, the type Select.Opt (09 MO-6d)
 
 export component Profile(props: { id: number }) { … }
 ```
@@ -54,6 +55,18 @@ export component Profile(props: { id: number }) { … }
   variable shared across requests. Module state lives as long as the app
   and there is one of it: state for a subtree, a route or an instance
   belongs in a component, shared down through a context (RG-7).
+- **§1b A name imported from JavaScript and written nowhere** (2026-11-27) is not imported when the module runs, as
+  one written only in types is not (TypeScript leaves both out): it may be a type of the module's `.d.ts`, which the
+  JS module does not export (`import { fetchIssues, Issue } from "./api.js"` with `Issue` unused failed the bundle,
+  `MISSING_EXPORT`). There is no `as`: an expression carries no type of its own (§2); a parse failure at `as`, and a
+  name `as` that is not declared, say so.
+- **§1a An import for its effect** (proposed 2026-11-19).
+  `import "./styles.css"` or `import "@fontsource/inter"` imports a module
+  for what loading it does: a stylesheet a UI kit ships, a polyfill, a
+  font. It binds nothing, needs no declaration file, and the compiled
+  module imports it as written (a bundler loads the stylesheet). An `.rx`
+  module is imported for what it exports, never this way (`PARSE`).
+  S-module-24; `examples/wardic`.
 - `export` works on `component`, `fn`, `action`, `error`, `type`, and
   module-level sources and equations (exported as accessors — a module
   boundary is a value boundary, never a write boundary: W-1 holds across
@@ -91,7 +104,29 @@ error NotFound(id: number) => `no user ${id}`   // R-f-1: an error class; `NotFo
 
 - Types are TypeScript's, after the name. On a source they type the value;
   on an equation, the value it holds; on `fn`/`action`/`component`
-  parameters as in TS.
+  parameters as in TS. A fn's result type may be a record or a function
+  type (2026-11-24): `{`, and `(…) =>` with no parameters or named and
+  typed ones, are the type's where a type begins (first, or after `|`,
+  `&`, `=>`); the next `{` or `=>` is the body's (S-types-2).
+- A `fn` may have type parameters, `fn first<T>(xs: T[]): T | undefined`
+  (proposed 2026-11-25): TypeScript's text, after the name. The checkers
+  read none of it and the JavaScript has none. A call infers them; a call
+  has no type arguments of its own for them (`a<b>(c)` is §3's). An
+  action and a server fn have none. S-generic-1.
+- A component and a type alias may have them as well (proposed
+  2026-11-26, proposals/28): `component List<T>(props: { items: T[];
+  children: (r: { item: T }) => View })`, `type Item<T> = { v: T }`. A
+  tag infers them from what the component is given; no type argument
+  is written at a tag. The checkers read one thing of them: a generic
+  alias applied, `Slot<View>`, is read with each parameter's name
+  replaced by its argument (a default where none is written), so a
+  prop that is a view there is one (RG-4c); and a type parameter stands
+  for a value's type, never for a view — a view is not given on to a
+  prop declared `T`, and children are not declared one
+  (`VIEW_NOT_SHOWN`). Inside a generic declaration a parameter's name
+  is no type of the module. An alias that binds a parameter's name
+  again (`infer T`, a mapped type's key, a generic function type) is
+  not read, as a type of JavaScript is not. S-generic-2.
 - `source x = e` (not `:=`) is the only place `=` declares something that
   can be written.
 - `pre x -> init` is `pre x` with the value for the first instant (C-2a).
@@ -105,7 +140,35 @@ Removed (unwritable, bin U): assignment and update operators (`=`, `+=`,
 `++`, …), `delete`, `new` on reactive values, `this`, `function`
 expressions, `async`/generators, `?.` on a probe. Arrow functions are
 allowed and are reactive (lifted) in reactive scope, imperative in
-imperative scope (SC-3).
+imperative scope (SC-3). An arrow's parameter may carry a TypeScript type
+(`(v: string) => …`, proposed 2026-11-19): it is TypeScript's alone,
+checked in the projection (13 TY-1) and dropped from the JavaScript, for
+a library that types what it passes as `unknown`. `:=` after a name is a
+write, never a type. A call may carry TypeScript type arguments
+(`createStore<Todos>({ items: [] })`, proposed 2026-11-20): a balanced
+`<…>` written right after the callee, with no space, and followed
+directly by `(`, they are TypeScript's alone too, for a generic whose
+argument leaves nothing to infer (`[]` would be `never[]`). The list may
+span lines (revised 2026-11-21), so a formatter that breaks a long type
+does not change what the call is; `a < b`, with a space, stays a
+comparison. What the brackets hold must be TypeScript type arguments from
+end to end (revised 2026-11-21, after a second review): a comma-separated
+list that TypeScript's type grammar consumes completely — references with
+their own arguments, unions and intersections, indexed access, arrays and
+tuples, object types (members ending at `,`, `;` or a line break), function
+and constructor types, conditional types, `keyof`, `typeof`, `infer`,
+literal types (a `-` only before a number) and template literal types
+(each `${…}` a type itself). Anything else is comparisons, as TypeScript
+falls back to them: `a<b && c>(d)`, `a<b + c>(d)`, `a<b ? c : d>(d)` and
+`a<b[c+1]>(d)` (an index holding an addition is not an indexed access
+type), ``a<`x${c+1}`>(d)`` and `a<-"1">(d)` are all `a < …` compared with `(d)` (S-surface-7). The decision no
+longer rests on a list of operators a type never has, which could miss an
+expression inside brackets. Nor is a list type arguments where every name in
+it is a value's: `a<b>(c)`, `a<b.c>(d)` and `f(a<b, c>(d))` are comparisons
+where the module binds `b` and `c` (an import binds its name), and `a<1>(c)`
+and `a<"x">(c)`, which name nothing, are always (revised 2026-11-24: they
+were calls, of a program that compared). A list with a name that is no
+value's (`f<string>(x)`, `f<Todos>(x)`) compared would be `UNBOUND`.
 
 Added:
 
@@ -128,13 +191,18 @@ Added:
 | `use name` | the nearest provision above (a unary form: `(use x) == y`) | RG-7 |
 | `type T = …` | a TS type declaration, kept as text | — |
 | `throw e` | a failure, in either scope: `x > 0 ? x : throw BadInput(x)` (TC39's throw expression) | R-f-3 |
-| `e catch (x: A \| B) => alt` | `alt` when `e` fails with `A` or `B`; `catch (x) =>` takes every class; looser than `?:` | R-f-4 |
+| `await e catch (x: A \| B) => alt` | `alt` is the answer when the promise rejects with `A` or `B`; `catch (x) =>` takes every class; only after an `await` (`CATCH_NOT_ON_AWAIT`) | R-f-4 |
 
 `await` may appear anywhere in an expression of reactive scope — an
 equation, a reader `{…}`, an attribute or prop, an `if` condition, a `for`
 collection, an effect's input, a provision; the compiler lifts each one to
 its own flight (04 R-1), asked only while the conditions that reach it hold
-(E-11; S-await-1). In imperative scope a run suspends only at a statement
+(E-11; S-await-1). So may it in what an instantiating fn answers, an
+equation of its call's region (RG-6a). A closure of reactive scope, and a
+fn that declares nothing (lifted into what calls it, E-9), have no flight
+of their own: an `await` there is `AWAIT_IN_EXPRESSION` (2026-11-24;
+S-await-2) — such a fn answers the promise, and its call is awaited. In
+imperative scope a run suspends only at a statement
 (06 AC-1): `await e`, `let v = await e`, either followed by `catch (x: C)
 => alt`. `yield` is not an expression; a stream is `await*`.
 
@@ -169,7 +237,11 @@ attributes are equations, children are readers, components are applied as
   element and bare at block level. `portal to(e) { … }` renders into `e`
   (RG-8). Each block is a region: declarations, then markup
   (RG-1, RG-2, RG-5). `if x { … }` narrows `x` inside (RG-1c).
-- `{...e}` among the attributes is a spread, as JSX's: every field of `e`.
+- `{...e}` among the attributes is a spread, as JSX's: every field of `e`
+  (on an element, `children` among them: they are its content where it
+  writes none of its own, `<div {...props} />`).
+  A field `e` has is given, `undefined` too; one it does not have is not,
+  and what was written before it stands (S-surface-13).
   Parts merge in order and the last one that has a field wins (Solid's
   `merge`), so an attribute after the spread overrides it and one before
   it is a default. A spread is an equation like any attribute: its fields
@@ -191,6 +263,35 @@ attributes are equations, children are readers, components are applied as
   others pass to the boundary above (R-f-4). `fallback(e: Panic)` takes
   only panics (R-f-10) — the root boundary that leaves every failure to the
   panes.
+
+- **`ref` (proposed 2026-11-18).** `<div ref={el => { scroller := el }}>`:
+  Solid calls an element's `ref` once, with the element it made, so its
+  closure is a handler's (imperative scope, SC-4): it may write a source.
+  That is how an element reaches a JS library, through a callback that reads
+  the source (`getScrollElement: () => scroller`, 09 MO-10g). S-module-15.
+  A `ref` passed to a JavaScript component is a prop, which the component
+  calls when it likes, and is read as the component's declaration says
+  (revised 2026-11-21; 09 MO-10g, S-module-28). A component written in
+  `.rx` is given `ref` as an element is, a handler (revised 2026-11-26,
+  02 SC-4b, S-view-10): inside it the prop is io, so it reaches an element —
+  `<input ref={props.ref}>`, `<input {...rest}>` — or is called from
+  imperative scope, and nowhere is it called while the view computes.
+  Solid calls a `ref` in the pass that makes its element (`ref()`:
+  untracked, where a write is a handler's), once, and not again when the
+  element goes; what it writes is in the frame that shows the element. A
+  server makes no element and calls no `ref` (10 SV-2): its frame is the
+  one before. A `ref` reads the screen as the pass found it: none sees what
+  another `ref` of the same pass wrote (02 SC-4c, S-server-8), as Solid did
+  until 2.0.0-rc.21, rendered and hydrated alike. Solid since rc.22 shows an
+  earlier `ref`'s write to a `ref` in a `for` row or an `if` (10 DV-28a,
+  recorded, not followed; its hydrated half, DV-28b, is fixed on Solid main
+  510bb8d01). A `ref` that counts writes by a function
+  of the value (`n := v => v + 1`, W-6), which composes whatever the order;
+  what needs two `ref`s' elements reads them in an effect.
+
+*Words that are names too (2026-11-26).* `on` (after `loading`) and `from` (in an `import`) are words only where the
+grammar reads them: anywhere else they are names — `on = !off`, `{ from, to } = props`. They were reserved, and a
+declaration so named was "expected a declaration or markup".
 
 ## 5. Imperative scope (02 SC-2, 06 AC)
 
@@ -226,13 +327,37 @@ action { refresh user; affects user }   // inline, one run (AC-1)
   compose (W-6).
 - `let` (or `const`) declares an imperative local; `if (c) { … } else { … }`,
   `return`, `try { … } catch (e) { … } finally { … }`, `throw e` and
-  expression statements are allowed (`for`/`while`: not yet in `ref/`);
+  expression statements are allowed, and the loop `for (const x of e) { …
+  }` (below; `while`: not yet in `ref/`);
   reads of reactive names are snapshots of σ (H-10, SC-2), and a snapshot of
   a failing value throws (R-f-7). A rejected `await` throws at the `await`;
   a catch inside an action is still the action's change (AC-7).
   `catch (e: A | B)` takes those classes and rethrows the rest.
   `let r = await save(x) catch (e: Offline) => null` is the statement form
   of the same: a `try` around the `await` whose catch gives `r` (S-await-1).
+- **The loop** (ruled 2026-11-22). `for (const x of e) { … }` runs its
+  block once for each value `e` holds when the loop starts, `x` a constant
+  of that turn (`let` is read as `const`: a local is never reassigned). It
+  compiles to JavaScript's `for … of` over those values, `for (const x of
+  [...e])` (closed 2026-11-22: the emitters looped over `e` itself, which
+  JavaScript reads as it goes, so a turn that added to the list it looped
+  over — a draft's, `d.items.push(…)` — was handed what it had just added,
+  and one that always added never ended; the interpreter already took the
+  values first). This is the rule of every run: nothing a run writes is
+  seen by that run (W-3, W-4), a loop's turns included, and it is what the
+  run's checks assume when they read a loop as a body run again. It costs
+  one array per loop, and `e` is read to its end before the first turn, so
+  it is a finite collection. Being a statement, its
+  body is the scope it is written in — the same run, the same change, the
+  same `return` — which a closure handed to `forEach` is not: the body may
+  `await` in an action (a hold-safe suspension, AC-1), end the run with
+  `return`, and name what a closure may not capture, a library's draft (09
+  MO-10i: `for (const t of d.items) { t.done := true }`). The run's
+  checks read a loop as a body that may not run, run once, or run again
+  over what its last turn wrote: `for (const x of xs) { total := total +
+  x }` reads `total` after the change wrote it (`STALE_OWN_READ`, AC-1d),
+  and `total := t => t + x` composes (W-6). `for x in e` in a view is the
+  other form (§4), a region per row. S-surface-10.
 - An action catches every failure its body can produce (R-f-6): there is
   no one after the body to catch it.
 - An arrow that guesses, declares `affects`, or both writes and awaits is
@@ -292,6 +417,9 @@ component Card(props: { title: string; children: View }) {
 
 - `props` is a structured value; reading `props.x` tracks the caller's
   equation for `x`. `props.children` is a `View`, shown by reading it.
+- A component that shows what it is given with what it knows takes a view
+  (RG-4c): `props: { children: (s: { on: boolean }) => View }` (or `View | (…)`,
+  for plain content as well), shown as `<props.children on={lit} />`, given as `<Toggle>{view (s) { {s.on ? "on" : "off"} }}</Toggle>`.
 - A component is applied only in markup. It returns nothing.
 
 ## 6b. Scoped styles (ruled 2026-10-24: per component, as TSRX)
@@ -543,7 +671,8 @@ Expr      ::= TSExpr with §3's removals and additions
     `createOptimistic`, which it still lowers to. A guess on state nothing
     will answer reads wrong on its face (`guess saveError := …`: the eval's
     pilot runs wrote that nine times as `optimistic`, `GUESS_NO_QUESTION`).
-    `optimistic` is not reserved: Solid's primitive keeps its name, and the
+    (A guess on a `:=` source became legal on 2026-11-20, decision 21, so
+    that misuse is now a "while it runs" value that reverts.) `optimistic` is not reserved: Solid's primitive keeps its name, and the
     keyword need not. `source` was weighed against `state`
     and `signal` the same day and kept (decision 2): `signal` reads as atomic
     beside stores, and an equation is state too.
@@ -565,3 +694,13 @@ Expr      ::= TSExpr with §3's removals and additions
     object rest `{ a, ...rest } = e` is Solid's `omit(e, "a")`, a live view
     of the other fields (`rest.b` stays `e.b`), and an array rest
     `[x, ...rest] = e` is `e.slice(1)`; in a `let`, each is a copy.
+21. **A guess may sit over a writable** (ruled 2026-11-20): `guess x := v`
+    on a source declared with `:=`, signal or store, and on a source with a
+    question that is also written plainly, by path or whole. The truth is
+    the writable: plain writes land with the action's change, and the guess
+    ends when that change commits, showing them (06 AC-3, S-guess-writable-1
+    to -3). Lowers to an optimistic layer derived from the writable
+    (`createOptimistic(() => truth())`, `createOptimisticStore(() => truth,
+    seed)`). Re-asking after a save (`refresh x`) stays the absolute form;
+    a client-owned source over one fetch, written by the action after the
+    server accepts, is the same layering with the client keeping the truth.

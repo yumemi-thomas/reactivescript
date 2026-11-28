@@ -1,0 +1,3 @@
+//@ for @solid-primitives/set ^1.0.0
+export type SignalSet<T> = import("@solid-primitives/set").SignalSet<T>
+export fn createSet<T>(initial?: T[]): SignalSet<T>

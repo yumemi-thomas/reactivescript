@@ -1,0 +1,26 @@
+// solid-sonner: `toast()` — and its methods, `toast.success()`, `toast.dismiss()` — is called from a handler, with a
+// message or with a component of the app's own, and <Toaster>, mounted once, renders what it was given. The component reads a context the app provides above the toaster.
+import { Toaster, toast } from "solid-sonner"
+
+context accent: string
+
+component Saved() {
+  <b class={use accent}>saved to disk</b>
+}
+component Editor() {
+  <button class="save" onClick={() => { toast(Saved) }}>save</button>
+  <button class="note" onClick={() => { toast("a plain note") }}>note</button>
+  <button class="done" onClick={() => { toast.success("exported") }}>export</button>
+  <button class="clear" onClick={() => { toast.dismiss() }}>clear</button>
+}
+component Themed(props: { children: View }) {
+  provide accent = "dark"
+  {props.children}
+}
+
+export default component App() {
+  <Themed>
+    <Editor />
+    <Toaster />
+  </Themed>
+}

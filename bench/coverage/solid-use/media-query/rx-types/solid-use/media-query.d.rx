@@ -1,0 +1,3 @@
+//@ for solid-use ^1.0.0
+export fn useMediaQuery(query: string): ref boolean
+export fn usePrefersDark(): ref boolean

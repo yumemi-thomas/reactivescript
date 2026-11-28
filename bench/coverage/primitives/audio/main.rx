@@ -1,0 +1,8 @@
+// @solid-primitives/audio: an audio player, its state as values.
+import { createAudio } from "@solid-primitives/audio"
+
+export default component App() {
+  audio = createAudio("")
+  <p>{audio.playing ? "playing" : "paused"}, volume {audio.volume}</p>
+  <button onClick={() => { audio.setVolume(0.5) }}>quieter</button>
+}

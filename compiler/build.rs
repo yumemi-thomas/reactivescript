@@ -7,6 +7,9 @@ use std::process::Command;
 
 fn main() {
     if env::var_os("CARGO_FEATURE_NODE").is_none() {
+        // nothing to set up: without this line Cargo runs it, and compiles the crate, again after any file of this folder
+        // is written (the binding's index.js, a test's .out)
+        println!("cargo:rerun-if-changed=build.rs");
         return;
     }
     let target = env::var("TARGET").unwrap_or_default();

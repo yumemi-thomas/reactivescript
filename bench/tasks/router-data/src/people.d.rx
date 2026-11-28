@@ -1,0 +1,6 @@
+// people.js in rows, from rx-declare's draft: the query is a loader (`pure`) that answers a Person and rejects with
+// NotFound; the form action is a value given to a form.
+export type Person = import("./people.js").Person
+export error NotFound
+export pure fn getPerson(id: string): Promise<Person> rejects(NotFound)
+export const promoteForm: (...vars: [form: FormData]) => Promise<string>

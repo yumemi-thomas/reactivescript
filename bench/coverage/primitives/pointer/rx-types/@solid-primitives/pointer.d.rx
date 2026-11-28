@@ -1,0 +1,3 @@
+//@ for @solid-primitives/pointer ^1.0.0
+export type PointerStateWithActive = import("@solid-primitives/pointer").PointerStateWithActive
+export fn createPointerPosition(config?: NonNullable<Parameters<typeof import("@solid-primitives/pointer").createPointerPosition>[0]>): ref PointerStateWithActive

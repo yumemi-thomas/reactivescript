@@ -1,0 +1,13 @@
+// A routed app on @tanstack/solid-router (2.0 rc) with the router's file-based routing: the route files are in routes/
+// (TanStack's generator reads TypeScript, so each is a few lines of TSX that hand its route a component of pages.rx),
+// the generated route tree (routeTree.gen.ts) registers the router, and every <Link> and hook of the `.rx` pages is
+// typed by it. This is the app's own component: its frame and what every page shares, around the router's component.
+// Where the router renders the layout and the pages is host.d.rx's to say (spec/09 MO-14).
+import { AppRouter } from "./router.tsx"
+import { team } from "./team.rx"
+
+export default component App() {
+  provide team = { name: "the directory" }
+  <header>Directory</header>
+  <AppRouter />
+}

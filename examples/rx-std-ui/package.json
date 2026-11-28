@@ -1,0 +1,55 @@
+{
+  "name": "@rx-ui-sdk/solid",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "rx-lib"
+  },
+  "reactivescript": {
+    "entries": [
+      "src/toggle.rx",
+      "src/tabs.rx",
+      "src/dialog.rx"
+    ]
+  },
+  "exports": {
+    "./toggle": {
+      "types": "./dist/toggle.d.ts",
+      "worker": "./dist/toggle.server.js",
+      "browser": "./dist/toggle.js",
+      "deno": "./dist/toggle.server.js",
+      "node": "./dist/toggle.server.js",
+      "default": "./dist/toggle.js"
+    },
+    "./tabs": {
+      "types": "./dist/tabs.d.ts",
+      "worker": "./dist/tabs.server.js",
+      "browser": "./dist/tabs.js",
+      "deno": "./dist/tabs.server.js",
+      "node": "./dist/tabs.server.js",
+      "default": "./dist/tabs.js"
+    },
+    "./dialog": {
+      "types": "./dist/dialog.d.ts",
+      "worker": "./dist/dialog.server.js",
+      "browser": "./dist/dialog.js",
+      "deno": "./dist/dialog.server.js",
+      "node": "./dist/dialog.server.js",
+      "default": "./dist/dialog.js"
+    }
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.0",
+    "@solidjs/web": "^2.0.0",
+    "@reactivescript/runtime": "*"
+  }
+}

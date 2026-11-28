@@ -1,0 +1,47 @@
+import pure { fetchArchived } from "./api"
+import { restoreCard, Archived } from "./api"
+
+export component ArchivePage() {
+  source archived: Archived[] key id = await fetchArchived()
+  source restoring: number[] = []
+  source restoreError: string := ""
+  shown = archived.filter(a => !restoring.includes(a.id))
+
+  action restore(id: number) {
+    onFlush(() => { restoreError := "" })
+    try {
+      guess restoring := rs => [...rs, id]
+      await restoreCard(id)
+      refresh archived
+    } catch (e) {
+      restoreError := "restore error: " + e.message
+      onFlush(() => { restoreError := "restore error: " + e.message })
+    }
+  }
+
+  <style>
+    ul { list-style: none; padding: 0; }
+    li { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+    .err { color: #b00020; }
+  </style>
+  <section>
+    <h2>Archive</h2>
+    {if restoreError != "" {
+      <p class="err" data-testid="restore-error">{restoreError}</p>
+    }}
+    <div data-testid="archived">
+      {loading fallback { <p>loading archive</p> } {
+        {errored fallback(e) { <p class="err">archive error: {e.message}</p> } {
+          <ul>
+            {for a in shown {
+              <li>
+                <span data-testid="archived-card">#{a.id} {a.title}</span>
+                <button data-testid="restore" onClick={() => { restore(a.id) }}>restore</button>
+              </li>
+            }}
+          </ul>
+        }}
+      }}
+    </div>
+  </section>
+}

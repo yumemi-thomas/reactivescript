@@ -1,0 +1,2 @@
+import { use } from "../../../cover.mjs";
+export default use(import.meta, { pkgs: [], title: "token components: children a parent reads as data", ssr: false, server: "the tokens are resolved from the children the browser makes; the module is compiled for the DOM", dom: /tabs: one, two/, pkg: "@solid-primitives/jsx-tokenizer", note: "a JS module of the app's own: a token component is made by a factory at the module\'s top level and read by the parent it is written for: a library author\'s tool" });

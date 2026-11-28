@@ -1,0 +1,2 @@
+//@ for @solid-primitives/clipboard ^2.0.0
+export fn writeClipboard(data: string | ClipboardItem[]): Promise<void>

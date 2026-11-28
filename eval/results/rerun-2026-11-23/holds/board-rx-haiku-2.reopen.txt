@@ -1,0 +1,3 @@
+✓ HOLD the new-card input starts empty when the board opens again
+
+1/1 passed

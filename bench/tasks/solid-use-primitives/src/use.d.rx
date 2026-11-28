@@ -1,0 +1,2 @@
+// As `rx-declare ./use.js` drafts it. By hand: `pure` (it asks the server's value, and writes nothing else).
+export fn useTicket(): string instantiates

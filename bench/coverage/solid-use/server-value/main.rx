@@ -1,0 +1,8 @@
+// solid-use/server-value: a value the server makes once and the browser takes from it (ticket.js: the function it is
+// given is not pure, on purpose).
+import { useTicket } from "./ticket.js"
+
+export default component App() {
+  ticket = useTicket()
+  <p>ticket {ticket}</p>
+}

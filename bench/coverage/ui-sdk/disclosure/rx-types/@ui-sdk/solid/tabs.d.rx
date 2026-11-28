@@ -1,0 +1,10 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type TabsState<T extends string = string> = import("@ui-sdk/solid/tabs").TabsState<T>
+export type TabsValueChangeReason = import("@ui-sdk/solid/tabs").TabsValueChangeReason
+export type TabsListState = import("@ui-sdk/solid/tabs").TabsListState
+export type TabsPanelState = import("@ui-sdk/solid/tabs").TabsPanelState
+export type TabsTabState = import("@ui-sdk/solid/tabs").TabsTabState
+export component Tabs<A extends string = string, B = unknown>(props: Parameters<typeof import("@ui-sdk/solid/tabs").Tabs<A, B>>[0] & { onValueChange?: handler (value: A | null, details: import("@ui-sdk/core").ChangeDetails<TabsValueChangeReason>) => void; render?: (props: Record<string, any>, state: TabsState<A>) => View })
+export component TabsList(props: Parameters<typeof import("@ui-sdk/solid/tabs").TabsList>[0] & { render?: (props: Record<string, any>, state: NoInfer<TabsListState>) => View })
+export component TabsPanel(props: Parameters<typeof import("@ui-sdk/solid/tabs").TabsPanel>[0] & { render?: (props: Record<string, any>, state: NoInfer<TabsPanelState>) => View })
+export component TabsTab(props: Parameters<typeof import("@ui-sdk/solid/tabs").TabsTab>[0] & { render?: (props: Record<string, any>, state: NoInfer<TabsTabState>) => View })

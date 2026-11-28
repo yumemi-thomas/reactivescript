@@ -1,0 +1,15 @@
+// A cart line: the total is computed from the quantity and the price, the history is what the clicks did, and an
+// effect is kept for what leaves the program (the page's title).
+import { setTitle } from "./page.js"
+
+export default component App() {
+  source qty := 1
+  source price := 5
+  source history: number[] := []
+  total = qty * price
+  effect (total) { setTitle(`cart: ${$0}`) }
+  <p class="total">{qty} × {price} = {total}</p>
+  <p class="history">{history.join(", ")}</p>
+  <button class="more" onClick={() => { let n = qty + 1; qty := n; history := h => [...h, n] }}>one more</button>
+  <button class="raise" onClick={() => { price := price + 1 }}>raise the price</button>
+}

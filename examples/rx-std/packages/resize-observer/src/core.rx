@@ -1,0 +1,30 @@
+// The size of an element, and of the window.
+import { onResize, onWindow } from "@reactivescript/std/browser"
+import pure { boxOf, first, windowSize } from "@reactivescript/std/now"
+
+export type Size = { width: number | null; height: number | null; clientWidth: number | null; clientHeight: number | null }
+export type WindowSize = { width: number; height: number }
+export type Target = Element | false | null | undefined
+
+export fn createElementSize(ref target: Target): Size {
+  source size: Size := { width: null, height: null, clientWidth: null, clientHeight: null }
+  effect (target) {
+    let el = $0
+    let box = el ? boxOf(el) : null
+    size := { width: box?.width ?? null, height: box?.height ?? null, clientWidth: el ? el.clientWidth : null, clientHeight: el ? el.clientHeight : null }
+    return el ? onResize(el, (entry) => {
+      let now = boxOf(entry.target)
+      size := { width: now.width, height: now.height, clientWidth: entry.target.clientWidth, clientHeight: entry.target.clientHeight }
+    }) : undefined
+  }
+  size
+}
+
+export fn createWindowSize(): WindowSize {
+  source size: WindowSize := first(() => windowSize(), { width: 0, height: 0 })
+  effect () {
+    size := windowSize()
+    return onWindow("resize", () => { size := windowSize() })
+  }
+  size
+}

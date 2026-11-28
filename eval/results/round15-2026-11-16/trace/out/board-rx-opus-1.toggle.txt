@@ -1,0 +1,8 @@
+  toggle declined: expected screen
+  settled: todo ["#1 Write spec · 0/2","#2 Fix login · 1/3"] doing ["#3 Review PR · 2/2","#4 Deploy · 0/1"] done ["#5 Kickoff · 3/3"] | To do (2) Doing (2) Done (1) | 0/2 done
+  toggle declined: expected screen
+✓ HOLD a toggle declined after another card was selected puts the first card's count back
+✗ HOLD a toggle and an item add out together: the progress and the card's count agree
+    expected [progress] to read "1/4 done", it reads "1/5 done"
+
+1/2 passed

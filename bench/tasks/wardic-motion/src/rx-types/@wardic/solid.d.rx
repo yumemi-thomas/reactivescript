@@ -1,0 +1,20 @@
+//@ for @wardic/solid ^2.0.1
+// Wardic in rows, as `rx-declare @wardic/solid` drafts it, kept to what the app uses. By hand: `wardic.div` — the draft
+// has `wardic` as a value (its members are a mapped type over every tag, and no row is drafted for one) — the context
+// the provider gives and an element reads (`rx-declare --source`: src/provider.tsx:192, :81), and `pure … instantiates`
+// on `ward` (it makes the ward's state where it is called, src/ward.tsx; of its three signatures the app's alone).
+export context wardic
+export component WardicProvider(props: { env: WardicEnv; reducedMotion?: import("@wardic/core/ReducedMotion").Config | undefined; appear?: boolean | "explain" | undefined; nonce?: string | undefined; scaleCorrectors?: Readonly<Record<string, WardicScaleCorrector>> | undefined; features?: FeaturesProp | undefined; strict?: boolean | undefined; children?: View }) provides(wardic)
+export type FeaturesProp = import("@wardic/solid").FeaturesProp
+export type WardicEnv = import("@wardic/solid").WardicEnv
+export type WardicProps<Tag extends keyof import("@solidjs/web").JSX.IntrinsicElements, C = {  }, P = WardicMotionProps> = import("@wardic/solid").WardicProps<Tag, C, P>
+export const wardic: typeof import("@wardic/solid").wardic
+export type WardicMotionProps = import("@wardic/solid").WardicMotionProps
+export component AnimatePresence(props: AnimatePresenceProps & { ref?: (presence: Presence) => void })
+export type AnimatePresenceProps = import("@wardic/solid").AnimatePresenceProps
+export type Presence = import("@wardic/solid").Presence
+export type WardicScaleCorrector = import("@wardic/solid").WardicScaleCorrector
+export type Ward<C extends WardConfig = WardConfig, F = import("@wardic/dom/unstable/features/All").EveryFeature> = import("@wardic/solid").Ward<C, F>
+export type WardConfig = import("@wardic/solid").WardConfig
+export fn ward(): Ward<{  }> instantiates
+export component wardic.div(props: WardicProps<"div">) uses(wardic)

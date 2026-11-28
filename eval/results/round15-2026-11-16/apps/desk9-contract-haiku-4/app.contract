@@ -1,0 +1,551 @@
+// Issue desk: the view. app.ts answers the sources the view asks for; src/api.js is the backend.
+// Every write is a queued send whose reply says what happened; an edit shows at once and is
+// dropped when the server declines it.
+shape Issue
+  id: number
+  title: string
+  assignee: string
+
+shape Listing
+  loaded: bool
+  items: Issue[]
+
+shape Detail
+  loaded: bool
+  found: bool
+  title: string
+  body: string
+
+shape Remark
+  author: string
+  text: string
+
+shape Remarks
+  loaded: bool
+  items: Remark[]
+
+shape Labels
+  loaded: bool
+  items: string[]
+
+shape Hit
+  id: number
+  name: string
+
+shape Hits
+  loaded: bool
+  items: Hit[]
+
+shape HelpItem
+  loaded: bool
+  found: bool
+  name: string
+  blurb: string
+
+shape Settings
+  loaded: bool
+  name: string
+  theme: string
+  density: string
+
+shape Done
+  seq: number
+  vis: number
+  fromRow: bool
+  ok: bool
+  error: string
+
+shape Saved
+  ok: bool
+  error: string
+  name: string
+  theme: string
+  density: string
+
+shape Edit
+  seq: number
+  kind: string
+  id: number
+  sel: number
+  text: string
+  by: string
+  sent: bool
+
+fn editText(es: Edit[], kind: string, id: number, base: string): string = match es.filter(e => e.kind == kind and e.id == id).at(-1) { case some(e) => e.text, case none => base }
+fn isClosed(es: Edit[], id: number): bool = es.filter(e => e.kind == "close" and e.id == id).length > 0
+fn titleOf(es: Edit[], id: number, base: string): string = editText(es, "rename", id, base)
+fn assigneeOf(es: Edit[], id: number, base: string): string = editText(es, "assign", id, base)
+fn who(a: string): string = a == "" ? "unassigned" : a
+fn rowLabel(es: Edit[], i: Issue): string = `#${i.id} ${titleOf(es, i.id, i.title)} (${who(assigneeOf(es, i.id, i.assignee))})`
+fn remarkText(e: Edit): string = e.sent ? `${e.by}: ${e.text}` : `${e.by}: ${e.text} (sending…)`
+fn labelOps(es: Edit[], id: number, sel: number, lbl: string): Edit[] = es.filter(e => (e.kind == "addLabel" or e.kind == "removeLabel") and e.id == id and e.sel == sel and e.text == lbl)
+fn labelTop(es: Edit[], id: number, sel: number, lbl: string): string = match labelOps(es, id, sel, lbl).at(-1) { case some(e) => e.kind, case none => "" }
+fn labelTopSeq(es: Edit[], id: number, sel: number, lbl: string): number = match labelOps(es, id, sel, lbl).at(-1) { case some(e) => e.seq, case none => 0 }
+
+component Desk9ContractHaiku4
+  state page = "issues"
+  state visit = 0
+  state user = "guest"
+  state scope = "open"
+  state openTick = 0
+  state loadTick = 0
+  state detailTick = 0
+  state seqNo = 0
+  state edits: Edit[] = []
+  state hasSel = false
+  state selId = 0
+  state selSeq = 0
+  state titleDraft = ""
+  state commentDraft = ""
+  state labelDraft = ""
+  state assignErr = ""
+  state renameErr = ""
+  state closeErr = ""
+  state postErr = ""
+  state labelErr = ""
+  state rowErr = ""
+  state q = ""
+  state pickOn = false
+  state pickId = 0
+  state pickSeq = 0
+  state dNameOn = false
+  state dName = ""
+  state dTheme = ""
+  state dDensity = ""
+  state saveErr = ""
+  state svOn = false
+  state svName = ""
+  state svTheme = ""
+  state svDensity = ""
+  state inName = ""
+  state inTheme = ""
+  state inDensity = ""
+
+  resource openRes = loadOpen(openTick) as shape Listing else empty()
+  resource closedRes = loadClosed(visit) when page == "issues" and scope == "closed" as shape Listing else empty()
+  resource detailRes = loadDetail(selId, selSeq, detailTick) when hasSel as shape Detail else empty()
+  resource remarksRes = loadRemarks(selId, selSeq) when hasSel as shape Remarks else empty()
+  resource labelsRes = loadLabels(selId, selSeq) when hasSel as shape Labels else empty()
+  resource relRes = findRelated(detailRes.title, selSeq) when hasSel and current(detailRes) and detailRes.found as shape Hits else empty()
+  resource hits = findHelp(q) when q.length >= 2 as shape Hits else empty()
+  resource itemRes = loadItem(pickId, pickSeq) when pickOn as shape HelpItem else empty()
+  resource settingsRes = loadSettings(loadTick) when page == "settings" as shape Settings else empty()
+
+  mutation assignM as shape Done queue then doneAssign
+  mutation renameM as shape Done queue then doneRename
+  mutation closeM as shape Done queue then doneClose
+  mutation postM as shape Done queue then donePost
+  mutation addM as shape Done queue then doneAdd
+  mutation removeM as shape Done queue then doneRemove
+  mutation saveM as shape Saved queue then doneSave
+
+  derive openRows = openRes.items.filter(i => not isClosed(edits, i.id))
+  derive listRows = scope == "open" ? openRows : closedRes.items
+  derive issuesLabel = openRes.loaded ? `Issues (${openRows.length})` : "Issues"
+  derive openErr = match failure(openRes) { case some(f) => f.message, case none => "" }
+  derive closedErr = match failure(closedRes) { case some(f) => f.message, case none => "" }
+  derive listFailed = scope == "open" ? failed(openRes) : failed(closedRes)
+  derive listCurrent = scope == "open" ? current(openRes) : current(closedRes)
+  derive listErr = scope == "open" ? openErr : closedErr
+  derive detailTitle = titleOf(edits, selId, detailRes.title)
+  derive detailErr = match failure(detailRes) { case some(f) => f.message, case none => "" }
+  derive remarksErr = match failure(remarksRes) { case some(f) => f.message, case none => "" }
+  derive labelsErr = match failure(labelsRes) { case some(f) => f.message, case none => "" }
+  derive relErr = match failure(relRes) { case some(f) => f.message, case none => "" }
+  derive hitsErr = match failure(hits) { case some(f) => f.message, case none => "" }
+  derive itemErr = match failure(itemRes) { case some(f) => f.message, case none => "" }
+  derive settingsErr = match failure(settingsRes) { case some(f) => f.message, case none => "" }
+  derive settingsFailed = failed(settingsRes)
+  derive settingsCurrent = current(settingsRes)
+  derive myRemarks = edits.filter(e => e.kind == "remark" and e.id == selId and e.sel == selSeq)
+  derive addedLabels = edits.filter(e => e.kind == "addLabel" and e.id == selId and e.sel == selSeq and labelTop(edits, selId, selSeq, e.text) == "addLabel" and labelTopSeq(edits, selId, selSeq, e.text) == e.seq and not (labelsRes.items.includes(e.text))).map(e => e.text)
+  derive labelsNow = labelsRes.items.filter(l => labelTop(edits, selId, selSeq, l) != "removeLabel").concat(addedLabels)
+  derive nameNow = dNameOn ? dName : settingsRes.name
+  derive themeNow = dTheme != "" ? dTheme : settingsRes.theme
+  derive densityNow = dDensity != "" ? dDensity : settingsRes.density
+  derive nameValid = nameNow.trim() != "" and nameNow.length <= 20
+  derive nameErr = nameNow.trim() == "" ? "Display name is required" : nameNow.length > 20 ? `Display name must be at most 20 characters, not ${nameNow.length}` : ""
+  derive savedText = pending(saveM) ? `Saved: ${inName} · ${inTheme} · ${inDensity} (saving…)` : svOn ? `Saved: ${svName} · ${svTheme} · ${svDensity}` : `Saved: ${settingsRes.name} · ${settingsRes.theme} · ${settingsRes.density}`
+
+  action setUser(v: string)
+    user = v
+  action setTitleDraft(v: string)
+    titleDraft = v
+  action setCommentDraft(v: string)
+    commentDraft = v
+  action setLabelDraft(v: string)
+    labelDraft = v
+  action setQuery(v: string)
+    q = v
+  action setName(v: string)
+    dNameOn = true
+    dName = v
+  action setTheme(t: string)
+    dTheme = t
+  action toggleDensity
+    dDensity = densityNow == "compact" ? "comfortable" : "compact"
+  action retryLoad
+    loadTick = loadTick + 1
+  action setScope(s: string)
+    if s != scope
+      scope = s
+      if s == "open"
+        openTick = openTick + 1
+  action goTab(t: string)
+    if t != page
+      page = t
+      if t == "issues"
+        visit = visit + 1
+        openTick = openTick + 1
+        user = "guest"
+        scope = "open"
+        edits = []
+        hasSel = false
+        titleDraft = ""
+        commentDraft = ""
+        labelDraft = ""
+        assignErr = ""
+        renameErr = ""
+        closeErr = ""
+        postErr = ""
+        labelErr = ""
+        rowErr = ""
+      if t == "help"
+        q = ""
+        pickOn = false
+      if t == "settings"
+        dNameOn = false
+        dTheme = ""
+        dDensity = ""
+        svOn = false
+        saveErr = ""
+  action chooseIssue(id: number)
+    hasSel = true
+    selId = id
+    selSeq = selSeq + 1
+    titleDraft = ""
+    assignErr = ""
+    renameErr = ""
+    closeErr = ""
+    postErr = ""
+    labelErr = ""
+  action retryDetail
+    detailTick = detailTick + 1
+  action assignSel
+    startAssign(selId, false)
+  action rowAssign(id: number)
+    startAssign(id, true)
+  action startAssign(id: number, fromRow: bool)
+    if user.trim() != ""
+      let s = seqNo + 1
+      seqNo = s
+      if fromRow
+        rowErr = ""
+      else
+        assignErr = ""
+      edits = edits.concat([Edit(seq=s, kind="assign", id=id, sel=0, text=user.trim(), by=user, sent=false)])
+      send assignM = assignIssue(s, visit, fromRow, id, user.trim())
+  action closeSel
+    startClose(selId, false)
+  action rowClose(id: number)
+    startClose(id, true)
+  action startClose(id: number, fromRow: bool)
+    let s = seqNo + 1
+    seqNo = s
+    if fromRow
+      rowErr = ""
+    else
+      closeErr = ""
+    edits = edits.concat([Edit(seq=s, kind="close", id=id, sel=0, text="", by=user, sent=false)])
+    send closeM = closeIssue(s, visit, fromRow, id)
+  action renameSel
+    let t = titleDraft.trim()
+    if t != ""
+      let s = seqNo + 1
+      seqNo = s
+      renameErr = ""
+      edits = edits.concat([Edit(seq=s, kind="rename", id=selId, sel=0, text=t, by=user, sent=false)])
+      send renameM = renameIssue(s, visit, false, selId, t)
+  action doPost
+    let t = commentDraft.trim()
+    if t != ""
+      let s = seqNo + 1
+      seqNo = s
+      postErr = ""
+      commentDraft = ""
+      edits = edits.concat([Edit(seq=s, kind="remark", id=selId, sel=selSeq, text=t, by=user, sent=false)])
+      send postM = postComment(s, visit, false, selId, user, t)
+  action doLabelAdd
+    let l = labelDraft.trim()
+    if l != "" and not (labelsNow.includes(l))
+      let s = seqNo + 1
+      seqNo = s
+      labelErr = ""
+      labelDraft = ""
+      edits = edits.concat([Edit(seq=s, kind="addLabel", id=selId, sel=selSeq, text=l, by=user, sent=false)])
+      send addM = addLabel(s, visit, false, selId, l)
+  action doLabelRemove(l: string)
+    let s = seqNo + 1
+    seqNo = s
+    labelErr = ""
+    edits = edits.concat([Edit(seq=s, kind="removeLabel", id=selId, sel=selSeq, text=l, by=user, sent=false)])
+    send removeM = removeLabel(s, visit, false, selId, l)
+  action doPick(id: number)
+    pickOn = true
+    pickId = id
+    pickSeq = pickSeq + 1
+  action retryItem
+    pickSeq = pickSeq + 1
+  action openRelated(id: number, title: string)
+    page = "help"
+    q = title
+    doPick(id)
+  action doSave
+    if nameValid
+      saveErr = ""
+      inName = nameNow
+      inTheme = themeNow
+      inDensity = densityNow
+      send saveM = saveSettings(nameNow, themeNow, densityNow)
+  action settle(r: Done)
+    if r.ok
+      edits = edits.map(e => e.seq == r.seq ? Edit(e, sent=true) : e)
+    else
+      edits = edits.filter(e => e.seq != r.seq)
+  action doneAssign
+    match assignM
+      case some(r)
+        settle(r)
+        if r.ok == false and r.vis == visit
+          if r.fromRow
+            rowErr = r.error
+          else
+            assignErr = r.error
+      case none
+        seqNo = seqNo
+  action doneRename
+    match renameM
+      case some(r)
+        settle(r)
+        if r.ok == false and r.vis == visit
+          renameErr = r.error
+      case none
+        seqNo = seqNo
+  action doneClose
+    match closeM
+      case some(r)
+        settle(r)
+        if r.ok == false and r.vis == visit
+          if r.fromRow
+            rowErr = r.error
+          else
+            closeErr = r.error
+      case none
+        seqNo = seqNo
+  action donePost
+    match postM
+      case some(r)
+        settle(r)
+        if r.ok == false and r.vis == visit
+          postErr = r.error
+      case none
+        seqNo = seqNo
+  action doneAdd
+    match addM
+      case some(r)
+        settle(r)
+        if r.ok == false and r.vis == visit
+          labelErr = r.error
+      case none
+        seqNo = seqNo
+  action doneRemove
+    match removeM
+      case some(r)
+        settle(r)
+        if r.ok == false and r.vis == visit
+          labelErr = r.error
+      case none
+        seqNo = seqNo
+  action doneSave
+    match saveM
+      case some(r)
+        if r.ok
+          svOn = true
+          svName = r.name
+          svTheme = r.theme
+          svDensity = r.density
+        else
+          saveErr = r.error
+      case none
+        seqNo = seqNo
+
+  view
+    main testId="root" width="100%" height="100%" display="flex" flex-direction="column"
+      header appearance="none" display="flex" align-items="center" padding="8px 16px"
+        text "Issue desk" role="heading" aria-level=1 flex=1
+      scroll id="page" flex=1 min-height=0 padding=16
+        if page == "issues"
+          column gap=12 testId="issues-page"
+            input value=user input=setUser aria-label="Current user" testId="user"
+            row gap=8
+              button press=setScope("open") testId="filter-open" buttonStyle=(scope == "open" ? "filled" : "bordered")
+                text "Open"
+              button press=setScope("closed") testId="filter-closed" buttonStyle=(scope == "closed" ? "filled" : "bordered")
+                text "Closed"
+            column testId="list" gap=4
+              if listFailed
+                text `list error: ${listErr}`
+              else if not listCurrent
+                text `loading ${scope} issues`
+              else
+                for i in listRows key=i.id
+                  row gap=8 align-items="center"
+                    button press=chooseIssue(i.id) testId="issue" flex=1 min-width=0
+                      text rowLabel(edits, i)
+                    button press=rowAssign(i.id) testId="row-assign"
+                      text `assign to ${user}`
+                    if scope == "open"
+                      button press=rowClose(i.id) testId="row-close"
+                        text "close"
+            if rowErr != ""
+              text `row error: ${rowErr}` testId="row-error" color="-exact-system-red"
+            column testId="detail" gap=8
+              if not hasSel
+                text "select an issue"
+              else
+                if failed(detailRes)
+                  text `detail error: ${detailErr}` testId="detail-error" color="-exact-system-red"
+                else if not current(detailRes)
+                  text `loading #${selId}`
+                else if not detailRes.found
+                  text `detail error: issue #${selId} not found` testId="detail-error" color="-exact-system-red"
+                else
+                  text `#${selId} ${detailTitle}` role="heading" aria-level=2
+                  text detailRes.body
+                row gap=8
+                  button press=retryDetail testId="retry"
+                    text "retry"
+                  button press=assignSel testId="assign"
+                    text `assign to ${user}`
+                if assignErr != ""
+                  text assignErr testId="assign-error" color="-exact-system-red"
+                row gap=8
+                  input value=titleDraft input=setTitleDraft placeholder="New title" aria-label="New title" testId="title-input" flex=1 min-width=0
+                  button press=renameSel testId="rename"
+                    text "rename"
+                if renameErr != ""
+                  text `rename error: ${renameErr}` testId="rename-error" color="-exact-system-red"
+                row gap=8
+                  button press=closeSel testId="close"
+                    text "close"
+                if closeErr != ""
+                  text `close error: ${closeErr}` testId="close-error" color="-exact-system-red"
+                column testId="comments" gap=4
+                  if failed(remarksRes)
+                    text `comments error: ${remarksErr}`
+                  else if not current(remarksRes)
+                    text "loading comments"
+                  else
+                    for c, n in remarksRes.items key=n
+                      text `${c.author}: ${c.text}` testId="comment"
+                    for e in myRemarks key=e.seq
+                      text remarkText(e) testId="comment"
+                row gap=8
+                  input value=commentDraft input=setCommentDraft placeholder="Add a comment" aria-label="Comment" testId="comment-input" flex=1 min-width=0
+                  button press=doPost testId="post"
+                    text "post"
+                if postErr != ""
+                  text `post error: ${postErr}` testId="post-error" color="-exact-system-red"
+                column testId="labels" gap=4
+                  if failed(labelsRes)
+                    text `labels error: ${labelsErr}`
+                  else if not current(labelsRes)
+                    text "loading labels"
+                  else
+                    for l in labelsNow key=l
+                      row gap=8 align-items="center"
+                        text l testId="label" flex=1
+                        button press=doLabelRemove(l) testId="remove-label"
+                          text `remove ${l}`
+                row gap=8
+                  input value=labelDraft input=setLabelDraft placeholder="Add a label" aria-label="New label" testId="label-input" flex=1 min-width=0
+                  button press=doLabelAdd testId="add-label"
+                    text "add label"
+                if labelErr != ""
+                  text `label error: ${labelErr}` testId="label-error" color="-exact-system-red"
+                if current(detailRes) and detailRes.found
+                  column testId="related" gap=4
+                    if failed(relRes)
+                      text `related help failed: ${relErr}`
+                    else if not current(relRes)
+                      text "finding related help"
+                    else if relRes.items.length == 0
+                      text "no related help"
+                    else
+                      for h in relRes.items.slice(0, 3) key=h.id
+                        button press=openRelated(h.id, detailRes.title) testId="related-hit"
+                          text h.name
+        if page == "help"
+          column gap=12 testId="help-page"
+            input type="search" value=q input=setQuery placeholder="Search help" aria-label="Search help" testId="query"
+            column testId="results" gap=4
+              if q.length == 1
+                text `too short: ${q}`
+              else if q.length >= 2
+                if failed(hits)
+                  text `search failed: ${hitsErr}`
+                else
+                  if not current(hits)
+                    text "searching…"
+                  else
+                    text `${hits.items.length} results for ${q}`
+                  for h in hits.items key=h.id
+                    button press=doPick(h.id) testId="hit"
+                      text `${pickOn and pickId == h.id ? "> " : ""}${h.name}`
+            column testId="item" gap=4
+              if not pickOn
+                text "pick a result"
+              else if failed(itemRes)
+                text `failed: ${itemErr}`
+                button press=retryItem testId="retry-item"
+                  text "retry"
+              else if not current(itemRes)
+                text "loading…"
+              else if not itemRes.found
+                text `item ${pickId} not found`
+              else
+                text itemRes.name role="heading" aria-level=2
+                text itemRes.blurb
+        if page == "settings"
+          column gap=12 testId="settings-page"
+            if settingsFailed
+              text `Could not load settings: ${settingsErr}` testId="load"
+              button press=retryLoad testId="retry-load"
+                text "retry"
+            else if not settingsCurrent
+              text "Loading settings…" testId="load"
+            else
+              text savedText testId="saved"
+              input value=nameNow input=setName aria-label="Display name" testId="name"
+              text `${nameNow.length}/20` testId="name-count"
+              if nameErr != ""
+                text nameErr testId="name-error" color="-exact-system-red"
+              row gap=8
+                button press=setTheme("light") testId="theme-light"
+                  text "Light"
+                button press=setTheme("dark") testId="theme-dark"
+                  text "Dark"
+              button press=toggleDensity testId="density-toggle"
+                text `Density: ${densityNow}`
+              text `Preview: ${themeNow} / ${densityNow}` testId="preview"
+              button press=doSave testId="save" buttonStyle="filled"
+                text "Save"
+              if saveErr != ""
+                text `Save failed: ${saveErr}` testId="save-error" color="-exact-system-red"
+      row role="tablist" testId="tabs"
+        button role="tab" aria-selected=(page == "issues") press=goTab("issues") testId="tab-issues" flex=1
+          text issuesLabel
+        button role="tab" aria-selected=(page == "help") press=goTab("help") testId="tab-help" flex=1
+          text "Help"
+        button role="tab" aria-selected=(page == "settings") press=goTab("settings") testId="tab-settings" flex=1
+          text "Settings"

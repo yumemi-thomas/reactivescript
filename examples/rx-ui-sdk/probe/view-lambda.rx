@@ -1,0 +1,7 @@
+component Btn(props: { children: (state: { pressed: boolean }) => View }) {
+  source lit := false
+  <button onClick={() => { lit := !lit }}>{props.children({ pressed: lit })}</button>
+}
+export default component App() {
+  <Btn>{view (s) { <b>{s.pressed ? "y" : "n"}</b> }}</Btn>
+}

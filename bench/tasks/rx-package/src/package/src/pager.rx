@@ -1,0 +1,19 @@
+// A primitive with several parts (09 MO-13i): to an `.rx` app one record, to JavaScript an accessor for each part that is
+// read, the action itself, and the value itself. The module holds no state: a call outside a render works (MO-13g).
+import { follow } from "./rates.js"
+import pure { fetchQuote } from "./rates.js"
+
+export fn createPager(ref pages: number, first: number) {
+  source raw: number := first
+  page = raw > pages ? pages : raw
+  quote = await fetchQuote(page)
+  action set(n: number) { raw := n }
+  effect (page) { return follow($0) }
+  { page: page, quote: quote, set: set, first: first, edges: { start: page == 1, end: page == pages }, label: (n: number) => `${n} of ${pages}` }
+}
+
+/** Composed: it hands on the parts of the pager it made. */
+export fn createPages(ref pages: number): [number, (n: number) => Promise<void>] {
+  pager = createPager(pages, 1)
+  [pager.page, pager.set]
+}

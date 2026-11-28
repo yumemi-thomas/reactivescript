@@ -1,0 +1,9 @@
+// @solid-primitives/keyboard: the keys held down, and a shortcut.
+import { useKeyDownList, createShortcut } from "@solid-primitives/keyboard"
+
+export default component App() {
+  source saves := 0
+  keys = useKeyDownList()
+  save = createShortcut(["Control", "S"], () => { saves := n => n + 1 }, { preventDefault: true })
+  <p>held: {keys.join("+") || "none"}; saved {saves}</p>
+}

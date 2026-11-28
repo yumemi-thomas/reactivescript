@@ -13,9 +13,12 @@ this spec cites the rule each one folded into: D-2 → D-1, D-11 → D-9,
 D-13/D-14/D-21 → D-12, D-15/D-16 → D-17, D-24 → D-23, D-26/D-27/D-28 →
 D-25, D-32 → D-33, D-35 → D-34, D-39 → D-41; D-36 and D-37 are retired as
 rules (consequences of the glossary's *Guess* and *Lane*). The one change
-of behaviour is decision 1, **posture is per read** (R-11, H-6, H-7): a
-probe reads ahead at its own site, and a plain read beside it in the same
-pass is a plain read.
+of behaviour that alignment made was decision 1, "posture is per read"; Solid
+never built it and closed its issues as not planned, and on 2026-11-27 the
+language took Solid's rule as Solid runs it instead (DV-21, closed): **posture
+is the pass's** (R-11, H-6, H-7). A pass that probes anywhere reads ahead with
+all of it, so does a pass that reads an equation whose pass read ahead, and
+so does a node's next pass after one that probed.
 
 ---
 
@@ -87,7 +90,11 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   every change in the flight's question — stays open while a display is
   waiting on it. A source written by the reader's own change is read, not
   served: that reader shows at the change's commit (S-solid-4's `1:0`).
-  Lane values are never served: pending in a lane is the lane's (H-7). An **equation** never serves: it computes on
+  Lane values are never served: pending in a lane is the lane's (H-7). A **control reader** — an `if` condition, a
+  `for` list — is a computation, not a display, and is not served either (2026-11-27; Solid's `<Show when>` and
+  `<For each>` are memos): it waits with the held value it reads, keeps its branch or its rows, and a write of this
+  instant that it reads joins that hold everywhere (S-hold-9: `{if a + t …}` holds `t := 5` while `a` is re-asked,
+  where `{a + t}` shows it at once). An **equation** never serves: it computes on
   `σ′`, and a reader that consumes a value derived from `c`'s held writes, or
   a landed answer of `c`, **joins** `c` — its reveal belongs to `c`'s commit
   and `d` merges into `c`'s group. A reader that consumed `d`'s own fresh
@@ -110,13 +117,52 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   not when any change does (S-solid-11 instant 1).
 
 - **H-4 (Who holds).** [F-3] A reader holds the group it joined iff it is
-  pending after its pass, it is still the display (its region is live and it
-  will still be a reader after the instant), no armed boundary catches it
-  (H-5 — the catch takes precedence over being served), and it is not a lane
-  reader (H-7). A reader the instant itself removes holds nothing; a reader
-  behind a fallback holds nothing; an effect's compute half, an unread
+  pending after its pass, it is still the display (its region is live, it
+  will still be a reader after the instant, and it is not behind a
+  fallback), no armed boundary catches it (H-5 — the catch takes precedence
+  over being served), and it is not a lane reader (H-7). A reader is
+  **behind a fallback** when a boundary above it — a `loading` or an
+  `errored` region — shows its fallback: that content is not on screen, so
+  it holds nothing, and neither does what it was served — a `{…}` reader,
+  an attribute, an `if` condition, a `for` collection alike. A reader the
+  instant itself removes holds nothing; an effect's compute half, an unread
   equation, a snapshot, or a probe holds nothing. A held reader's pass is
   re-run every instant: it is the display, and serving happens in the pass.
+
+  **A change only content behind a fallback needs reveals at once** (Solid
+  F-3, "a boundary on its fallback is the display of everything under it";
+  pinned by its test E1, "a write publishes beside a shown error fallback",
+  since 2.0.0-rc.23, #4908). The case that matters is the error fallback:
+  after a source's question has failed into an `errored` region's fallback,
+  a change that makes it ask again — a plain write, an action's writes, an
+  input of a `throw` (S-module-1 instant 3: `#2 nobody Z`), through a prop
+  or not — commits in its own instant. Every reader of the change that is
+  the display shows it, beside the old fallback, with the question in
+  flight (`pending?` of the source reads `true` there); the fallback stays
+  until an answer replaces the error (H-12, D-41), and the content behind it
+  waits there holding nothing. What still holds such a change, exactly:
+  - a reader that is the display and pending on it — another question the
+    change asks, read in the open or under a boundary not on its fallback.
+    The failed question's answer, if it lands first, is staged with that
+    hold and reveals with its frame (D-41's mirror: S-solid-42 instants
+    6–8, S-fail-2 instants 5–7);
+  - the reader of a `catch` answer. A matching rejection is an answer, a
+    value like any (R-f-4), not a fallback: its reader is the display, and
+    the next question holds it as it holds any reader (S-fail-2's `other`).
+    So wherever the `catch` stands — an equation's result, inside an
+    expression, a view's reader, an `if` condition — its `await` is settled
+    where it is awaited (an effect's input holds nothing either way). A failure a typed `catch` does
+    not take passes to the boundary above, and is that boundary's fallback;
+  - an armed `loading` above the error fallback (fresh, or re-armed by its
+    `on`): it takes the pending content and shows its own fallback with the
+    change's frame (H-12, S-hold-6);
+  - an action's body, until it returns (AC-1); its writes then reveal as a
+    plain write's do.
+
+  Until 2026-11-26 this paragraph was not written, and DV-25 recorded F-3 as
+  a divergence (see there): the rule was already H-4's for an `errored`
+  region; the interpreter missed it for a control reader, and an inline
+  `catch` was lowered onto Solid as an error boundary.
 
 - **H-5 (Armed boundary catches).** [F-4] A `loading` region is **armed**
   until it has shown content, and again after `on`. While armed, pending
@@ -137,26 +183,44 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   settle; with nothing pending the re-arm is a no-op and the content
   updates in place (S-ai-grid). The value `on` yields is never compared;
   children are not recreated. The `on` expression is a pass like any other
-  (Solid D-17, decision 1 of #4695): when every held value it read, it read
-  through a probe, its frame has landed and the fallback shows now (H-7,
-  S-solid-21); when it read a held value plainly — one it did not also
-  probe (R-11) — it is that hold's work and the swap lands with the hold's
-  frame (`on(id)`, S-solid-48), even beside a probe (`on([latest id,
-  filter])` with `filter` held waits, S-solid-49).
+  (Solid D-17, R-11): when it reads ahead — it probes, or reads an equation
+  that does, or its last pass did — its frame has landed and the fallback
+  shows now beside the held frame (H-7, S-solid-21), even where it also
+  reads a held value plainly (`on([latest id, filter])` with `filter` held
+  re-arms now, S-solid-49); when it reads a held value plainly and does not
+  read ahead, it is that hold's work and the swap lands with the hold's frame
+  (`on(id)`, S-solid-48).
+
+- **H-6a (A re-ask of what `on` reads re-arms; 2026-11-27, Solid's
+  `Loading`, followed).** A value `on` reads *going pending* is a change
+  (Solid documents it: "a plain write, an optimistic write, a source going
+  pending or landing"): while a quiet re-ask (`refresh`, AC-4) of what `on`
+  reads — or of what it is computed from — is out, the region is armed, and
+  a reader under it computed from that re-ask is pending there (in Solid it
+  is; AC-4's quiet is the hold's, which keeps the old screen where nothing
+  is armed), so the fallback shows until the answer lands, though the value
+  `on` yields is the same (`id = list[0]`, `loading on(id)`, `refresh
+  list`). The interpreter kept the content (found by the apps hunt: a
+  dashboard's polls blanked both panels in compiled code, not in `ref/`).
+  To keep the content through a re-ask, key the region on a value the
+  re-ask does not reach: a plain source (`source id := …`, set from the
+  list where it is picked), or nothing (`loading`, armed only until it
+  first shows). S-standing-write.
 
 - **H-7 (Lanes).** [F-6, Solid D-25] A reader whose equation carries `lane(x)` (R-10)
   renders from `σ′` for `x` and what is derived from it, beside the held
-  screen, and never holds the instant on its account. Only the probe sites
-  read ahead (R-11): in the same pass a plain read of a source the pass also
-  probes is the screen's (`x = 1 + n + (pending? n ? 1 : 0)` shows `1 + 0 +
-  1` now while an action holds `n := 5`: S-solid-27's equation variant), and a
-  plain read of any other held value makes the pass the hold's work — it
-  joins the hold like any reader of a held change (H-3), probe or no probe
-  (S-solid-27's second equation variant). What a pass probed is never carried
-  into its next pass: an equation that probed last time and probes nothing
-  this time is an ordinary reader of the held value, and the instant that
-  re-ran it joins the hold (S-solid-50, H-3a). The exception is at the
-  mount: a lane reader
+  screen, and never holds the instant on its account. A pass that reads
+  ahead does so with all of it (R-11): every plain read in it of a held
+  value is the screen's, and it joins no hold (`x = 1 + n + (pending? n ? 1 :
+  0)` shows `1 + 0 + 1` now while an action holds `n := 5`, and `x = 1 + k +
+  (pending? n ? 1 : 0)` shows `1 + 0 + 1` now while the action holds `k := 1`
+  beside it: S-solid-27's equation variants; S-posture-1). This depends on
+  the pass's history, not only on what it reads now: the pass after one that
+  probed still reads ahead though it probes nothing (S-solid-50: the instant
+  that re-ran it commits beside the held value), and the pass after that is
+  an ordinary reader of the held value, so the next instant that re-runs it
+  joins the hold (H-3a; S-solid-50's one-pass variant). The exception is at
+  the mount: a lane reader
   with no committed value has no committed world to show, so it is the
   mount's and holds instant 0 like any reader (S-hold-4; found by the
   oracle). A lane has identity — the probed
@@ -265,7 +329,8 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 - **H-12 (Errors).** [F-12, D-41] An error value reaching a reader under
   `errored` sends that region to its fallback, which is then the display
-  (H-4: readers behind it hold nothing and keep no change open). An error
+  (H-4: readers behind it hold nothing and keep no change open — once it is the display: a fallback staged with a held
+  change is not yet, and what is read beside the failed reader still holds that change; S-hold-10). An error
   is an answer: a held rejection is staged like a value and reveals with
   its frame — the fallback moves with the frame of the change whose answer
   caused it, and so does a recovery (S-solid-42: `1 | 1 | 1` stays until
@@ -276,7 +341,8 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   catch it — and it is not an answer either: an `errored` region on its
   fallback stays there while the content under it is pending, and leaves
   only when a value replaces the error (Solid D-41; found by `ref/`:
-  S-hold-5 instant 2) — unless a `loading` above it is armed (re-armed by
+  S-hold-5 instant 2), while the change that asked again shows at once
+  beside it (H-4, Solid F-3) — unless a `loading` above it is armed (re-armed by
   its `on`): that boundary takes the pending content behind the error
   fallback and shows its own fallback over both (S-hold-6; found by
   S-ai2-search, Solid's behaviour). A typed boundary (`fallback(e: A | B)`) takes only
@@ -347,8 +413,21 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   `null` markers, and each region keeps its place with a sentinel; a region
   whose value becomes an empty array (`<></>` compiles to `[]`) removes its
   sentinel, and what replaces it later is appended after its siblings. The
-  DOM build uses comment markers and is not affected. The emitter writes an
-  empty view as `null`, which keeps its slot.
+  DOM build uses comment markers and is not affected. The emitters wrote an
+  empty view as `null`, which keeps its slot, until the audit of 2026-11-27
+  removed the workaround: an empty view is `<></>` again (a block with no
+  view still returns `null`, which is "nothing to show", not this case).
+- **DV-7 (a rethrow from an inner error fallback) — a Solid bug, found
+  2026-10-23 while lowering typed boundaries; fixed on `next` 2026-10-26
+  (solidjs/solid#4270, fix #4277)** (`ref/oracle/repros/dv7-rethrow.mjs`).
+  An outer error boundary that took an error rethrown from an inner
+  boundary's fallback did not recover when the content did. It showed in no
+  scenario: a typed boundary (R-f-4) and a reactive `catch` handed a failure
+  of another class out of the fallback as a value, and a memo around the
+  boundary threw it. That lowering went in the audit of 2026-11-27 (the
+  repro shows `ok0` at the pin): the fallback throws a failure of another
+  class itself, in the oracle and both client runtimes, as the server
+  runtime always did.
 - **DV-9, DV-11, DV-12, DV-14 (the server and hydration)** — Solid's server render
   and its hydrating client; recorded in 10-server.md.
 - **DV-17 (a shared boundary merges mounts) — a Solid bug, ruled
@@ -402,7 +481,7 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   stand. Filed as solidjs/solid#4305; fixed on `next` 2026-10-27 (shows
   in no scenario at `2c9fdd9`).
 - **DV-19 (`latest` of a pending guess after a re-ask) — a Solid bug,
-  ruled not built** (solidjs/solid#4689; ruled in #4695, decision 3:
+  fixed in 2.0.0-rc.22, no longer recorded** (solidjs/solid#4689; ruled in #4695, decision 3:
   D-22 "a slot that is displaying a guess has the guess as its newest
   value", D-34 "the screen, untracked reads and `latest` of the displayed
   slot keep the guess until the commit"). Found by the round 8 fuzzer on
@@ -413,7 +492,11 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   issues` shows the server's rows beside a list with a close in flight.
   S-latest-reask records `2 / 3` for `2 / 2` (and `2 / 4` in its variant)
   on the oracle and the compiled runtime. `untrack` answers the guess
-  throughout.
+  throughout. Built in Solid 2.0.1 (the repin of 2026-11-19): no longer
+  recorded. (At the pin the repro's store mode, which nothing displays,
+  still answers `latest=3`; decision 3 is about a slot that displays a
+  guess, and the scenario, which displays it, is right on every runner. Not
+  a divergence: noted by the audit of 2026-11-27.)
 - **DV-20 (a guess read by effects alone reverts under the action's
   refresh) — a Solid bug, reproduced 2026-11-05** (solidjs/solid#4690,
   `ref/oracle/repros/4690-guess-reask-refresh.mjs`). With nothing
@@ -422,25 +505,188 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   action's re-ask answers. D-34 says the guess waits for that answer.
   S-guess-reask-refresh's effect-only variant records it at instants 5
   and 6; a rendered reader of the source holds the effect's view too.
-  Fixed on `next` (Ryan, 2026-11-05); recorded until the repin.
-- **DV-21 (posture is per read) — Solid's ruling, not built** (solidjs/solid#4695,
-  decision 1: D-17, D-25; Solid's S-49 and S-50 `it.fails`). Today one probe in a
-  pass makes the whole pass a display-ahead reader, and a probe on its last
-  run is carried into the next: a mixed `on([latest id, filter])` with
-  `filter` held re-arms now (S-solid-49 instants 3–4), an equation that
-  probes one source and reads another held one plainly shows now
-  (S-solid-27's second equation variant), and an equation that probed once
-  publishes the plain write that re-ran it beside the held value (S-solid-50
-  instant 2: `m 2 k 1`). The spec frames are Solid's ruled ones.
+  Fixed in 2.0.0-rc.22; no longer recorded.
+- **DV-21 (posture is per read) — not a divergence: Solid's rule as Solid
+  runs it, followed; closed 2026-11-27.** The rule is now R-11's (the pass's
+  posture, with its one-pass carry-over), and S-solid-27, S-solid-49 and
+  S-solid-50 have Solid's frames on every runner; no row is recorded. What a
+  program that wants per-read results writes is said by the advice
+  `PROBE_BESIDE_HELD_READ` (99, guide): the two reads in computations kept
+  apart up to the screen. History, for what cites it. Recorded 2026-11-06
+  as Solid's ruling, not built (solidjs/solid#4695, decision 1: D-17, D-25;
+  Solid's S-49 and S-50 `it.fails`): one probe in a pass made the whole pass
+  a display-ahead reader, and a probe on its last run was carried into the
+  next — a mixed `on([latest id, filter])` with `filter` held re-armed now
+  (S-solid-49 instants 3–4, where the ruling said `p1 c1`), an equation that
+  probed one source and read another held one plainly showed now
+  (S-solid-27's second equation variant, `x 2` where the ruling said `x 1`),
+  and an equation that probed once published the plain write that re-ran it
+  beside the held value (S-solid-50 instant 2: `m 2 k 1` where the ruling
+  said `m 2 k 0`). The spec kept the ruled frames until 2026-11-27.
+  *Memo (2026-11-27).* Still so on Solid main 50a4bfdde and on 2.0.4, in
+  plain Solid in a browser (`rx-review.noindex/solid-check`, `dv-21`): S-49
+  shows `p1 [fallback]` where the ruling says `p1 c1`, S-50 `m 2 k 1` where
+  it says `m 2 k 0`; Solid's own tests for both are `it.fails`. Its two
+  issues, solidjs/solid#4698 and #4699, were closed as not planned on
+  2026-11-06 with no comment. *Closed (2026-11-27, the user's decision, as
+  for F-3/DV-25).* Solid closed both issues not planned; the language follows
+  what Solid does. Read at the pin (`packages/signals/src/core`): the verdict
+  bit of a node is set at the end of each pass from that pass's probes
+  (`core.ts`, "a verdict reader is one only while it probes or reads a memo
+  that does"), so a probe anywhere in the pass counts for all of it — a pass
+  that probes after a plain read that joined a hold restarts as a reader
+  ahead (`verdict.ts`, #4777) — it lasts one pass after (`seat.ts`, "D-25
+  carry-over (S-50)"), and a pass that reads a memo with the bit set reads
+  ahead too (`core.ts`; a render effect re-run by one, `scheduler.ts`
+  `laneDirty`). The last part was not in the record: putting the probe into
+  an equation of its own does not give per-read frames in Solid
+  (S-posture-1's variant, every runner).
 - **DV-22 (`pending?` under a new question under a guess) — Solid's ruling,
   not built** (#4695, S-44). An outside input change under a guess reads
   `pending? x` `false` (S-solid-44 instant 3); the ruled verdict is `true`.
-  The screen is the ruled one; `latest x` there is DV-19.
+  The screen is the ruled one. Still recorded on rc.22 (S-solid-44 instant 3).
+  Inside a `loading on(sel)` region whose `on` reads the held input, the
+  same probe reads `false` even where one outside it reads `true`, so
+  `disabled={pending? x}` there does not disable (found by the eval board,
+  2026-11-14: `eval/results/r15prep/repro/pending-probe-inside-held-region.*`,
+  plain Solid in its `.spec.tsx`).
+  *Memo (2026-11-27).* The core fault still reproduces on Solid main
+  50a4bfdde and on 2.0.4 (`rx-review.noindex/solid-check`, `dv-22`): S-44
+  shows `3 9 9 false` where the ruling says `true`, and Solid's test is
+  `it.fails`. The held-region symptom no longer does: `disabled={pending? x}`
+  inside a `loading on(sel)` region disables on both versions, and the probe
+  outside reads the same — the eval repro of 2026-11-14 is fixed.
 - **DV-23 (a born-held branch under a display-ahead condition) — Solid's
-  ruling, not built** (#4695, decision 4: D-1; S-46's plain row). A branch a
+  ruling, built in 2.0.0-rc.22, no longer recorded** (#4695, decision 4: D-1; S-46's plain row). A branch a
   probe opens whose content read the held write plainly attaches with its
   slot empty and removes the old arm (S-solid-46 instant 2: `0 d0`); ruled:
   it is born held and the old arm stays until the landing.
+- **DV-25 (a reader out of an error state does not hold the change) — not
+  a divergence: Solid's rule F-3, which the language follows; closed
+  2026-11-26.** History, for what cites it. Recorded 2026-11-19 on the
+  repin to Solid 2.0.1 as a regression (rc.21 and rc.22 held; plain Solid:
+  `ref/oracle/repros/dv25-errored-reask.mjs`, `#2 nobody` at the re-ask). It
+  is Solid's intended rule since 2.0.0-rc.23 (#4908, F-3 and F-12, its test
+  E1; the plain-Solid draft `solid-main.noindex/drafts/3-errored-reask-write`
+  says so, and is not to be filed). What the record met was not H-4, which
+  already said that a reader behind a fallback holds nothing (S-hold-5,
+  S-solid-38), but a `catch` lowered onto Solid as an error boundary whose
+  fallback is the catch's value: under F-3 that boundary's content holds
+  nothing, so a `catch` answer's reader stopped holding the next question
+  in Solid while R-f-4 makes it an answer that holds. The same day
+  `CATCH_NOT_ON_AWAIT` replaced S-module-1's catch over a read by an
+  `errored` region, whose frame moved to `#2 nobody Z` (F-3's), so the
+  record there matched its own frame from then on; the oracle settled a
+  tail `await … catch` where it is awaited, as the compiled code did, which
+  ended S-fail-2's client records; its hydrated record (`zzznone` at
+  instant 6) no longer reproduces at the pin (30e7805: every runner holds
+  there, as F-3 says — `other`'s reader is the display). Two instances were
+  left, found by the probes of 2026-11-26 (`rx-t3.noindex/probes/f3`, 24
+  programs × every runner): the interpreter held a change for an `if`
+  condition or a `for` collection behind a shown error fallback, which
+  Solid and H-4 do not (fixed: `behindErrorFallback`); and an `await …
+  catch` not in tail position (inside an expression, a view's reader, a
+  condition) was still an error boundary in the oracle
+  and both emitters, so Solid released its reader (fixed: every `await` a
+  `catch` takes is settled where it is awaited, `awaits.ts` `caught`). H-4
+  now states F-3 and what still holds. Changed on the user's decision of
+  2026-11-26: F-3 is Solid's deliberate rule, not a bug, so the language
+  follows it (a Solid bug would have stayed a DV with a memo).
+- **DV-31 (an outer boundary keeps a rethrown failure after the inner one
+  takes the next) — a Solid bug; open, 2026-11-28**
+  (`ref/oracle/repros/dv31-rethrow-then-caught.mjs async own effect`, plain
+  Solid; S-fail-10). Nested typed boundaries, `errored(e: NotFound) {
+  errored(e: TooLong) { u } }`: `u` fails with `NotFound`, which the inner
+  boundary's fallback throws on to the outer one (R-f-4). A change asks
+  again, and the answer makes `u` fail with `TooLong`, the inner boundary's
+  class. R-f-4 says the outer boundary re-decides and the inner one shows
+  `TooLong`, as the interpreter does. Solid keeps the outer's `NotFound`
+  fallback until a value lands. Three things together make it stick: the
+  answer is pending in between (the synchronous form hands over); the inner
+  boundary is made inside the outer one's content and handed out unread,
+  as JSX nests `<Errored>` (made beside it and read in the content, it
+  hands over); and the failing read is a render effect's, as `insert`'s is.
+  With `createErrorBoundary` or `<Errored>`, two levels or three, the same.
+  Main 510bb8d01 and npm 2.0.4 alike. The oracle and both emitters lower a
+  typed boundary as Solid's own `<Errored>`, whose fallback throws another
+  class (the lowering DV-7's fix allowed). They show it as Solid does,
+  recorded as an `oracle` divergence. The served runner shows it too. Not
+  worked around: DV-7's old lowering (the fallback hands the failure out,
+  a memo around the boundary throws it) changes the boundary's structure
+  for every program to hide a bug in one. Earlier repro runs said plain
+  Solid recovered "in every form tried". Every form tried read the inner
+  boundary eagerly in the outer's content, which hides it. *Cause*
+  (traced, repros/README): the reader going pending while the outer
+  boundary shows its fallback is recorded at the outer boundary (D-38). Its
+  next failure is caught by the inner boundary, and the outer is never told.
+  Its `prune` keeps any errored reader, even one whose error a boundary
+  below took. A pending phase anywhere in between is enough: the first
+  failure may be synchronous or come from an answer. The candidate fix, an
+  error boundary not keeping an errored reader that an error boundary below
+  it has recorded (`caughtBelow`'s counterpart), gives S-fail-10's spec
+  frames in the oracle with no divergence rows and leaves every other
+  oracle scenario as it is. So the lowering is right as it stands. *Memo:*
+  the user's to file. No draft: the repro and the candidate fix are in
+  repros/README.
+- **DV-30 (a guess on an optimistic store holds no switch once a refresh of
+  it has landed) — a Solid bug; open, 2026-11-27; reduced 2026-11-28**
+  (`ref/oracle/repros/dv30-refresh-then-guess.mjs`, the reduced form;
+  `keyed-guess-refresh-tear.mjs`, the first; plain Solid; S-guess-filter).
+  *Reduced (the user's, 2026-11-28):* neither the key, nor a refresh inside
+  the action, nor a first action is needed. `createOptimisticStore(async ()
+  => call(filter()), [])`, one plain `refresh(todos)` that lands, then an
+  action that guesses (`setTodos(ts => [...ts, { id }])`) and awaits:
+  `setFilter("open")` shows `open | a,z` where H-11 says `all | a,z`. Without
+  the earlier refresh it holds; `createOptimistic` (a signal, not a store)
+  holds; an unrelated signal written between the steps hides it. Torn on
+  Solid main 50a4bfdde, 510bb8d01 and npm 2.0.4 alike (run here). The first
+  form, as found: `createOptimisticStore(async () => fetch(filter()), [], {
+  key: "id" })` and an action that guesses a row, awaits and refreshes. On a
+  fresh store a `filter` switch while the guess is out joins its hold (H-11,
+  Solid D-34): the screen stays on the old filter with the guessed list. After
+  one such add has settled (guess, answer, refresh landed), the next add's
+  guess no longer holds the switch: the filter's reader shows `open` beside
+  the old answer with the guess for as long as the action is out (`open |
+  a,x,z` where the rule says `all | a,x,z`), then the new answer. Both
+  emitters and the oracle show it (compiled code lowers a keyed equation a
+  guess sits over to exactly that store); an unkeyed equation and a source
+  with a question hold. The interpreter tore too, for a guess on any
+  equation — ours, fixed (H-11 was read for a source with a question only).
+  Found by the claims hunt (finding 4, `rx-hunt.noindex/claims/app/t/
+  s01-solid-tear`, `s02-solid-fresh`). Recorded as an `oracle` divergence; the
+  program is the guide's §3 shape and nothing is refused. *Memo:* the user's
+  to file; no draft, the repro is the plain-Solid program to start from.
+  Unchanged at Solid main 510bb8d01 (2026-11-28: the repro prints the same
+  frames on both pins, S-guess-filter's row still needed).
+- **DV-29 (a reader misses a change after an effect's cleanup called an
+  action) — a Solid bug, a regression in 2.0.4; fixed on Solid main
+  510bb8d01 (solidjs/solid#5236, issue #5233), not in a release yet**
+  (`ref/oracle/repros/cleanup-action-write.mjs`, plain Solid;
+  S-effect-cleanup-action). A part that registers with its root in an effect
+  and unregisters in the effect's cleanup (EF-5), through an action, is the
+  shape of a dialog kit (Kobalte's `Title`). When `if` ends the part, the
+  cleanup's action runs while its owner is disposed; from then on a render
+  effect over a memo of the root's record misses the next change: the
+  trigger keeps `F` while the part shows (`Ft` where the rule says `Tt`). A
+  plain write in the cleanup does not do it, nor the same write in the
+  effect's body. Solid 2.0.3, 2.0.0, rc.23 and rc.21 show `Tt`; 2.0.4 (its
+  development and production builds) and main at 30e7805eb and 50a4bfdde
+  show `Ft` — not #4906's, then. Among 2.0.4's 16 commits to the signals,
+  #5124 ("a removed row's cleanup can call an action during teardown") and
+  #5161 ("a cleanup during its landing never merges it") touch exactly
+  this; not bisected (Solid is not rebuilt here). Recorded as an `oracle`
+  divergence; the program is ordinary and nothing is refused. Found when the
+  examples moved onto the pinned Solid (2026-11-27): `examples/rx-packages`
+  `live.mjs`, Kobalte's popover, select and tooltip, whose rewrites
+  unregister so, differ from the originals at the reopening step (their
+  `causes.json` named DV-29). *Memo (2026-11-28):* filed by the user as
+  #5233 (cause: #5161) and fixed by #5236 ("a landed transaction stops being
+  the flush's, so a cleanup's action never swallows the next write"). At the
+  pin 510bb8d01 the repro's `action` gives `F | T | F | T | F` as `plain`
+  does, and every runner shows `Tt` at S-effect-cleanup-action's instant 4:
+  its `oracle` row is removed, and `examples/rx-packages`' DV-29 causes with
+  it (the rewrites agree with the originals at the reopening step). Released
+  2.0.4 still has it; the runtime's peer (`>2.0.4`) leaves 2.0.4 out.
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
   2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts
@@ -481,8 +727,9 @@ S-5 (two roots as two branches of one app — MO-1c; DV-17); since #4695
 S-46, S-48, S-49 and S-50. Two of Solid's rows are not ported: S-45 (a
 first answer and an action landing in one tick — a scenario instant carries
 one event) and S-47 (`try/catch` around a reactive read, D-42 — `.rx` has
-no such form: a reactive `catch` (R-f-4) lowers to an error boundary,
-which is a channel, and `try` is imperative only). Divergences found and fixed
+no such form: a reactive failure is taken by an `errored` region, which
+is a channel, a `catch` follows only an `await` (R-f-4), and `try` is
+imperative only). Divergences found and fixed
 by porting are recorded in the rule they changed. Solid's probe columns
 (`latest(x)`, `isPending(x)` beside a screen) are untracked reads; an
 on-screen probe in a held lane of `latest` readers keeps what it showed
@@ -490,7 +737,8 @@ on-screen probe in a held lane of `latest` readers keeps what it showed
 ports show the probe only where it is not in the held lane.
 
 Scenario actions gain `resolve x v` and `reject x e`, which land the current
-flight of equation `x`. Frames list, per instant, the screen and the probe
+flight of equation `x`. A plain `await` takes one answer of a flight: landing a
+flight again is a stream's landing, which only `await*` takes (ST-6; S-hold-11). Frames list, per instant, the screen and the probe
 verdicts a reader of `pending? x` would show.
 
 - `S-hold-1`: first load reaches a boundary; later update is held; `latest`

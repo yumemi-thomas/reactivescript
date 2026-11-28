@@ -1,0 +1,4 @@
+//@ for @solid-primitives/a11y ^1.0.0
+export type AnnouncePoliteness = import("@solid-primitives/a11y").AnnouncePoliteness
+export fn createReducedMotion(): ref boolean
+export fn createAnnounce(): ((message: string, politeness?: AnnouncePoliteness) => void) instantiates

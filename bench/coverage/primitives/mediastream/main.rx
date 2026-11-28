@@ -1,0 +1,10 @@
+// @solid-primitives/mediastream: a media stream that follows what is asked of it.
+import { createStream } from "@solid-primitives/mediastream"
+
+export default component App() {
+  source wanted := false
+  [stream, controls] = createStream(wanted && { audio: true })
+  errored fallback (e) { <p>no stream</p> } {
+    loading fallback { <p>asking</p> } { <p>{stream ? "live" : "no stream asked"}</p> }
+  }
+}

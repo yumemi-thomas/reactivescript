@@ -1,0 +1,6 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type AvatarLoadingStatus = import("@ui-sdk/solid/avatar").AvatarLoadingStatus
+export type AvatarLoadingStatusChangeReason = import("@ui-sdk/solid/avatar").AvatarLoadingStatusChangeReason
+export type AvatarState = import("@ui-sdk/solid/avatar").AvatarState
+export component Avatar(props: Parameters<typeof import("@ui-sdk/solid/avatar").Avatar>[0] & { onLoadingStatusChange?: (status: AvatarLoadingStatus, details: import("@ui-sdk/core").ChangeDetails<AvatarLoadingStatusChangeReason>) => void; render?: (props: Record<string, any>, state: NoInfer<AvatarState>) => View })
+export component AvatarFallback(props: Parameters<typeof import("@ui-sdk/solid/avatar").AvatarFallback>[0] & { render?: (props: Record<string, any>, state: NoInfer<AvatarState>) => View })

@@ -1,0 +1,77 @@
+# The representative-task benchmark (bench/README.md): each task is a job a Solid user does with a library of the
+# ecosystem — its good program accepted by both checkers, typed by the library's own types and run in Chromium, its
+# one-line mistakes refused. The run is compared with bench/scorecard.json: a check that is green there may not turn
+# red, and a check that is red is one its task's `known` gives the reason for. And the coverage suite: every package of
+# the libraries bench/coverage/libraries.json lists, drafted whole and used once, compared with bench/coverage/coverage.json.
+#
+# The tasks over two machines, several at once (BENCH_JOBS), and the coverage suite over two. `--shard i/2` is every second task, entry and
+# module no entry drafts; each shard holds the whole list (bench/coverage.mjs).
+name: bench
+
+on:
+  push:
+    branches: [main]
+    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml", ".github/actions/solid-next/**", ".github/actions/kobalte/**"]
+  pull_request:
+    paths: ["compiler/**", "ref/**", "runtime/**", "tooling/rx-language-server/**", "bench/**", ".github/workflows/bench.yml", ".github/actions/solid-next/**", ".github/actions/kobalte/**"]
+  workflow_dispatch:
+
+jobs:
+  bench:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: tasks 1/2, run: "--tasks-only --shard 1/2" }
+          - { name: tasks 2/2, run: "--tasks-only --shard 2/2" }
+          - { name: coverage 1/2, run: "--coverage-only --shard 1/2" }
+          - { name: coverage 2/2, run: "--coverage-only --shard 2/2" }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown   # the WebAssembly builds below
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compiler
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1   # solid-next's packageManager
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Solid next, at the pin (the runtime and bench/package.json link ../solid-next)
+        uses: ./.github/actions/solid-next
+      - name: Kobalte's solid2 branch at ref/KOBALTE, on that Solid (bench/package.json links ../kobalte)
+        uses: ./.github/actions/kobalte
+      - name: The crate (rxc, the Node-API build Solid's Vite plugin loads, and the WebAssembly builds the language server loads)
+        working-directory: compiler
+        run: |
+          npm ci
+          cargo build --release
+          npx napi build --platform --release --features node --manifest-path ./Cargo.toml -- --lib
+          # what rx-declare reads a package's code with (compiler/words): without it every draft is "the code could not be
+          # read" — no word proven, every one a question (DECISION.md "Bench on GitHub vs local"); and the crate's, which
+          # rx-tsc and rx-declare ask in process, as scripts/ci and scripts/setup.sh build them
+          cargo build --lib --release --target wasm32-unknown-unknown
+          cargo build -p rx-words --release --target wasm32-unknown-unknown
+      - name: The runtime
+        run: npm --prefix runtime ci && npm --prefix runtime run build
+      - name: The language server's packages (rx-tsc)
+        run: npm --prefix tooling/rx-language-server ci
+      - name: The libraries, and Chromium
+        run: |
+          # from the lockfile, as bench/harness.mjs installs them: every machine resolves the same tree
+          mkdir -p bench/.out/ws && cp bench/package.json bench/package-lock.json bench/.out/ws/
+          (cd bench/.out/ws && npm ci --no-audit --no-fund --legacy-peer-deps && cp package-lock.json node_modules/.installed-from-lock && npx playwright install --with-deps chromium)
+      - name: The benchmark's own counting
+        run: RXC=$GITHUB_WORKSPACE/compiler/target/release/rxc node bench/measure.test.mjs
+      - name: A generated declaration refuses nothing an import with none is accepted for
+        if: startsWith(matrix.name, 'tasks')
+        run: node --experimental-strip-types --no-warnings bench/generated.mjs --shard ${{ endsWith(matrix.name, '1/2') && '1/2' || '2/2' }}
+      - name: The benchmark, against bench/scorecard.json and bench/coverage/coverage.json
+        env:
+          BENCH_JOBS: 4   # the machine is this job's alone: every core (by default, half)
+        run: node bench/run.mjs ${{ matrix.run }} --check --strict

@@ -1,0 +1,1 @@
+{ "compilerOptions": { "jsx": "preserve", "jsxImportSource": "@solidjs/web", "strict": true, "noImplicitAny": false, "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler", "allowImportingTsExtensions": true, "noEmit": true, "skipLibCheck": true, "lib": ["ES2023", "DOM", "DOM.Iterable"], "types": [] }, "include": ["src/main.rx", "src/rx-types/**/*.d.rx"] }

@@ -1,0 +1,9 @@
+//@ for @tanstack/solid-router ^2.0.0-rc.10
+// @tanstack/solid-router 2.0 (rc) in rows: its link and its hook, which read the router's context. The route tree is
+// given to the app's own factory (routes.js), which provides that context. The types are the package's own.
+export context router
+export type AnyRouter = import("@tanstack/solid-router").AnyRouter
+export type RegisteredRouter<TRegister = Register> = import("@tanstack/solid-router").RegisteredRouter<TRegister>
+export type Register = import("@tanstack/solid-router").Register
+export component Link(props: { to: string; params?: Parameters<typeof import("@tanstack/solid-router").Link>[0]["params"]; children?: View }) uses(router)
+export fn useParams<TRouter extends AnyRouter = RegisteredRouter, const TFrom extends string | undefined = undefined, TStrict extends boolean = true, TThrow extends boolean = true, TSelected = unknown>(opts: import("@tanstack/router-core").StrictOrFrom<TRouter, TFrom, TStrict> & { select?: (params: import("@tanstack/router-core").ResolveUseParams<TRouter, TFrom, TStrict>) => TSelected; shouldThrow?: import("@tanstack/router-core").ThrowConstraint<TStrict, TThrow> }): ref import("@tanstack/router-core").ThrowOrOptional<import("@tanstack/router-core").UseParamsResult<TRouter, TFrom, TStrict, TSelected>, TThrow> uses(router)

@@ -1,0 +1,4 @@
+export default component App() {
+  source a: "x" | "y" := "x"
+  <button onClick={() => { if (a == "x") { a := "y" } else { a := "x" } }}>{a}</button>
+}

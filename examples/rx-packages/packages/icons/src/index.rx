@@ -1,0 +1,22 @@
+// An icon set: one component over the shapes, a context for what all take, a component for each icon.
+// Derived from @lucide/solid 1.80.0 (ISC) and solid-icons 2.0.0 (MIT): see ../NOTICE.
+import { num } from "@reactivescript/std/math"
+import { check, circle, Node } from "./icons.js"
+import { Svg } from "./types.js"
+
+type Defaults = { size?: number | string; color?: string; strokeWidth?: number; absoluteStrokeWidth?: boolean; class?: string }
+context defaults: Defaults = {}
+export component IconProvider(props: Defaults & { children?: View }) {
+  provide defaults = { size: props.size, color: props.color, strokeWidth: props.strokeWidth, absoluteStrokeWidth: props.absoluteStrokeWidth, class: props.class }
+  {props.children}
+}
+export type IconProps = Omit<Svg, "children"> & Defaults & { children?: View }
+export component Icon(props: IconProps & { nodes: Node[]; name?: string; alias?: string }) {
+  { nodes, name, alias, size, color, strokeWidth, absoluteStrokeWidth, class: user, children, ...rest } = props
+  d = use defaults
+  side = size ?? d.size ?? 24
+  stroke = strokeWidth ?? d.strokeWidth ?? 2
+  <svg xmlns="http://www.w3.org/2000/svg" width={side} height={side} viewBox="0 0 24 24" fill="none" stroke={color ?? d.color ?? "currentColor"} stroke-width={absoluteStrokeWidth ?? d.absoluteStrokeWidth ? stroke * 24 / num(side) : stroke} stroke-linecap="round" stroke-linejoin="round" aria-hidden={props.children != undefined || props["aria-label"] != undefined ? undefined : "true"} class={["lucide", "lucide-icon", name ? `lucide-${name}` : "", alias ? `lucide-${alias}` : "", d.class ?? "", user ?? ""]} {...rest}>{for n in nodes { {if n[0] == "path" { <path {...n[1]} /> } else { {if n[0] == "circle" { <circle {...n[1]} /> } else { <line {...n[1]} /> }} }} }}{children}</svg>
+}
+export component Check(props: IconProps) { <Icon {...props} nodes={check} name="check" /> }
+export component CircleCheck(props: IconProps) { <Icon {...props} nodes={circle} name="circle-check" alias="check-circle-2" /> }

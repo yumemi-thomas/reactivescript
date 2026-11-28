@@ -1,0 +1,3 @@
+// By hand: every word (the module is the app's own).
+// the last message waits for the first one and throws the stream's failure where it is read (MO-10l)
+export fn createStream(ref url: string): { data: pending fails(Error) ref string; close: () => void; reconnect: () => void }

@@ -1,0 +1,7 @@
+// createInteractOutside. Derived from @solid-primitives/interaction 1.0.1 (MIT, see ../NOTICE); makeInteractOutside is the original's.
+import client { makeInteractOutside } from "@solid-primitives/interaction"
+
+export fn createInteractOutside(ref options: any, ref target: any) {
+  effect (options.disabled, target) { return $0 || !$1 ? undefined : makeInteractOutside($1, options) }
+  null
+}

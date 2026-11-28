@@ -1,0 +1,11 @@
+// Eight of the builders. Derived from @solid-primitives/signal-builders 1.0.0 (MIT, see ../NOTICE).
+import pure { parseFloat_, parseInt_ } from "./dom.js"
+import { max, min, round as round_ } from "@reactivescript/std/math"
+export fn string(ref x: any): string => x + ""
+export fn float(ref x: string): number => parseFloat_(x)
+export fn int(ref x: string, radix?: number): number => parseInt_(x, radix)
+export fn clamp(ref x: number, ref lo: number, ref hi: number): number => min(max(x, lo), hi)
+export fn round(ref x: number): number => round_(x)
+export fn join<T>(ref list: T[], ref separator: string): string => list.join(separator)
+export fn filter<T>(ref list: T[], fn_: (x: T) => boolean): T[] => list.filter(fn_)
+export fn slice<T>(ref list: T[], ref start: number, ref end: number): T[] => list.slice(start, end)

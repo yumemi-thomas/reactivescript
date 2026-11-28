@@ -1,0 +1,4 @@
+export default component App() {
+  source on := false
+  <button onClick={() => { on := !on }}>a</button>
+}

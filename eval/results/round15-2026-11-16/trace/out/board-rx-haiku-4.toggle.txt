@@ -1,0 +1,6 @@
+✗ HOLD a toggle declined after another card was selected puts the first card's count back
+    locator.click: Timeout 30000ms exceeded.
+✗ HOLD a toggle and an item add out together: the progress and the card's count agree
+    locator.click: Timeout 30000ms exceeded.
+
+0/2 passed

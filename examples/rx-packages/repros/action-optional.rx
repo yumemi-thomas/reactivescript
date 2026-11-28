@@ -1,0 +1,5 @@
+export default component App() {
+  source n := 0
+  action add(by?: number) { n := n + (by ?? 1) }
+  <button onClick={() => { add() }}>{n}</button>
+}

@@ -1,0 +1,7 @@
+// .rx checker gap: `go(1, 2)` on a zero-parameter action and `props.col` in a component declared without props both pass `rxc check`; props compiles to `v$props?.col` (undefined, rendered silently). Found when board.rx passed `props.col` from BoardPage.
+import { moveCard } from "./api"
+export default component App() {
+  source n: number := 0
+  action go() { n := 1 }
+  <button onClick={() => { go(1, 2); log(props.col) }}>x{props.col}</button>
+}

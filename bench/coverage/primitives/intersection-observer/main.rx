@@ -1,0 +1,12 @@
+// @solid-primitives/intersection-observer: whether an element is in view.
+import { createVisibilityObserver } from "@solid-primitives/intersection-observer"
+
+export default component App() {
+  source target: HTMLDivElement | undefined := undefined
+  visible = createVisibilityObserver(target)
+  loading fallback { <p style="position:fixed;top:0">measuring</p> } {
+    <p style="position:fixed;top:0">{visible ? "in view" : "out of view"}</p>
+  }
+  <div style="height:2000px"></div>
+  <div class="target" ref={(el: HTMLDivElement) => { target := el }} style="height:50px">target</div>
+}

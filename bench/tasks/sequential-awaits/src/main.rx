@@ -1,0 +1,18 @@
+// A dashboard's refresh: the team is asked for once the user is known (one needs the other); the news is asked for
+// beside them.
+import { loadUser, loadTeam, loadNews, all } from "./api.js"
+
+export default component App() {
+  source summary := "nothing yet"
+  source took := 0
+  action reload() {
+    try {
+      let asked = all([loadUser(7), loadNews()])
+      let [user, news] = await asked
+      let team = await loadTeam(user.team)
+      summary := `${team.name} (${team.size}), ${len(news)} news`
+    } catch (e) { summary := "failed" }
+  }
+  <button class="go" onClick={() => { reload() }}>refresh</button>
+  <p class="summary">{summary}</p>
+}

@@ -22,7 +22,7 @@ export const RT_WEB = process.env.RT_WEB ?? path.resolve(evalDir, "../ref/compil
 
 export const armOf = dir => readFileSync(path.join(dir, "arm"), "utf8").trim();
 
-// Solid's JSX compiler runs before Vite's esbuild pass, which then strips the types it leaves in
+// Solid's JSX compiler runs before Vite's own TypeScript pass, which then strips the types it leaves in
 async function solidPlugin() {
   const { transform } = (await import("node:module")).createRequire(import.meta.url)(path.join(evalDir, "node_modules/@solidjs/compiler"));
   return {

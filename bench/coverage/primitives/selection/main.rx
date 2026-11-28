@@ -1,0 +1,8 @@
+// @solid-primitives/selection: the document's text selection as a value.
+import { createSelection } from "@solid-primitives/selection"
+
+export default component App() {
+  [selection, setSelection] = createSelection()
+  <input class="field" value="reactive" />
+  <p>selected {selection[1]} to {selection[2]}</p>
+}

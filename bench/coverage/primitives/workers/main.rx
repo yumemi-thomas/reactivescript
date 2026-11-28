@@ -1,0 +1,17 @@
+// @solid-primitives/workers: a function run in a worker, awaited by an action (worker.js makes the worker).
+import { createSquarer } from "./worker.js"
+
+export default component App() {
+  source answer := 0
+  square = createSquarer()
+  action ask() {
+    try {
+      let n = await square.run(12)
+      answer := n
+    } catch (e) {
+      answer := -1
+    }
+  }
+  <p>answer {answer}</p>
+  <button onClick={ask}>square 12</button>
+}

@@ -1,0 +1,13 @@
+// Wardic's presence: an element that animates out before it leaves the page.
+import { DomLive } from "@wardic/dom"
+import { wardic as Motion, WardicProvider, AnimatePresence } from "@wardic/solid"
+
+export default component App() {
+  source shown := true
+  <WardicProvider env={DomLive}>
+    <AnimatePresence>
+      {if (shown) { <Motion.div class="toast" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.05 }}>saved</Motion.div> }}
+    </AnimatePresence>
+    <button onClick={() => { shown := false }}>dismiss</button>
+  </WardicProvider>
+}

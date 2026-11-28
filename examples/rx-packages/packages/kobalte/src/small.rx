@@ -1,0 +1,32 @@
+// Separator, Breadcrumbs, Link, Alert, Badge. Derived from the parts of those names of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
+import pure { flag } from "./dom.js"
+import { Div, Span, Hr, Nav, Anchor } from "./types.js"
+
+export component Separator(props: Hr & { orientation?: "horizontal" | "vertical" }) {
+  { orientation = "horizontal", ...rest } = props
+  <hr aria-orientation={orientation == "vertical" ? "vertical" : undefined} data-orientation={orientation} {...rest} />
+}
+export component Alert(props: Div) { { children, ...rest } = props
+  <div role="alert" {...rest}>{children}</div> }
+export component Badge(props: Span & { textValue?: string }) { { textValue, children, ...rest } = props
+  <span role="status" aria-label={textValue ?? props["aria-label"]} {...rest}>{children}</span> }
+export component Link(props: Anchor & { disabled?: boolean }) {
+  { disabled = false, href, children, ...rest } = props
+  <a href={disabled ? undefined : href} role={disabled ? "link" : undefined} aria-disabled={disabled ? "true" : undefined} data-disabled={flag(disabled)} {...rest}>{children}</a>
+}
+context between: View
+context crumbs: { label: string }
+export component Breadcrumbs(props: Nav & { separator?: View; translations?: { breadcrumbs: string } }) {
+  { separator, translations, children, ...rest } = props
+  provide crumbs = { label: translations ? translations.breadcrumbs : "Breadcrumbs" }
+  provide between = props.separator ?? "/"
+  <nav aria-label={translations ? translations.breadcrumbs : "Breadcrumbs"} {...rest}>{children}</nav>
+}
+export component BreadcrumbsLink(props: Anchor & { current?: boolean; disabled?: boolean }) {
+  { current = false, disabled = false, children, ...rest } = props
+  <Link disabled={disabled || current} {...rest} aria-current={current ? props["aria-current"] ?? "page" : undefined} data-current={flag(current)}>{children}</Link>
+}
+export component BreadcrumbsSeparator(props: Span) {
+  { children, ...rest } = props
+  <span aria-hidden="true" {...rest}>{if props.children { {props.children} } else { {use between} }}</span>
+}

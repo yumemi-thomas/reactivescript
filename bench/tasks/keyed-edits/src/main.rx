@@ -1,0 +1,27 @@
+// A list edited every way a list is: a row added in front, removed, moved up, renamed in place, and the whole list
+// reset. Each row has state of its own (opened or not), which stays with its row through every edit.
+type Task = { id: number; title: string }
+
+component Line(props: { title: string; onUp: () => void; onRemove: () => void; onRename: () => void }) {
+  source open := false
+  <li class={open ? "open" : "shut"}>
+    <span class="title" onClick={() => { open := !open }}>{props.title}</span>
+    <button class="up" onClick={() => { props.onUp() }}>up</button>
+    <button class="rename" onClick={() => { props.onRename() }}>!</button>
+    <button class="remove" onClick={() => { props.onRemove() }}>×</button>
+  </li>
+}
+
+export default component App() {
+  source next := 4
+  source tasks: Task[] key id := [{ id: 1, title: "wash" }, { id: 2, title: "cook" }, { id: 3, title: "read" }]
+  fn swapped(ts: Task[], i: number): Task[] => i < 1 ? ts : [...ts.slice(0, i - 1), ts[i], ts[i - 1], ...ts.slice(i + 1)]
+  <ul>{for task in tasks {
+    <Line title={task.title}
+      onUp={() => { let i = tasks.findIndex(t => t.id == task.id); tasks := ts => swapped(ts, i) }}
+      onRename={() => { let i = tasks.findIndex(t => t.id == task.id); tasks[i].title := t => `${t}!` }}
+      onRemove={() => { let id = task.id; tasks := ts => ts.filter(t => t.id != id) }} />
+  }}</ul>
+  <button class="add" onClick={() => { let id = next; next := id + 1; tasks := ts => [{ id: id, title: "new" }, ...ts] }}>add first</button>
+  <button class="reset" onClick={() => { tasks := [{ id: 1, title: "wash" }, { id: 2, title: "cook" }] }}>reset</button>
+}

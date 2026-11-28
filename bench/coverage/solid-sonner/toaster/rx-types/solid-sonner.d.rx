@@ -1,0 +1,13 @@
+//@ for solid-sonner ^1.0.0
+// The rows the program uses of rx-declare's draft: `toast` is given a message or a component of the app's, and
+// <Toaster> renders it (09 MO-11u; the word is this app's own claim).
+export type ExternalToast = import("solid-sonner").ExternalToast
+export type ToasterProps = import("solid-sonner").ToasterProps
+export component Toaster(props: ToasterProps)
+export fn toast(message: View | (() => View), data?: ExternalToast): string | number renders(Toaster)
+// the toaster's methods, each a row of its own (09 MO-8t): io, as the draft writes them. `toast.custom` has no
+// `renders(…)`: it calls what it is given with no owner at all (MO-11s), so a component given to it is checked under a
+// root of its own
+export fn toast.success(message: View | (() => View), data?: ExternalToast): string | number
+export fn toast.custom(jsx: Component<number | string>, data?: ExternalToast): string | number
+export fn toast.dismiss(id?: number | string): string | number | undefined

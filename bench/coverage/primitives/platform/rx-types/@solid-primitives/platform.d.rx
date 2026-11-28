@@ -1,0 +1,3 @@
+//@ for @solid-primitives/platform ^1.0.0
+export const isFirefox: typeof import("@solid-primitives/platform").isFirefox
+export const isMobile: typeof import("@solid-primitives/platform").isMobile

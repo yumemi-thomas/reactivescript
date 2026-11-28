@@ -1,0 +1,8 @@
+// @solid-primitives/event-props: the last event of each kind an element fired. The library's props are named as Solid 1
+// named events (`onpointerdown`), which Solid 2 reads as attributes, so they are given to the element's own handlers here.
+import { createEventProps } from "@solid-primitives/event-props"
+
+export default component App() {
+  [events, eventProps] = createEventProps("pointerdown", "focus")
+  <button onPointerDown={(e: PointerEvent) => { eventProps.onpointerdown(e) }}>{events.pointerdown ? "pressed" : "not pressed yet"}</button>
+}

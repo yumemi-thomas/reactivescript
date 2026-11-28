@@ -1,0 +1,10 @@
+== hidden
+✗ base: help: the previous results stay up while the next search is in flight
+✗ related help landing out of order shows the selected issue's
+75/77 passed
+== overlap
+✗ base: a declined assignment keeps a rename in flight on the same issue
+✗ base: a declined rename keeps an assignment in flight on the same issue
+36/38 passed
+== fuzz
+desk9-rx-haiku-1: 0/20 seeds found a hole

@@ -1,0 +1,8 @@
+I built the sprint board in `/tmp/claude-0/runs/r15/board-contract-opus-1/app.contract` with its data module in `/tmp/claude-0/runs/r15/board-contract-opus-1/app.ts`, and all 26 visible tests pass. I used 5 of the 15 `./check`/`./test` runs. The board and archive are two tabs, and leaving a page resets it and loads it again. Every change shows at once and goes back by itself if the server says no; it works by replaying the unconfirmed changes over the last answers, so a card can move between columns, be renamed, archived or added, and its checklist can change.
+
+What I was unsure about:
+- **Extra loads:** after any change succeeds or fails, the app loads the affected columns (and checklist) again from the server. This is how the framework shows changes before the reply arrives.
+- **Error text:** errors show the server's message exactly as written, because I attach it to each failure myself.
+- **Rename field:** `title-input` empties after Rename. The brief only says it starts empty.
+- **Error after leaving a page:** a refusal that arrives after you have left the page shows no error when you come back.
+- **Fast toggles:** if you toggle the same item twice quickly and only the first is refused, the card's done count on the board can be off by one until the columns reload.

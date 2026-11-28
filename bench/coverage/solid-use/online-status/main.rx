@@ -1,0 +1,8 @@
+// solid-use/online-status: online, or offline, as a value. The utility is its module's default export, imported by a
+// name of the app's own, as JavaScript writes it.
+import { default as useOnlineStatus } from "solid-use/online-status"
+
+export default component App() {
+  status = useOnlineStatus()
+  <p>{status ? "online" : "offline"}</p>
+}

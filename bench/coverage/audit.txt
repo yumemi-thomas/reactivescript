@@ -1,0 +1,51 @@
+The coverage entries' declarations, every behaviour word held against what the code shows (09 MO-8w; `rx-declare --audit <file.d.rx>`).
+
+22 proven: read from the code, counted as inferred, held by rx-verify where the row's claim is one it reads.
+0 contradicted: a run shows the word false (rx-verify).
+46 the code does not show: a person's word, with the first thing the reading stops at — what to check.
+  cmdk-solid/command/rx-types/cmdk-solid.d.rx: CommandItem: handler(onSelect) — it is handed to code that is not followed [cmdk-solid/dist/index.js:379]
+  primitives/context/counter.d.rx: CounterProvider: provides(counter) — which context the name stands for is not shown
+  primitives/context/counter.d.rx: useCounter: uses(counter) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
+  primitives/controlled-props/control.d.rx: TextControl: handler(onChange) — not read: it loads @solid-primitives/controlled-props, which is not read (bench/.out/ws/tasks/cover-primitives-controlled-props/control.js, client dev, solid)
+  primitives/controlled-signal/rx-types/@solid-primitives/controlled-signal.d.rx: createControllableSignal: handler(props.onChange) — it is handed to code that is not followed [@solid-primitives/controlled-signal/dist/index.js:23]
+  primitives/deep/rx-types/@solid-primitives/deep.d.rx: trackDeep: pure — it uses Solid's $PROXY [@solid-primitives/deep/dist/track-deep.js:29]
+  primitives/filesystem/rx-types/@solid-primitives/filesystem.d.rx: makeVirtualFileSystem: pure — it calls .getItem() of a primitive [@solid-primitives/filesystem/dist/adapter-vfs.js:14]
+  primitives/focus/rx-types/@solid-primitives/focus.d.rx: makeFocusListener: handler(callback) — it listens, and the package's code may send what it listens to while a call runs: .focus() [@solid-primitives/focus/dist/autofocus.js:23]
+  primitives/gestures/rx-types/@solid-primitives/gestures.d.rx: tap: handler(props.callback) — it is handed to code that is not followed [@solid-primitives/gestures/dist/core.js:31]
+  primitives/history/history.d.rx: createUndoHistory: handler(restore) — it is handed back [history.js:3]
+  primitives/interaction/rx-types/@solid-primitives/interaction.d.rx: createInteractOutside: handler(options.onInteractOutside) — it goes where it is not followed [@solid-primitives/interaction/dist/index.js:295]
+  primitives/keyboard/rx-types/@solid-primitives/keyboard.d.rx: createShortcut: handler(callback) — it listens, and the package's code may send what it listens to while a call runs: .bind() of a function that is not known [@solid-primitives/rootless/dist/index.js:25]
+  primitives/mutation-observer/rx-types/@solid-primitives/mutation-observer.d.rx: createMutationObserver: handler(callback) — it is kept where it is not followed [@solid-primitives/mutation-observer/dist/index.js:11]
+  primitives/props/button.d.rx: Button: handler(onPress) — it goes where it is not followed [button.js:4]
+  primitives/refs/rx-types/@solid-primitives/refs.d.rx: Refs: handler(ref) — it is handed to code that is not followed [@solid-primitives/refs/dist/index.js:104]
+  primitives/script-loader/rx-types/@solid-primitives/script-loader.d.rx: createScriptLoader: handler(props.onLoad) — it is kept where it is not followed [@solid-primitives/script-loader/dist/index.js:28]
+  primitives/static-store/rx-types/@solid-primitives/static-store.d.rx: createStaticStore: pure — it calls Object.defineProperty [@solid-primitives/static-store/dist/index.js:40]
+  primitives/transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: handler(options.onEnter) — it is handed to code that is not followed [@solid-primitives/transition-group/dist/index.js:74]
+  primitives/transition-group/rx-types/@solid-primitives/transition-group.d.rx: createSwitchTransition: handler(options.onExit) — it is handed to code that is not followed [@solid-primitives/transition-group/dist/index.js:74]
+  solid-codemirror/editor/rx-types/solid-codemirror.d.rx: createCodeMirror: handler(props.onValueChange) — not read: it may replace a built-in: the global object goes where it is not followed, and something is written under a name that is computed (bench/.out/ws/node_modules/@codemirror/view/dist/index.js:43)
+  solid-flow/graph/rx-types/@dschz/solid-flow.d.rx: SolidFlow: handler(onNodeClick) — not read: under the conditions umd it loads other files, which are not read
+  solid-sonner/toaster/rx-types/solid-sonner.d.rx: toast: renders(Toaster) — where the library renders what it is given is not read: a value kept in the module's state is followed no further
+  solid-use/props/rx-types/solid-use/props.d.rx: pickProps: pure — it calls Object.defineProperty [solid-use/dist/props.js:23]
+  terracotta/switch/rx-types/terracotta/switch.d.rx: Switch: handler(onChange) — the record it is in goes where it is not followed [terracotta/dist/dynamic-prop-D5vmE5VV.jsx:9]
+  ui-sdk/disclosure/rx-types/@ui-sdk/solid/tabs.d.rx: Tabs: handler(onValueChange) — it is no function written out in the module, under a name nothing writes
+  ui-sdk/forms/rx-types/@ui-sdk/solid/checkbox.d.rx: Checkbox: handler(onCheckedChange) — it is no function written out in the module, under a name nothing writes
+  ui-sdk/forms/rx-types/@ui-sdk/solid/radio.d.rx: RadioGroup: handler(onValueChange) — the record it is in goes where it is not followed [@ui-sdk/solid/dist/radio.js:14]
+  ui-sdk/popups/rx-types/@ui-sdk/solid/menu.d.rx: MenuItem: handler(onSelect) — it goes where it is not followed [@ui-sdk/solid/dist/menu.js:202]
+  ui-sdk/selection/rx-types/@ui-sdk/solid/select.d.rx: Select: handler(onValueChange) — it is no function written out in the module, under a name nothing writes
+  ui-sdk/utilities/rx-types/@ui-sdk/solid/date.d.rx: formatDate: pure — longDate is an object of the module that code may change or let go [@ui-sdk/core/dist/foundation/date/format.js:79]
+  ui-sdk/utilities/rx-types/@ui-sdk/solid/number.d.rx: formatNumber: pure — it calls a value the row does not show to be a function [@ui-sdk/core/dist/foundation/number/format.js:40]
+  wardic/easing/rx-types/@wardic/solid.d.rx: WardicProvider: provides(wardic) — a statement before the return that may leave it [@wardic/solid/dist/server/provider.js:142]
+  wardic/easing/rx-types/@wardic/solid.d.rx: easeInOut: pure — NAMES is a value made as the module loads [@wardic/core/dist/Easing.js:262]
+  wardic/easing/rx-types/@wardic/solid.d.rx: wardic.div: uses(wardic) — not read: a method of an object the module exports: any importer may change it
+  wardic/elements/rx-types/@wardic/solid.d.rx: WardicProvider: provides(wardic) — a statement before the return that may leave it [@wardic/solid/dist/server/provider.js:142]
+  wardic/elements/rx-types/@wardic/solid.d.rx: wardic.div: uses(wardic) — not read: a method of an object the module exports: any importer may change it
+  wardic/elements/rx-types/@wardic/solid.d.rx: wardic.button: uses(wardic) — not read: a method of an object the module exports: any importer may change it
+  wardic/gestures/rx-types/@wardic/solid.d.rx: WardicProvider: provides(wardic) — a statement before the return that may leave it [@wardic/solid/dist/server/provider.js:142]
+  wardic/gestures/rx-types/@wardic/solid.d.rx: wardic.div: uses(wardic) — not read: a method of an object the module exports: any importer may change it
+  wardic/gestures/sensors.d.rx: createHoverSensor: uses(wardic) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)
+  wardic/layout/rx-types/@wardic/solid.d.rx: WardicProvider: provides(wardic) — a statement before the return that may leave it [@wardic/solid/dist/server/provider.js:142]
+  wardic/layout/rx-types/@wardic/solid.d.rx: wardic.li: uses(wardic) — not read: a method of an object the module exports: any importer may change it
+  wardic/presence/rx-types/@wardic/solid.d.rx: WardicProvider: provides(wardic) — a statement before the return that may leave it [@wardic/solid/dist/server/provider.js:142]
+  wardic/presence/rx-types/@wardic/solid.d.rx: wardic.div: uses(wardic) — not read: a method of an object the module exports: any importer may change it
+  wardic/values/rx-types/@wardic/solid.d.rx: WardicProvider: provides(wardic) — a statement before the return that may leave it [@wardic/solid/dist/server/provider.js:142]
+  wardic/values/rx-types/@wardic/solid.d.rx: createReducedMotion: uses(wardic) — no context is shown to be read on every path: check that the fn fails where nothing provides it (rx-verify runs that)

@@ -1,0 +1,2 @@
+//@ for @solid-primitives/match ^1.0.0
+export component MatchValue<T extends string | number, IsPartial extends boolean = false>(props: { on: T | null | undefined; case: [IsPartial] extends [true] ? Partial<({ [K in T]: (v: K) => View })> : ({ [K in T]: (v: K) => View }); fallback?: View; partial?: IsPartial })

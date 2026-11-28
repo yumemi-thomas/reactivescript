@@ -1,0 +1,10 @@
+// @solid-primitives/scheduled: a debounced callback, called from a handler.
+import { debounce } from "@solid-primitives/scheduled"
+
+export default component App() {
+  source typed := 0
+  source saved := 0
+  save = debounce((n: number) => { saved := n }, 80)
+  <p>typed {typed}, saved {saved}</p>
+  <button onClick={() => { let next = typed + 1; typed := next; save(next) }}>type</button>
+}

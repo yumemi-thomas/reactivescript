@@ -1,0 +1,5 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type SwitchOptions = import("@ui-sdk/solid/switch").SwitchOptions
+export type SwitchState = import("@ui-sdk/solid/switch").SwitchState
+export component Switch(props: SwitchOptions & (Omit<import("@ui-sdk/solid").PartProps<"button", SwitchState>, "value" | "name" | "form" | "onChange" | "onSelect">) & { onCheckedChange?: (checked: boolean, details: import("@ui-sdk/core").ChangeDetails<import("@ui-sdk/solid").CheckboxCheckedChangeReason>) => void; render?: (props: Record<string, any>, state: { disabled: boolean; checked: boolean; readOnly: boolean; required: boolean; }) => View })
+export component SwitchThumb(props: Parameters<typeof import("@ui-sdk/solid/switch").SwitchThumb>[0] & { render?: (props: Record<string, any>, state: NoInfer<SwitchState>) => View })

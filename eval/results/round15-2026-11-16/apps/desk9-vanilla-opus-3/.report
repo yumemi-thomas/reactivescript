@@ -1,0 +1,7 @@
+I built the issue desk in plain TypeScript. `src/main.ts` holds the tabs and the open-issue count, and each page has its own file: `src/issues.ts`, `src/help.ts`, `src/settings.ts`, with small DOM helpers in `src/dom.ts`. All 30 visible tests pass and `./check` is clean, after 4 of the 15 runs. Every quick change (assign, rename, close, comments, labels, saves) sits on top of the server's data and is dropped if the server declines, and answers that are out of date or arrive after leaving a page are ignored.
+
+The brief didn't settle a few things, so I chose:
+- **Error after a newer action:** a decline still shows its error even if a newer action of the same kind has started since.
+- **Related hit:** opening a related hit reuses the search results already fetched instead of searching again.
+- **Labels:** adding a label does nothing while the labels are still loading.
+- **Blank input:** assign and post do nothing when the user name is blank, and typed titles, labels and comments are trimmed before they are sent.

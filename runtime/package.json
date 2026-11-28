@@ -38,27 +38,32 @@
     "./server": {
       "types": "./dist/server.d.ts",
       "default": "./dist/server.js"
+    },
+    "./rx-lib": {
+      "types": "./rx-lib.d.ts"
     }
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "rx-lib.d.ts"
   ],
   "scripts": {
     "build": "node build.mjs",
-    "prepack": "node build.mjs",
-    "test": "node test.mjs"
+    "prepack": "node build.mjs && node pack.mjs strip",
+    "test": "node test.mjs",
+    "postpack": "node pack.mjs restore"
   },
   "peerDependencies": {
-    "@solidjs/signals": "^2.0.0-rc.21",
-    "@solidjs/web": "^2.0.0-rc.21",
-    "solid-js": "^2.0.0-rc.21"
+    "@solidjs/signals": ">2.0.4",
+    "@solidjs/web": ">2.0.4",
+    "solid-js": ">2.0.4"
   },
   "devDependencies": {
-    "@solidjs/signals": "2.0.0-rc.21",
-    "@solidjs/web": "2.0.0-rc.21",
-    "esbuild": "^0.28.2",
-    "solid-js": "2.0.0-rc.21",
-    "typescript": "^6.0.3"
+    "@solidjs/signals": "file:../../solid-next/packages/signals",
+    "@solidjs/web": "file:../../solid-next/packages/web",
+    "rolldown": "1.2.19",
+    "solid-js": "file:../../solid-next/packages/solid",
+    "tsrs": "7.1.0-beta.tsrs5"
   }
 }

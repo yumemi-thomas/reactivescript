@@ -1,0 +1,8 @@
+// terracotta: a switch the app controls, and a disclosure that keeps its own state.
+import { Switch } from "terracotta/switch"
+
+export default component App() {
+  source on := false
+  <Switch class="air" checked={on} onChange={(next: boolean) => { on := next }}>airplane mode</Switch>
+  <p>{on ? "offline" : "online"}</p>
+}

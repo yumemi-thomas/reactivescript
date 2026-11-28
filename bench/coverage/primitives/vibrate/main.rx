@@ -1,0 +1,11 @@
+// @solid-primitives/vibrate: a vibration pattern, started and stopped from handlers.
+import { createVibrate } from "@solid-primitives/vibrate"
+
+export default component App() {
+  source strong := false
+  buzz = createVibrate(strong ? [200, 100, 200] : [50])
+  <p>{buzz.vibrating ? "buzzing" : "still"}</p>
+  <button class="go" onClick={() => { buzz.start() }}>buzz</button>
+  <button class="stop" onClick={() => { buzz.stop() }}>stop</button>
+  <button class="more" onClick={() => { strong := true }}>stronger</button>
+}

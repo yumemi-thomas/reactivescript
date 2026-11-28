@@ -1,0 +1,3 @@
+The sprint board is built in React 19 and TypeScript under `src/`, and `./check` and `./test` both pass (26/26 visible tests, 2 of 15 runs used). The board moves, adds, renames, archives and toggles optimistically, reverting on server errors, with a pure reducer in `src/boardState.ts`. The archive page restores rows the same way. I'm not certain about the single 404 console error in the "on load" test, which is most likely a favicon request since the app loads no resources of its own, and I did not check hidden-test edge cases beyond the brief.
+
+Files are in /tmp/claude-0/runs/r15/board-react-haiku-2/src/: `App.tsx`, `BoardPage.tsx`, `ArchivePage.tsx`, `boardState.ts`, `shared.ts`.

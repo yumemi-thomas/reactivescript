@@ -30,7 +30,7 @@ Stmt      ::= Target ":=" Expr | "guess" Target ":=" Expr | "refresh" Name | "af
             | "if" "(" Expr ")" … ("else" …)? | "try" … "catch" … "finally" … | "throw" Expr | "return" Expr? | Expr
 Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on reactive values
             | "await" Expr | "pending?" Expr | "latest" Expr | "peek" "(" Expr ")" | "use" Name
-            | Expr "catch" ("(" Name (":" Classes)? ")")? "=>" Expr   -- the loosest form: parenthesise to catch one arm
+            | "await" Expr "catch" ("(" Name (":" Classes)? ")")? "=>" Expr   -- only after an await (CATCH_NOT_ON_AWAIT)
             | "throw" Expr
 ```
 
@@ -40,10 +40,13 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
   declares `x` or one nested in it. Others get an action to call (W-5, O-4).
 - All the writes of one run (one handler call, one apply block) are one **instant**. Nothing sees `v` until the run
   ends, the run itself included: after `x := v`, `x` still reads the old value (W-3, W-4, H-10).
+- The loop `for (const x of xs) { … }` visits what `xs` held when it started, unlike JavaScript's, which reads the
+  list as it goes: a turn never sees what the loop added to or removed from the list it loops over (07 §5).
 - An instant is held while anything downstream of it is loading, with or without an `await` (H-2): in
   `open := false; page := 2`, the menu closes when page 2 lands. To land a write on its own, `onFlush` (EF-8).
 - An `effect (a, b) { … }` runs after an instant in which `a` or `b` changed, once, with `$0`, `$1` the values; its
-  writes are a new instant; `return () => …` is its cleanup (EF-2, EF-3, EF-5). It may not write what it reads (C-3).
+  writes are a new instant; `return () => …` is its cleanup (EF-2, EF-3, EF-5). It may not write what it reads (C-3);
+  a source it writes from reactive values is an equation written the long way (C-3a, `EFFECT_RELAY_TEAR`, advice).
 
 ## Actions
 
@@ -51,14 +54,15 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
   launched it, is held until the body returns (AC-1). A handler that guesses, declares `affects`, or writes and awaits
   is an action too (AC-1b).
 - An action with no `await` (`select(id) { selected := id }`) is an ordinary instant.
+- A call passes one argument per parameter (AC-1f, `ARGUMENT_COUNT`).
 - A handler launches an action and goes on without waiting for it. An action that awaits another action waits for
   it; that await can't fail, since every action catches its own failures (AC-1, R-f-6).
 - `await` is a statement: `await f(x)` or `let r = await f(x)`, optionally `… catch (e) => alt` (AC-1).
 - A failure inside the body must be caught there: `try { … } catch (e) { … }` (R-f-6, AC-7). The catch runs inside the
   same change: its writes land with the body's end. A rejected body commits its plain writes and reverts its guesses
   (AC-1, DV-2).
-- `guess x := e`: a guess on an equation (`x = …`) or a source with a question (`source x = …`), shown now, kept until the action's change
-  commits or `x`'s own answer differs (AC-3, H-11). Guesses on one source hold together.
+- `guess x := e`: a guess on a source or an equation, shown now, kept until the action's change commits or `x`'s own
+  answer differs (AC-3, H-11); on a `:=` source the truth is its plain writes, which land with that change. Guesses on one source hold together.
 - `refresh x`: asks `x` again, quietly (no `pending?`; the old value stays up until the new one lands). Inside an
   action, the answer lands with the action's commit (AC-4).
 - `affects x`: `pending? x` is true until this change commits (AC-5).
@@ -69,30 +73,39 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
   have no value yet (first load) or may have failed must handle that: a `try`, a first value on the equation
   (`await e -> v`), the element inside that value's `loading` and `errored` regions, or `disabled={…}` reading it
   (R-8). For a failure, the region or the `disabled` must read the value itself: `pending? x` takes no failure.
+  A control that submits a value still being checked (a coupon validated as it is typed) submits what is committed,
+  not what the input shows: disable it while the check is out, `disabled={pending? check}`.
 
 ## Holds (what the screen shows while work is out)
 
 - The screen is always one consistent frame. A change whose readers are still waiting is **held**: nothing of it
   shows until all of it can (H-1, H-2).
 - A `loading` region shows its fallback instead of holding while it is **armed**: before it first showed content,
-  and again each time its `on(x)` value changes. Otherwise a change below it holds (H-5). Put a read that waits on
+  and again each time its `on(x)` value changes — or what `x` is computed from is re-asked (a `refresh` or a poll of
+  the list `x = list[0]` reads re-arms it, as Solid's `Loading` does, H-6a). Otherwise a change below it holds (H-5). Put a read that waits on
   `x` inside the `loading on(x)` region; a read of it outside holds the change (CN-3e).
 - `pending? x` is true while a new answer for `x` is out; `latest x` is the value `x` is moving to (R-9). Use them to
   show work in progress without a fallback.
-- Only the probe reads ahead. Beside it, a plain read of the same `x` shows what is on screen, and a plain read of
-  another held value waits for its change, probe or not (R-11). `loading on(latest x)` shows its fallback at once;
+- A probe makes its whole computation read ahead (R-11): beside it, a plain read of a held value shows what is on
+  screen and waits for nothing — and so does a computation that reads an equation that probes, and the pass right
+  after one that probed. To have a held value wait while a probe shows ahead, read the two in computations kept
+  apart up to the screen (`PROBE_BESIDE_HELD_READ` says where). `loading on(latest x)` shows its fallback at once;
   `loading on(x)` shows it with `x`'s change (H-6).
 - `await e -> v` gives `v` until the first answer, so there is no first-load wait (R-7).
 
 ## Failures
 
 - A rejected `await` is an error value: it flows through every equation and prop that reads it (R-6).
-- Every reader of a value that can fail needs an `errored` region above it or a `catch` on the read
-  (UNHANDLED_FAILURE, R-f-5). `errored fallback(e: NotFound) { … }` takes only that class (R-f-4).
+- Every reader of a value that can fail needs an `errored` region above it (UNHANDLED_FAILURE, R-f-5).
+  `errored fallback(e: NotFound) { … }` takes only that class (R-f-4).
+- `catch` follows an `await` only: `await f(x) catch (e) => alt` makes a matching rejection the answer
+  (CATCH_NOT_ON_AWAIT, R-f-4). A handler or action that reads a value which can fail uses `try`/`catch`.
 - An error stays on screen until a new answer replaces it: `refresh x` (quiet) retries; changing an input asks a new
-  question (H-12, D-41).
-- A value borrowed from another section (a list passed into a detail) carries that section's failures: catch the
-  read, or the other section's error shows in this one.
+  question (H-12, D-41). What is behind the error fallback does not hold that change: the new input shows at once beside
+  the old fallback (H-4, Solid F-3). A `catch` answer is a value, so its reader does hold the next question.
+- A value borrowed from another section (a list passed into a detail) carries that section's failures: put its
+  readers in an `errored` region of their own, or the other section's error shows in this one.
+- A handler reads what its region shows, and passes it on as plain values.
 - `throw NotFound(id)` in an equation's arm is a failure value: `found(it, id) => it == null ? throw NotFound(id) : it`.
 
 ## Collections
@@ -100,4 +113,4 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
 - `rows key id = …` or `source xs key id = …` keeps rows' identity by `id` (ST-4); `for r in rows` gives each row
   its own region. Write one row with `xs[i].field := v` or a functional write (W-6).
 - `source xs = f(server)` is a client-owned layer over server data: written locally, reset when the server answer
-  changes (ST-5; `async.md`, "three layers").
+  changes (ST-5). A write on server data guesses on the answers the screen reads (`async.md`, "Guesses go on the answer").

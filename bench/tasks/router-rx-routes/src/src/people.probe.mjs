@@ -1,0 +1,2 @@
+// What rx-verify calls these with (09 MO-8v: a word read from the code is run against what the reading claims).
+export const probes = { fetchPerson: { args: () => ["1"], fail: () => ["9"] }, fetchStamp: { args: () => ["1"], fail: () => ["0"] } };

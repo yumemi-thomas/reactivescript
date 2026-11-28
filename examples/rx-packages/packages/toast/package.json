@@ -1,0 +1,36 @@
+{
+  "name": "@rx-packages/toast",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "files": [
+    "dist",
+    "src",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "rx-lib"
+  },
+  "reactivescript": {
+    "entries": [
+      "src/index.rx"
+    ]
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "worker": "./dist/index.server.js",
+      "browser": "./dist/index.js",
+      "deno": "./dist/index.server.js",
+      "node": "./dist/index.server.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.0",
+    "@solidjs/web": "^2.0.0",
+    "@reactivescript/runtime": "*"
+  }
+}

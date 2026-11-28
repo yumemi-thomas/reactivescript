@@ -1,0 +1,1 @@
+export client fn openSource(url: string, options: any, state: handler (s: number) => void, data: handler (d: any) => void, error: handler (e: any) => void): () => void

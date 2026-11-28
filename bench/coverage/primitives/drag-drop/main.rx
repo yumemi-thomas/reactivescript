@@ -1,0 +1,7 @@
+// @solid-primitives/drag-drop: an element that can be dragged; its state is read, its ref given to the element.
+import { createDraggable } from "@solid-primitives/drag-drop"
+
+export default component App() {
+  drag = createDraggable("card")
+  <div class="card" ref={drag.ref} style="width:80px;height:40px">{drag.isDragging() ? "dragging" : "at rest"}</div>
+}

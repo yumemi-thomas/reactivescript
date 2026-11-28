@@ -1,0 +1,1 @@
+land fetchCards:doing ; land fetchCards:todo ; right #2 ; left #4 ; select #1 ; land fetchChecklist:1 ; toggle 1 ; rename Delta ; land moveCard:2,doing,2 ; tab archive ; tab board ; land moveCard:4,todo,1 ; land renameCard:1,Delta ; land toggleItem:1,12,true ; land fetchCards:doing

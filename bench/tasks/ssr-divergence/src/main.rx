@@ -1,0 +1,11 @@
+// A page that shows something only the browser knows: asked as a client question, so the server sends the fallback
+// and the browser answers it after hydration.
+import { whereAmI } from "./env.js"
+
+export default component App() {
+  place = await whereAmI()
+  <h1>Hello</h1>
+  errored fallback(e) { <p>failed</p> } {
+    loading fallback { <p class="place">asking…</p> } { <p class="place">rendered in {place}</p> }
+  }
+}

@@ -1,0 +1,11 @@
+// The app: its frame and what every page shares, and inside them the router TanStack's file routes make (router.tsx, a
+// module of the app's own in TypeScript). The pages are pages.rx's, which the route files render; host.d.rx says where
+// (09 MO-14): inside this component, where it applies the router's.
+import { AppRouter } from "./router.tsx"
+import { Shell } from "./shell.rx"
+import { team } from "./team.rx"
+
+export default component App() {
+  provide team = { name: "Directory" }
+  <Shell title="Directory"><AppRouter /></Shell>
+}

@@ -1,0 +1,36 @@
+import * as media0 from "@rx-primitives/media"; import * as media from "@rx-primitives/media/core";
+import * as history0 from "@rx-primitives/history"; import * as history from "@rx-primitives/history/core";
+import * as presence0 from "@rx-primitives/presence"; import * as presence from "@rx-primitives/presence/core";
+import * as timer0 from "@rx-primitives/timer"; import * as timer from "@rx-primitives/timer/core";
+import * as pag0 from "@rx-primitives/pagination"; import * as pag from "@rx-primitives/pagination/core";
+import * as sort0 from "@rx-primitives/sortable"; import * as sort from "@rx-primitives/sortable/core";
+import * as form0 from "@rx-primitives/form-control"; import * as form from "@rx-primitives/form-control/core";
+import * as keyed0 from "@rx-primitives/keyed"; import * as keyed from "@rx-primitives/keyed/core";
+import * as res0 from "@rx-primitives/resize-observer"; import * as res from "@rx-primitives/resize-observer/core";
+import * as sto from "@rx-primitives/storage/core"; import * as kb from "@rx-primitives/keyboard/core"; import * as kb0 from "@rx-primitives/keyboard";
+// call sites of the original API, each against the derived types (`core`)
+export const a = media.createMediaQuery("x");
+export const b: () => boolean = media.createMediaQuery("x", true);
+export const c = history.createUndoHistory(() => undefined);
+export const d: boolean = history.createUndoHistory(() => undefined, {}).canUndo();
+export const e: boolean = presence.createPresence(() => "a", { transitionDuration: () => 5 }).isMounted();
+export const f: number = timer.createIntervalCounter(() => 10)();
+export const g = pag.createSegment([1, 2], 2, () => 1);
+export const g2: number[] = g();
+export const h: number = sort.createSortedIndex(() => [1], undefined)(1)();
+export const i: string = form.createFormControl({ id: "x" }).generateId("a");
+export const j: string | undefined = form.createFormControl({ id: "x" }).labelId();
+export const k: () => void = form.createFormControl({ id: "x" }).registerLabel("a");
+export const [v, set] = sto.createPersisted("k", 1, undefined); export const v2: number = v(); set(2);
+export const l: number | null = res.createElementSize(null)().width;
+// the derived function where the original's is asked for
+export const A: typeof media0.createMediaQuery = media.createMediaQuery;
+export const C: typeof history0.createUndoHistory = history.createUndoHistory;
+export const E: typeof presence0.createPresence = presence.createPresence;
+export const F: typeof timer0.createIntervalCounter = timer.createIntervalCounter;
+export const P: typeof timer0.createPolled = timer.createPolled;
+export const G: typeof pag0.createSegment = pag.createSegment;
+export const H: typeof sort0.createSortedIndex = sort.createSortedIndex;
+export const I: typeof form0.createFormControl = form.createFormControl;
+export const K: typeof keyed0.Key = keyed.Key;
+export const KH: typeof kb0.createKeyHold = kb.createKeyHold;

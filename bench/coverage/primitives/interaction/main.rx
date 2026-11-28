@@ -1,0 +1,10 @@
+// @solid-primitives/interaction: a press outside an element is heard.
+import { createInteractOutside } from "@solid-primitives/interaction"
+
+export default component App() {
+  source box: HTMLDivElement | undefined := undefined
+  source closed := 0
+  outside = createInteractOutside({ onInteractOutside: () => { closed := n => n + 1 } }, box)
+  <div class="panel" ref={(el: HTMLDivElement) => { box := el }} style="width:100px;height:40px">closed {closed}</div>
+  <button class="elsewhere">elsewhere</button>
+}

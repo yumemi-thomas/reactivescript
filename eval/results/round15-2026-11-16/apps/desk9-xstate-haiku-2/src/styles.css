@@ -1,0 +1,153 @@
+:root {
+  color-scheme: light dark;
+  --fg: #1d1f24;
+  --muted: #5b616e;
+  --bg: #ffffff;
+  --panel: #f5f6f8;
+  --line: #d9dce3;
+  --accent: #2c5fd6;
+  --danger: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --fg: #e9ebf0;
+    --muted: #a3a9b6;
+    --bg: #15171c;
+    --panel: #1e2128;
+    --line: #353a45;
+    --accent: #7ea6ff;
+    --danger: #ff8a80;
+  }
+}
+
+:root[data-theme="dark"] {
+  --fg: #e9ebf0;
+  --muted: #a3a9b6;
+  --bg: #15171c;
+  --panel: #1e2128;
+  --line: #353a45;
+  --accent: #7ea6ff;
+  --danger: #ff8a80;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+button[aria-pressed="true"],
+.tabs button[aria-current="page"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+input {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  min-width: 0;
+}
+
+.toolbar,
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.list-pane ul,
+.detail-pane ul,
+.results-pane ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.issue {
+  flex: 1;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 4px;
+}
+
+[role="alert"] {
+  color: var(--danger);
+  margin: 6px 0;
+}
+
+[data-testid="comments"],
+[data-testid="labels"],
+[data-testid="related"] {
+  margin: 12px 0;
+}
+
+[data-testid="comment"] {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.detail-pane h2 {
+  margin: 0 0 6px;
+  font-size: 1.2rem;
+}

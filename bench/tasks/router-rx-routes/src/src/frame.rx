@@ -1,0 +1,8 @@
+// The app's page frame, a component of its own in a module of its own: what a page waits for is held here, and the
+// router's <Outlet /> is written once, inside it. A layout applies <Frame />, and its pages are rendered at the outlet
+// (09 MO-14f: the checker follows the host's outlet through the `.rx` components between it and the layout).
+import { Outlet } from "@tanstack/solid-router"
+
+export component Frame() {
+  loading fallback { <p>loading…</p> } { <main><Outlet /></main> }
+}

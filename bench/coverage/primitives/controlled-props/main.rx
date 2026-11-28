@@ -1,0 +1,9 @@
+// @solid-primitives/controlled-props: a control for a value, as a test page has for a component's props (control.js
+// renders the control the library hands back).
+import { TextControl } from "./control.js"
+
+export default component App() {
+  source title := "hello"
+  <TextControl name="title" initial="hello" onChange={(value: string) => { title := value }} />
+  <h1>{title}</h1>
+}

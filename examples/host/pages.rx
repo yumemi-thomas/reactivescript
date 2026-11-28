@@ -1,0 +1,17 @@
+// .rx components for a JS host (CP-4d): a TSX module imports them (`./pages.rx?rx-lib`) and renders them itself.
+import { fetchPerson, NotFound } from "../tanstack/people.js"
+
+source clicks := 0
+
+export component Counter(props: { label: string }) {
+  <button class="counter" onClick={() => { clicks := clicks + 1 }}>{props.label}: {clicks}</button>
+}
+export component PersonCard(props: { id: string }) {
+  person = await fetchPerson(props.id)
+  errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
+    loading fallback { <p>loading…</p> } {
+      <h2>{person.name}</h2>
+      <p>{person.role}</p>
+    }
+  }
+}

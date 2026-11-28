@@ -1,0 +1,17 @@
+// @solid-primitives/list: a list whose rows follow their items by a key; an element for the empty list.
+import { List } from "@solid-primitives/list"
+
+component Nobody() {
+  <li>nobody yet</li>
+}
+
+export default component App() {
+  source names := ["Ada", "Grace"]
+  <ul>
+    <List each={names} keyed={(name: string) => name} fallback={Nobody}>
+      {view (name, index) { <li>{index() + 1}. {name()}</li> }}
+    </List>
+  </ul>
+  <button onClick={() => { names := ns => [...ns, "Alan"] }}>add</button>
+  <button id="clear" onClick={() => { names := [] }}>clear</button>
+}

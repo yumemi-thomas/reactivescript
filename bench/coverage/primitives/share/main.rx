@@ -1,0 +1,8 @@
+// @solid-primitives/share: the Web Share API, asked from a handler.
+import { createWebShare } from "@solid-primitives/share"
+
+export default component App() {
+  web = createWebShare()
+  <p>{web.pending ? "sharing" : web.status == undefined ? "not shared yet" : web.status ? "shared" : "not shared"}</p>
+  <button onClick={() => { web.share({ title: "rx", url: "https://example.com" }) }}>share</button>
+}

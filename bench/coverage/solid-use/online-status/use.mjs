@@ -1,0 +1,2 @@
+import { use } from "../../../cover.mjs";
+export default use(import.meta, { pkgs: [], title: "online-status: a module's default export, imported by a name of the app's own", ssr: /online/, dom: /online/, pkg: "solid-use", modules: ["solid-use/online-status"], note: "the utility is its module's default export: imported as JavaScript imports one (`import { default as useOnlineStatus }`), and declared by a row named `default` (09 MO-8u, 2026-11-25). Until then a module of the app's own handed it out by name (status.js, with its declaration): that module is gone" });

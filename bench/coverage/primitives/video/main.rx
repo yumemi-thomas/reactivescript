@@ -1,0 +1,8 @@
+// @solid-primitives/video: a video element made by the primitive, its state as values.
+import { createVideo } from "@solid-primitives/video"
+
+export default component App() {
+  video = createVideo("")
+  <p>{video.playing ? "playing" : "paused"} at {video.currentTime}</p>
+  <button onClick={() => { video.seek(0) }}>rewind</button>
+}

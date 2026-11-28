@@ -1,0 +1,5 @@
+// counter.js makes a provider and a hook with the library's createContextProvider. By hand: every word (the module is
+// the app's own); the context is named so that a hook with no provider above it is refused (MO-12).
+export context counter
+export component CounterProvider(props: { initial: number; children?: View }) provides(counter)
+export fn useCounter(): [ref number, () => void] uses(counter)

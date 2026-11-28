@@ -1,0 +1,15 @@
+== hidden
+45/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ a move into a column that is still loading shows once it loads, or waits for it
+✗ an add accepted while To do reloads shows the card once
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a move into Doing that fills it while a move out is pending disables the rest
+19/26 passed
+== fuzz
+board-rx-haiku-3: 1/20 seeds found a hole
+  seed 13 step 20: detail column: #2 shows in To do, the detail says "this card can't be shown right now"
+    add Alpha 1 ; fail fetchCards:todo ; land fetchCards:done ; add Delta 2 ; land fetchCards:doing ; land fetchCards:todo ; land addCard:todo,Delta 2 ; left #3 ; left #3 ; fail addCard:todo,Alpha 1 ; land fetchCards:todo ; right #1 ; land moveCard:1,doing,2 ; fail fetchCards:doing ; land fetchCards:todo ; land fetchCards:done ; select #2 ; select #2 ; land fetchChecklist:2 ; retry-doing

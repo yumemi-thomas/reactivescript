@@ -1,0 +1,2 @@
+//@ for @solid-primitives/refs ^3.0.0
+export component Refs(props: { ref: handler (els: Element[]) => void; children: View })

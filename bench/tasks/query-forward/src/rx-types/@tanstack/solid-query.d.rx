@@ -1,0 +1,7 @@
+//@ for @tanstack/solid-query ^6.0.0-rc.6
+// @tanstack/solid-query 6 (Solid 2.0) in rows, as rx-declare drafts it — what its types cannot show, it knows of this
+// release: the client's context, its provider, and its provider. The query's hook is the app's own module's (src/query.js).
+// The types are the package's own.
+export context queryClient
+export type QueryClientProviderProps = import("@tanstack/solid-query").QueryClientProviderProps
+export component QueryClientProvider(props: QueryClientProviderProps) provides(queryClient)

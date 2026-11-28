@@ -82,6 +82,8 @@ pub enum S {
     If(E, Vec<S>, Option<Vec<S>>),
     /// `if (c) s;` — no block
     IfThen(E, Box<S>),
+    /// `for (const x of e) { … }`
+    ForOf(String, E, Vec<S>),
     Block(Vec<S>),
     Try { block: Vec<S>, param: Option<String>, handler: Option<Vec<S>>, fin: Option<Vec<S>> },
     Func(Func),
@@ -89,6 +91,8 @@ pub enum S {
     ImportDefault(String, String),
     /// `import { name as local, … } from "src"`
     ImportNamed(Vec<(String, String)>, String),
+    /// `import "src"`, for its effect
+    ImportBare(String),
     ExportDefault(Func),
     /// `s`, lowered from `.rx` line `line` (1-based): no JavaScript of its own, only the position its spans map to (CP-1c)
     At(usize, Box<S>),

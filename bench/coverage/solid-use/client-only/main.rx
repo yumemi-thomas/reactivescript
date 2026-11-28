@@ -1,0 +1,13 @@
+// solid-use/client-only: a part only the browser renders, the element the server sends in its place (a component given
+// by name to `fallback`, 09 MO-11t), and a signal that turns once it has.
+import { ClientOnly, createClientSignal } from "solid-use/client-only"
+
+component Measuring() {
+  <b>measuring</b>
+}
+
+export default component App() {
+  client = createClientSignal()
+  <p>{client ? "in the browser" : "on the server"}</p>
+  <ClientOnly fallback={Measuring}><i>measured</i></ClientOnly>
+}

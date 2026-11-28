@@ -12,6 +12,7 @@ pub mod infer;
 pub mod js;
 pub mod model;
 pub mod modules;
+pub mod names;
 #[cfg(feature = "node")]
 pub mod node;
 pub mod oxc;

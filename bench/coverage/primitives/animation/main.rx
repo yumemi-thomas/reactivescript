@@ -1,0 +1,10 @@
+// @solid-primitives/animation: a Web Animation on an element ref, its keyframes following a source.
+import { createAnimate } from "@solid-primitives/animation"
+
+export default component App() {
+  source box: HTMLDivElement | undefined := undefined
+  source shown := false
+  animation = createAnimate(box, shown ? [{ opacity: 0 }, { opacity: 1 }] : null, { duration: 40 })
+  <div ref={(el: HTMLDivElement) => { box := el }}>{animation ? "animated" : "still"}</div>
+  <button onClick={() => { shown := true }}>show</button>
+}

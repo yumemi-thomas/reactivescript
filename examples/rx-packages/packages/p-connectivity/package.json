@@ -1,0 +1,36 @@
+{
+  "name": "@rx-packages/p-connectivity",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "files": [
+    "dist",
+    "src",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "rx-lib"
+  },
+  "reactivescript": {
+    "entries": [
+      "src/core.rx"
+    ]
+  },
+  "exports": {
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "worker": "./dist/core.server.js",
+      "browser": "./dist/core.js",
+      "deno": "./dist/core.server.js",
+      "node": "./dist/core.server.js",
+      "default": "./dist/core.js"
+    }
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.0",
+    "@solidjs/web": "^2.0.0",
+    "@reactivescript/runtime": "*"
+  }
+}

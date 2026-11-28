@@ -1,0 +1,9 @@
+// @solid-primitives/controlled-signal: state a parent may control or leave to the component.
+import { createControllableSignal } from "@solid-primitives/controlled-signal"
+
+export default component App() {
+  source changes := 0
+  [value, setValue] = createControllableSignal<number>({ defaultValue: () => 1, onChange: (v: number) => { changes := n => n + 1 } })
+  <p>value {value}, changed {changes}</p>
+  <button onClick={() => { setValue(7) }}>set</button>
+}

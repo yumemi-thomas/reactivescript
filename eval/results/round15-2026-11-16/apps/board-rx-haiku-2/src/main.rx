@@ -1,0 +1,342 @@
+import pure { fetchCards, fetchChecklist, fetchArchived } from "./api"
+import { moveCard, renameCard, addCard, archiveCard, toggleItem, addItem, restoreCard } from "./api"
+
+type Row = { id: number; title: string; done: number; total: number; adding: boolean }
+type Ov = { cardId: number; itemId: number; done: boolean; base: boolean }
+type NewItem = { cardId: number; id: number; text: string; adding: boolean }
+type Shown = { id: number; text: string; done: boolean; base: boolean; adding: boolean }
+type Archived = { id: number; title: string }
+
+fn withFlag(cs: { id: number; title: string; done: number; total: number }[]): Row[] =>
+  cs.map(c => ({ id: c.id, title: c.title, done: c.done, total: c.total, adding: false }))
+
+fn without(cs: Row[], id: number): Row[] => cs.filter(c => c.id != id)
+
+fn place(cs: Row[], card: Row, index: number): Row[] => [...cs.slice(0, index), card, ...cs.slice(index)]
+
+fn reshape(cs: Row[], here: string, to: string, card: Row, index: number): Row[] =>
+  here == to ? place(without(cs, card.id), card, index) : without(cs, card.id)
+
+fn retitle(cs: Row[], id: number, title: string): Row[] =>
+  cs.map(c => c.id == id ? { ...c, title: title } : c)
+
+fn prevCol(c: string): string => c == "done" ? "doing" : "todo"
+
+fn nextCol(c: string): string => c == "todo" ? "doing" : "done"
+
+fn colOf(id: number, t: Row[], d: Row[], n: Row[]): string =>
+  t.some(c => c.id == id) ? "To do" : d.some(c => c.id == id) ? "Doing" : n.some(c => c.id == id) ? "Done" : ""
+
+fn doneDelta(ov: Ov[], cardId: number): number =>
+  ov.reduce((n, o) => o.cardId == cardId ? n + (o.done ? 1 : 0) - (o.base ? 1 : 0) : n, 0)
+
+fn addCount(xs: NewItem[], cardId: number): number => xs.filter(x => x.cardId == cardId).length
+
+fn shownDone(ov: Ov[], cardId: number, id: number, base: boolean): boolean =>
+  ov.reduce((d, o) => o.cardId == cardId && o.itemId == id ? o.done : d, base)
+
+fn itemRows(server: { id: number; text: string; done: boolean }[], adds: NewItem[], ov: Ov[], cardId: number): Shown[] => [
+  ...server.map(s => ({ id: s.id, text: s.text, done: shownDone(ov, cardId, s.id, s.done), base: s.done, adding: false })),
+  ...adds.filter(a => a.cardId == cardId && !server.some(s => s.id == a.id)).map(a => ({ id: a.id, text: a.text, done: shownDone(ov, cardId, a.id, false), base: false, adding: a.adding })),
+]
+
+fn setOv(os: Ov[], cardId: number, itemId: number, done: boolean, base: boolean): Ov[] =>
+  [...os.filter(o => !(o.cardId == cardId && o.itemId == itemId)), { cardId: cardId, itemId: itemId, done: done, base: base }]
+
+component Column(props: {
+  column: string;
+  label: string;
+  cards: Row[];
+  full: boolean;
+  ov: Ov[];
+  adds: NewItem[];
+  addable: boolean;
+  addErr: string;
+  onRetry: () => void;
+  onMove: (c: Row, from: string, dir: string, i: number) => void;
+  onSelect: (id: number) => void;
+  onAdd: (title: string) => void;
+}) {
+  source retries := 0
+  source draft := ""
+  <section data-testid={"col-" + props.column}>
+    {loading on(retries) fallback {
+      <h2 data-testid={"head-" + props.column}>{props.label}</h2>
+      <p>loading</p>
+    } {
+      {errored fallback(e) {
+        <h2 data-testid={"head-" + props.column}>{props.label}</h2>
+        <p>{"error: " + e.message}</p>
+        <button data-testid={"retry-" + props.column} onClick={() => { retries := retries + 1; props.onRetry() }}>retry</button>
+      } {
+        <h2 data-testid={"head-" + props.column}>{props.label} ({props.cards.length})</h2>
+        <ul>
+          {for c in props.cards {
+            <li>
+              {if c.adding {
+                <span data-testid="card">{c.title} (adding…)</span>
+              } else {
+                <span data-testid="card" onClick={() => { props.onSelect(c.id) }}>#{c.id} {c.title} · {c.done + doneDelta(props.ov, c.id)}/{c.total + addCount(props.adds, c.id)}</span>
+              }}
+              {if !c.adding && props.column != "done" {
+                <button data-testid="right" disabled={props.column == "todo" && props.full} onClick={() => { props.onMove(c, props.column, "right", props.cards.findIndex(x => x.id == c.id)) }}>right</button>
+              }}
+              {if !c.adding && props.column != "todo" {
+                <button data-testid="left" disabled={props.column == "done" && props.full} onClick={() => { props.onMove(c, props.column, "left", props.cards.findIndex(x => x.id == c.id)) }}>left</button>
+              }}
+              {if !c.adding && props.cards.findIndex(x => x.id == c.id) > 0 {
+                <button data-testid="up" onClick={() => { props.onMove(c, props.column, "up", props.cards.findIndex(x => x.id == c.id)) }}>up</button>
+              }}
+              {if !c.adding && props.cards.findIndex(x => x.id == c.id) < props.cards.filter(x => !x.adding).length - 1 {
+                <button data-testid="down" onClick={() => { props.onMove(c, props.column, "down", props.cards.findIndex(x => x.id == c.id)) }}>down</button>
+              }}
+            </li>
+          }}
+        </ul>
+        {if props.addable {
+          <div>
+            <input data-testid="new-card" value={draft} onInput={(e) => { draft := e.target.value }} />
+            <button data-testid="add-card" onClick={() => { let t = draft.trim(); if (t != "") { onFlush(() => { draft := "" }); props.onAdd(t) } }}>add</button>
+            {if props.addErr != "" { <p data-testid="add-error">{"add error: " + props.addErr}</p> }}
+          </div>
+        }}
+      }}
+    }}
+  </section>
+}
+
+component BoardPage() {
+  source todoCards: Row[] = withFlag(await fetchCards("todo"))
+  source doingCards: Row[] = withFlag(await fetchCards("doing"))
+  source doneCards: Row[] = withFlag(await fetchCards("done"))
+  source doingFull := false
+  effect (doingCards catch (e) => []) { doingFull := $0.length >= 3 }
+
+  source selectedId: number | null := null
+  source renameDraft := ""
+  source renameErr := ""
+  source itemDraft := ""
+  source itemErr := ""
+  source moveErr := ""
+  source addErr := ""
+  source archiveErr := ""
+  source tmpSeq := 0
+  source itemOv: Ov[] = []
+  source itemAdds: NewItem[] = []
+
+  todoSafe = todoCards catch (e) => []
+  doingSafe = doingCards catch (e) => []
+  doneSafe = doneCards catch (e) => []
+  selRows = selectedId == null ? [] : [...todoSafe, ...doingSafe, ...doneSafe].filter(c => c.id == selectedId)
+  checkAns = selectedId == null ? [] : await fetchChecklist(selectedId)
+  checkRows = selectedId == null ? [] : itemRows(checkAns, itemAdds, itemOv, selectedId)
+
+  action relocate(card: Row, to: string, index: number) {
+    onFlush(() => { moveErr := "" })
+    guess todoCards := cs => reshape(cs, "todo", to, card, index)
+    guess doingCards := cs => reshape(cs, "doing", to, card, index)
+    guess doneCards := cs => reshape(cs, "done", to, card, index)
+    try {
+      await moveCard(card.id, to, index)
+      todoCards := cs => reshape(cs, "todo", to, card, index)
+      doingCards := cs => reshape(cs, "doing", to, card, index)
+      doneCards := cs => reshape(cs, "done", to, card, index)
+    } catch (e) {
+      moveErr := e.message
+    }
+  }
+
+  action moveFrom(c: Row, from: string, dir: string, i: number) {
+    let to = dir == "left" ? prevCol(from) : dir == "right" ? nextCol(from) : from
+    let index = dir == "up" ? i - 1 : dir == "down" ? i + 1 : to == "todo" ? todoSafe.length : to == "doing" ? doingSafe.length : doneSafe.length
+    relocate(c, to, index)
+  }
+
+  action addNew(title: string, tmp: number) {
+    onFlush(() => { addErr := "" })
+    guess todoCards := cs => [...cs, { id: tmp, title: title, done: 0, total: 0, adding: true }]
+    try {
+      let c = await addCard("todo", title)
+      todoCards := cs => [...cs, { id: c.id, title: c.title, done: 0, total: 0, adding: false }]
+    } catch (e) {
+      addErr := e.message
+    }
+  }
+
+  action addFrom(title: string) {
+    let tmp = -1 - tmpSeq
+    tmpSeq := tmpSeq + 1
+    addNew(title, tmp)
+  }
+
+  action pick(id: number) {
+    selectedId := id
+    renameDraft := ""
+    renameErr := ""
+    itemErr := ""
+    itemDraft := ""
+  }
+
+  action renameIt(id: number, title: string) {
+    onFlush(() => { renameErr := "" })
+    guess todoCards := cs => retitle(cs, id, title)
+    guess doingCards := cs => retitle(cs, id, title)
+    guess doneCards := cs => retitle(cs, id, title)
+    try {
+      await renameCard(id, title)
+      todoCards := cs => retitle(cs, id, title)
+      doingCards := cs => retitle(cs, id, title)
+      doneCards := cs => retitle(cs, id, title)
+    } catch (e) {
+      renameErr := e.message
+    }
+  }
+
+  action archiveIt(id: number) {
+    onFlush(() => { archiveErr := "" })
+    onFlush(() => { selectedId := null })
+    guess todoCards := cs => without(cs, id)
+    guess doingCards := cs => without(cs, id)
+    guess doneCards := cs => without(cs, id)
+    try {
+      await archiveCard(id)
+      todoCards := cs => without(cs, id)
+      doingCards := cs => without(cs, id)
+      doneCards := cs => without(cs, id)
+    } catch (e) {
+      archiveErr := e.message
+    }
+  }
+
+  action toggleRow(cardId: number, itemId: number, done: boolean, base: boolean) {
+    onFlush(() => { itemErr := "" })
+    guess itemOv := os => setOv(os, cardId, itemId, done, base)
+    try {
+      await toggleItem(cardId, itemId, done)
+      itemOv := os => setOv(os, cardId, itemId, done, base)
+    } catch (e) {
+      itemErr := e.message
+    }
+  }
+
+  action addNewItem(cardId: number, text: string, tmp: number) {
+    onFlush(() => { itemErr := "" })
+    guess itemAdds := xs => [...xs, { cardId: cardId, id: tmp, text: text, adding: true }]
+    try {
+      let it = await addItem(cardId, text)
+      itemAdds := xs => [...xs, { cardId: cardId, id: it.id, text: it.text, adding: false }]
+    } catch (e) {
+      itemErr := e.message
+    }
+  }
+
+  <section data-testid="board">
+    {if moveErr != "" { <p data-testid="move-error">{"move error: " + moveErr}</p> }}
+    {if archiveErr != "" { <p data-testid="archive-error">{"archive error: " + archiveErr}</p> }}
+    <div>
+      <Column column="todo" label="To do" cards={todoCards} full={doingFull} ov={itemOv} adds={itemAdds} addable={true} addErr={addErr}
+        onRetry={() => { refresh todoCards }}
+        onMove={(c, from, dir, i) => { moveFrom(c, from, dir, i) }}
+        onSelect={(id) => { pick(id) }}
+        onAdd={(t) => { addFrom(t) }} />
+      <Column column="doing" label="Doing" cards={doingCards} full={doingFull} ov={itemOv} adds={itemAdds} addable={false} addErr=""
+        onRetry={() => { refresh doingCards }}
+        onMove={(c, from, dir, i) => { moveFrom(c, from, dir, i) }}
+        onSelect={(id) => { pick(id) }}
+        onAdd={(t) => { addFrom(t) }} />
+      <Column column="done" label="Done" cards={doneCards} full={doingFull} ov={itemOv} adds={itemAdds} addable={false} addErr=""
+        onRetry={() => { refresh doneCards }}
+        onMove={(c, from, dir, i) => { moveFrom(c, from, dir, i) }}
+        onSelect={(id) => { pick(id) }}
+        onAdd={(t) => { addFrom(t) }} />
+    </div>
+    <section data-testid="detail">
+      {if selectedId == null {
+        <p>select a card</p>
+      } else {
+        {loading fallback { <p>loading</p> } {
+          {for r in selRows {
+            <div>
+              <h2>#{r.id} {r.title}</h2>
+              <p>in {colOf(r.id, todoSafe, doingSafe, doneSafe)}</p>
+              <input data-testid="title-input" value={renameDraft} onInput={(e) => { renameDraft := e.target.value }} />
+              <button data-testid="rename" onClick={() => { let t = renameDraft.trim(); if (t != "" && selectedId != null) { renameIt(selectedId, t) } }}>rename</button>
+              {if renameErr != "" { <p>{"rename error: " + renameErr}</p> }}
+              <button data-testid="archive" onClick={() => { archiveIt(r.id) }}>archive</button>
+              <section data-testid="checklist">
+                {loading on(selectedId) fallback { <p>loading checklist</p> } {
+                  {errored fallback(e) { <p>{"checklist error: " + e.message}</p> } {
+                    <ul>
+                      {for it in checkRows {
+                        <li>
+                          <span data-testid="item">{it.done ? "[x] " : "[ ] "}{it.text}{it.adding ? " (adding…)" : ""}</span>
+                          {if !it.adding {
+                            <button data-testid="toggle" onClick={() => { if (selectedId != null) { toggleRow(selectedId, it.id, !it.done, it.base) } }}>toggle</button>
+                          }}
+                        </li>
+                      }}
+                    </ul>
+                    <p data-testid="progress">{checkRows.filter(x => x.done).length}/{checkRows.length} done</p>
+                    <input data-testid="item-input" value={itemDraft} onInput={(e) => { itemDraft := e.target.value }} />
+                    <button data-testid="add-item" onClick={() => { let t = itemDraft.trim(); if (t != "" && selectedId != null) { onFlush(() => { itemDraft := "" }); let tmp = -1 - tmpSeq; tmpSeq := tmpSeq + 1; addNewItem(selectedId, t, tmp) } }}>add</button>
+                  }}
+                }}
+              </section>
+              {if itemErr != "" { <p>{"item error: " + itemErr}</p> }}
+            </div>
+          }}
+        }}
+      }}
+    </section>
+  </section>
+}
+
+component ArchivePage() {
+  source archived: Archived[] = await fetchArchived()
+  source restoreErr := ""
+
+  action restoreIt(id: number) {
+    onFlush(() => { restoreErr := "" })
+    guess archived := xs => xs.filter(x => x.id != id)
+    try {
+      await restoreCard(id)
+      archived := xs => xs.filter(x => x.id != id)
+    } catch (e) {
+      restoreErr := e.message
+    }
+  }
+
+  <section data-testid="archive-page">
+    <h1>Archive</h1>
+    <section data-testid="archived">
+      {loading fallback { <p>loading archive</p> } {
+        {errored fallback(e) { <p>{"archive error: " + e.message}</p> } {
+          <ul>
+            {for a in archived {
+              <li>
+                <span data-testid="archived-card">#{a.id} {a.title}</span>
+                <button data-testid="restore" onClick={() => { restoreIt(a.id) }}>restore</button>
+              </li>
+            }}
+          </ul>
+        }}
+      }}
+    </section>
+    {if restoreErr != "" { <p data-testid="restore-error">{"restore error: " + restoreErr}</p> }}
+  </section>
+}
+
+export default component App() {
+  source tab := "board"
+  <div>
+    <nav>
+      <button data-testid="tab-board" onClick={() => { tab := "board" }}>Board</button>
+      <button data-testid="tab-archive" onClick={() => { tab := "archive" }}>Archive</button>
+    </nav>
+    {if tab == "board" {
+      <BoardPage />
+    } else {
+      <ArchivePage />
+    }}
+  </div>
+}

@@ -1,0 +1,5 @@
+// array.js in rows, from rx-declare's draft. Read from the code by rx-declare (09 MO-8v; it was by hand): the two helpers change the list they are given in place
+// (`draft`, MO-10i), so a store's draft is given to them as it is — and nothing else is.
+export fn moveItem<T>(draft list: T[], from: number, to: number): void
+export fn sortBy<T>(draft list: T[], key: keyof T): void
+export fn later(run: handler () => void): void

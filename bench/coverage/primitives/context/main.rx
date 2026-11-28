@@ -1,0 +1,11 @@
+// @solid-primitives/context: a provider and its hook made from one factory (counter.js); the hook reads the provider
+// above it, which the declaration says in the words `.rx` contexts have.
+import { CounterProvider, useCounter } from "./counter.js"
+
+component Count() {
+  [count, increment] = useCounter()
+  <button onClick={() => { increment() }}>count {count}</button>
+}
+export default component App() {
+  <CounterProvider initial={3}><Count /></CounterProvider>
+}

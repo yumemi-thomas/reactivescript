@@ -1,3 +1,4 @@
 .test/
 src/rxc.wasm
+src/words.wasm
 *.tgz

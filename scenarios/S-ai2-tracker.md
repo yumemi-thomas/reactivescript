@@ -10,7 +10,7 @@ file: ../examples/ai2/tracker/main.rx
 
 ## Frames
 
-| instant | action | frame | effect / probe verdicts |
+| instant | action | frame | note |
 | ------- | ------ | ----- | ----------------------- |
 | 0 | mount | `open closed loading open issues / select an issue` | — |
 | 1 | resolve "fetchIssues:open" [{"id":1,"title":"Login fails","assignee":null},{"id":3,"title":"Crash on save","assignee":null},{"id":4,"title":"Typo in footer","assignee":"dana"}] | `open closed #1 Login fails (unassigned) #3 Crash on save (unassigned) #4 Typo in footer (dana) / select an issue` | — |
@@ -40,11 +40,35 @@ file: ../examples/ai2/tracker/main.rx
 
 ## Rejected variants
 
-Predicted from the spec and not run (the test allows the checker only on `main.rx`):
+The app's modules are the example's; each variant is the part it changes, in the entry. A panel without its `errored`
+boundary (`detail` fails with `Error` or `NotFound`), the assignment awaited with no `try`, and a panel that writes
+another module's source:
 
-| fragment | rule | verdict |
-| -------- | ---- | ------- |
-| delete the `errored fallback(e) { … }` wrapper in `DetailPanel` | R-f-5 | `UNHANDLED_FAILURE` (`detail` fails `Error` or `NotFound`) |
-| in `assignToMe`, `await assign(id, user)` outside `try … catch` | R-f-6 | `UNCAUGHT_ACTION_FAILURE` |
-| in `ui.rx`, a handler `() => { selected := issue.id }` | MO-2a | `WRITE_TO_NON_SOURCE` |
-| `guess assignError := "…"` in an action (`assignError` is `:=`, no question) | AC-3 / ST-5c | `GUESS_NO_QUESTION` |
+```rx
+-- reject: UNHANDLED_FAILURE
+import { selected, detail } from "./issues.rx"
+export default component App() {
+  <section>
+    {loading on(selected) fallback { <p>loading #{selected}</p> } {
+      {if detail { <h3>#{detail.id} {detail.title}</h3> }}
+    }}
+  </section>
+}
+```
+
+```rx
+-- reject: UNCAUGHT_ACTION_FAILURE
+import { assign } from "./api"
+export default component App() {
+  action assignToMe(id: number, user: string) { await assign(id, user) }
+  <button onClick={() => { assignToMe(1, "ann") }}>assign</button>
+}
+```
+
+```rx
+-- reject: WRITE_TO_NON_SOURCE
+import { selected } from "./issues.rx"
+export default component App() {
+  <button onClick={() => { selected := 3 }}>{selected}</button>
+}
+```

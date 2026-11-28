@@ -1,0 +1,15 @@
+// Lines of source (no comments, no blank lines) and the built size (esbuild, minified, gzip; Solid left out) of each package.
+import esbuild from "esbuild"; import { gzipSync } from "node:zlib"; import fs from "node:fs"; import { createRequire } from "node:module";
+const NAMES = { media: ["createMediaQuery", "createBreakpoints", "usePrefersDark"], timer: ["createTimer", "createTimeoutLoop", "createPolled", "createIntervalCounter"], sortable: ["createSorted", "createSortedIndex", "createSortedProjection"], history: ["createUndoHistory"], pagination: ["createPagination", "createSegment"], keyboard: ["useKeyDownEvent", "useKeyDownList", "useCurrentlyHeldKey", "useKeyDownSequence", "createKeyHold"], "resize-observer": ["createElementSize", "createWindowSize", "useWindowSize"], keyed: ["Key", "MapEntries", "SetValues"], "form-control": ["createFormControl", "createFormControlInput", "FormControlContext", "useFormControl"], presence: ["createPresence"], "controlled-props": ["createControlledProp", "createControlledProps"], storage: ["createPersisted"] };
+const size = async (spec, names, external = []) => { const r = await esbuild.build({ tsconfigRaw: {}, stdin: { contents: `export { ${names.join(", ")} } from "${spec}"`, resolveDir: process.cwd() }, bundle: true, minify: true, format: "esm", write: false, conditions: ["browser"], external: ["solid-js", "@solidjs/*", ...external], logLevel: "silent", treeShaking: true }); return gzipSync(r.outputFiles[0].contents, { level: 9 }).length; };
+const lines = f => fs.readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter(l => l.trim() && !/^\s*\/\//.test(l)).length;
+const src = process.argv[2];
+for (const [p, names] of Object.entries(NAMES)) {
+  const o = p === "form-control" ? "a11y" : p, d = `packages/${p}/`;
+  const js = fs.readdirSync(d + "src").filter(f => f.endsWith(".js")), decl = fs.readdirSync(d + "src").filter(f => /\.d\.(ts|rx)$/.test(f));
+  const orig = src ? fs.readdirSync(`${src}/${o}/src`, { recursive: true }).filter(f => /\.tsx?$/.test(f) && (p !== "form-control" || /form-control/.test(f))).reduce((n, f) => n + lines(`${src}/${o}/src/${f}`), 0) : 0;
+  const rx = await size(`@rx-primitives/${p}`, names), rxApp = await size(`@rx-primitives/${p}`, names, ["@reactivescript/runtime"]);
+  const was = p === "storage" ? await size("@solid-primitives/storage", ["makePersisted"]) : p === "controlled-props" ? (fs.existsSync("node_modules/@solid-primitives/controlled-props/dist/index.js") ? await size("./node_modules/@solid-primitives/controlled-props/dist/index.js", names) : 0) : await size(`@solid-primitives/${o}`, names);
+  console.log(`| ${p} | ${fs.readdirSync(d + "src").filter(f => f.endsWith(".rx") && !f.endsWith(".d.rx")).reduce((n, f) => n + lines(d + "src/" + f), 0)} | ${js.reduce((n, f) => n + lines(d + "src/" + f), 0)} | ${lines(d + "index.js")} | ${decl.reduce((n, f) => n + lines(d + "src/" + f), 0)} | ${orig} | ${was} | ${rxApp} | ${rx} |`);
+}
+console.log("runtime alone:", await size("@reactivescript/runtime", ["library"]));

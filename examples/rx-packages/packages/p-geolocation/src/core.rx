@@ -1,0 +1,9 @@
+// createGeolocationWatcher. Derived from @solid-primitives/geolocation 3.0.0 (MIT, see ../NOTICE).
+import client { watchPosition } from "./dom.js"
+export fn createGeolocationWatcher(ref enabled: boolean, options: any) {
+  source location: any := null
+  source error: any := null
+  effect (enabled) { return $0 ? watchPosition((p) => { location := () => p
+      error := null }, (e) => { error := () => e }, options) : undefined }
+  { location: location, error: error }
+}

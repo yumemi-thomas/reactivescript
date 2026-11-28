@@ -1,0 +1,3 @@
+//@ for @solid-primitives/map ^1.0.0
+export type SignalMap<K, V> = import("@solid-primitives/map").SignalMap<K, V>
+export fn createMap<K, V>(initial?: [K, V][]): SignalMap<K, V>

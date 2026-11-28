@@ -1,0 +1,3 @@
+I built the sprint board in `src/main.rx`: a board page with three columns (move, add, rename, archive, WIP limit, detail with checklist, add and toggle items) and an archive page with restore. `./check` passes and all 26 visible tests pass in `./test`. I used 3 of the 15 runs.
+
+Unsure about: accepted writes stay on screen only until the follow-up column refresh lands, which the visible tests never do, so hidden tests that land those refreshes could behave differently. The Doing count that drives the WIP limit is set by an effect, so it can lag a frame behind a rapid second move. The test run also logged one 404, which I did not chase.

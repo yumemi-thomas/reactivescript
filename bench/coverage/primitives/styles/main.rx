@@ -1,0 +1,7 @@
+// @solid-primitives/styles: the root font size, in pixels.
+import { createRemSize } from "@solid-primitives/styles"
+
+export default component App() {
+  rem = createRemSize()
+  <p>1rem is {rem}px</p>
+}

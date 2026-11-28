@@ -1,0 +1,17 @@
+// One part of a core instance: what it shows.
+import { listen } from "./bridge.js"
+import pure { partOf, attrsOf, stateOf } from "./bridge.js"
+import { Instance, Named, User, Part } from "./bridge.js"
+
+/** `options` and `tick` are what core's answers depend on and cannot say: the root's props, and core's own changes
+ *  (`attrsTick`: those that core does not write to the element itself). */
+export fn usePart(ref it: Instance, slot: string, ref named: Named, ref user: User, ref options: object) {
+  source tick: number := 0
+  source attrsTick: number := 0
+  part = partOf(it, slot, named)
+  effect (part) { return listen($0, (live: boolean) => { tick := t => t + 1
+    if (!live) { attrsTick := t => t + 1 } }) }
+  attrs = attrsOf(part, named, user, options, attrsTick)
+  now = stateOf(part, named, options, tick)
+  { part: part, attrs: attrs, now: now, tick: tick }
+}

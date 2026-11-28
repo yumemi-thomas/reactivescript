@@ -1,0 +1,7 @@
+// @solid-primitives/props: two sets of props made one, their handlers chained (button.js).
+import { Button } from "./button.js"
+
+export default component App() {
+  source presses := 0
+  <Button class="primary" onPress={() => { presses := n => n + 1 }}>pressed {presses}</Button>
+}

@@ -1,0 +1,14 @@
+== hidden
+✗ a move error stays when another move is accepted
+✗ add-card with an empty input adds nothing
+✗ two adds show both, each taking its own id
+✗ rename with an empty title-input asks nothing
+✗ add-item with an empty input adds nothing
+40/45 passed
+== overlap
+✗ a move declined after the board was left shows no move error on the next visit
+✗ an archive declined after the board was left shows no archive error on the next visit
+✗ a restore declined after the archive was left shows no restore error on the next visit
+23/26 passed
+== fuzz
+board-contract-opus-5: 0/20 seeds found a hole

@@ -1,0 +1,12 @@
+//@ for @formisch/solid ^1.3.0
+// Formisch's Solid 2 build in rows (as rx-declare drafts it, kept to what the form uses). The types are the package's own.
+export type FormSchema = import("@formisch/solid/v2").FormSchema
+export type FormStore<TSchema extends FormSchema = FormSchema> = import("@formisch/solid/v2").FormStore<TSchema>
+export type FormConfig<TSchema extends FormSchema = FormSchema> = import("@formisch/solid/v2").FormConfig<TSchema>
+export type FieldProps<TSchema extends FormSchema = FormSchema, TFieldPath extends RequiredPath = RequiredPath> = import("@formisch/solid/v2").FieldProps<TSchema, TFieldPath>
+export type FieldStore<TSchema extends FormSchema = FormSchema, TFieldPath extends RequiredPath = RequiredPath> = import("@formisch/solid/v2").FieldStore<TSchema, TFieldPath>
+export type FormProps<TSchema extends FormSchema = FormSchema> = import("@formisch/solid/v2").FormProps<TSchema>
+export type RequiredPath = import("@formisch/solid/v2").RequiredPath
+export component Field<TSchema extends FormSchema, TFieldPath extends RequiredPath>(props: FieldProps<TSchema, TFieldPath> & { children: (store: FieldStore<TSchema, TFieldPath>) => View })
+export component Form<TSchema extends FormSchema>(props: FormProps<TSchema> & { onSubmit: handler (output: import("valibot").InferOutput<TSchema>, event: SubmitEvent) => unknown })
+export fn createForm<TSchema extends FormSchema>(config: FormConfig<TSchema>): FormStore<TSchema> instantiates

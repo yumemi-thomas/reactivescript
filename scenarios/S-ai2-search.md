@@ -10,7 +10,7 @@ file: ../examples/ai2/search/main.rx
 
 ## Frames
 
-| instant | action | frame | effect / probe verdicts |
+| instant | action | frame | note |
 | ------- | ------ | ----- | ----------------------- |
 | 0  | mount | `pick a result` | — |
 | 1  | handler `setQuery("a")` | `too short: a pick a result` | `pending? results` false |

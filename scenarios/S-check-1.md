@@ -137,6 +137,30 @@ export default component App() {
 `Row` sees its declaration site, not its caller (RG-7a).
 
 ```rx
+-- reject: UNBOUND
+component Lane() { <h3>{props.col}</h3> }
+
+export default component App() {
+  <Lane col="todo" />
+}
+```
+
+`component Lane()` declares no props, so `props` is not a name in it
+(RG-4b): the read was `undefined` on screen.
+
+```rx
+-- reject: ARGUMENT_COUNT
+export default component App() {
+  source n := 0
+  action go(by: number) { n := n + by }
+
+  <button onClick={() => { go(1, 2) }}>{n}</button>
+}
+```
+
+`go` takes one argument (AC-1f); `go()` is refused the same way.
+
+```rx
 -- reject: UNKNOWN_COMPONENT
 export default component App() {
   <Nope />
@@ -209,13 +233,27 @@ export default component App() {
 }
 ```
 
-```rx
--- reject: GUESS_NO_QUESTION
-export default component App() {
-  source shown := "Ann"
-  action fix() { guess shown := "Zed"; await fetch("x") }
+A guess in a run that starts nothing to wait for has no hold either
+(AC-3, 2026-11-22): it would be taken back in the instant it is made.
 
-  <p>{shown}</p>
+```rx
+-- reject: GUESS_OUTSIDE_HOLD
+export default component App() {
+  source name := "Ann"
+  source shown = name
+
+  <button onClick={() => { guess shown := "Zed" }}>{shown}</button>
+}
+```
+
+```rx
+-- reject: GUESS_OUTSIDE_HOLD
+export default component App() {
+  source name := "Ann"
+  source shown = name
+  action rename(to) { let next = to; guess shown := next; onFlush(() => { log(to) }) }
+
+  <button onClick={() => { rename("Zed") }}>{shown}</button>
 }
 ```
 
@@ -225,6 +263,19 @@ export default component App() {
   source base := 1
 
   <button onClick={() => { refresh base }}>{base}</button>
+}
+```
+
+An equation that asks nothing itself re-asks nothing: its question is the one it reads (AC-4).
+
+```rx
+-- reject: INVALID_REFRESH_TARGET
+export default component App() {
+  source q := "a"
+  source ans = await fetch(q) -> null
+  issues = ans == null ? [] : [ans]
+
+  errored fallback(e) { <p>failed</p> } { <button onClick={() => { refresh issues }}>{len(issues)}</button> }
 }
 ```
 

@@ -1,0 +1,2 @@
+import { use } from "../../../cover.mjs";
+export default use(import.meta, { pkgs: [], title: "page-visibility: a module's default export, imported by a name of the app's own", ssr: /in view/, dom: /in view/, pkg: "solid-use", modules: ["solid-use/page-visibility"], note: "the utility is its module's default export: imported as JavaScript imports one (`import { default as usePageVisibility }`), and declared by a row named `default` (09 MO-8u, 2026-11-25); the module of the app's own that handed it out by name is gone" });

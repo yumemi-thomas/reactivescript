@@ -1,0 +1,22 @@
+== hidden
+✗ the new-card input starts empty when the board opens again
+✗ two adds show both, each taking its own id
+43/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ a move into To do while a card is being added there keeps both
+✗ an add accepted while To do reloads shows the card once
+✗ an item added while the checklist reloads shows once
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ a rename and a move out together, the move declined: the card goes back with its new title
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a declined archive of a card whose rename is out brings it back with the new title
+✗ a move into Doing that fills it while a move out is pending disables the rest
+16/26 passed
+== fuzz
+board-rx-haiku-4: 2/20 seeds found a hole
+  seed 4 step 19: two views: card "#5 Kickoff · 3/3", detail "#5 Deltain Donerenamearchiveloading checklist"
+    add Alpha 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:todo ; land fetchCards:done ; add Bravo 2 ; add Bravo 3 ; down #1 ; tab archive ; tab board ; land fetchCards:todo ; up #2 ; select #2 ; rename Alpha ; up #1 ; select #2 ; land fetchCards:done ; rename Delta ; land addCard:todo,Bravo 2 ; select #5
+  seed 11 step 19: two views: card "#5 Kickoff · 3/3", detail "#5 Alphain Donerenamearchiveloading checklist"
+    add Bravo 1 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Bravo 2 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; tab archive ; tab board ; add Alpha 3 ; (move failed: locator.fill: Timeout 2000ms exceeded.) ; land fetchCards:doing ; select #4 ; down #3 ; rename Alpha ; up #3 ; archive #4 ; land fetchCards:done ; land moveCard:3,doing,1 ; sel

@@ -1,0 +1,8 @@
+I built the sprint board in plain TypeScript, and `./check` and `./test` both pass: all 26 visible tests, using 3 of the 15 allowed runs. The code is in `src/main.ts` (tabs), `src/board.ts` (board and detail), `src/archive.ts`, `src/dom.ts` and `src/styles.ts`, all under `/tmp/claude-0/runs/r15/board-vanilla-opus-4`. Every change shows at once and is kept in a queue. When the server declines one, only that change is undone and the others stay, and any answer that arrives after its page or card is no longer showing is ignored.
+
+I was unsure about three things the brief doesn't settle:
+- **Rename input:** `title-input` keeps its text after a rename, because the brief only says to empty the other two inputs.
+- **Buttons I limited:** move buttons are off into a column that hasn't loaded, there is no swap with a card still being added, and adding a checklist item waits until the checklist has loaded.
+- **Same card again:** clicking the card that is already selected does not reload its checklist.
+
+One run logged a single 404 for a missing resource, probably the page icon.

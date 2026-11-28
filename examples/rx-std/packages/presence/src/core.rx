@@ -1,0 +1,64 @@
+// What is mounted while an item enters, stays and leaves. The machine is an equation over the item and the last
+// generation that has finished leaving; the clock only says when a generation is visible, has entered, or has left.
+import { after } from "@reactivescript/std/time"
+import pure { isFunction } from "@reactivescript/std/is"
+import { frame } from "./dom.js"
+import pure { bound } from "./dom.js"
+
+export type Duration = number | (() => number)
+export type Options = { transitionDuration?: Duration; enterDuration?: Duration; exitDuration?: Duration; initialEnter?: boolean }
+
+export type State = { item: any; want: any; on: boolean; generation: number }
+fn access(v: any): any => isFunction(v) ? v() : v
+fn shown(item: any): boolean => item !== false && (item ?? null) !== null
+fn first(item: any): State => ({ item: item, want: item, on: shown(item), generation: 0 })
+/** The machine: what is mounted, whether it is wanted, and the generation (one per entering or leaving). */
+fn next(s: State, want: any, exitedIn: number): State =>
+  s.on && want !== s.item && s.item !== undefined ? { ...s, want: want, on: false, generation: s.generation + 1 } :
+  !s.on && shown(want) && (want === s.item || exitedIn === s.generation) ? { item: want, want: want, on: true, generation: s.generation + 1 } :
+  want === s.want ? s : { ...s, want: want }
+/** Whether an event is the element's own, and not a child's. */
+fn own(e: any): boolean => !(e && e.currentTarget && e.target !== e.currentTarget)
+
+export fn createPresence(ref item: any, options: Options) {
+  enterMs: number = access(options.enterDuration ?? options.transitionDuration)
+  exitMs: number = access(options.exitDuration ?? options.transitionDuration)
+  source exitedIn := 0
+  source visibleIn := options.initialEnter ? 0 - 1 : 0
+  source enteredIn := options.initialEnter ? 0 - 1 : 0
+  state = next(pre state -> first(item), item, exitedIn)
+  generation = state.generation
+  isMounted = state.on || exitedIn != generation
+  isVisible = state.on && visibleIn == generation
+  hasEntered = state.on && enteredIn == generation
+  isExiting = isMounted && !state.on
+  isEntering = state.on && !hasEntered
+
+  // each input is an equation of its own: an expression written in the effect loses its cleanup when it is computed
+  // again to the same value (REPORT.md, bug 1)
+  leaving = state.on ? null : generation
+  showing = state.on && !isVisible ? generation : null
+  entering = isVisible && !hasEntered ? generation : null
+  effect (leaving, exitMs) {
+    let g = $0
+    return g == null ? undefined : after($1, () => { exitedIn := g })
+  }
+  effect (showing) {
+    let g = $0
+    return g == null ? undefined : frame(() => { visibleIn := g })
+  }
+  effect (entering, enterMs) {
+    let g = $0
+    return g == null ? undefined : after($1, () => { enteredIn := g })
+  }
+
+  action finish(g: number) {
+    if (g == generation) {
+      if (state.on) { visibleIn := g
+        enteredIn := g } else { exitedIn := g }
+    }
+  }
+  action done(ev: any) { if (own(ev)) { finish(generation) } }
+  { isMounted: isMounted && state.item !== undefined, isVisible: isVisible, isAnimating: isEntering || isExiting, isEntering: isEntering, isExiting: isExiting,
+    mountedItem: state.item, done: done, bindDone: () => bound(peek generation, finish) }
+}

@@ -1,0 +1,104 @@
+// RadioGroup. Derived from radio-group/* of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
+import { call, give, focus, put, formOf, announceChange, syncRadios } from "./dom.js"
+import client { on } from "@reactivescript/std/browser"
+import pure { hidden, flag, words, uniqueId } from "./dom.js"
+import { Div, Span, Input as InputProps, Label as LabelProps, Validation } from "./types.js"
+import { form, createForm, FormDescription, FormError } from "./form.rx"
+
+type Group = { value: string | undefined; pick: (v: string) => void; described: string | undefined }
+context group: Group
+type Item = { id: string; value: string; on: boolean; disabled: boolean; label: string | undefined; description: string | undefined; input: string | undefined; pick: () => void; focused: (v: boolean) => void; el: (e: any) => void; name: (part: "input" | "label" | "description", id: string | undefined) => void }
+context item: Item
+fn data(f: any, i: any): any => ({ ...f, "data-disabled": flag(i.disabled), "data-checked": flag(i.on) })
+
+export type RootProps = Omit<Div, "onChange"> & { value?: string; defaultValue?: string; onChange?: (v: string) => void; orientation?: "horizontal" | "vertical"; name?: string; validationState?: Validation; required?: boolean; disabled?: boolean; readOnly?: boolean }
+export component Root(props: RootProps) {
+  { value, defaultValue, onChange, orientation = "vertical", name, validationState, required, disabled, readOnly, id, children, ref: user, ...rest } = props
+  f = createForm({ id: id, name: name, validationState: validationState, required: required, disabled: disabled, readOnly: readOnly }, "radiogroup")
+  source mine: string | undefined := peek(defaultValue)
+  source el: any := undefined
+  now = value ?? mine
+  action pick(v: string) {
+    if (!readOnly && !disabled) {
+      if (v != now) { mine := v
+        if (onChange) { onChange(v) } }
+      syncRadios(el, value == undefined ? v : now)
+    }
+  }
+  effect (el) { let owner = formOf($0)
+    return owner ? on(owner, "reset", () => { pick(defaultValue ?? "") }) : undefined }
+  by = words(props["aria-labelledby"], f.label, (props["aria-labelledby"] ?? f.label) != undefined && props["aria-label"] != undefined ? f.id : undefined)
+  provide form = f
+  provide group = { value: now, pick: pick, described: words(f.described, props["aria-describedby"]) }
+  <div {...rest} ref={(e: Element) => { el := e; give(user, e) }} role="radiogroup" id={f.id} aria-invalid={f.invalid ? "true" : undefined} aria-required={f.required ? "true" : undefined} aria-disabled={f.disabled ? "true" : undefined} aria-readonly={f.readOnly ? "true" : undefined}
+    aria-orientation={orientation} aria-labelledby={by} aria-describedby={words(f.described, props["aria-describedby"])} {...f.data}>{children}</div>
+}
+export component Label(props: Span) {
+  { id, children, ...rest } = props
+  f = use form
+  mine = id ?? f.id + "-label"
+  effect (mine) { f.set("label", $0); return () => { f.set("label", undefined) } }
+  <span id={mine} {...f.data} {...rest}>{children}</span>
+}
+export component Description(props: Div) { <FormDescription {...props} /> }
+export component ErrorMessage(props: Div & { forceMount?: boolean }) { <FormError {...props} /> }
+
+export component Item(props: Div & { value: string; disabled?: boolean }) {
+  { value, disabled, id, onPointerDown, children, ...rest } = props
+  f = use form
+  g = use group
+  own = uniqueId(peek(f.id) + "-item")
+  source ids: { input?: string; label?: string; description?: string } := {}
+  source el: any := undefined
+  source focused := false
+  on_ = g.value == value
+  off = disabled || f.disabled || false
+  action name(part: "input" | "label" | "description", v: string | undefined) { ids[part] := v }
+  action pick() { g.pick(value); focus(el) }
+  action setFocused(v: boolean) { focused := v }
+  action setEl(e: any) { el := e }
+  provide item = { id: id ?? own, value: value, on: on_, disabled: off, label: ids.label, description: ids.description, input: ids.input, pick: pick, focused: setFocused, el: setEl, name: name }
+  <div role="group" id={id ?? own} onPointerDown={(e) => { call(e, onPointerDown); if (focused) { e.preventDefault() } }} {...f.data} data-disabled={flag(off)} data-checked={flag(on_)} {...rest}>{children}</div>
+}
+export component ItemControl(props: Div) {
+  { id, onClick, onKeyDown, children, ...rest } = props
+  f = use form
+  i = use item
+  <div id={id ?? i.id + "-control"} onClick={(e) => { call(e, onClick); i.pick() }} onKeyDown={(e) => { call(e, onKeyDown); if (e.key == " ") { i.pick() } }} {...data(f.data, i)} {...rest}>{children}</div>
+}
+export component ItemIndicator(props: Div & { forceMount?: boolean }) {
+  { id, forceMount, children, ...rest } = props
+  f = use form
+  i = use item
+  {if forceMount || i.on { <div id={id ?? i.id + "-indicator"} {...data(f.data, i)} {...rest}>{children}</div> }}
+}
+export component ItemInput(props: InputProps) {
+  { id, style, onChange, onFocus, onBlur, ref: user, ...rest } = props
+  f = use form
+  g = use group
+  i = use item
+  source el: any := undefined
+  source telling := false
+  mine = id ?? i.id + "-input"
+  effect (mine) { i.name("input", $0); return () => { i.name("input", undefined) } }
+  effect (i.on, i.value) { if ($0) { telling := true; announceChange(el); telling := false } }
+  <input {...rest} ref={(e: Element) => { el := e; i.el(e); give(user, e) }} type="radio" id={mine} name={f.name} value={i.value} checked={i.on} required={f.required} disabled={i.disabled} readonly={f.readOnly} style={hidden(style)}
+    aria-labelledby={words(props["aria-labelledby"], i.label, props["aria-labelledby"] != undefined && props["aria-label"] != undefined ? mine : undefined)} aria-describedby={words(props["aria-describedby"], i.description, g.described)}
+    onChange={(e) => { call(e, onChange); e.stopPropagation(); if (!telling) { g.pick(i.value); put(e.currentTarget, "checked", i.on) } }} onFocus={(e) => { call(e, onFocus); i.focused(true) }} onBlur={(e) => { call(e, onBlur); i.focused(false) }} {...data(f.data, i)} />
+}
+export component ItemLabel(props: LabelProps) {
+  { id, children, ...rest } = props
+  f = use form
+  i = use item
+  mine = id ?? i.id + "-label"
+  effect (mine) { i.name("label", $0); return () => { i.name("label", undefined) } }
+  <label id={mine} for={i.input} {...data(f.data, i)} {...rest}>{children}</label>
+}
+export component ItemDescription(props: Div) {
+  { id, children, ...rest } = props
+  f = use form
+  i = use item
+  mine = id ?? i.id + "-description"
+  effect (mine) { i.name("description", $0); return () => { i.name("description", undefined) } }
+  <div id={mine} {...data(f.data, i)} {...rest}>{children}</div>
+}

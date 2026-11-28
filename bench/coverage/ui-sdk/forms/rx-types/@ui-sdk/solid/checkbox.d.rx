@@ -1,0 +1,6 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type CheckboxOptions = import("@ui-sdk/solid/checkbox").CheckboxOptions
+export type CheckboxState = import("@ui-sdk/solid/checkbox").CheckboxState
+export type CheckboxCheckedChangeReason = import("@ui-sdk/solid/checkbox").CheckboxCheckedChangeReason
+export component Checkbox(props: Omit<CheckboxOptions, "group"> & (Omit<import("@ui-sdk/solid").PartProps<"button", CheckboxState>, "value" | "name" | "form" | "onChange" | "onSelect">) & { onCheckedChange?: handler (checked: boolean | "indeterminate", details: import("@ui-sdk/core").ChangeDetails<CheckboxCheckedChangeReason>) => void; render?: (props: Record<string, any>, state: { checked: boolean; indeterminate: boolean; disabled: boolean; readOnly: boolean; required: boolean; }) => View })
+export component CheckboxIndicator(props: Parameters<typeof import("@ui-sdk/solid/checkbox").CheckboxIndicator>[0] & { render?: (props: Record<string, any>, state: NoInfer<CheckboxState>) => View })

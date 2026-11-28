@@ -1,0 +1,50 @@
+// A part of a core instance on an element of each tag it takes: core's attributes and handlers, the caller's over them.
+// Derived from use-primitive.jsx of @ui-sdk/solid 0.1.0-beta.17 (Apache-2.0, see ../NOTICE).
+import { fire, give, binder } from "./bridge.js"
+import { classOf, styleOf, viewOf, presentOf } from "./bridge.js"
+import { Instance, Named } from "./bridge.js"
+import { usePart } from "./part.rx"
+
+export type Of = { it: Instance; slot: string; named: Named; options: object; user: any; keep?: boolean }
+fn on_(ref part: any, ref user: any, ref bind: (e: Element) => void) {
+  hs = {
+  ref: (e: Element) => { bind(e); give(user.ref, e) },
+  onClick: (e: Event) => { fire(part, "click", e, user.onClick) }, onKeyDown: (e: Event) => { fire(part, "keydown", e, user.onKeyDown) }, onKeyUp: (e: Event) => { fire(part, "keyup", e, user.onKeyUp) },
+  onPointerEnter: (e: Event) => { fire(part, "pointerenter", e, user.onPointerEnter) }, onPointerLeave: (e: Event) => { fire(part, "pointerleave", e, user.onPointerLeave) },
+  onFocusIn: (e: Event) => { fire(part, "focusin", e, user.onFocusIn) }, onFocusOut: (e: Event) => { fire(part, "focusout", e, user.onFocusOut) } }
+  hs
+}
+export component ButtonPart(props: { of: Of; children?: View | ((s: any) => View) }) {
+  { part, attrs, now, tick } = usePart(props.of.it, peek(props.of.slot), props.of.named, props.of.user, props.of.options)
+  bind = binder(part)
+  hs = on_(part, props.of.user, bind)
+  <button {...props.of.user} {...attrs} {...hs} class={classOf(props.of.user.class, now)} style={styleOf(props.of.user.style, now, attrs.style)}><props.children {...now} /></button>
+}
+export component DivPart(props: { of: Of; children?: View | ((s: any) => View) }) {
+  { part, attrs, now, tick } = usePart(props.of.it, peek(props.of.slot), props.of.named, props.of.user, props.of.options)
+  shown = props.of.keep ? true : presentOf(part, props.of.named, props.of.options, tick)
+  {if shown {
+    bind = binder(part)   // the binding is the element's: it ends with it (core then drops what points at it, `aria-controls`)
+    hs = on_(part, props.of.user, bind)
+    <div {...props.of.user} {...attrs} {...hs} class={classOf(props.of.user.class, now)} style={styleOf(props.of.user.style, now, attrs.style)}><props.children {...now} /></div> }}
+}
+export component SpanPart(props: { of: Of; children?: View | ((s: any) => View) }) {
+  { part, attrs, now, tick } = usePart(props.of.it, peek(props.of.slot), props.of.named, props.of.user, props.of.options)
+  shown = presentOf(part, props.of.named, props.of.options, tick)
+  {if shown {
+    bind = binder(part)   // the binding is the element's: it ends with it (core then drops what points at it, `aria-controls`)
+    hs = on_(part, props.of.user, bind)
+    <span {...props.of.user} {...attrs} {...hs} class={classOf(props.of.user.class, now)} style={styleOf(props.of.user.style, now, attrs.style)}><props.children {...now} /></span> }}
+}
+export component H3Part(props: { of: Of; children?: View | ((s: any) => View) }) {
+  { part, attrs, now, tick } = usePart(props.of.it, peek(props.of.slot), props.of.named, props.of.user, props.of.options)
+  bind = binder(part)
+  hs = on_(part, props.of.user, bind)
+  <h3 {...props.of.user} {...attrs} {...hs} class={classOf(props.of.user.class, now)} style={styleOf(props.of.user.style, now, attrs.style)}><props.children {...now} /></h3>
+}
+export component InputPart(props: { of: Of }) {
+  { part, attrs, now, tick } = usePart(props.of.it, peek(props.of.slot), props.of.named, props.of.user, props.of.options)
+  bind = binder(part)
+  hs = on_(part, {}, bind)
+  <input {...attrs} {...hs} />
+}

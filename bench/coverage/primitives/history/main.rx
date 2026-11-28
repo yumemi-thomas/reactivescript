@@ -1,0 +1,10 @@
+// @solid-primitives/history: undo and redo over a source, by a callback that tracks it and writes it back.
+import { createUndoHistory } from "./history.js"
+
+export default component App() {
+  source text := "a"
+  history = createUndoHistory(text, (v: string) => { text := v })
+  <p>{text}{history.canUndo() ? " (can undo)" : ""}</p>
+  <button class="type" onClick={() => { text := t => t + "b" }}>type</button>
+  <button class="undo" onClick={() => { history.undo() }}>undo</button>
+}

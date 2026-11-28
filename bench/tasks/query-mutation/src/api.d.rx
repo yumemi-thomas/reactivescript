@@ -1,0 +1,7 @@
+// api.js in rows, from rx-declare's draft: the client is made once (`instantiates`), and what the cache holds is read
+// as a value (`pure`).
+export type Todo = import("./api.js").Todo
+export pure fn fetchTodo(id: number): Promise<Todo>
+export fn renameTodo(change: { id: number; title: string; }): Promise<void>
+export fn makeClient(): import("@tanstack/solid-query").QueryClient instantiates
+export pure fn dehydrated(client: import("@tanstack/solid-query").QueryClient, ready: unknown): string

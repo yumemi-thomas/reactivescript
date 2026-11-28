@@ -11,8 +11,14 @@ code. When the compiler reports an error, `diagnostics.md` has its code: why, an
 import pure { fetchUser } from "./api"     // a loader: callable anywhere, re-asked when its inputs change
 import { saveUser } from "./api"           // io: callable only in imperative code (handlers, actions, effects)
 import { Avatar } from "./Avatar.rx"       // another .rx module
+import * as Select from "./select.rx"      // its parts by one name: <Select.Root>, <Select.Item>; no value
 export default component App() { … }       // the entry module's default component is mounted
 ```
+
+`./api`, spelled so, is the app's injected API, `createApp({ api: { fetchUser, saveUser } })`, and no file to run.
+Its types are a file: `api.d.ts` beside the module (`export declare function fetchUser(id: number): Promise<User>`),
+which `rx-tsc`, the editor and `vite build`'s type check read — without it they stop at `TS2307: Cannot find module
+'./api'`. A module of your own is imported with its extension (`"./api.js"`), and needs nothing given.
 
 A Solid library (solid-primitives and the like) is declared once in a `.d.rx` and then used like .rx: `libraries.md`.
 
@@ -25,13 +31,23 @@ does (`export action select(id) { selected := id }`, or an action passed as a pr
 
 ```rx
 source count: number := 0                  // state; written only with `:=` in imperative code
-source user = await fetchUser(id)          // state with a question: re-asked when `id` changes, can take a guess
+source user = await fetchUser(id)          // state with a question: re-asked when `id` changes
 double = count * 2                         // an equation: always equal to its right side, never written
 label = `${user.name} (${count})`
 rows key id = items                        // a keyed collection (rows keep identity by `id`)
 { name, age = 0 } = user                   // destructuring: one equation per name, each keeps updating
 fn area(w: number, h: number): number => w * h       // a pure function
+fn cut(s: string, n?: number): string => s.slice(0, n ?? 80)   // `cut(s)`: n is undefined. Last, never `ref`, no default
+fn first<T>(xs: T[]): T | undefined => xs[0]         // generic; a call infers T
+type Render<T> = (r: { item: T }) => View            // a generic type
+component List<T>(props: { items: T[]; children: Render<T> }) { … }   // a generic component; the tag infers T, no <List<Row>>
+fn slope(a: Point, b: Point) {                       // and one that names what it uses: in any order, each evaluated when read
+  rise = b.y - a.y
+  run = b.x - a.x
+  run == 0 ? 0 : rise / run
+}
 action save(n: string) { … }               // writes and awaits (async.md)
+action mint(): number { … }                // answers at the call, never waits (async.md, AC-1i)
 component Row(props: { item: Item }) { … }
 error NotFound(id: number) => `no issue ${id}`       // an error class; `NotFound(3)` makes one
 type Item = { id: number; name: string }
@@ -44,8 +60,13 @@ in JS; that holds for destructuring too. Mutation is only `:=` and `guess`. A re
 
 ## Expressions
 
-TypeScript's, minus assignment operators (`=`, `+=`, `++`), `this`, `function`, `async` and `new` on reactive
-values. Arrays and strings have their usual methods: `xs.filter(f)`, `xs.map(f)`, `xs.findIndex(f)`, `xs.some(f)`,
+TypeScript's, minus assignment operators (`=`, `+=`, `++`), `this`, `function`, `async`, `new` on reactive
+values, and `as`: a value has the type it was made with, so give the type where the value is declared
+(`source s: Status := …`, a parameter, a fn's result) or narrow with a fn, `fn asStatus(v: string): Status => v ==
+"open" ? "open" : "closed"`. Nor computed keys (`{ ...u, [r]: 0 }`): a record's keys are names, which paths, rows
+and the types follow; write the one entry as a path, `guess unread[r] := 0` or `unread[r] := 0`. An arrow whose body
+is braces is a block when it holds statements and a record otherwise: `its => { ...its, name: n }` is a record (as
+`its => ({ ...its, name: n })`, which reads the same in JavaScript). Arrays and strings have their usual methods: `xs.filter(f)`, `xs.map(f)`, `xs.findIndex(f)`, `xs.some(f)`,
 `xs.length`, `s.trim()`. Added forms:
 
 | Form | Meaning |
@@ -54,7 +75,7 @@ values. Arrays and strings have their usual methods: `xs.filter(f)`, `xs.map(f)`
 | `pending? x` | `true` while `x` is being re-asked or written by an action in flight |
 | `latest x` | the value `x` is moving toward (what was typed, before the answer lands) |
 | `peek(x)` | `x` read once, without depending on it |
-| `e catch (err) => alt` | `alt` when `e` fails |
+| `await e catch (err) => alt` | `alt` is the answer when the `await` rejects (only after an `await`) |
 | `c ? a : throw NotFound(id)` | a failure as a value of an arm |
 | `use name` / `provide name = e` | context: the nearest provision above, read-only (provide actions to let readers write) |
 
@@ -100,9 +121,15 @@ effect (count) { log($0) }   // runs after `count` changes; `$0` is its value (a
 
 - A write is `x := v`, `x.field := v`, `xs[i].done := v`, or functional `x := old => …` (applied to the slot as it
   stands at the write).
-- `let`/`const` (destructuring too: `let { a, b } = pair` takes snapshots), `if`, `try`/`catch`/`finally`, `return`, `throw` work as in TypeScript (no `for`/`while` loops:
-  use array methods).
-- Browser and JS globals (`console`, `document`, `window`) are not in scope. `log(…)` prints; anything else from
+- `let`/`const` (destructuring too: `let { a, b } = pair` takes snapshots), `if`, `try`/`catch`/`finally`, `return`
+  and `throw` work as in TypeScript (no `while`).
+- The loop is `for (const x of xs) { … }`, with one difference from JavaScript: **it visits what `xs` held when the
+  loop started**. JavaScript's `for … of` reads the list as it goes, so a turn that pushes to the list it loops over
+  is handed what it pushed; here the turns never see what the loop itself added or removed (a run does not see what
+  it writes, and a loop's turns are one run). `for (const t of d.items) { d.items.push(copy(t)) }` in a store's
+  setter doubles the list and ends. The list is read to its end first, so loop over a finite one. In a loop that
+  writes a source, write functionally (`total := t => t + x`): a second turn reads what the first wrote.
+- Browser and JS globals (`console`, `document`, `window`) are not in scope. `log(…)` prints in a development build; anything else from
   JS comes in through an import from a `.js` module.
 - Reading a source gives its value at the start of the run: after `x := v`, `x` still reads the old value. Keep the
   new value in a local (`let n = count + 1; count := n`).
@@ -118,6 +145,19 @@ component Card(props: { title: string; children: View }) {
     <h2>{props.title}</h2>
     {if open { {props.children} }}
   </div>
+}
+```
+
+A component that shows its children with what it knows takes a view (RG-4c): the caller writes it as `{view (s) { … }}`,
+with its own names, and it is owned where it is shown, at each place it is shown. `s.pressed` stays live, as a prop does.
+
+```rx
+component Toggle(props: { children: (s: { pressed: boolean }) => View }) {
+  source lit := false
+  <button onClick={() => { lit := !lit }}><props.children pressed={lit} /></button>
+}
+export default component App() {
+  <Toggle>{view (s) { {if s.pressed { <b>On</b> } else { <i>Off</i> }} }}</Toggle>
 }
 ```
 

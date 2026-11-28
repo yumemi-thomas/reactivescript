@@ -1,0 +1,14 @@
+// createEventListener and createEventSignal. Derived from @solid-primitives/event-listener 3.0.0 (MIT, see ../NOTICE).
+import client { listenAll } from "./dom.js"
+
+/** Listens while the owner lives; the targets and the types may change. */
+export fn createEventListener(ref targets: any, ref type: any, handler: (e: Event) => void, options?: any) {
+  effect (targets, type) { return listenAll($0, $1, (e) => { handler(e) }, options) }
+  null
+}
+/** The last event of that type. */
+export fn createEventSignal(ref target: any, ref type: any, options?: any) {
+  source last: Event | undefined := undefined
+  effect (target, type) { return listenAll($0, $1, (e) => { last := () => e }, options) }
+  last
+}

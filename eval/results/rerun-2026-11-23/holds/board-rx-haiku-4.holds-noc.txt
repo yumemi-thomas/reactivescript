@@ -1,0 +1,4 @@
+✗ HOLD a move into To do while a card is being added there keeps both
+    locator.click: Timeout 30000ms exceeded.
+
+0/1 passed

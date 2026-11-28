@@ -1,0 +1,14 @@
+// @solid-primitives/range: a view repeated a number of times, and over a range of numbers; an element for none.
+import { Repeat, Range } from "@solid-primitives/range"
+
+component None() {
+  <i>none</i>
+}
+
+export default component App() {
+  source stars := 3
+  <p><Repeat times={stars} fallback={None}>{view (index) { <span>*</span> }}</Repeat></p>
+  <p class="steps"><Range start={0} to={stars} step={2} fallback={None}>{view (n) { <b>{n} </b> }}</Range></p>
+  <button onClick={() => { stars := 5 }}>five</button>
+  <button id="none" onClick={() => { stars := 0 }}>none</button>
+}

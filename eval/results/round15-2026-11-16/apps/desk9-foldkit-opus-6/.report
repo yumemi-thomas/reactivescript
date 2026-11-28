@@ -1,0 +1,8 @@
+I built the issue desk in Foldkit 0.170, and all 30 visible tests pass. The issues, help and settings pages each have their own file under `src/`, and `src/main.ts` holds the tabs and the open-issue count. Every quick change (assign, rename, close, posting, labels, row actions) shows at once, goes back on its own if the server declines, and ignores answers that arrive late for a page you have already left.
+
+Where the brief was unclear, I made these choices:
+- A close the server declines puts the count back even if you have switched to closed issues by then.
+- Clicking the tab you're already on, or the issue already selected, does nothing.
+- Titles, comments and labels are trimmed, and whitespace-only input counts as empty (so does a whitespace-only display name).
+- Labels can only be added once the issue's labels have loaded.
+- Opening a related hit fills the help results from that issue's related search rather than searching again.

@@ -1,0 +1,333 @@
+// The issues page: its server data, the writes in flight laid over it, and the page itself.
+import pure { fetchIssues, fetchIssue, fetchComments, fetchLabels, search } from "./api"
+import { assign, renameIssue, closeIssue, addComment, addLabel, removeLabel } from "./api"
+import { Issue, Comment } from "./api"
+
+type Failure = { id: number; message: string } | null
+type Assigning = { id: number; user: string }
+type Renaming = { id: number; title: string }
+type Posting = { id: number; author: string; text: string }
+type LabelChange = { id: number; label: string }
+
+export error IssueNotFound(id: number) => `issue #${id} not found`
+fn found(it, id: number) => it == null ? throw IssueNotFound(id) : it
+
+// --- the visit: moved each time the page opens, so the page loads again
+source visit: number := 0
+source filter: string := "open"
+source selected: number | null := null
+
+// --- 1. the server's answers
+server key id = visit >= 0 ? await fetchIssues(filter) : []
+detail = selected == null ? null : found(await fetchIssue(selected), selected)
+comments = selected == null ? [] : await fetchComments(selected)
+labels = selected == null ? [] : await fetchLabels(selected)
+related = detail == null ? [] : await search(detail.title)
+
+// --- 2. writes in flight: guess lists with a constant question, laid over the answers
+source assigning: Assigning[] = []
+source renaming: Renaming[] = []
+source closing: number[] = []
+source posting: Posting[] = []
+source labelAdding: LabelChange[] = []
+source labelRemoving: LabelChange[] = []
+
+// --- failures outlive their action
+source assignError: Failure := null
+source renameError: Failure := null
+source closeError: Failure := null
+source postError: Failure := null
+source labelError: Failure := null
+source rowError: string := ""
+
+fn assigneeOf(as: Assigning[], id: number, a: string | null) => as.reduce((v, x) => x.id == id ? x.user : v, a)
+fn titleOf(rs: Renaming[], id: number, t: string) => rs.reduce((v, x) => x.id == id ? x.title : v, t)
+fn messageFor(f: Failure, id: number | null) => f == null || f.id != id ? "" : f.message
+
+stillShown = server.filter(i => !(filter == "open" && closing.some(c => c == i.id)))
+rows key id = stillShown.map(i => ({ id: i.id, title: titleOf(renaming, i.id, i.title), assignee: assigneeOf(assigning, i.id, i.assignee) }))
+heading = detail == null ? "" : `#${detail.id} ${titleOf(renaming, detail.id, detail.title)}`
+shownComments = [
+  ...comments.map(c => ({ author: c.author, text: c.text, sending: false })),
+  ...posting.filter(p => p.id == selected).map(p => ({ author: p.author, text: p.text, sending: true }))
+]
+shownLabels = [
+  ...labels.filter(l => !labelRemoving.some(r => r.id == selected && r.label == l)),
+  ...labelAdding.filter(a => a.id == selected).map(a => a.label)
+]
+
+// --- opening the page and choosing
+export action openIssuesPage() {
+  visit := visit + 1
+  filter := "open"
+  selected := null
+}
+
+action setFilter(f: string) {
+  filter := f
+}
+
+action selectIssue(id: number) {
+  selected := id
+  onFlush(() => {
+    assignError := null
+    renameError := null
+    closeError := null
+    postError := null
+    labelError := null
+  })
+}
+
+// --- writes
+action assignIssue(id: number, user: string, fromRow: boolean) {
+  guess assigning := xs => [...xs, { id: id, user: user }]
+  if (fromRow) {
+    onFlush(() => { rowError := "" })
+  } else {
+    onFlush(() => { assignError := null })
+  }
+  try {
+    await assign(id, user)
+    refresh server
+  } catch (e) {
+    if (fromRow) {
+      rowError := e.message
+      onFlush(() => { rowError := e.message })
+    } else {
+      assignError := { id: id, message: e.message }
+      onFlush(() => { assignError := { id: id, message: e.message } })
+    }
+  }
+}
+
+action rename(id: number, title: string) {
+  guess renaming := xs => [...xs, { id: id, title: title }]
+  onFlush(() => { renameError := null })
+  try {
+    await renameIssue(id, title)
+    refresh server
+    refresh detail
+  } catch (e) {
+    renameError := { id: id, message: e.message }
+    onFlush(() => { renameError := { id: id, message: e.message } })
+  }
+}
+
+action close(id: number, fromRow: boolean) {
+  guess closing := xs => [...xs, id]
+  if (fromRow) {
+    onFlush(() => { rowError := "" })
+  } else {
+    onFlush(() => { closeError := null })
+  }
+  try {
+    await closeIssue(id)
+    refresh server
+  } catch (e) {
+    if (fromRow) {
+      rowError := e.message
+      onFlush(() => { rowError := e.message })
+    } else {
+      closeError := { id: id, message: e.message }
+      onFlush(() => { closeError := { id: id, message: e.message } })
+    }
+  }
+}
+
+action post(id: number, author: string, text: string) {
+  guess posting := xs => [...xs, { id: id, author: author, text: text }]
+  onFlush(() => { postError := null })
+  try {
+    await addComment(id, author, text)
+    refresh comments
+  } catch (e) {
+    postError := { id: id, message: e.message }
+    onFlush(() => { postError := { id: id, message: e.message } })
+  }
+}
+
+action addLabelTo(id: number, label: string) {
+  guess labelAdding := xs => [...xs, { id: id, label: label }]
+  onFlush(() => { labelError := null })
+  try {
+    await addLabel(id, label)
+    refresh labels
+  } catch (e) {
+    labelError := { id: id, message: e.message }
+    onFlush(() => { labelError := { id: id, message: e.message } })
+  }
+}
+
+action removeLabelFrom(id: number, label: string) {
+  guess labelRemoving := xs => [...xs, { id: id, label: label }]
+  onFlush(() => { labelError := null })
+  try {
+    await removeLabel(id, label)
+    refresh labels
+  } catch (e) {
+    labelError := { id: id, message: e.message }
+    onFlush(() => { labelError := { id: id, message: e.message } })
+  }
+}
+
+// Reports the number of open rows on screen to the tab, from inside the list's region.
+component OpenCount(props: { n: number; open: boolean; onCount: (n: number) => void }) {
+  effect (props.n, props.open) {
+    if ($1) {
+      props.onCount($0)
+    }
+  }
+  <span hidden></span>
+}
+
+export component IssuesPage(props: { onCount: (n: number) => void; onOpenHelp: (q: string, id: number) => void }) {
+  source user: string := "guest"
+  source titleDraft: string := ""
+  source commentDraft: string := ""
+  source labelDraft: string := ""
+
+  <section class="issues">
+    <div class="toolbar">
+      <label>user <input data-testid="user" value={user} onInput={(e) => { user := e.target.value }} /></label>{" "}
+      <button data-testid="filter-open" onClick={() => { setFilter("open") }}>open</button>{" "}
+      <button data-testid="filter-closed" onClick={() => { setFilter("closed") }}>closed</button>
+    </div>
+    {if rowError != "" {
+      <p data-testid="row-error" role="alert">row error: {rowError}</p>
+    }}
+    <div class="panes">
+      <div data-testid="list" class="list">
+        {loading on(filter) fallback { <p>loading {latest filter} issues</p> } {
+          {errored fallback(e) { <p role="alert">list error: {e.message}</p> } {
+            <OpenCount n={rows.length} open={filter == "open"} onCount={props.onCount} />
+            <ul>
+              {for it in rows {
+                <li class="row">
+                  <span data-testid="issue" class={it.id == selected ? "issue selected" : "issue"} onClick={() => {
+                    titleDraft := ""
+                    commentDraft := ""
+                    labelDraft := ""
+                    selectIssue(it.id)
+                  }}>#{it.id} {it.title} ({it.assignee == null ? "unassigned" : it.assignee})</span>{" "}
+                  <button data-testid="row-assign" onClick={() => { assignIssue(it.id, user, true) }}>assign to {user}</button>
+                  {if filter == "open" {
+                    {" "}<button data-testid="row-close" onClick={() => { close(it.id, true) }}>close</button>
+                  }}
+                </li>
+              }}
+            </ul>
+          }}
+        }}
+      </div>
+
+      <div data-testid="detail" class="detail">
+        {if selected == null {
+          <p>select an issue</p>
+        } else {
+          {loading on(selected) fallback { <p>loading #{latest selected}</p> } {
+            {errored fallback(e) { <p role="alert">detail error: {e.message}</p> } {
+              <h2>{heading}</h2>
+              <p class="body">{detail == null ? "" : detail.body}</p>
+              <div data-testid="related" class="related">
+                {loading fallback { <p>finding related help</p> } {
+                  {errored fallback(e) { <p role="alert">related help failed: {e.message}</p> } {
+                    {if related.length == 0 {
+                      <p>no related help</p>
+                    } else {
+                      {for h in related.slice(0, 3) {
+                        <button data-testid="related-hit" onClick={() => {
+                          if (detail != null) { props.onOpenHelp(detail.title, h.id) }
+                        }}>{h.name}</button>
+                      }}
+                    }}
+                  }}
+                }}
+              </div>
+            }}
+          }}
+          <div class="actions">
+            <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>{" "}
+            <button data-testid="assign" onClick={() => {
+              if (selected != null) { assignIssue(selected, user, false) }
+            }}>assign to {user}</button>{" "}
+            <button data-testid="close" onClick={() => {
+              if (selected != null) { close(selected, false) }
+            }}>close</button>
+          </div>
+          {if messageFor(assignError, selected) != "" {
+            <p data-testid="assign-error" role="alert">{messageFor(assignError, selected)}</p>
+          }}
+          {if messageFor(closeError, selected) != "" {
+            <p data-testid="close-error" role="alert">close error: {messageFor(closeError, selected)}</p>
+          }}
+          <div class="rename">
+            <input data-testid="title-input" value={titleDraft} placeholder="new title" onInput={(e) => { titleDraft := e.target.value }} />{" "}
+            <button data-testid="rename" onClick={() => {
+              let t = titleDraft.trim()
+              if (selected != null && t != "") { rename(selected, t) }
+            }}>rename</button>
+          </div>
+          {if messageFor(renameError, selected) != "" {
+            <p data-testid="rename-error" role="alert">rename error: {messageFor(renameError, selected)}</p>
+          }}
+
+          <div data-testid="labels" class="labels">
+            {loading on(selected) fallback { <p>loading labels</p> } {
+              {errored fallback(e) { <p role="alert">labels error: {e.message}</p> } {
+                <ul>
+                  {for l in shownLabels {
+                    <li>
+                      <span data-testid="label">{l}</span>{" "}
+                      <button data-testid="remove-label" onClick={() => {
+                        if (selected != null) { removeLabelFrom(selected, l) }
+                      }}>remove {l}</button>
+                    </li>
+                  }}
+                </ul>
+                <input data-testid="label-input" value={labelDraft} placeholder="label" onInput={(e) => { labelDraft := e.target.value }} />{" "}
+                <button data-testid="add-label" onClick={() => {
+                  let l = labelDraft.trim()
+                  if (selected != null && l != "" && !shownLabels.some(x => x == l)) {
+                    let id = selected
+                    onFlush(() => { labelDraft := "" })
+                    addLabelTo(id, l)
+                  }
+                }}>add label</button>
+              }}
+            }}
+          </div>
+          {if messageFor(labelError, selected) != "" {
+            <p data-testid="label-error" role="alert">label error: {messageFor(labelError, selected)}</p>
+          }}
+
+          <div data-testid="comments" class="comments">
+            {loading on(selected) fallback { <p>loading comments</p> } {
+              {errored fallback(e) { <p role="alert">comments error: {e.message}</p> } {
+                <ul>
+                  {for c in shownComments {
+                    <li data-testid="comment">{c.author}: {c.text}{c.sending ? " (sending…)" : ""}</li>
+                  }}
+                </ul>
+              }}
+            }}
+          </div>
+          <div class="post">
+            <input data-testid="comment-input" value={commentDraft} placeholder="comment" onInput={(e) => { commentDraft := e.target.value }} />{" "}
+            <button data-testid="post" onClick={() => {
+              let t = commentDraft
+              if (selected != null && t.trim() != "") {
+                let id = selected
+                let u = user
+                onFlush(() => { commentDraft := "" })
+                post(id, u, t)
+              }
+            }}>post</button>
+          </div>
+          {if messageFor(postError, selected) != "" {
+            <p data-testid="post-error" role="alert">post error: {messageFor(postError, selected)}</p>
+          }}
+        }}
+      </div>
+    </div>
+  </section>
+}

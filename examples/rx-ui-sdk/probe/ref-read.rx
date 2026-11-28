@@ -1,0 +1,3 @@
+export component C(props: { f: (e: Element) => void }) {
+  <p ref={(e: Element) => { props.f(e) }}>x</p>
+}

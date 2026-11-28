@@ -1,0 +1,2 @@
+//@ for @solid-primitives/virtual ^1.0.1
+export component VirtualList<T extends readonly any[], U extends View>(props: ({ children: (item: import("solid-js").Accessor<T[number]>, index: number) => U; each: T | undefined | null | false; fallback?: View; class?: string; overscanCount?: number; rootHeight: number; rowHeight: number }) & { children: (item: import("solid-js").Accessor<T[number]>, index: number) => View; fallback?: View })

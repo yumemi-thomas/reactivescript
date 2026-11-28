@@ -1,0 +1,17 @@
+== hidden
+✗ a column's retry shows loading, then the cards
+✗ two adds show both, each taking its own id
+43/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ an item added while the checklist reloads shows once
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ a rename and a move out together, the move declined: the card goes back with its new title
+✗ a declined archive of a card whose rename is out brings it back with the new title
+✗ a move into Doing that fills it while a move out is pending disables the rest
+19/26 passed
+== fuzz
+board-rx-haiku-6: 1/20 seeds found a hole
+  seed 17 step 23: settled: card: "#4 Deploy · 0/1", server "#4 Delta · 0/1"
+    add Bravo 1 ; land fetchCards:todo ; land fetchCards:done ; tab archive ; land fetchCards:doing ; tab board ; land fetchCards:todo ; add Bravo 2 ; add Alpha 3 ; land fetchCards:done ; add Bravo 4 ; land fetchArchived: ; land fetchCards:doing ; select #4 ; land fetchChecklist:4 ; select #4 ; up #4 ; left #5 ; land moveCard:5,doing,2 ; select #4 ; rename Delta ; land renameCard:4,Delta ; land mo

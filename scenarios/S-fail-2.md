@@ -1,6 +1,6 @@
 # S-fail-2 — failures through components: a prop's failures are checked where it is read, children's where they are rendered
 
-Rules: R-f-4, R-f-5, R-f-6, R-2, RG-4c, H-4, D-41.
+Rules: R-f-4, R-f-5, R-f-6, R-2, RG-4c, H-4, H-12, D-41.
 
 ## Program
 
@@ -13,7 +13,7 @@ component Safe(props) {
   errored fallback(e) { <p>unavailable</p> } { {props.children} }
 }
 component Line(props) {
-  <p>{props.text catch (e: Missing) => "-"}</p>
+  errored fallback(e: Missing) { <p>-</p> } { <p>{props.text}</p> }
 }
 component Panel(props) {
   <p>{props.body}</p>
@@ -31,8 +31,8 @@ export default component App() {
 
 Four readers of failing values, each discharged a different way: `{value}`
 is a child of `Safe`, so it is under `Safe`'s boundary — where `Safe` reads
-`props.children`, not where the caller writes them (RG-4c). `Line` catches
-`Missing` itself; the `Error` left over goes out through `Line`'s
+`props.children`, not where the caller writes them (RG-4c). `Line` takes
+`Missing` itself, with a typed boundary; the `Error` left over goes out through `Line`'s
 application, which is inside a `Safe`. `Panel` catches nothing: its prop is
 discharged by the boundary around `<Panel>` at the caller. `other` catches
 every failure of its own flight into a value.
@@ -53,9 +53,14 @@ every failure of its own flight into a value.
 Instant 3: `Missing` is thrown with no await, but `other` re-asks and its
 reader holds the change; the three error fallbacks are staged with it (an
 error is an answer, H-12). Instant 4: the rejection is caught into `none`
-and the frame commits as one. Instants 5–7: behind their fallbacks the
-readers of `value` hold nothing (H-4) and recover with the answer (D-41);
-`other`'s reader holds the change until `q` lands.
+and the frame commits as one. (The `catch` on `other` follows its `await`, the
+only place a `catch` may stand, R-f-4.) Instants 5–7: behind their fallbacks the
+readers of `value` hold nothing (H-4, Solid F-3) and recover with the answer (D-41);
+`other`'s reader holds the change until `q` lands: `none` is an answer, not a
+fallback, so its reader is the display, and `z` waits with that hold (D-41's
+mirror). (Instant 6 was recorded as a divergence, DV-25, until 2026-11-26: the
+hydrated page showed `zzznone` on 2.0.3 at 99db9bce4; at the pin every runner
+shows the frame above. See spec 05.)
 
 ## Rejected variants
 
@@ -98,7 +103,7 @@ error Missing(key) => `missing ${key}`
 source key := "a"
 value = key == "" ? throw Missing(key) : await fetch("v:" + key)
 component Line(props) {
-  <p>{props.text catch (e: Missing) => "-"}</p>
+  errored fallback(e: Missing) { <p>-</p> } { <p>{props.text}</p> }
 }
 
 export default component App() {
@@ -106,7 +111,7 @@ export default component App() {
 }
 ```
 
-`Line` discharges `Missing`; the fetch's `Error` passes its catch.
+`Line` discharges `Missing`; the fetch's `Error` passes its boundary.
 
 ```rx
 -- reject: UNCAUGHT_ACTION_FAILURE

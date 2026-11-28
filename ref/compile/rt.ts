@@ -5,13 +5,20 @@
 // for tests. Views are JSX that Solid's compiler lowers onto that renderer (compile/jsx.ts); the browser and the server
 // runtimes are rt-web.ts and rt-server.ts.
 import { primsSolid } from "./prims-solid.ts";
+import { ownAttrs } from "./own.ts";
+import { standing } from "./standing.ts";
 import { getObserver } from "@solidjs/signals";
-import { Show, For, Loading, Errored } from "solid-js";
+import { Show, For, Loading, Errored, DEV } from "solid-js";
 import {
+  reconcile,
   createSignal, createMemo, createEffect, createRenderEffect, createRoot, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary, omit,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, NotReadyError, createContext, getContext, setContext, getOwner, isDisposed, runWithOwner, createOwner, $PROXY, $RECORD, snapshot, createErrorBoundary, omit,
 } from "@solidjs/signals";
 
+/** A store's proxy (a store, an optimistic store, a projection, or a record or list inside one), not a merge or omit view:
+ *  the proxy answers `$PROXY` with itself and has no view record. (Until Solid #4906 this was `v[$TARGET] !== undefined`;
+ *  the thin engine answers `$TARGET` with nothing, for every proxy — the same answers on both engines, checked.) */
+const isStore = (v: any): boolean => v !== null && typeof v === "object" && v[$PROXY] === v && v[$RECORD] === undefined;
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
 // value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
 const readWhole = (v: unknown) => { if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; };
@@ -20,7 +27,45 @@ const readWhole = (v: unknown) => { if (v !== null && typeof v === "object") Ref
 /** A store's whole value, copied by reading through the store (so a guess still in flight shows, as R-12 asks of
  *  `latest`); Solid's `deep(v)` serves the landed frame and would drop the guess (found by desk9-rx-7). */
 const readCopy = (v: unknown): unknown => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(readCopy) : Object.fromEntries(Object.keys(v).map(k => [k, readCopy((v as any)[k])]));
-const latestWhole = (v: unknown) => v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v;
+const isPlain = (v: object) => { const p = Object.getPrototypeOf(v); return p === Object.prototype || p === Array.prototype || p === null; };
+/** EF-2: what an effect's input is — a store whole, as a snapshot, wherever the input holds one (`{ tags: tags, n: n }`, a
+ *  list of rows): its contents are what is compared. A getter (a JS result's parts, `lazy`) is not read. */
+const inputWhole = (v: unknown, seen = new Set<unknown>()): unknown => {
+  if (v === null || typeof v !== "object") return v;
+  if (isStore(v)) return readCopy(v);
+  if (!isPlain(v) || seen.has(v)) return v;
+  seen.add(v); let out: any = v;
+  for (const k of Object.keys(v)) { const d = Object.getOwnPropertyDescriptor(v, k)!; if (d.get || d.value === null || typeof d.value !== "object") continue; const w = inputWhole(d.value, seen); if (w !== d.value) { if (out === v) out = Array.isArray(v) ? [...v] : { ...v }; out[k] = w; } }
+  return out;
+};
+/** ST-2a, C-2: the whole of a source or a projection — one store, whose root a write or an answer replaces where it stands, and
+ *  whose insides a path write changes. What an equation keeps of one (`[...(pre seen -> []), tags]`, a companion's last
+ *  value) is a copy of it as it is now, read whole, so that a change inside is a change of it. */
+const roots = new WeakSet<object>();
+const byPosition = new WeakSet<object>();                                 // the roots a write replaces by position: a source with no key (ST-4a)
+const unkeyed = (v: unknown): unknown => v !== null && typeof v === "object" && byPosition.has(v) ? whole(v) : v;
+const rooted = <T extends object>(s: T): T => { roots.add(s); return s; };
+const copiedFrom = new WeakMap<object, object>();                        // a copy, and the store's own value it was made of
+const whole = (v: any, seen = new Map<object, unknown>()): unknown => {
+  if (v === null || typeof v !== "object" || !isStore(v)) return v;
+  if (seen.has(v)) return seen.get(v);
+  const out: any = Array.isArray(v) ? [] : {}; seen.set(v, out); copiedFrom.set(out, v);
+  for (const k of Object.keys(v)) out[k] = whole(v[k], seen);
+  return out;
+};
+const kept = (v: unknown): unknown => v !== null && typeof v === "object" && roots.has(v) ? whole(v) : v;
+/** C-2: a kept copy, with what has not changed since as the store's own value (a row of `pre rows` is the row, while it is what it was). */
+const asItWas = (c: any, at = new Map<object, unknown>()): unknown => {
+  const live: any = c !== null && typeof c === "object" ? copiedFrom.get(c) : undefined; if (live === undefined) return c;
+  if (at.has(c)) return at.get(c);
+  at.set(c, live);
+  const keys = Object.keys(c), now: any = {}; let same = !roots.has(live) && Object.keys(live).length === keys.length;
+  for (const k of keys) { now[k] = asItWas(c[k], at); if (!Object.is(now[k], live[k])) same = false; }
+  if (same) return live;
+  const out: any = Array.isArray(c) ? Object.assign([], now) : now; at.set(c, out);
+  return out;
+};
+const latestWhole = (v: unknown) => v !== null && typeof v === "object" && isStore(v) ? readCopy(v) : v;
 /** EF-2: effect inputs compare as values: arrays and plain objects (a store's snapshot) by their contents. */
 const sameInput = (a: unknown, b: unknown): boolean => {
   if (Object.is(a, b)) return true;
@@ -34,11 +79,36 @@ export { flush };
 export type Acc = () => unknown;
 export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown, keys?: (string | number)[]) => void };
 export type Entry = { get?: Acc; w?: Writer; value?: unknown };
+/** A signal of `init`. `createSignal(f)` of a function is Solid's derived signal, so a source that begins as a function (a
+ *  value like any other) is a signal of a box: a plain signal still, written and held as one is. */
+const boxOf = new WeakMap<Acc, Acc>();
+const signalOf = (init: unknown): [Acc, (v: unknown) => void] => {
+  if (typeof init !== "function") return createSignal<unknown>(init) as never;
+  const [box, set] = createSignal<{ v: unknown }>({ v: init }, { equals: (a, b) => a.v === b.v });
+  const get = () => box().v; boxOf.set(get, box);
+  return [get, v => { set(b => ({ v: typeof v === "function" ? v(b.v) : v })); }];
+};
+/** W-6 for a source whose first value was an array or a record (ST-1: a store behind a signal slot): an updater is given the
+ *  slot as it stands, which is not the store once something else was written (`null`), and what it answers is stored,
+ *  whatever it is. `replace` puts an object in the store; `edit` runs an updater on it. */
+const rootSet = (store: unknown, set: (v: (at: unknown) => unknown) => void, replace: (v: object) => void, edit: (f: (d: unknown) => unknown) => void) => {
+  const put = (v: unknown) => { if (typeof v === "object" && v !== null) { replace(v); set(() => store); } else set(() => v); };
+  return (v: unknown) => {
+    if (typeof v !== "function") return put(v);
+    let at: unknown; set(p => (at = p));
+    if (at !== store) return put(v(at));
+    let other: { v: unknown } | undefined;
+    edit(d => { const r = v(d); if (r === undefined || (typeof r === "object" && r !== null)) return r; other = { v: r }; });
+    set(() => other ? other.v : store);
+  };
+};
 
 // ---------------------------------------------------------------- values
 export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
 export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
-const raw = (x: any) => (x && typeof x === "object" && x[$TARGET]) ? x[$TARGET].v : x;
+/** `==` through a store (ST-2): a store's proxy is its record's one identity, so two proxies compare as they are; a proxy
+ *  and a plain object compare by the store's own value, which is that object while nothing below it was written. */
+const storeEq = (a: unknown, b: unknown): boolean => a === b || (isStore(a) !== isStore(b) && (isStore(a) ? snapshot(a) === b : a === snapshot(b)));
 /** A view: a node, a function (a hole, a control-flow accessor), or an array of views — which compiled JSX mixes with its
  *  static strings. An array of strings alone is a value. */
 const isNode = (v: unknown): boolean => typeof v === "function" || (typeof v === "object" && v !== null && "kind" in (v as object) && ("tag" in (v as object) || "text" in (v as object)));
@@ -54,19 +124,22 @@ function errorClass(name: string, params: string[], message: (...args: unknown[]
 const PANIC = { panic: true } as const;   // R-f-10: statically discharges nothing; at run time takes whatever reaches it
 const isA = (err: unknown, classes: unknown[] | undefined): boolean => !classes || classes.includes(PANIC) || classes.some(c => { const k = (c as { cls?: unknown })?.cls ?? c; return typeof k === "function" && err instanceof (k as new () => unknown); });
 /** `e catch (x: C) => alt`, reactive: an error boundary around the read whose fallback is the value (Solid: an errored read
- *  reaches the nearest boundary even inside a JS `try`). The fallback is decided when read, so a change of class re-decides it. */
+ *  reaches the nearest boundary even inside a JS `try`). The fallback reads the failure, so a change of class re-decides it;
+ *  another class is thrown from the fallback to the boundary above (R-f-4). */
 function catchAcc(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): () => unknown {
-  const acc = untrack(() => createErrorBoundary(() => readWhole(f()), (err: () => unknown) => new Fallback(() => { const e0 = err(); return match(e0) ? alt(e0) : new Forward(e0); })));
-  return () => unwrapFallback(acc());
+  return untrack(() => createErrorBoundary(() => readWhole(f()), (err: () => unknown) => { const e0 = err(); if (!match(e0)) throw e0; return alt(e0); }));
 }
 /** Imperative scope: an ordinary try. */
 function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
   try { return f(); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return alt(err); }
 }
-class Fallback { get: () => unknown; constructor(g: () => unknown) { this.get = g; } }
-function unwrapFallback(v0: unknown): unknown { let v = v0; if (v instanceof Fallback) v = v.get(); if (v instanceof Forward) throw (v as Forward).err; return v; }
+/** `e catch (x: C) => alt` read where it was written. In reactive scope it is `catchAcc`'s boundary. Read with no observer —
+ *  a component `fn` called from a handler — it is a snapshot (04 R-8): the committed value, or `alt` on a matching failure
+ *  (R-f-7), as `tryCatch`; a fresh boundary there would have no committed value while a question is out (S-catch-snapshot). */
+function catchRead(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
+  return getObserver() ? catchAcc(f, match, alt)() : tryCatch(f, match, alt);
+}
 const NO_PROVISION: Entry = {};
-class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
 
 // ---------------------------------------------------------------- the wire (12 SF-6; a copy of ref/src/failure.ts's)
 function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unknown {
@@ -112,10 +185,55 @@ export function makePortal<N>(R: { createElement: (t: string) => N; insertNode: 
 
 
 // ---------------------------------------------------------------- one app instance
+/** MO-10i: a copy of what a draft holds: arrays, plain objects, Maps and Sets are copied through — what a store or a
+ *  draft library hands out as live parts of its state; anything else (a primitive, a function, a Date, an instance of a
+ *  class) is the value itself. A value met twice is copied once, so a cycle ends. */
+function copyOf(v: any, seen: Map<object, unknown>): unknown {
+  if (v === null || typeof v !== "object") return v;
+  const had = seen.get(v); if (had !== undefined) return had;
+  if (Array.isArray(v)) { const out: unknown[] = []; seen.set(v, out); for (let i = 0; i < v.length; i++) out[i] = copyOf(v[i], seen); return out; }
+  if (v instanceof Map) { const out = new Map<unknown, unknown>(); seen.set(v, out); for (const [k, x] of v) out.set(copyOf(k, seen), copyOf(x, seen)); return out; }
+  if (v instanceof Set) { const out = new Set<unknown>(); seen.set(v, out); for (const x of v) out.add(copyOf(x, seen)); return out; }
+  // an iterator over a draft (`d.items.values()`, `d.map.entries()`) would hand out live parts as it is read: it is run
+  // to its end now, and what is kept is an iterator over copies
+  if (typeof v.next === "function" && typeof v[Symbol.iterator] === "function") { const xs: unknown[] = []; for (const x of v as Iterable<unknown>) xs.push(copyOf(x, seen)); return xs[Symbol.iterator](); }
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== null) return v;
+  const out: Record<string, unknown> = {}; seen.set(v, out); for (const k of Object.keys(v)) out[k] = copyOf(v[k], seen); return out;
+}
+/** MO-10i (2026-11-22): what a JS fn is lent of a draft: a copy — and in a development build (Solid's `DEV`) one that
+ *  refuses to be changed, saying why. A change made to it would be made to the copy, and lost without a word. */
+function lent(v: unknown, to: string): unknown {
+  if (!DEV || v === null || typeof v !== "object") return v;
+  const refuse = (): never => { throw new Error(`${to}(…) changed what it was given: a copy of a draft, so the change would be lost. If ${to} is meant to change the draft in place, declare that parameter \`draft\` in its .d.rx (\`export fn ${to}(draft list: …)\`), and it is given the draft itself; if it needs a value of its own to change, pass one (\`${to}([...d.items])\`). (MO-10i)`); };
+  const seen = new WeakMap<object, unknown>();
+  const wrap = (x: any): any => {
+    if (x === null || typeof x !== "object") return x;
+    const proto = Object.getPrototypeOf(x);
+    if (!Array.isArray(x) && proto !== Object.prototype && proto !== null) return x;   // a Map, a Set, an iterator, an instance of a class: itself
+    let p = seen.get(x); if (p) return p;
+    p = new Proxy(x, { get: (t, k, r) => wrap(Reflect.get(t, k, r)), set: refuse, deleteProperty: refuse, defineProperty: refuse, setPrototypeOf: refuse });
+    seen.set(x, p); return p;
+  };
+  return wrap(v);
+}
+/** RG-4c: the question "was a view given" being asked, if one is: shared by every copy of the runtime on the page. */
+const ASK: { on: { owner: unknown } | null } = ((globalThis as any)[Symbol.for("rx.ask")] ??= { on: null });
+/** A view that is written: made where it is read. While it is only asked for (by the computation that asks: a memo of
+ *  a JavaScript host in between holds what it reads, so there it is made) it answers its own maker, which says that it
+ *  was given and makes nothing — and which JavaScript that keeps what it read (`cached ??= props.children`) can show
+ *  later: a function is a child, made where it is shown. A JavaScript host that gives an .rx component a view it would
+ *  rather not have made to answer offers it so: `get icon() { return slot(() => <Icon />) }`. */
+function slot<T>(make: () => T): T {
+  const a = ASK.on; if (!a) return make();
+  ASK.on = null;
+  try { return getOwner() !== a.owner ? make() : make as T; } finally { ASK.on = a; }
+}
 export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
-  const truthOf = new Map<Acc, Acc>();                                  // an optimistic signal-form source: its guess layer -> its question
+  const resetOf = new WeakMap<Acc, () => void>();                           // ST-5: a question source's write, dropped by its own `refresh` (AC-4)
+  const truthOf = new WeakMap<Acc, Acc>();                                  // an optimistic signal-form source: its guess layer -> its question
   const registry = new Map<string, Entry[]>();
   const contexts = new Map<string, ReturnType<typeof createContext<Entry | undefined>>>();
   const storeAccs = new WeakSet<object>();
@@ -129,6 +247,13 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
   type Ctx = { name: string; ctx: ReturnType<typeof createContext<Entry | undefined>>; dflt: (() => unknown) | null; owner: ReturnType<typeof getOwner>; dv: Entry | null };
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
+  // SF-2b: one request per arguments while it stands: the last computation that asked it takes the answer with it
+  const askers = new WeakMap<Flight, number>();
+  const asked = (key: string, f: Flight) => {
+    askers.set(f, (askers.get(f) ?? 0) + 1);
+    onCleanup(() => queueMicrotask(() => { const n = askers.get(f)! - 1; askers.set(f, n); if (n === 0 && flights.get(key) === f) flights.delete(key); }));
+    return f;
+  };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
 
   let portalOf: ReturnType<typeof makePortal> | undefined;
@@ -163,34 +288,57 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     // ---- the scenario harness's view of names (handler rows reach any live binding by name) ----
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); const h = hoistedBy.get(name); if (h && e.get) { hoistedOf.set(e.get, h); hoistedBy.delete(name); } },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) throw new Error(`unbound ${name}`); for (let i = l.length - 1; i >= 0; i--) if (l[i].w) return l[i]; return l[l.length - 1]; },
-    dget(name: string, live = false) { const e = app.lookup(name); return e.get ? (live ? e.get() : app.snapshot(e.get)) : e.value; },   // live: inside a probe (R-12), the read itself
+    dget(name: string, live = false, own?: unknown) { if (own !== undefined && !registry.get(name)?.length) return own; const e = app.lookup(name); return e.get ? (live ? e.get() : app.snapshot(e.get)) : e.value; },   // live: inside a probe (R-12), the read itself
     dset(name: string, keys: (string | number)[], v: unknown, guess = false) { const w = app.lookup(name).w; if (!w) throw new Error(`W-1: write to non-source ${name}`); if (guess) w.guess(v, keys); else if (keys.length) w.path(keys, v); else w.set(v); },
 
     // ---- declarations ----
     /** `source x := e`: atomic → a signal; structured → a store behind a signal slot, so the root can be replaced (ST-1, ST-2a). */
-    source(name: string, init: unknown): [Acc, Writer] {
+    /** With a guess written to it (AC-3), the writable is the truth and an optimistic layer derives from it: plain writes
+     *  go to the truth, guesses to the layer, and each guess ends when its action's hold commits, showing the truth then. */
+    /** ST-4a: `source xs key id := …` — a new value written to it is reconciled by its key: a row whose key is kept
+     *  keeps its identity (and what is declared in its row's region), wherever the new list puts it. */
+    source(name: string, init: unknown, guessed = false, key?: string): [Acc, Writer] {
       void name;
       if (typeof init === "object" && init !== null) {
-        const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
+        const [store, setStore] = createStore(init as any); rooted(store as object); if (key === undefined) byPosition.add(store as object); const [get, set] = createSignal<unknown>(store);
         const w: Writer = {
-          set: v => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v as any); set(store); } else set(v); },
-          path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; }),
-          guess: () => { throw new Error("GUESS_NO_QUESTION"); },
+          set: rootSet(store, set as never, v => setStore(key !== undefined ? (reconcile as any)(v, key) as any : () => v as any),
+            f => setStore((key !== undefined ? (d: unknown) => { const r = f(d); if (r === undefined || r === d || typeof r !== "object" || r === null) return r; (reconcile as any)(r, key)(d); } : f) as any)),   // ST-4a: what an updater answers is reconciled by the key, as a written value is (keyed.ts)
+          path: pathWrite(setStore),
+          guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
+        if (guessed) {                                                    // createOptimisticStore(() => truth) over createStore(v)
+          const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}); rooted(view); if (key === undefined) byPosition.add(view);
+          const acc = () => view; storeAccs.add(acc);
+          return [acc, { ...w, guess: guessInto(setView) }];
+        }
         return [get, w];
       }
-      const [get, set] = createSignal(init);
-      return [get, { set: set as (v: unknown) => void, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("GUESS_NO_QUESTION"); } }];
+      const [get, set] = signalOf(init);
+      if (guessed) {                                                      // createOptimistic(() => truth()) over createSignal(v)
+        const [view, setGuess] = createOptimistic(() => get());
+        return [view as Acc, { set: set as (v: unknown) => void, path: () => { throw new Error("a path write to an atomic source"); }, guess: setGuess as any }];
+      }
+      return [get, { set: set as (v: unknown) => void, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); } }];
     },
     /** `source x = e` (ST-5): createSignal(fn); with a guess written to it, a createOptimistic layer over that truth (AC-3);
      *  written or probed by path, createStore(fn, {}) whose derive writes its draft. */
-    question(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean }, key?: string): [Acc, Writer] {
+    question(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
+      const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); return landDraft(draft, r, key); };
+      const seed = () => key && !mode.record ? [] : {};
+      if (mode.optimistic && mode.structured && mode.plain && !mode.derived) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
+        const [truth, setTruth] = (createStore as any)(derive, seed(), key ? { key } : undefined); rooted(truth);
+        const tacc = () => truth; storeAccs.add(tacc);
+        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), key ? { key } : undefined); rooted(view);
+        const get = () => view; storeAccs.add(get); truthOf.set(get, tacc);   // AC-4: `refresh x` re-asks the truth
+        return [get, { set: v => setTruth((d: any) => typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v), path: pathWrite(setTruth), guess: guessInto(setView) }];
+      }
       if (mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
-        const [store, setStore] = (createOptimisticStore as any)((draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); landDraft(draft, r, key); }, key ? [] : {}, key ? { key } : undefined);
+        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), key ? { key } : undefined); rooted(store);
         const get = () => store; storeAccs.add(get);
-        const plain = () => { throw new Error("a plain write to an optimistic store is not lowered yet"); };
-        return [get, { set: plain, path: plain, guess: (v, keys = []) => setStore((d: any) => { if (keys.length === 0) return typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v; /* a whole guess is the setter\'s return, which Solid diffs shallowly against the view as guesses */ let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; }) }];
+        const plain = () => { throw new Error("a plain write to an equation"); };
+        return [get, { set: plain, path: plain, guess: guessInto(setStore) }];
       }
       if (mode.optimistic && mode.derived) {                             // AC-3 over an equation: createOptimistic(fn), whose setter only guesses
         const plain = () => { throw new Error("a plain write to an equation"); };
@@ -198,42 +346,79 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
         return [get as Acc, { set: plain, path: plain, guess: setGuess as any }];
       }
       if (mode.optimistic) {
-        const [truth, setTruth] = createSignal(fn as any, opts as any);
+        const st = standing(fn);                                         // ST-5: a write stands until the question's value changes
+        const [truth, setTruth0] = createSignal(st.compute as any, opts as any);
+        const setTruth = (v: unknown) => { st.wrote(); return (setTruth0 as any)(v); };
         const [get, setGuess] = createOptimistic(() => truth());
         truthOf.set(get as Acc, truth as Acc);                            // AC-4: `refresh x` re-asks the truth, not the guess layer over it
+        resetOf.set(get as Acc, st.reset);
         return [get, { set: setTruth as any, path: () => { throw new Error("optimistic path writes are not lowered yet"); }, guess: setGuess as any }];
       }
       if (mode.structured) {
-        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {});
+        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}); rooted(store); rooted(store);
         const get = () => store; storeAccs.add(get);
-        return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
+        return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
       }
-      const [get, set] = createSignal(fn as any, opts as any);
+      const st = standing(fn);                                           // ST-5: a write stands until the question's value changes
+      const [get, set0] = createSignal(st.compute as any, opts as any);
+      const set = (v: unknown) => { st.wrote(); return (set0 as any)(v); };
+      resetOf.set(get as Acc, st.reset);
       return [get, { set: set as any, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("GUESS_NO_QUESTION"); } }];
     },
     memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, opts as any) as Acc,
+    /** R-f-5, MO-10f: a JS fn's record or tuple result as a value whose parts are read where they are read — a getter
+     *  per part on the result (`refs`: the parts that are accessors, called) — so reading one part reads no other. */
+    lazy: (r: any, keys: (string | number)[], refs: (string | number)[]): Acc => { const o: any = keys.length && typeof keys[0] === "number" ? [] : {}; for (const k of keys) Object.defineProperty(o, k, { get: () => refs.includes(k) ? r[k]() : r[k], enumerable: true }); return () => o; },
+    /** MO-10i (ruled 2026-11-22): a read of a library's draft is a copy — what `.rx` holds of a draft is never the
+     *  library's own object, which it may take back when its callback returns (`copyOf`). */
+    copy: (v: unknown): unknown => copyOf(v, new Map()),
+    lend: (v: unknown, to: string): unknown => lent(copyOf(v, new Map()), to),
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
-    keyed: (name: string, key: string, fn: () => unknown): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, [] as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
+    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => unkeyed(fn())) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); rooted(p as object); const acc = () => p; storeAccs.add(acc); truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key; a source with no key (`rows key id = input`) is copied: its own rows are replaced by position
     /** `x = draft(pre x -> seed) { … }` (ST-3). */
-    draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
+    draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); rooted(p as object); const acc = () => p; storeAccs.add(acc); return acc; },   // `affects` takes the projection (as a store's accessor)
     /** `pre y` of another node (C-2): a companion memo carrying (current, previous), owned where `y` is declared. */
-    pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
+    pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: kept(get()), prev: st ? asItWas(st.cur) : undefined })); return () => (m() as { prev: unknown }).prev; },
+    kept,
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
-    /** `effect (…) { … }`: compute, then apply; an error is an answer the apply receives (E-12); fires on a differing value (EF-2); a store enters whole, as a snapshot. */
+    /** `effect (…) { … }`: compute, then apply; fires on a differing value (EF-2); an input that failed doesn't fire it (EF-2a: the failure shows where it's read), and the next answer does; a store enters whole, as a snapshot. */
     effect(n: number, inputs: () => unknown[], apply: (p: unknown[]) => unknown) {
-      const run = (vals: unknown[]) => { const r = apply(vals); return typeof r === "function" ? (r as () => void) : undefined; };
-      let last: unknown[] | null = null;
-      createEffect((() => inputs().map(latestWhole)) as any, { effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => sameInput(v, last![i]))) return; last = vals; return run(vals); }, error: () => { last = null; return run(Array.from({ length: n }, () => ERR)); } } as any);
+      let last: unknown[] | null = null, node: ReturnType<typeof getOwner> = null, cleanup: (() => void) | undefined;
+      // EF-5: the cleanup runs before the next run of the block and when the region ends. Solid calls what the last
+      // apply answered whenever an input is computed again, so a pass that fires nothing hands it back, not run.
+      const undo = () => { const c = cleanup; cleanup = undefined; c?.(); };
+      const ended = () => { if (!node || isDisposed(node)) undo(); };
+      createEffect((() => { node = getOwner(); return inputs().map(v => inputWhole(v)); }) as any, { effect: (vals: unknown[]) => {
+        if (!last || last.length !== vals.length || !vals.every((v, i) => sameInput(v, last![i]))) { last = vals; undo(); const r = apply(vals); cleanup = typeof r === "function" ? r as () => void : undefined; }
+        return cleanup && ended;
+      }, error: () => { last = null; } } as any);
     },
     /** `action f(…) { … }` (AC-1): a generator; a statement-level `await` is a hold-safe yield. */
     action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
       return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
     },
+    /** \`action f(…): T { … }\` (AC-1i, B10): an action that answers at the call never waits — its body runs
+     *  as a handler's, and what it answers is the call's value. A panic ends it as it ends an action (DV-2): the app's. */
+    now(fn: (...a: unknown[]) => unknown) {
+      return (...a: unknown[]) => { try { return fn(...a); } catch (e) { app.asyncError = e; return undefined; } };
+    },
     awaited: (v: unknown) => v instanceof Flight ? v.first : v,
+    /** `x = await f() catch (e: C) => alt` (R-f-4): a matching rejection lands `alt` as the answer; others reject on. */
+    // R-f-4a: a rejection a `catch` takes is the await's answer — as the failure, marked; the catch's own answer is computed
+    // by the reader of the await (`caught`), outside it, where it reads its sources as any expression does
+    settle: (f: () => unknown, match: (err: unknown) => boolean) => { let p: unknown; try { p = f(); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return { __rxCaught: err }; } return p && typeof (p as Promise<unknown>).then === "function" ? (p as Promise<unknown>).then(v => v, err => { if (match(err)) return { __rxCaught: err }; throw err; }) : p; },
+    caught: (v: unknown, alt: (err: unknown) => unknown) => v !== null && typeof v === "object" && "__rxCaught" in (v as object) ? alt((v as { __rxCaught: unknown }).__rxCaught) : v,
     /** CSS-2: a dynamic class with the view's scope class after it. */
     scopedClass: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
+    /** R-11a: an attribute that reads ahead (`pending? x`, `latest x`, or a name computed from one) is a reader of its own:
+     *  Solid's JSX compiler computes one template's changing attributes in one render effect, and a pass that probes reads
+     *  ahead whole, so its neighbours would read ahead with it. `own` is the element's `ref`: one render effect per such
+     *  attribute (and the author's own `ref`, called first). `served` stands where the attribute was written: the server
+     *  writes its value into the page, the browser leaves it to `own`. */
+    own: (userRef: unknown, ...attrs: [string, () => unknown][]) => ownAttrs(userRef, attrs, (_name, f, set) => (R as any).effect(f, set), (el, name, v, prev) => (R as any).setProp(el, name, v, prev)),
+    served: (_f: () => unknown): unknown => undefined,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
     clientQuestion: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
     /** 12 SF-2: a server fn as the client calls it — every call a flight. Asked in reactive scope it is a question, one
@@ -244,12 +429,13 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       return (...args: unknown[]) => {
         const key = `${name}:${args.map(fmt).join(",")}`;
         const question = !!getObserver();
-        if (question && flights.has(key)) return flights.get(key)!;
+        if (question && flights.has(key)) return asked(key, flights.get(key)!);
         const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
-        (globalThis as { __rx_app?: unknown }).__rx_app = app;   // the app a body run in place belongs to (it reads it once, at its start)
-        let p: Promise<unknown>; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); }
+        // the app a body run in place belongs to: it reads it once, at its start, while this call is on the stack (12 SF-7a)
+        const g0 = globalThis as { __rx_app?: unknown }; const was = g0.__rx_app;
+        let p: Promise<unknown>; g0.__rx_app = app; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); } finally { g0.__rx_app = was; }
         p.then(v => fl.resolve(v), e => fl.reject(e));
-        return fl;
+        return question ? asked(key, fl) : fl;
       };
     },
     /** SF-6: a server fn's body (a generator, as an action's), driven by promises — not by an action: it is no change of
@@ -272,8 +458,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     until: (p: () => unknown) => until(p),                                   // AC-6
     onSettled: (f: () => void) => onSettled(f),                             // EF-7
     onFlush: (f: () => void) => onFlush(f),                                 // EF-8
-    refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedOf.get(get) ?? []) refresh(h as any); const t = truthOf.get(get) ?? get; refresh((storeAccs.has(t) ? t() : t) as any); },
-    affects: (get: Acc) => affects((storeAccs.has(get) ? get() : get) as any),   // a structured source's accessor wraps its store: Solid takes the store (#50), as `refresh` above
+    refresh(name: string, get: Acc) { resetOf.get(get)?.(); const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedOf.get(get) ?? []) refresh(h as any); const t = truthOf.get(get) ?? get; refresh((storeAccs.has(t) ? t() : t) as any); },
+    affects: (get: Acc) => affects((storeAccs.has(get) ? get() : boxOf.get(get) ?? get) as any),   // a structured source's accessor wraps its store: Solid takes the store (#50), as `refresh` above
     preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 
     // ---- modules (09 MO-1): a dependency's factory runs once per app; its exports are shared by every importer ----
@@ -283,61 +469,106 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** `context x: T = d` (RG-7): the declaration is the identity; `d`, if any, is evaluated once, owned where it is declared. */
     /** `context x: T = d` (RG-7): the declaration is the identity (a sentinel default: absence is ours to decide); `d` is
      *  evaluated once, owned where it is declared — created now, so it takes its id there on both sides (SV-3). */
-    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, ctx: createContext<Entry | undefined>(NO_PROVISION, name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any) as Acc } : null }; },
+    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, ctx: createContext<Entry | undefined>(NO_PROVISION, name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any, { lazy: true } as any) as Acc } : null }; },   // lazy: a default is read where a part asks for it, so it may name what the module declares after the context (as the oracle and the interpreter have it)
     provide(c: Ctx, e: Entry) { setContext(c.ctx, e); },
     use(c: Ctx, owner: ReturnType<typeof getOwner>): Entry {
-      const e = getContext(c.ctx, owner ?? undefined); if (e && e !== NO_PROVISION) return e;
+      let e = getContext(c.ctx, owner ?? undefined);
+      if (e && e !== NO_PROVISION) return e;
       if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
     },
+    /** RG-7b: a provision's own expression reads what is above it (`provide c = (use c) + "!"`), each time it is
+     *  computed: the provision it is about to be is not above itself. Called before `provide`, where what is above is still what `use` finds. */
+    /** RG-7b: what is above a block for a context it is about to provide (`provide c = … use c …` reads it): asked
+     *  before the provision is there; a context nothing provides above, with no default, fails where it is read. */
+    above(c: Ctx, owner: ReturnType<typeof getOwner>): () => unknown {
+      let e: Entry; try { e = app.use(c, owner); } catch (err) { return () => { throw err; }; }
+      return () => e.get ? e.get() : e.value;
+    },
     useGet(c: Ctx, owner: ReturnType<typeof getOwner>) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
+    /** MO-10a, RG-6a (2026-11-23): a declared JS primitive is called in an owner of its own, under the place it is
+     *  written. To that place it is one child, on the server and in the browser, whatever it makes inside — so a
+     *  library whose server path makes fewer effects than its browser path (`if (isServer) return …`, before the
+     *  `onSettled` the browser runs) no longer moves the hydration keys of everything written after it. Its cleanups
+     *  are that owner's, disposed with the region. And it is called outside tracking, as a call that is made once is
+     *  (E-9): what the library reads of a `ref` argument while it is being made is a read it means to make once, which
+     *  Solid's development build otherwise reports against the component (STRICT_READ_UNTRACKED) — in `.rx` an
+     *  element ref is a source, so `createFullscreen(el)` passes a signal where a `.tsx` author passes `() => el`. */
+    /** E-9b: a call of a fn that names values read in several places, or in a closure: each is evaluated when it is read, and
+     *  once for the call and the observer that reads it. `apart`, and every read when the call is over, evaluates it again. */
+    names(of: ((get: (i: number) => unknown, apart: (i: number) => unknown) => unknown)[], result: (get: (i: number) => unknown, apart: (i: number) => unknown) => unknown): unknown {
+      let live = true; const at: unknown[] = [], vals: unknown[] = [];
+      const apart = (i: number): unknown => of[i](apart, apart);
+      const get = (i: number): unknown => {
+        const o = getObserver(); if (live && i in vals && at[i] === o) return vals[i];
+        const v = of[i](get, apart); if (live) { at[i] = o; vals[i] = v; } return v;
+      };
+      try { return result(get, apart); } finally { live = false; }
+    },
+    inst<T>(f: () => T): T { return (getOwner() ? runWithOwner(createOwner(), () => untrack(f)) : untrack(f)) as T; },   // with no owner above there is none to make one under: what needs one (`provide`) says so, as where two copies of Solid are loaded (CP-4a)
 
     // ---- reads ----
     /** An imperative read sees σ (H-10): a pending value is a value; a snapshot of an error throws it (R-f-7). */
-    snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
+    snapshot(get: Acc) { return untrack(get); },   // H-10: the committed value; R-8a: of a value that has never had one it throws, as `latest` does (R-12; Solid F-9: nothing to serve) — it handed Solid's pending mark on, and `got := x + "!"` wrote `#pending!`
     // ---- failures (R-f) ----
-    errorClass, isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => catchAcc(f, match, alt)(),
+    errorClass, isA, PANIC, tryCatch, catchRead,
+    /** R-f-4 over a tail await: the boundary an equation is read through; `truth`, the inner memo that asks — what `refresh` re-asks (AC-4) */
+    catchMemo: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown, truth?: Acc) => { const acc = catchAcc(f, match, alt) as Acc; if (truth) truthOf.set(acc, truth); return acc; },
     throw: (e: unknown): never => { throw e; },
-    eq: (a: unknown, b: unknown) => raw(a) === raw(b),
+    eq: storeEq,
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 
     // ---- views: compiled JSX (compile/jsx.ts) calls the renderer; these are the two helpers it calls on __rt ----
     /** `{e}`: a view is inserted as it is; any other value is formatted (the frame's text). */
     show: (v: unknown) => isView(v) ? v : fmt(v),
-    /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
-     *  and a memo throws it there (a rethrow from the fallback itself did not recover until solidjs/solid#4277: ref/oracle/repros/dv7-rethrow.mjs). */
+    /** RG-4c: a view a component was given, shown with what it knows. `plain`: plain content is taken as well, shown as it is, and a function of no parameter is a thunk, as JSX has it. */
+    view(c: unknown, f: (view: unknown) => unknown, plain?: boolean) { return typeof c === "function" && (!plain || c.length) ? f(c) : app.kids(c); },
+    /** RG-4c: whether a view was given, asked without making it. The argument is read as it was written, and while it
+     *  is, what would make a view (`slot`: content, a component given by name) stands for itself: a view given on
+     *  through any number of components, a spread, a rest or a default asks its giver, a choice follows its branch
+     *  (its condition is read here, and tracked), and a value answers as JavaScript has it (`0`, `""`, `undefined`).
+     *  A JavaScript host's getter is read, as Solid's `props.children ? … : …` reads it; one that would rather not be
+     *  made offers `slot` itself. */
+    ask<T>(f: () => T): T { const was = ASK.on; ASK.on = { owner: getOwner() }; try { return f(); } finally { ASK.on = was; } },
+    slot,
+    /** `{props.part}` of a prop declared `View`: one that was not given shows nothing. */
+    opt: (v: unknown) => v === undefined ? v : isView(v) ? v : fmt(v),
+    /** `{props.children}`: a component's children — a view, a list of views and strings (what JSX and a JS library pass), or a value to show. */
+    kids: (v: unknown) => v == null || typeof v === "boolean" || Array.isArray(v) || isView(v) ? v : fmt(v),
+    /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4): the fallback throws it,
+     *  and re-decides when the failure changes class. (Until solidjs/solid#4277, 2026-10-26, a boundary that took such a
+     *  rethrow did not recover, DV-7, and the fallback handed the failure to a memo around the boundary to throw instead.) */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
       const classes = props.classes;
       const out = R.createComponent(Errored as any, {
         fallback: (err: Acc) => {
-          const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
-          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => props.fallback(err))) : new Forward(err()));
+          const ok = createMemo(() => isA(err(), classes)); if (!ok()) throw err(); return props.fallback(err);
         },
         get children() { return props.children; },
       });
-      return createMemo(() => unwrapFallback(typeof out === "function" ? (out as Acc)() : out));
+      return out;
     },
   };
   return app;
 }
 export type App = ReturnType<typeof createApp>;
 
-/** A keyed answer is merged into the draft by key: a row whose key is still there keeps its object and takes the new
- *  leaves, so an equal answer changes nothing and a changed one changes only its leaves (#51). Any other answer is
- *  assigned.
- *  TODO(Solid rc.22): return the keyed answer from the derive and let Solid reconcile it, dropping this merge. On
- *  2.0.0-rc.21 that path throws in holdStaging (memo over latest() of the rows); fixed on Solid next (dba2aad). */
-function landDraft(draft: any, v: unknown, key: string | undefined) {
-  if (!key || !Array.isArray(v) || !Array.isArray(draft)) return assignDraft(draft, v);
-  const had = new Map<unknown, any>(); for (const row of draft) if (row && typeof row === "object") had.set(row[key], row);
-  v.forEach((x: any, i) => { const row = x && typeof x === "object" ? had.get(x[key]) : undefined; if (row) { mergeLeaves(row, x); if (draft[i] !== row) draft[i] = row; } else draft[i] = x; });
-  draft.length = v.length;
-}
-function mergeLeaves(o: any, v: any) {
-  for (const k of Object.keys(o)) if (!(k in v)) delete o[k];
-  for (const k of Object.keys(v)) { const a = o[k], b = v[k]; if (a && b && typeof a === "object" && typeof b === "object" && Array.isArray(a) === Array.isArray(b)) { if (Array.isArray(a)) { a.length = b.length; } mergeLeaves(a, b); } else if (a !== b) o[k] = b; }
+/** A path write `x.a.b := v` as a store setter's mutation. */
+// W-6: a path target applies an updater to the path's value (`xs[i].title := t => `${t}!``), as a root write and a guess do
+const pathWrite = (setStore: (f: (d: any) => unknown) => void) => (keys: (string | number)[], v: unknown) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; });
+/** A guess through an optimistic store's setter: per key, or whole — a whole guess is the setter's return, which Solid
+ *  diffs shallowly against the view as guesses. */
+const guessInto = (setStore: (f: (d: any) => unknown) => void) => (v: unknown, keys: (string | number)[] = []) => setStore((d: any) => { if (keys.length === 0) return typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v; let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; });
+
+/** A keyed answer is returned from the derive, and Solid reconciles it by key at any depth (ST-4a): a row whose key is
+ *  still there keeps its object and takes the new leaves, so an equal answer changes nothing (#51, #64). Any other
+ *  answer is assigned to the draft. */
+function landDraft(draft: any, v: unknown, key: string | undefined): unknown {
+  if (key && v && typeof v === "object") return v;
+  assignDraft(draft, v);
+  return undefined;
 }
 /** A store draft becomes `v`: keys `v` lacks are removed, the rest assigned (an array's length follows). */
 function assignDraft(draft: any, v: unknown) {

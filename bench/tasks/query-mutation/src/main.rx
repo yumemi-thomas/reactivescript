@@ -1,0 +1,32 @@
+// One todo, read and renamed with TanStack Query: a query keyed by the todo's id, a mutation that renames it and
+// invalidates the query when the server has taken it, and — rendered on the server — the client's cache sent with the
+// page (dehydrate) and taken up in the browser (hydrate), so the page is not asked for again once it is there.
+import { QueryClientProvider, useMutation, useQueryClient } from "@tanstack/solid-query"
+import { useQuery } from "./query.js"
+import { makeClient, dehydrated, fetchTodo, renameTodo } from "./api.js"
+
+component Todo(props: { id: number }) {
+  client = useQueryClient()
+  todo = useQuery({ queryKey: ["todo", props.id], queryFn: () => fetchTodo(props.id) })
+  source saved := 0
+  rename = useMutation({
+    mutationFn: renameTodo,
+    onSuccess: () => { client.invalidateQueries({ queryKey: ["todo", props.id] }); saved := saved + 1 },
+  })
+  <h1>{todo.data.title}</h1>
+  <button class="rename" onClick={() => { rename.mutate({ id: props.id, title: `${todo.data.title}!` }) }}>rename</button>
+  <p class="saved">saved {saved}</p>
+  // the cache as it is once this query has answered: what the server sends for the browser to start from
+  <script id="cache" type="application/json">{dehydrated(client, todo.data)}</script>
+}
+
+export default component App() {
+  source id := 1
+  client = makeClient()
+  <QueryClientProvider client={client}>
+    <nav><button class="one" onClick={() => { id := 1 }}>one</button><button class="two" onClick={() => { id := 2 }}>two</button></nav>
+    {errored fallback(e) { <p class="err">failed: {e.message}</p> } {
+      {loading fallback { <p class="wait">loading…</p> } { <Todo id={id} /> }}
+    }}
+  </QueryClientProvider>
+}

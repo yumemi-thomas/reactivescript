@@ -1,0 +1,36 @@
+// A card on Wardic (Motion's API on Solid 2): it fades in, grows with the app's state, shrinks while it is pressed and
+// counts its taps, and fades out before it leaves the page. Motion's `motion.div` is Wardic's `wardic.div`. Wardic on
+// Solid 2 has no gesture callbacks: a gesture is heard from the element's ward, here one the card makes and gives to
+// its element (`wardRef`), awaited tap by tap: the mount effect starts the first wait, and each tap starts the next
+// once its own write has been flushed (an action that called itself would keep its write waiting on the next tap).
+import { DomLive } from "@wardic/dom"
+import { wardic as Motion, ward, AnimatePresence, WardicProvider } from "@wardic/solid"
+
+component Card(props: { big: boolean }) {
+  source taps: number := 0
+  card = ward()
+  action hear() {
+    try {
+      await card.next("tap")
+      taps := n => n + 1
+      onFlush(() => { hear() })
+    } catch (e) {
+      // the ward went with its element: nothing more to hear
+    }
+  }
+  effect () { hear() }
+  <Motion.div class="card" wardRef={card} initial={{ opacity: 0 }} animate={{ opacity: 1, scale: props.big ? 1.5 : 1 }} exit={{ opacity: 0 }}
+    whileTap={{ scale: 0.9 }} transition={{ duration: 0.3 }}>a card, tapped {taps}</Motion.div>
+}
+
+export default component App() {
+  source shown: boolean := true
+  source big: boolean := false
+  <WardicProvider env={DomLive}>
+    <button class="toggle" onClick={() => { shown := s => !s }}>{shown ? "hide" : "show"}</button>
+    <button class="grow" onClick={() => { big := b => !b }}>{big ? "shrink" : "grow"}</button>
+    <AnimatePresence>
+      {if (shown) { <Card big={big} /> }}
+    </AnimatePresence>
+  </WardicProvider>
+}

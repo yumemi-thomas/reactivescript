@@ -1,0 +1,10 @@
+// @solid-primitives/memo: a memo that can be written over until its source changes.
+import { createWritableMemo } from "@solid-primitives/memo"
+
+export default component App() {
+  source base := 1
+  [value, setValue] = createWritableMemo(() => base * 2)
+  <p>value {value}</p>
+  <button class="over" onClick={() => { setValue(100) }}>override</button>
+  <button class="base" onClick={() => { base := 5 }}>change the source</button>
+}

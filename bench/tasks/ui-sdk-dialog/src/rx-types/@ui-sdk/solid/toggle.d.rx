@@ -1,0 +1,8 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+// UI SDK's Toggle, as `rx-declare @ui-sdk/solid/toggle` drafts it. By hand: `onPressedChange` is called later (`handler`), and
+// `children` as the function of the toggle's state the app gives it (the library takes an element or such a function:
+// a row says one of the two, and the record may narrow a prop, MO-8o).
+export type ToggleOptions = import("@ui-sdk/solid/toggle").ToggleOptions
+export type TogglePressedChangeReason = import("@ui-sdk/solid/toggle").TogglePressedChangeReason
+export type ToggleState = import("@ui-sdk/solid/toggle").ToggleState
+export component Toggle(props: ToggleOptions & Omit<import("@ui-sdk/solid").PartProps<"button", ToggleState>, "value" | "defaultValue" | "type" | "onChange" | "onSelect"> & { onPressedChange?: handler (pressed: boolean, details: import("@ui-sdk/core").ChangeDetails<TogglePressedChangeReason>) => void; children?: (state: ToggleState) => View; render?: (props: Record<string, any>, state: { pressed: boolean; disabled: boolean; }) => View })

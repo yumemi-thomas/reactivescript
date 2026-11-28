@@ -1,0 +1,9 @@
+I built the sprint board in React 19 and XState v5, and it passes `./check` and all 26 visible tests in `./test`. Each page runs its own machine (`src/boardMachine.ts`, `src/archiveMachine.ts`), started with `useMachine`, so leaving a page stops it and drops any answers still on the way. The board's columns load in parallel states, and every move, add, rename, archive, toggle and item add shows at once and gets its own spawned request machine (`src/request.ts`, built on `fromPromise`). The screen is the server's data with those pending changes replayed in order (`src/model.ts`), so a declined change undoes only itself, even when other changes are still waiting.
+
+Where the brief is silent I chose:
+- **Unloaded columns:** while a column is loading or has failed, moves into it are disabled, and so is `add-card` while To do hasn't loaded.
+- **Late errors:** a rename or item error that comes back after you've selected a different card isn't shown on that other card.
+- **Clearing errors:** the archive error clears when the next archive starts, and the restore error when the next restore starts.
+- **Card counts:** a card's done/total follows only the checklist changes you make. They aren't recalculated from a freshly loaded checklist.
+
+The test run logs one 404 for a resource; I think it's the favicon, but I didn't check.

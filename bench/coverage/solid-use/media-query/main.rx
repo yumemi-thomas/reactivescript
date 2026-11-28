@@ -1,0 +1,8 @@
+// solid-use/media-query: a media query and the system's colour scheme as values.
+import { useMediaQuery, usePrefersDark } from "solid-use/media-query"
+
+export default component App() {
+  wide = useMediaQuery("(min-width: 600px)")
+  dark = usePrefersDark()
+  <p>{wide ? "wide" : "narrow"}, {dark ? "dark" : "light"}</p>
+}

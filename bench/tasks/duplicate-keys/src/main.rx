@@ -1,0 +1,14 @@
+// A keyed list: rows keep their identity by `id`, so a row's own state survives a reorder.
+type Row = { id: number; text: string }
+
+component Line(props: { text: string }) {
+  source picked := false
+  <li class={picked ? "on" : "off"} onClick={() => { picked := !picked }}>{props.text}</li>
+}
+
+export default component App() {
+  source next := 3
+  source rows: Row[] key id := [{ id: 1, text: "a" }, { id: 2, text: "b" }]
+  <ul>{for row in rows { <Line text={row.text} /> }}</ul>
+  <button class="add" onClick={() => { rows := rs => [{ id: next, text: "new" }, ...rs]; next := n => n + 1 }}>add first</button>
+}

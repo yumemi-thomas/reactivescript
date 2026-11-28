@@ -1,0 +1,2 @@
+//@ for @solid-primitives/devices ^3.0.0
+export fn createDevices(): ref MediaDeviceInfo[]

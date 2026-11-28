@@ -1,0 +1,11 @@
+// createRemSize. Derived from @solid-primitives/styles 1.0.0 (MIT, see ../NOTICE).
+import pure { remSize } from "./dom.js"
+import client { watchRem } from "./dom.js"
+
+/** The root element's font size, in pixels: the server's guess until the page is hydrated. */
+export fn createRemSize() {
+  source size: number := remSize()
+  effect () { size := remSize()
+    return watchRem((n) => { size := n }) }
+  size
+}

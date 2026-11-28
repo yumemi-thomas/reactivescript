@@ -1,0 +1,34 @@
+// A routed app on @tanstack/solid-router (2.0 rc): the route tree as records, given to the app's own factory (tsr.js).
+// (The same app on the router's file-based routing, with its generated route types: ../tanstack.)
+import { createAppRouter, Link, useParams, useNavigate } from "./tsr.js"
+import { fetchPerson, NotFound } from "./people.js"
+
+component Root(props: { children?: View }) {
+  <nav><Link to="/">Home</Link> <Link to="/people/$id" params={{ id: "1" }}>Ann</Link> <Link to="/people/$id" params={{ id: "2" }}>Bo</Link> <Link to="/people/$id" params={{ id: "9" }}>Nobody</Link></nav>
+  // the pages below are this layout's children (MO-11i): a page's NotFound shows here
+  errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
+    <main>{props.children}</main>
+  }
+}
+component Home() {
+  navigate = useNavigate()
+  <h1>People</h1>
+  <button onClick={() => { navigate({ to: "/people/$id", params: { id: "2" } }) }}>Meet Bo</button>
+}
+component Person() {
+  params = useParams({ from: "/people/$id" })
+  person = await fetchPerson(params.id)
+  loading fallback { <p>loading…</p> } {
+    <h1>{person.name}</h1>
+    <p>{person.role}, #{params.id}</p>
+  }
+}
+
+AppRouter = createAppRouter({ component: Root, children: [
+  { path: "/", component: Home },
+  { path: "/people/$id", component: Person }
+] })
+
+export default component App() {
+  <AppRouter />
+}

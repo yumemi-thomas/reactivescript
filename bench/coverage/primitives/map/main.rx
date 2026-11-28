@@ -1,0 +1,9 @@
+// @solid-primitives/map: a Map whose reads are tracked. The library's export is a class, which a module of the
+// app's own constructs (map.js).
+import { makeMap } from "./map.js"
+
+export default component App() {
+  tags = makeMap<string, number>([["solid", 1]])
+  <p>solid has {tags.get("solid") ?? 0}</p>
+  <button onClick={() => { tags.set("solid", (tags.get("solid") ?? 0) + 1) }}>vote</button>
+}

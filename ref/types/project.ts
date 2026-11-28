@@ -5,16 +5,16 @@
 //   which checks `v` against the target; an equation's `await` is `__.await(e)`, its answer's type, and an equation is `__.eq(e)`, never a promise (R-1); a view is JSX over
 //   Solid's JSX types, so a component's props and what a reader may insert are checked where they are written.
 // The projection is for checking only: it is never run, and its order is the dependency order (E-7).
+import { inPrelude, language } from "../src/names.ts";
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
-import type { ModuleSet } from "../src/modules.ts";
-import type { JsDecl } from "../src/parse.ts";
+import { isRx, optionalView, relativeModule, ViewProps, type ModuleSet, shown, typesOf } from "../src/modules.ts";
+import { splitTop, shapeHasRef, type JsDecl, type Shape } from "../src/parse.ts";
 import type { ModSig } from "../src/check.ts";
 
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
-const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "log", "until", "onSettled", "onFlush"]);
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
-const isHandler = (a: string) => /^on[A-Z:]/.test(a);
+const isHandler = (a: string) => /^on[A-Z:]/.test(a) || a === "ref";
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
 /** A written type, without its row words (`pending T` → `T`, 04 CN-4a) or a context's `source` (RG-7c). */
 const typeText = (t?: string) => t?.replace(ROW_WORDS, "").replace(/^source\s+/, "").trim() || undefined;
@@ -27,8 +27,10 @@ export declare function await_<T>(v: T): Awaited<T>;
 export declare function awaitS<T>(v: T): T extends AsyncIterable<infer U> ? U : Awaited<T>;
 /** R-1: Solid's memo consumes a promise or a stream its function returns, so an equation's value is never one — \`await\` says
  *  where it enters (\`any\`: not known here; Solid still consumes it). */
-type Async<T> = 0 extends (1 & T) ? false : true extends (T extends PromiseLike<any> | AsyncIterable<any> ? true : false) ? true : false;
-export declare function eq<T>(v: T, ok: Async<T> extends true ? "MISSING_AWAIT: an equation's value is a promise or a stream, which Solid consumes; write await e (or await* e for a stream)" : true): T;
+/** [1]: a promise or a stream. Read by its length, so that a type parameter's, which is not known, is neither (TY-2): TypeScript
+ *  takes \`true\` for a conditional it cannot decide when no instance of its check is sure to match. */
+type Async<T> = 0 extends (1 & T) ? [] : true extends (T extends PromiseLike<any> | AsyncIterable<any> ? true : false) ? [1] : [];
+export declare function eq<T>(v: T, ok: [...Async<T>]["length"] extends 1 ? "MISSING_AWAIT: an equation's value is a promise or a stream, which Solid consumes; write await e (or await* e for a stream)" : true): T;
 export declare function first<T, I>(v: T, init: I): T | I;
 export declare function pre<T>(init?: T): T;
 export declare function pending(v: unknown): boolean;
@@ -36,8 +38,15 @@ export declare function pending(v: unknown): boolean;
 export declare function omit<T, K extends string>(v: T, ...keys: K[]): Omit<T, K>;
 export declare function caught<T, R>(v: T, alt: (e: any) => R): T | R;
 export declare function raise(e: unknown): never;
-/** W-1/W-6: a write checks its value (or its function of the slot) against the target — whose type alone decides it. */
-export declare function set<T>(target: T): (v: T | ((p: T) => T)) => void;
+/** W-1/W-6: a write checks its value (or its function of the slot) against the target — whose type alone decides it. A
+ *  function is applied, so one is no value here, whatever the target holds: Solid's Setter says the same. */
+/** What a source of T is written with (W-6: a function is applied to what it held, so a function is no value to write).
+ *  A type parameter may be a function, so no value of it is one to write: \`x := () => v\` stores \`v\` for every T. The
+ *  name is the one the tooling's message reads (tooling/rx-language-server/src/checker.js, \`written\`). */
+type Written<T> = Exclude<T, Function>;
+export declare function set<T>(target: T): (v: Written<T> | ((p: T) => T)) => void;
+/** …at a path, a draft's too: a function is applied to the path's value there as well (W-6). */
+export declare function setAt<T>(target: T): (v: Written<T> | ((p: T) => T)) => void;
 /** A source's type when none is written: its initializer's, widened — a source is written later (\`""\` is a string,
  *  \`null\` and \`[]\` say nothing yet). With a written type, \`src<T>\` is that type, not what the initializer narrows it to. */
 export type Widen<T> = 0 extends (1 & T) ? any : [T] extends [null | undefined] ? any : [T] extends [never[]] ? any[] : [T] extends [string] ? string : [T] extends [number] ? number : [T] extends [boolean] ? boolean : T;
@@ -53,12 +62,15 @@ export declare function wire<A extends unknown[], R>(f: (...a: A) => Promise<R>,
 /** 07 §6: a view (\`props.children: View\`); R-f-10: the class a panic is. */
 export type View = JSX.Element;
 export type Panic = Error;
+/** CP-4a: an entry's default export, a function of the app (\`createApp\`'s, either build) giving the view \`app.mount\` takes. */
+export type Main = (app: object) => () => View;
 export interface Ctx<T> { readonly __ctx: T }
-export declare function ctx<T>(d?: T): Ctx<T>;
+export declare function ctx<T>(d?: () => T): Ctx<T>;   // the default is read where a part asks for it (it may name what the module declares after the context)
 export declare function use<T>(c: Ctx<T>): T;
 export declare function provide<T>(c: Ctx<T>, v: NoInfer<T>): void;
+export declare function provideOr<T>(c: Ctx<T>, v: NoInfer<T> | undefined): void;
 export declare function effect(f: () => void | (() => void)): void;
-export declare function draft<T>(seed: T, f: (d: T) => void): T;
+export declare function draft<S, T = S>(seed: S, f: (d: T) => void): T;   // ST-3: the draft has the equation's type where one is written, else its seed's
 export declare function len(x: unknown): number;
 export declare function until<T>(p: () => T): Promise<Exclude<T, false | 0 | "" | null | undefined>>;   // AC-6: Solid's until — the first truthy value
 export declare function onSettled(f: () => void): void;                   // EF-7: imperative scope only, so no cleanup return
@@ -67,10 +79,12 @@ export declare function str(x: unknown): string;
 export declare function map<X, U>(xs: X, f: (x: ElemOf<X>, i: number) => U): U[];
 export declare function filter<X>(xs: X, f: (x: ElemOf<X>) => unknown): ElemOf<X>[];
 export declare function every<X>(xs: X, f: (x: ElemOf<X>) => unknown): boolean;
+export declare function indexOf<X>(xs: X, f: (x: ElemOf<X>) => unknown): number;
 export declare function sum(xs: readonly number[]): number;
 export declare function fail(msg: string): never;
 export declare function fetch(key: string): Promise<any>;
 export declare function log(...a: unknown[]): void;
+export declare function view<T>(v: T): Extract<T, (s: any) => any>;   // RG-4c: \`<props.children … />\` where it is optional, or plain content is taken as well
 `;
 
 /** One projected file: its TSX, and for each of its lines the `.rx` line it came from. */
@@ -95,26 +109,76 @@ export function projectModules(set: ModuleSet): Projected[] {
     out.push({ path: projectedPath(path), code: w.out.join("\n"), lines: w.lines, rx: path });
   }
   for (const [rx, sig] of set.signatures ?? []) out.push({ path: `${rx}.d.ts`, code: signatureStub(sig), lines: [], rx: rx.replace(/\.rx$/, ".d.rx") });   // TY-4c
-  for (const [dts, decls] of set.declarations ?? []) out.push({ path: dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationFile(decls), lines: [], rx: dts });
+  for (const [dts, decls] of set.declarations ?? []) out.push({ path: typesPathOf(dts) ?? dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationFile(decls), lines: [], rx: dts });
   for (const [mod, names] of jsStubs) out.push({ path: mod, code: [...names].map(n => n === "default" ? "declare const __d: any; export default __d;" : `export declare const ${n}: any;`).join("\n"), lines: [], rx: mod });
   return out;
 }
 
+/** MO-8k: a package's declaration that is not beside the package's file (the project's `rx-types/`, a shared `@rx-types`
+ *  package, a generated `.rx-types/` draft) is projected where TypeScript looks for a package's types when it ships none:
+ *  `node_modules/@types/<scope>__<name>/<subpath or index>.d.ts`. */
+export function typesPathOf(dts: string): string | undefined {
+  let root: string, spec: string;
+  let m = /^(.*?)node_modules\/\.rx-types\/(.+)\.d\.rx$/.exec(dts);
+  if (m) { root = m[1]; spec = m[2]; }
+  else if ((m = /^(.*?)node_modules\/@rx-types\/([^/]+)\/(.+)\.d\.rx$/.exec(dts))) return `${m[1]}node_modules/@types/${m[2]}/${m[3]}.d.ts`;
+  else if ((m = /^(.*?\/|)rx-types\/(.+)\.d\.rx$/.exec(dts))) { root = m[1]; spec = m[2]; }
+  else return undefined;
+  const seg = spec.split("/"); const n = spec.startsWith("@") ? 2 : 1;
+  return `${root}node_modules/@types/${seg.slice(0, n).join("/").replace(/^@/, "").replace("/", "__")}/${seg.slice(n).join("/") || "index"}.d.ts`;
+}
 /** TY-4c: an `.rx` module read by its signature (MO-9) is typed by the \`.d.ts\` TypeScript emits from its projection (TY-1c);
  *  ref/ ships none, so its exports are \`any\` here. */
 function signatureStub(sig: ModSig): string {
-  return [...sig.exports].map(([n, x]) => x.kind === "type" ? `export type ${n} = any;` : x.kind === "comp" ? `export declare function ${n}(props: any): any;` : `export declare const ${n}: any;`).join("\n");
+  return [...sig.exports].map(([n, x]) => x.kind === "type" ? `export type ${n} = any;` : x.kind === "comp" ? `export declare function ${n}(props: any): any;` : x.kind === "errclass" ? `export declare const ${n}: any;\nexport type ${n} = any;` /* a class is a value and the type of its instances (`errored fallback(e: NotFound)`) */ : `export declare const ${n}: any;`).join("\n");
 }
 /** MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module. */
+/** MO-10b: a declared result's type as JS has it: a `ref` result, or a `ref` part of a tuple or record, is an accessor. */
+export function accessorResult(ret: string | undefined, shape: Shape | undefined): string {
+  if (!ret) return "any";
+  const acc = (t: string) => `(() => ${t})`;
+  if (shape === "ref") return acc(ret);
+  if (/^readonly\s+\[/.test(ret)) return `readonly ${accessorResult(ret.replace(/^readonly\s+/, ""), shape)}`;   // MO-10b: an `as const` tuple
+  if (shape && typeof shape === "object" && "items" in shape && shape.items.includes("ref") && ret.startsWith("[") && ret.endsWith("]"))
+    return `[${splitTop(ret.slice(1, -1), ",").map((x, i) => shape.items[i] === "ref" ? acc(x.trim()) : x.trim()).join(", ")}]`;
+  if (shape && typeof shape === "object" && "fields" in shape && shape.fields.some(f => f[1] === "ref") && ret.startsWith("{") && ret.endsWith("}"))
+    return `{ ${splitTop(ret.slice(1, -1), ",;").map(x => { const i = x.indexOf(":"); if (i < 0) return `${x.trim()};`; const k = x.slice(0, i).trim(); const r = shape.fields.some(f => f[0] === k.replace(/^readonly\s+/, "").replace(/\?$/, "") && f[1] === "ref"); return `${k}: ${r ? acc(x.slice(i + 1).trim()) : x.slice(i + 1).trim()};`; }).join(" ")} }`;
+  return ret;
+}
 function declarationFile(decls: JsDecl[]): string {
   const own = new Set(decls.filter(d => d.kind === "type").map(d => d.name));
   const head = decls.some(d => d.kind === "comp" || (d.kind === "fn" && d.shape === "comp")) ? [...own.has("View") ? [] : ["type View = import(\"@solidjs/web/jsx-runtime\").JSX.Element;"], ...own.has("Component") ? [] : ["type Component<P = any> = (props: P) => View;"]] : [];   // MO-11a: a field's types
-  return [...head, ...decls.map(d => {
+  // MO-8o: props that are a type the library declares, and the record of the fields that carry words after it
+  const propsOf = (d: Extract<JsDecl, { kind: "comp" }>) => { const rec = `{ ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }`; return d.propsType === undefined ? rec : d.props.length ? `${d.propsType} & ${rec}` : d.propsType; };
+  const fnOf = (d: Extract<JsDecl, { kind: "comp" }>) => `${d.tparams ?? ""}(props: ${propsOf(d)}) => View`;
+  // MO-11q: `Dialog.Root` and its siblings are members of one exported object (itself a component when it is declared one)
+  const members = new Map<string, Extract<JsDecl, { kind: "comp" }>[]>();
+  for (const d of decls) if (d.kind === "comp" && d.name.includes(".")) { const h = d.name.slice(0, d.name.indexOf(".")); members.set(h, [...members.get(h) ?? [], d]); }
+  const objectOf = (h: string) => `{ ${members.get(h)!.map(m => `${m.name.slice(h.length + 1)}: ${fnOf(m)};`).join(" ")} }`;
+  const objects = [...members.keys()].filter(h => !decls.some(d => d.kind === "comp" && d.name === h)).map(h => `export declare const ${h}: ${objectOf(h)};`);
+  // MO-8t: `export fn toaster.show(…)` — a method of a declared value, a member of that value's type; of a declared fn, a
+  // function of the namespace TypeScript merges with it
+  type FnRow = Extract<JsDecl, { kind: "fn" }>;
+  const sigOf = (d: FnRow): [string, string, string] => [d.tparams ?? "", d.params.map((n, i) => { const o = d.opts?.[i] ? "?" : ""; return d.refs?.[i] ? `${n}${o}: (() => ${d.ptypes?.[i] ?? "any"})` : d.ptypes?.[i] ? `${n}${o}: ${d.ptypes[i]}` : o ? `${n}?: any` : n; }).join(", "), accessorResult(d.ret, d.shape)];   // MO-8e: an optional parameter   // MO-10a: a `ref` parameter is an accessor in JS
+  const methodsOf = (h: string) => decls.filter((d): d is FnRow => d.kind === "fn" && d.name.includes(".") && d.name.slice(0, d.name.indexOf(".")) === h);
+  return [...head, ...objects, ...decls.filter(d => d.kind !== "context" && !((d.kind === "comp" || d.kind === "fn") && d.name.includes("."))).map(d => {   // MO-12a: a JS context has no TypeScript of its own
     if (d.kind === "type") return `export ${d.text ?? `type ${d.name} = any`}`;
-    if (d.kind === "comp") return `export declare function ${d.name}(props: { ${d.props.map(p => `${p.name}${p.optional ? "?" : ""}: ${p.type ?? "any"};`).join(" ")} }): View;`;
+    // MO-8u: the row named `default` is the module's default export — a word TypeScript does not take as a name
+    if (d.name === "default") {
+      if (d.kind === "comp") return `declare function __default${d.tparams ?? ""}(props: ${propsOf(d)}): View;\nexport default __default;`;
+      if (d.kind === "value") return `declare const __default: ${d.type ?? "any"};\nexport default __default;`;
+      if (d.kind === "fn") { const [tp, ps, ret] = sigOf(d); return `declare function __default${tp}(${ps}): ${ret};\nexport default __default;`; }
+    }
+    if (d.kind === "comp") return members.has(d.name) ? `export declare const ${d.name}: (${fnOf(d)}) & ${objectOf(d.name)};` : `export declare function ${d.name}${d.tparams ?? ""}(props: ${propsOf(d)}): View;`;
+    if (d.kind === "value") {   // MO-8g; MO-8t: with the methods its declaration gives rows
+      const ms = methodsOf(d.name); if (!ms.length) return `export declare const ${d.name}: ${d.type ?? "any"};`;
+      const obj = ms.map(m => { const [tp, ps, ret] = sigOf(m); return `${m.name.slice(d.name.length + 1)}: ${tp}(${ps}) => ${ret};`; }).join(" ");
+      return d.type !== undefined ? `export declare const ${d.name}: (${d.type}) & { ${obj} };` : `export declare const ${d.name}: { ${obj} };`;
+    }
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
-    const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
-    return `export declare function ${d.name}(${ps}): ${d.ret ?? "any"};`;
+    const [tp, ps, ret] = sigOf(d as FnRow); const ms = methodsOf(d.name);
+    const ns = ms.length ? `\nexport declare namespace ${d.name} { ${ms.map(m => { const [tp, ps, ret] = sigOf(m); return `function ${m.name.slice(d.name.length + 1)}${tp}(${ps}): ${ret};`; }).join(" ")} }` : "";
+    return `export declare function ${d.name}${tp}(${ps}): ${ret};${ns}`;
   })].join("\n") + "\n";
 }
 
@@ -122,14 +186,21 @@ class Proj {
   w: W; set: ModuleSet; path: string; jsStubs: Map<string, Set<string>>;
   private used = new Set<string>();                         // prelude names the module reads
   private declared = new Set<string>();                     // names the module declares (they shadow the prelude)
-  constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
+  private refFns = new Map<string, Extract<JsDecl, { kind: "fn" }>>();   // MO-10: declared JS fns with a `ref` parameter or result, by local name
+  private refParts = new Map<string, Shape>();               // MO-10b: equations bound to such a fn's tuple or record result
+  constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; this.views = new ViewProps(set, set.programs.get(path)?.decls ?? []); }
+  private propsOf: { name: string; type: string; tparams?: string } | undefined;   // the props of the component being projected
+  private loose = new Set<string>();   // RG-4c: what the component shows as a view that may be plain content, or nothing
+  private views: ViewProps;   // MO-11t
 
   module(p: Program) {
     const body = new W(); const saved = this.w; this.w = body;
     this.decls(p.decls, "", true);
     if (p.view.length) { this.w.emit(`export const __view = (`, p.view[0].line ?? 1); this.markup(p.view, "  "); this.w.emit(`);`, p.view[p.view.length - 1].line ?? 1); }
+    const main = p.decls.find(d => d.k === "component" && d.isDefault);
+    if (main) this.w.emit(`declare const __main: __.Main; export default __main;`, main.line);   // CP-4a: what JS imports from an entry
     this.w = saved;
-    const prelude = [...this.used].filter(n => !this.declared.has(n));
+    const prelude = [...this.used];
     const types = ["View", "Panic"].filter(n => !this.declared.has(n));
     this.w.emit(`import * as __ from "${this.rel("__prelude.ts")}"; import type { ${types.join(", ")} } from "${this.rel("__prelude.ts")}";${prelude.length ? ` import { ${prelude.join(", ")} } from "${this.rel("__prelude.ts")}";` : ""}`, 0);
     this.w.out.push(...body.out); this.w.lines.push(...body.lines);
@@ -138,40 +209,66 @@ class Proj {
   private rel(f: string) { const depth = this.path.split("/").length - 1 - (this.set.entry.split("/").length - 1); return depth > 0 ? "../".repeat(depth) + f : "./" + f; }
 
   // ---- declarations, in dependency order (functions are hoisted; values are not) ----
+  /** A write is typed by what its source was declared to hold, not by what an `if` around it narrowed a read of it to
+   *  (`if (a) { a := undefined }`): a source the module writes has an alias of its type beside it, `type __w_a = typeof
+   *  a`, which a type query at the write would not be (it narrows as a read does). `written`: the names so written;
+   *  `scopes`: per block being projected, the sources and the other names it declares — a write names the alias when
+   *  the nearest block that declares its name declares a source. */
+  private written = new Set<string>(); private scopes: { src: Set<string>; other: Set<string> }[] = [];
+  private aliased(name: string): boolean { for (let i = this.scopes.length - 1; i >= 0; i--) { if (this.scopes[i].src.has(name)) return true; if (this.scopes[i].other.has(name)) return false; } return false; }
   decls(ds: Decl[], ind: string, top = false) {
+    if (top) { const walk = (x: unknown): void => { if (Array.isArray(x)) { x.forEach(walk); return; } if (!x || typeof x !== "object") return; const o = x as { k?: string; target?: { name: string; path: unknown[]; ctx?: boolean } }; if ((o.k === "write" || o.k === "optimistic") && o.target && !o.target.path.length && !o.target.ctx) this.written.add(o.target.name); for (const v of Object.values(o)) walk(v); }; walk(ds); }
+    this.scopes.push({ src: new Set(ds.flatMap(d => d.k === "source" && this.written.has(d.name) ? [d.name] : [])), other: new Set(ds.flatMap(d => d.k === "import" ? d.names.map(n => n.alias) : d.k !== "source" && "name" in d ? [d.name as string] : [])) });
+    this.declsIn(ds, ind, top);   // (the block's: its view and its tail are in it too — who calls this ends it, `this.scopes.pop()`)
+  }
+  private declsIn(ds: Decl[], ind: string, top = false) {
     const ex = (d: Decl) => top && (d as { exported?: boolean }).exported ? "export " : "";
-    for (const d of ds) if ("name" in d) this.declared.add(d.name);
+    if (top) for (const d of ds) if (d.k === "import") for (const n of d.names) this.declared.add(n.alias); else if ("name" in d) this.declared.add(d.name);   // what the module binds at its top; a nested name shadows the prelude's where it stands
     for (const d of ds) {
       if (d.k === "import") this.importDecl(d, ind);
       if (d.k === "typedecl") this.w.emit(`${ind}${ex(d)}${d.text ?? `type ${d.name} = any;`}`, d.line);
       if (d.k === "error") {
         const fields = d.params.map((n, i) => `declare ${n}: ${d.ptypes?.[i] ?? "any"};`).join(" ");
-        const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
+        const ps = d.params.map((n, i) => `${n}${d.k === "action" && d.required !== undefined && i >= d.required ? "?" : ""}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
         this.w.emit(`${ind}${ex(d)}class ${d.name}$ extends Error { ${fields} }\n${ind}${ex(d)}const ${d.name} = (${ps}): ${d.name}$ => ${d.msg ? `{ void (${this.expr(d.msg, false)}); return new ${d.name}$(); }` : `new ${d.name}$()`};\n${ind}${ex(d)}type ${d.name} = ${d.name}$;`, d.line);
       }
-      if (d.k === "context") this.w.emit(`${ind}${ex(d)}const ${d.name} = __.ctx<${typeText(d.type) ?? "any"}>(${d.dflt ? this.expr(d.dflt, false) : ""});`, d.line);
+      if (d.k === "context") this.w.emit(`${ind}${ex(d)}const ${d.name} = __.ctx<${typeText(d.type) ?? "any"}>(${d.dflt ? `() => ${this.expr(d.dflt, false)}` : ""});`, d.line);
     }
     for (const d of ds) {
       if (d.k === "fn") {
-        const ps = d.params.map(p => `${p.name}${ann(p.type)}`).join(", ");
-        if (!d.decls.length) { this.w.emit(`${ind}${ex(d)}function ${d.name}(${ps})${ann(d.ret)} { return ${this.expr(d.tail, false)}; }`, d.line); continue; }
-        this.w.emit(`${ind}${ex(d)}function ${d.name}(${ps})${ann(d.ret)} {`, d.line); this.decls(d.decls, ind + "  "); this.w.emit(`${ind}  return ${this.expr(d.tail, false)};\n${ind}}`, d.line);
+        const ps = d.params.map(p => `${p.name}${p.opt ? "?" : ""}${ann(p.type)}`).join(", ");
+        if (!d.decls.length) { this.w.emit(`${ind}${ex(d)}function ${d.name}${d.tparams ?? ""}(${ps})${ann(d.ret)} { return ${this.expr(d.tail, false)}; }`, d.line); continue; }
+        this.w.emit(`${ind}${ex(d)}function ${d.name}${d.tparams ?? ""}(${ps})${ann(d.ret)} {`, d.line); this.decls(d.decls, ind + "  "); this.w.emit(`${ind}  return ${this.expr(d.tail, false)};\n${ind}}`, d.line); this.scopes.pop();
       }
       if (d.k === "component") {
-        this.w.emit(`${ind}${ex(d)}function ${d.name}(${d.props}${d.propsType ? `: ${d.propsType}` : ": any"}) {`, d.line);
+        // TY-3d (2026-11-24): `component C()` declares no props, and takes none — a function of nothing, which TypeScript holds
+        // where a library asks for one (`toast(() => JSX.Element)`) and wherever a component is asked for
+        if (d.noProps) this.w.emit(`${ind}${ex(d)}function ${d.name}${d.tparams ?? ""}() {`, d.line);
+        else this.w.emit(`${ind}${ex(d)}function ${d.name}${d.tparams ?? ""}(${d.props}${d.propsType ? `: ${d.propsType.replace(/(:\s*)((?:pending\s+|fails\([^)]*\)\s*)+)/g, "$1")}` : ": any"}) {`, d.line);   // MO-10f: a field's row words are .rx's, not TypeScript's
+        const was = this.loose; this.loose = new Set([...shown(d, typesOf(this.set, this.path))].flatMap(([f, v]) => v.mixed || v.optional ? [`${d.props}.${f}`] : []));
+        const wasProps = this.propsOf; this.propsOf = d.noProps || d.propsType === undefined ? undefined : { name: d.props, type: d.propsType, tparams: d.tparams };
         this.decls(d.decls, ind + "  ");
-        this.w.emit(`${ind}  return (`, d.line); this.markup(d.view.length ? d.view : [], ind + "    "); this.w.emit(`${ind}  );\n${ind}}`, d.line);
+        this.w.emit(`${ind}  return (`, d.line); this.markup(d.view.length ? d.view : [], ind + "    "); this.w.emit(`${ind}  );\n${ind}}`, d.line); this.scopes.pop();
+        this.loose = was; this.propsOf = wasProps;
       }
       if (d.k === "action" || d.k === "server") {
-        const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
-        this.w.emit(`${ind}${ex(d)}async function ${d.name}(${ps})${d.k === "server" && d.ret ? `: Promise<${d.ret}>` : ""} {`, d.line); this.stmts(d.body, ind + "  "); this.w.emit(`${ind}}`, d.line);
+        const ps = d.params.map((n, i) => `${n}${d.k === "action" && d.required !== undefined && i >= d.required ? "?" : ""}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
+        if (d.k === "action" && d.ret !== undefined) this.w.emit(`${ind}${ex(d)}function ${d.name}(${ps}): ${d.ret} {`, d.line);   // AC-1i: answers at the call
+        else this.w.emit(`${ind}${ex(d)}async function ${d.name}(${ps})${d.k === "server" && d.ret ? `: Promise<${d.ret}>` : ""} {`, d.line);
+        this.stmts(d.body, ind + "  "); this.w.emit(`${ind}}`, d.line);
         if (d.k === "server") this.w.emit(`${ind}__.wire(${d.name}, true);`, d.line);   // SF-6a, statically where the types are known
       }
     }
     for (const d of this.order(ds)) {
-      if (d.k === "source") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = ${typeText(d.type) ? `__.typed<${typeText(d.type)}>(${this.expr(d.init, false)})` : `__.src(${this.expr(d.init, false)})`};`, d.line);
-      if (d.k === "eq") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = __.eq(${this.expr(d.e, false, d.name)}, true);`, d.line);   // R-1: no promise without `await`
-      if (d.k === "provide") this.w.emit(`${ind}__.provide(${d.name}, ${this.expr(d.e, false)});`, d.line);
+      if (d.k === "source") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = ${typeText(d.type) ? `__.typed<${typeText(d.type)}>(${this.expr(d.init, false)})` : `__.src(${this.expr(d.init, false)})`};${this.written.has(d.name) ? ` type __w_${d.name} = typeof ${d.name};` : ""}`, d.line);
+      if (d.k === "eq") {
+        const x = d.e.k === "call" && d.e.f.k === "id" ? this.refFns.get(d.e.f.name) : undefined;   // MO-10b: a `ref` result is read as its value
+        if (x && typeof x.shape === "object") this.refParts.set(d.name, x.shape);
+        this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = __.eq(${this.expr(d.e, false, d.name)}${x?.shape === "ref" ? "()" : ""}, true);`, d.line);   // R-1: no promise without `await`
+      }
+      // RG-4c: a view the component may not have been given is provided as it is — the context then holds none, and what
+      // shows it shows nothing (`item?: (o) => View`, `provide item = props.item`)
+      if (d.k === "provide") this.w.emit(`${ind}__.provide${d.e.k === "member" && d.e.o.k === "id" && this.propsOf && d.e.o.name === this.propsOf.name && optionalView(this.propsOf.type, typesOf(this.set, this.path), d.e.p, this.propsOf.tparams) ? "Or" : ""}(${d.name}, ${this.expr(d.e, false)});`, d.line);
     }
     for (const d of ds) if (d.k === "effect") {
       this.w.emit(`${ind}__.effect(() => {`, d.line);
@@ -182,18 +279,22 @@ class Proj {
   private importDecl(d: Extract<Decl, { k: "import" }>, ind: string) {
     const names = d.names.map(n => n.name === "default" ? null : n.name === n.alias ? n.name : `${n.name} as ${n.alias}`).filter(Boolean);
     const dflt = d.names.find(n => n.name === "default")?.alias;
-    for (const n of d.names) if (BUILTINS.has(n.name)) this.declared.delete(n.alias);   // the prelude's own (`import { log } from "./prelude"`)
-    const prelude = d.names.filter(n => BUILTINS.has(n.name));
-    if (prelude.length) { for (const n of prelude) this.used.add(n.name); }
-    const rest = d.names.filter(n => !BUILTINS.has(n.name)); if (!rest.length) return;
+    for (const n of d.names) if (inPrelude(d, n.name, this.set.conformance)) this.used.add(n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);   // the prelude's own (`import { log } from "./prelude"`)
+    const rest = d.names.filter(n => !inPrelude(d, n.name, this.set.conformance)); if (!rest.length) return;
+    if (d.declared) for (const n of rest) { const x = this.set.declarations?.get(d.declared)?.find(y => y.kind === "fn" && y.name === n.name); if (x?.kind === "fn" && (x.refs?.some(Boolean) || shapeHasRef(x.shape))) this.refFns.set(n.alias, x); }
     let from = d.from;
+    if (d.resolved && !isRx(d.from)) from = relativeModule(this.path, d.resolved);   // MO-13d: typed as the .rx module its printed signature stands for (TY-4c: `x.rx.d.ts`, beside it)
     if (!d.resolved && !d.declared) {                                                        // a JS module with no declaration: `any`
       const key = this.modPath(d.from) + ".ts"; let s = this.jsStubs.get(key); if (!s) this.jsStubs.set(key, (s = new Set())); for (const n of rest) s.add(n.name); from = d.from;
     }
     void names; void dflt;
-    const parts = rest.filter(n => n.name !== "default").map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);
-    const def = rest.find(n => n.name === "default")?.alias;
-    this.w.emit(`${ind}import ${def ? def + (parts.length ? ", " : "") : ""}${parts.length ? `{ ${parts.join(", ")} }` : ""} from "${from}";`, d.line);
+    // MO-6e: a name the module also imports to use it (`import { A }` beside `export { A }`) is bound by that import
+    const plain = new Set(d.reexport ? (this.set.programs.get(this.path)?.decls ?? []).flatMap(x => x.k === "import" && !x.reexport ? x.names.map(n => n.alias) : []) : []);
+    const mine = rest.filter(n => !plain.has(n.alias));
+    const parts = mine.filter(n => n.name !== "default").map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);
+    const def = mine.find(n => n.name === "default")?.alias;
+    if (def || parts.length) this.w.emit(`${ind}import ${def ? def + (parts.length ? ", " : "") : ""}${parts.length ? `{ ${parts.join(", ")} }` : ""} from "${from}";`, d.line);
+    if (d.reexport) this.w.emit(`${ind}export { ${rest.map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`).join(", ")} } from "${from}";`, d.line);   // MO-6e: a package's entry, as TypeScript reads it
   }
   /** A JS import's module, from the program's root (where the stubs are written). */
   private modPath(from: string) { const base = this.path.split("/").slice(0, -1); const parts = [...base]; for (const seg of from.split("/")) { if (seg === "." || !seg) continue; if (seg === "..") parts.pop(); else parts.push(seg); } return parts.join("/"); }
@@ -220,9 +321,10 @@ class Proj {
         case "expr": this.w.emit(`${ind}${e(s.e)};`, 0); break;
         case "return": this.w.emit(`${ind}return${s.e ? " " + e(s.e) : ""};`, 0); break;
         case "throw": this.w.emit(`${ind}throw ${e(s.e)};`, 0); break;
-        case "write": case "optimistic": this.w.emit(`${ind}__.set(${this.target(s.target)})(${e(s.e)});`, 0); break;
+        case "write": case "optimistic": this.w.emit(`${ind}__.set${s.target.path.length ? "At" : !s.target.ctx && this.aliased(s.target.name) ? `<__w_${s.target.name}>` : ""}(${this.target(s.target)})(${e(s.e)});`, 0); break;
         case "refresh": case "affects": this.w.emit(`${ind}void ${s.name};`, 0); break;
         case "action": this.w.emit(`${ind}void (async () => {`, 0); this.stmts(s.body, ind + "  "); this.w.emit(`${ind}})();`, 0); break;
+        case "for": this.w.emit(`${ind}for (const ${s.name} of ${e(s.e)}) {`, 0); this.stmts(s.body, ind + "  "); this.w.emit(`${ind}}`, 0); break;
         case "sif": this.w.emit(`${ind}if (${e(s.c)}) {`, 0); this.stmts(s.t, ind + "  "); this.w.emit(`${ind}} else {`, 0); this.stmts(s.f, ind + "  "); this.w.emit(`${ind}}`, 0); break;
         case "try": {
           this.w.emit(`${ind}try {`, 0); this.stmts(s.body, ind + "  ");
@@ -244,7 +346,7 @@ class Proj {
     const go = (x: Expr) => this.expr(x, imp, self);
     switch (e.k) {
       case "lit": return J(e.v);
-      case "id": if (BUILTINS.has(e.name) && !this.declared.has(e.name)) this.used.add(e.name); return e.name;
+      case "id": if (language(e.name, this.declared.has(e.name), this.set.conformance)) this.used.add(e.name); return e.name;
       case "pre": return e.name === self ? (e.init ? `__.pre(${go(e.init)})` : `__.pre<any>()`) : `__.pre<typeof ${e.name}>(${e.init ? go(e.init) : ""})`;
       case "peek": case "latest": return go(e.e);
       case "pending": return `__.pending(${go(e.e)})`;
@@ -257,16 +359,19 @@ class Proj {
       case "throw": return `__.raise(${go(e.e)})`;
       case "catch": return `__.caught(${go(e.e)}, (${e.name ?? "__e"}: ${e.classes ? e.classes.join(" | ") : "Error"}) => ${go(e.alt)})`;
       case "tpl": return "`" + e.parts.map(p => typeof p === "string" ? p.replace(/[`\\]|\$\{/g, m => "\\" + m) : "${" + go(p) + "}").join("") + "`";
-      case "member": return `${go(e.o)}${e.opt ? "?." : "."}${e.p}`;
-      case "index": return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]`;
+      case "member": { const s = e.o.k === "id" ? this.refParts.get(e.o.name) : undefined; return `${go(e.o)}${e.opt ? "?." : "."}${e.p}${s && typeof s === "object" && "fields" in s && s.fields.some(f => f[0] === e.p && f[1] === "ref") ? "()" : ""}`; }   // MO-10b
+      case "index": { const s = e.o.k === "id" ? this.refParts.get(e.o.name) : undefined; return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]${s && typeof s === "object" && "items" in s && e.i.k === "lit" && typeof e.i.v === "number" && s.items[e.i.v] === "ref" ? "()" : ""}`; }   // MO-10b
       case "stylemap": { const r = transform(`export const __s = <style>${e.css}</style>;`, { filename: "class-map.tsrx", generate: "dom" }) as { code: string }; const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); return `(${m ? m[1].replace(/\n\s*/g, " ").replace(/: "[^"]*"/g, ': "" as string') : "{}"} as const)`; }   // 07 CSS-5: TSRX's class map, as its typecheck projection writes it
-      case "call": return `${go(e.f)}(${e.args.map(go).join(", ")})`;
+      case "call": {
+        const ta = e.targs ? `<${e.targs}>` : "";   // 07 §3: type arguments, as written
+        const x = e.f.k === "id" ? this.refFns.get(e.f.name) : undefined; return `${go(e.f)}${ta}(${e.args.map((a, i) => x?.refs?.[i] ? `() => (${go(a)})` : go(a)).join(", ")})`;   // MO-10a: a `ref` argument is an accessor
+      }
       case "arr": return `[${e.items.map(go).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "spread": return `...${go(e.e)}`;
       case "omit": return `__.omit(${[go(e.e), ...e.keys.map(k => J(k))].join(", ")})`;
       case "fn": {
-        const ps = e.params.join(", ");
+        const ps = e.params.map((n, i) => `${n}${e.ptypes?.[i] ? `: ${e.ptypes[i]}` : ""}`).join(", ");   // 07 §3: a parameter's type
         if (!e.stmts) return `((${ps}) => ${this.expr(e.body, imp, self)})`;
         const w = new W(); const saved = this.w; this.w = w; this.stmts(e.stmts, "  "); this.w = saved;
         return `(${hasAwait(e.stmts) ? "async " : ""}(${ps}) => {\n${w.out.join("\n")}\n})`;
@@ -292,7 +397,7 @@ class Proj {
   }
   private region(decls: Decl[], view: Markup[], ind: string, line: number) {
     if (!decls.length) { this.markup(view, ind); return; }
-    this.w.emit(`${ind}(() => {`, line); this.decls(decls, ind + "  "); this.w.emit(`${ind}  return (`, line); this.markup(view, ind + "    "); this.w.emit(`${ind}  );\n${ind}})()`, line);
+    this.w.emit(`${ind}(() => {`, line); this.decls(decls, ind + "  "); this.w.emit(`${ind}  return (`, line); this.markup(view, ind + "    "); this.w.emit(`${ind}  );\n${ind}})()`, line); this.scopes.pop();
   }
   private child(m: Markup, ind: string) {
     const line = m.line ?? 0;
@@ -302,7 +407,18 @@ class Proj {
       case "read": this.w.emit(`${ind}{${this.expr(m.e, false)}}`, line); return;
       case "el": {
         if (m.tag === "") { this.w.emit(`${ind}<>`, line); for (const c of m.children) this.child(c, ind + "  "); this.w.emit(`${ind}</>`, line); return; }
-        const attrs = m.attrs.map(a => a.name === "..." ? ` {...${this.expr(a.e, false)}}` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : ` ${a.name}={${this.expr(a.e, isHandler(a.name))}}`).join("");
+        const shows = this.loose.has(m.tag);                                                     // RG-4c: optional, or plain content is taken as well
+        const attrs = m.attrs.map(a => a.name === "..." ? ` {...${this.expr(a.e, false)}}` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : this.views.given(m.tag, a.name, a.e) ? ` ${a.name}={<${this.views.given(m.tag, a.name, a.e)} />}` : ` ${a.name}={${this.expr(a.e, isHandler(a.name))}}`).join("");   // MO-11t: a component given by name to a prop typed `View` is the component applied, which is what the library's type takes
+        if (shows) { this.w.emit(`${ind}{((V$) => <V$${attrs} />)(__.view(${m.tag}))}`, line); return; }
+        if (/^use\.[A-Za-z_$][\w$]*$/.test(m.tag)) { this.w.emit(`${ind}{((V$) => <V$${attrs} />)(__.use(${m.tag.slice(4)}))}`, line); return; }   // RG-4c: the view a context holds, shown with what its type says
+        const named = m.children.filter((c): c is Extract<Markup, { k: "mview" }> => c.k === "mview" && !!c.prop);   // MO-11k: named render props are attributes
+        const kids = m.children.filter(c => !(c.k === "mview" && c.prop));
+        if (named.length) {
+          this.w.emit(`${ind}<${m.tag}${attrs}`, line);
+          for (const v of named) { this.w.emit(`${ind}  ${v.prop}={((${v.params.join(", ")}) => (`, v.line ?? line); this.region(v.decls, v.body, ind + "    ", v.line ?? line); this.w.emit(`${ind}  ))}`, v.line ?? line); }
+          if (!kids.length) { this.w.emit(`${ind}/>`, line); return; }
+          this.w.emit(`${ind}>`, line); for (const c of kids) this.child(c, ind + "  "); this.w.emit(`${ind}</${m.tag}>`, line); return;
+        }
         if (!m.children.length) { this.w.emit(`${ind}<${m.tag}${attrs} />`, line); return; }
         this.w.emit(`${ind}<${m.tag}${attrs}>`, line); for (const c of m.children) this.child(c, ind + "  "); this.w.emit(`${ind}</${m.tag}>`, line);
         void VOID_TAGS; return;
@@ -310,6 +426,9 @@ class Proj {
       case "mif": {
         this.w.emit(`${ind}{${this.expr(m.c, false)} ? (`, line); this.region(m.tDecls, m.t, ind + "  ", line);
         this.w.emit(`${ind}) : (`, line); this.region(m.fDecls, m.f, ind + "  ", line); this.w.emit(`${ind})}`, line); return;
+      }
+      case "mview": {                                                                           // MO-11k: the render prop, as the function the component's types expect
+        this.w.emit(`${ind}{((${m.params.join(", ")}) => (`, line); this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind}))}`, line); return;
       }
       case "mfor": {
         this.w.emit(`${ind}{__.each(${this.expr(m.xs, false)}, (${m.name}) => (`, line); this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind}))}`, line); return;
@@ -339,4 +458,11 @@ function freeIds(e: unknown, out = new Set<string>()): Set<string> {
   if (o.k === "pre") return out;                        // the previous instant's value: no ordering edge
   for (const [k, v] of Object.entries(o)) if (k !== "k") freeIds(v, out);
   return out;
+}
+
+/** MO-11i: a route path under its parent's: `/org/:org` and `/:id` give `/org/:org/:id`; `/` under anything is the parent. */
+function joinPath(parent: string, child: string): string {
+  if (!parent || parent === "/") return child;
+  if (child === "/" || child === "") return parent;
+  return parent.replace(/\/+$/, "") + (child.startsWith("/") ? child : "/" + child);
 }

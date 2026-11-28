@@ -1,0 +1,6 @@
+export pure fn keys(o: object): string[]
+export pure fn entries<V>(o: { [key: string]: V }): [string, V][]
+export pure fn fromEntries<V>(list: readonly (readonly [string, V])[]): { [key: string]: V }
+export pure fn from<T>(list: Iterable<T> | ArrayLike<T>): T[]
+export pure fn setOf<T>(xs: readonly T[]): Set<T>
+export pure fn mapOf<K, V>(pairs: readonly (readonly [K, V])[]): Map<K, V>

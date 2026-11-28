@@ -1,0 +1,26 @@
+// UI SDK's form controls: each holds its own state, or takes it from the app with its change.
+import { Field, FieldLabel } from "@ui-sdk/solid/field"
+import { Input } from "@ui-sdk/solid/input"
+import { Checkbox, CheckboxIndicator } from "@ui-sdk/solid/checkbox"
+import { Switch, SwitchThumb } from "@ui-sdk/solid/switch"
+import { Radio, RadioGroup, RadioIndicator } from "@ui-sdk/solid/radio"
+import { Slider, SliderControl, SliderIndicator, SliderThumb, SliderTrack, SliderValue } from "@ui-sdk/solid/slider"
+import { SegmentedControl, SegmentedControlItem } from "@ui-sdk/solid/segmented-control"
+import { Button } from "@ui-sdk/solid/button"
+
+export default component App() {
+  source accepted := false
+  source speed: string | null := "standard"
+  source sent := 0
+  <Field name="website"><FieldLabel>Website</FieldLabel><Input class="site" defaultValue="example.com" /></Field>
+  <label><Checkbox class="terms" checked={accepted} onCheckedChange={(checked: boolean | "indeterminate") => { accepted := checked == true }}><CheckboxIndicator>x</CheckboxIndicator></Checkbox> Accept terms</label>
+  <label>Airplane mode <Switch class="airplane"><SwitchThumb /></Switch></label>
+  <RadioGroup value={speed} onValueChange={(value: string | null) => { speed := value }}>
+    <label><Radio value="standard"><RadioIndicator /></Radio> Standard</label>
+    <label><Radio class="express" value="express"><RadioIndicator /></Radio> Express</label>
+  </RadioGroup>
+  <Slider defaultValue={50}><SliderValue /><SliderControl><SliderTrack><SliderIndicator /><SliderThumb aria-label="Volume" /></SliderTrack></SliderControl></Slider>
+  <SegmentedControl defaultValue="list"><SegmentedControlItem value="list">List</SegmentedControlItem><SegmentedControlItem value="grid">Grid</SegmentedControlItem></SegmentedControl>
+  <Button class="send" disabled={!accepted} onClick={() => { sent := n => n + 1 }}>Send</Button>
+  <p class="state">{accepted ? "accepted" : "not accepted"}, {speed}, sent {sent}</p>
+}

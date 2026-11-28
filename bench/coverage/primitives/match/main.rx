@@ -1,0 +1,8 @@
+// @solid-primitives/match: one view for each value of a union.
+import { MatchValue } from "@solid-primitives/match"
+
+export default component App() {
+  source status: "idle" | "busy" := "idle"
+  <MatchValue on={status} case={{ idle: () => "ready when you are", busy: () => "working on it" }} />
+  <button onClick={() => { status := "busy" }}>start</button>
+}

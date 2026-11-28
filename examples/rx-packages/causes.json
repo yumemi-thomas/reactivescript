@@ -1,0 +1,61 @@
+{
+ "_": "Why a live step differs from the original's (track 2, step d, 2026-11-26): `original`, `rewrite` (left, with why), `harness`, or `language`. A step whose name is not here takes the case's `*`; one with neither is `unattributed`, and live.mjs counts it.",
+ "cmdk": {
+  "hydrated": {
+   "*": "original: cmdk-solid cannot be served (\"Client-only API called on the server side\"), so its hydrated page is a browser render; the rewrite's served <input> keeps value=\"\" as an attribute, as Solid's server render writes a value (the same in TSX)"
+  }
+ },
+ "icons": {
+  "client": {
+   "*": "original: @lucide/solid writes each shape's React `key` (key=1gmf2c) as an attribute of the <path> and <circle>"
+  },
+  "hydrated": {
+   "*": "original: as rendered, the React `key` written as an attribute"
+  }
+ },
+ "kobalte-dialog": {
+  "client": {
+   "key Escape": "original: Escape does not close the modal dialog (onOpenChange is never called on Solid 2.0.3; Kobalte documents that Escape dismisses it); the rewrite closes it",
+   "*": "follows from `key Escape`: the original is still open, so the trigger closes it and the close button is not there"
+  },
+  "hydrated": {
+   "key Escape": "original: as rendered (and it is not served: Client-only API on the server)",
+   "*": "follows from `key Escape`"
+  }
+ },
+ "kobalte-radio": {
+  "hydrated": {
+   "*": "original: hydrated, it keeps aria-describedby and `for` ids from its server render that its own rendered page does not have (ids of parts it does not render); the rewrite's hydrated page is its rendered page"
+  }
+ },
+ "terracotta-radio": {
+  "hydrated": {
+   "*": "original: hydrated, it keeps aria-describedby/aria-labelledby ids from its server render that its own rendered page does not have; the rewrite's hydrated page is its rendered page"
+  }
+ },
+ "slider": {
+  "client": {
+   "click #t-n": "harness: the slides' transform is read 60 ms into their animation, and where that falls varies from run to run (the next step, `wait 900`, agrees); not counted against either side",
+   "*": "original: its dots do not follow a slide that is added (two dots for three slides); the rewrite shows three"
+  },
+  "hydrated": {
+   "*": "original: fails to hydrate (\"Failed attempt to create new DOM elements during hydration\", then REACTIVITY_HALTED)"
+  }
+ },
+ "terracotta-listbox": {
+  "client": {
+   "*": "rewrite, left: after the listbox closes the original keeps an active option (tc-has-active): its blur listener goes with the option's owner before the focus moves; the rewrite's onBlur sees that blur and clears it. Copying it needs the closing known inside a nested blur run"
+  },
+  "hydrated": {
+   "*": "rewrite, left: as rendered"
+  }
+ },
+ "ui-listbox": {
+  "client": {
+   "*": "rewrite, left: no form inputs (the textarea and the hidden value inputs of form-inputs.tsx were not rewritten), and a controlled value's item indicator is never shown: the bridge reads core's presence in the pass before its effect has given core the new value (the original tracks what core delivered, use-primitive's `marks`)"
+  },
+  "hydrated": {
+   "*": "rewrite, left: as rendered"
+  }
+ }
+}

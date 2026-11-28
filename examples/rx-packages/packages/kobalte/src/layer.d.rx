@@ -1,0 +1,5 @@
+export client fn openLayer(element: any, options: { modal: boolean; trigger: any; dismiss: handler (why: string) => void; autofocus?: boolean; returnFocus?: boolean }): () => void
+export client fn float(anchor: any, floating: any, options: { placement?: string; gutter?: number; sameWidth?: boolean; placed: handler (placement: string) => void }): () => void
+export client fn tipShown(): void
+export client fn tipHidden(skipDelay: number, closeDelay: number): void
+export client fn tipWarm(): boolean

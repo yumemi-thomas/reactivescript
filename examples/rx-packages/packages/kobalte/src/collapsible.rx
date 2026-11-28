@@ -1,0 +1,89 @@
+// Collapsible and Accordion. Derived from collapsible and accordion of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
+import { call, give, move, sizeOf } from "./dom.js"
+import pure { uniqueId, flag, mix } from "./dom.js"
+import { Div, H3, Button as ButtonProps } from "./types.js"
+import { Root as Button } from "./button.rx"
+
+type Panel = { open: boolean; mount: boolean; disabled: boolean; id: string; content: string | undefined; toggle: () => void; named: (id: string | undefined) => void }
+export context panel: Panel
+fn data(c: Panel) => ({ "data-expanded": flag(c.open), "data-closed": flag(!c.open), "data-disabled": flag(c.disabled) })
+
+export type RootProps = Div & { open?: boolean; defaultOpen?: boolean; onOpenChange?: (open: boolean) => void; disabled?: boolean; forceMount?: boolean }
+export component Root(props: RootProps) {
+  { open, defaultOpen, onOpenChange, disabled = false, forceMount = false, id, children, ...rest } = props
+  own = uniqueId("collapsible")
+  source mine := peek(defaultOpen) ?? false
+  source content: string | undefined := undefined
+  now = open ?? mine
+  action toggle() { let next = !now
+    mine := next
+    if (onOpenChange) { onOpenChange(next) } }
+  action named(v: string | undefined) { content := v }
+  here = { open: now, mount: forceMount || now, disabled: disabled, id: id ?? own, content: content, toggle: toggle, named: named }
+  provide panel = here
+  <div id={id ?? own} {...data(here)} {...rest}>{children}</div>
+}
+export component Trigger(props: ButtonProps) {
+  { onClick, children, ...rest } = props
+  c = use panel
+  <Button aria-expanded={c.open ? "true" : "false"} aria-controls={c.open ? c.content : undefined} disabled={c.disabled} onClick={(e: any) => { call(e, onClick); c.toggle() }} {...data(c)} {...rest}>{children}</Button>
+}
+export component Content(props: Div) {
+  { id, style, children, ref: user, ...rest } = props
+  c = use panel
+  mine = id ?? c.id + "-content"
+  source size: { width: number; height: number } := { width: 0, height: 0 }
+  source el: any := undefined
+  effect (c.mount ? el : undefined) { if ($0) { size := sizeOf($0) } }
+  effect (mine) { c.named($0); return () => { c.named(undefined) } }
+  {if c.mount {
+    <div ref={(e: Element) => { el := e; give(user, e) }} id={mine} style={mix({ "--kb-collapsible-content-height": size.height ? `${size.height}px` : undefined, "--kb-collapsible-content-width": size.width ? `${size.width}px` : undefined }, style)} {...data(c)} {...rest}>{children}</div>
+  }}
+}
+
+type Group = { id: string; on: string[]; pick: (v: string) => void }
+context group: Group
+type Item = { id: string; trigger: string | undefined; named: (id: string | undefined) => void; value: string }
+context item: Item
+
+export type AccordionProps = Omit<Div, "onChange"> & { value?: string[]; defaultValue?: string[]; onChange?: (v: string[]) => void; multiple?: boolean; collapsible?: boolean; shouldFocusWrap?: boolean }
+export component Accordion(props: AccordionProps) {
+  { id, value, defaultValue, onChange, multiple = false, collapsible = false, shouldFocusWrap = true, onKeyDown, children, ref: user, ...rest } = props
+  own = uniqueId("accordion")
+  source mine: string[] := peek(defaultValue) ?? []
+  source el: any := undefined
+  picked = value ?? mine
+  action pick(v: string) {
+    let next = multiple ? picked.includes(v) ? picked.filter(x => x != v) : [...picked, v] : picked.includes(v) ? collapsible ? [] : picked : [v]
+    mine := next
+    if (onChange && (next.length != picked.length || !next.every(x => picked.includes(x)))) { onChange(next) }
+  }
+  provide group = { id: id ?? own, on: picked, pick: pick }
+  <div id={id ?? own} ref={(e: Element) => { el := e; give(user, e) }} onKeyDown={(e) => { call(e, onKeyDown); move(e, el, "[data-key]:not([disabled])", "vertical", shouldFocusWrap) }} {...rest}>{children}</div>
+}
+export component AccordionItem(props: Div & { value: string; disabled?: boolean; forceMount?: boolean }) {
+  { id, value, ...rest } = props
+  g = use group
+  own = uniqueId(peek(g.id) + "-item")
+  source trigger: string | undefined := undefined
+  action named(v: string | undefined) { trigger := v }
+  provide item = { id: id ?? own, trigger: trigger, named: named, value: value }
+  <Root id={id ?? own} open={g.on.includes(value)} {...rest} />
+}
+export component AccordionHeader(props: H3) { c = use panel
+  { children, ...rest } = props
+  <h3 {...data(c)} {...rest}>{children}</h3> }
+export component AccordionTrigger(props: ButtonProps) {
+  { id, onClick, onKeyDown, children, ...rest } = props
+  g = use group
+  i = use item
+  c = use panel
+  mine = id ?? i.id + "-trigger"
+  effect (mine) { i.named($0); return () => { i.named(undefined) } }
+  <Button id={mine} data-key={i.value} aria-expanded={c.open ? "true" : "false"} aria-controls={c.open ? c.content : undefined} disabled={c.disabled} onClick={(e: any) => { call(e, onClick); g.pick(i.value) }} onKeyDown={(e: any) => { call(e, onKeyDown); if (e.key == "Enter" || e.key == " ") { e.preventDefault(); g.pick(i.value) } }} {...data(c)} {...rest}>{children}</Button>
+}
+export component AccordionContent(props: Div) {
+  { id, style, ...rest } = props
+  i = use item
+  <Content id={id ?? i.id + "-content"} role="region" aria-labelledby={i.trigger} style={mix({ "--kb-accordion-content-height": "var(--kb-collapsible-content-height)", "--kb-accordion-content-width": "var(--kb-collapsible-content-width)" }, style)} {...rest} />
+}

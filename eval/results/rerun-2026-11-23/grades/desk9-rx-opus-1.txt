@@ -1,0 +1,11 @@
+== hidden
+✗ base: selecting after not found shows loading, not the old message
+76/77 passed
+== overlap
+✗ base: a declined assignment keeps a rename in flight on the same issue
+✗ base: a declined rename keeps an assignment in flight on the same issue
+36/38 passed
+== fuzz
+desk9-rx-opus-1: 1/20 seeds found a hole
+  seed 13 step 36: open row in closed list: #3
+    filter closed ; fail fetchIssues:open ; land fetchIssues:closed ; row-assign 0 ; filter open ; land assign:2,guest ; land fetchIssues:open ; select #3 ; row-close 1 ; land fetchLabels:3 ; fail fetchIssue:3 ; land fetchComments:3 ; fail closeIssue:3 ; row-close 0 ; select #4 ; land closeIssue:1 ; land fetchIssue:4 ; assign ; land search:Typo in footer ; land fetchLabels:4 ; add-label bug ; land

@@ -1,0 +1,14 @@
+// @solid-primitives/focus: whether an element has the focus, heard by a listener the effect keeps.
+import { makeFocusListener } from "@solid-primitives/focus"
+
+export default component App() {
+  source field: HTMLInputElement | undefined := undefined
+  source focused := false
+  effect (field) {
+    if ($0 != undefined) {
+      return makeFocusListener($0, (isActive: boolean) => { focused := isActive })
+    }
+  }
+  <input class="field" ref={(el: HTMLInputElement) => { field := el }} />
+  <p>{focused ? "editing" : "not editing"}</p>
+}

@@ -1,0 +1,4 @@
+// router.tsx in rows: rx-declare's draft — no word by hand. The component renders the library's <RouterProvider> and
+// nothing else, so its row takes that row's word (09 MO-8s): it provides the router to what it renders.
+export context router from "@tanstack/solid-router"
+export component AppRouter(props: {}) provides(router)

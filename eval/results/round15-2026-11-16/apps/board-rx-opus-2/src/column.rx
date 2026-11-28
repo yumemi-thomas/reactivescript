@@ -1,0 +1,91 @@
+import { Card } from "./api"
+
+fn leftOf(col: string): string => col == "done" ? "doing" : "todo"
+fn rightOf(col: string): string => col == "todo" ? "doing" : "done"
+
+// Reports the rows a column shows to the board, as they change on screen.
+component Report(props: { rows: Card[] | null; onShown: (rows: Card[] | null) => void }) {
+  effect (props.rows) { props.onShown($0) }
+  <span class="report"></span>
+}
+
+export component Column(props: {
+  col: string;
+  label: string;
+  k: number;
+  rows: Card[];
+  raw: Card[];
+  adding: string[];
+  selected: number;
+  leftN: number;
+  rightN: number;
+  leftOff: boolean;
+  rightOff: boolean;
+  onRetry: () => void;
+  onSelect: (id: number) => void;
+  onShown: (rows: Card[] | null) => void;
+  onMove: (id: number, to: string, index: number, card: Card, other: number) => void
+}) {
+  hasLeft = props.col != "todo"
+  hasRight = props.col != "done"
+
+  <style>
+    .col { flex: 1; min-width: 220px; background: #f6f7f9; border-radius: 8px; padding: 10px; }
+    h2 { font-size: 16px; margin: 0 0 8px; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 6px; margin-bottom: 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    li.sel { border-color: #3366ff; box-shadow: 0 0 0 1px #3366ff; }
+    li.pending { opacity: 0.6; }
+    .card { flex: 1 1 100%; cursor: pointer; }
+    .report { display: none; }
+    .err { color: #b00020; }
+    button { font-size: 12px; }
+  </style>
+  <div class="col" data-testid={"col-" + props.col}>
+    {loading on(props.k) fallback {
+      <h2 data-testid={"head-" + props.col}>{props.label}</h2>
+      <p>loading</p>
+      <Report rows={null} onShown={rs => { props.onShown(rs) }} />
+    } {
+      {errored fallback(e) {
+        <h2 data-testid={"head-" + props.col}>{props.label}</h2>
+        <p class="err">error: {e.message}</p>
+        <button data-testid={"retry-" + props.col} onClick={() => { props.onRetry() }}>retry</button>
+        <Report rows={null} onShown={rs => { props.onShown(rs) }} />
+      } {
+        <h2 data-testid={"head-" + props.col}>{props.label} ({props.rows.length + props.adding.length})</h2>
+        <Report rows={props.rows} onShown={rs => { props.onShown(rs) }} />
+        <ul>
+          {for c in props.rows {
+            pos = props.rows.findIndex(r => r.id == c.id)
+            above = pos > 0 ? props.rows[pos - 1].id : 0
+            below = pos >= 0 && pos < props.rows.length - 1 ? props.rows[pos + 1].id : 0
+            base = props.raw.find(r => r.id == c.id) ?? c
+            <li class={props.selected == c.id ? "sel" : ""}>
+              <span class="card" data-testid="card" onClick={() => { props.onSelect(c.id) }}>#{c.id} {c.title} · {c.done}/{c.total}</span>
+              {if hasLeft {
+                <button data-testid="left" disabled={props.leftOff} onClick={() => {
+                  props.onMove(c.id, leftOf(props.col), props.leftN, base, 0)
+                }}>left</button>
+              }}
+              {if hasRight {
+                <button data-testid="right" disabled={props.rightOff} onClick={() => {
+                  props.onMove(c.id, rightOf(props.col), props.rightN, base, 0)
+                }}>right</button>
+              }}
+              {if above != 0 {
+                <button data-testid="up" onClick={() => { props.onMove(c.id, props.col, pos - 1, base, above) }}>up</button>
+              }}
+              {if below != 0 {
+                <button data-testid="down" onClick={() => { props.onMove(c.id, props.col, pos + 1, base, below) }}>down</button>
+              }}
+            </li>
+          }}
+          {for t in props.adding {
+            <li class="pending"><span class="card" data-testid="card">{t} (adding…)</span></li>
+          }}
+        </ul>
+      }}
+    }}
+  </div>
+}

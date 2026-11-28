@@ -116,6 +116,11 @@ impl Spans<'_> {
                 self.stmts(t, at);
                 self.stmts(f, at);
             }
+            StmtKind::For { name, e, body } => {
+                self.word_in(at, name, "the bound name");
+                self.expr(e, at);
+                self.stmts(body, at);
+            }
             StmtKind::Try { body, handler, fin, .. } => {
                 self.stmts(body, at);
                 handler.iter().for_each(|h| self.stmts(h, at));
@@ -171,7 +176,7 @@ impl Spans<'_> {
                 sub(o);
                 sub(i);
             }
-            ExprKind::Call { f, args } => {
+            ExprKind::Call { f, args, .. } => {
                 sub(f);
                 args.iter().for_each(&mut sub);
             }
@@ -219,7 +224,8 @@ impl Spans<'_> {
         }
         match &m.kind {
             MarkupKind::El { tag, attrs, children } => {
-                if !tag.is_empty() && !at.text(self.src)[1..].starts_with(tag.as_str()) {
+                // MO-6d: a namespace's member, `Select$Item`, is written `Select.Item`
+                if !tag.is_empty() && !at.text(self.src)[1..].starts_with(tag.as_str()) && !at.text(self.src)[1..].starts_with(tag.replacen('$', ".", 1).as_str()) {
                     self.bad(at, format!("the element <{tag}> spans `{}`", at.text(self.src)));
                 }
                 for a in attrs {
@@ -239,6 +245,16 @@ impl Spans<'_> {
                 self.markups(t, at);
                 self.decls(f_decls, at);
                 self.markups(f, at);
+            }
+            MarkupKind::Mview { prop, params, decls, body } => {
+                if let Some(p) = prop {
+                    self.word_in(at, p, "the render prop");
+                }
+                for p in params {
+                    self.word_in(at, p, "the bound name");
+                }
+                self.decls(decls, at);
+                self.markups(body, at);
             }
             MarkupKind::Mfor { name, xs, decls, body } => {
                 self.word_in(at, name, "the bound name");
@@ -278,31 +294,74 @@ pub fn check_spans(src: &str, p: &Program) -> Vec<String> {
     s.out
 }
 
-/// The range a diagnostic on `line` covers (the checker is line-precise, CN-1a): from where the first node that starts on
-/// that line starts, to the furthest any such node reaches on it; the line's text when no node starts there.
-pub fn line_range(src: &str, p: &Program, line: usize) -> Option<Span> {
-    let (mut ls, mut n) = (0usize, 1usize);
-    while n < line {
-        ls = ls + src[ls..].find('\n')? + 1;
-        n += 1;
+/// Where a text's lines end, read once: a place's line, and a line's place, without reading from the top.
+pub struct Lines<'a> {
+    src: &'a str,
+    ends: Vec<usize>,
+}
+impl<'a> Lines<'a> {
+    pub fn new(src: &'a str) -> Self {
+        Lines { src, ends: src.match_indices('\n').map(|(i, _)| i).collect() }
     }
-    let le = src[ls..].find('\n').map(|j| ls + j).unwrap_or(src.len());
-    let mut r: Option<(u32, u32)> = None;
-    let mut take = |at: Span| {
-        if !at.is_none() && (at.start as usize) >= ls && (at.start as usize) <= le {
-            let end = at.end.min(le as u32);
-            r = Some(r.map_or((at.start, end), |(a, b)| (a.min(at.start), b.max(end))));
+    /// The 1-based line a byte offset is on.
+    pub fn line(&self, at: usize) -> usize {
+        self.ends.partition_point(|&e| e < at) + 1
+    }
+    /// Where a line starts and ends (its `\n`, or the end of the text); None when there are fewer.
+    fn range(&self, line: usize) -> Option<(usize, usize)> {
+        (line <= self.ends.len() + 1).then(|| (if line < 2 { 0 } else { self.ends[line - 2] + 1 }, self.end(line)))
+    }
+    fn end(&self, line: usize) -> usize {
+        self.ends.get(line - 1).copied().unwrap_or(self.src.len())
+    }
+    /// A byte offset as a 1-based line and 0-based column in UTF-16 code units (what LSP and TypeScript count).
+    pub fn line_col(&self, at: usize) -> (usize, usize) {
+        let at = at.min(self.src.len());
+        let line = self.line(at);
+        let ls = self.range(line).map_or(0, |r| r.0);
+        (line, self.src[ls..at].encode_utf16().count())
+    }
+    /// `at` and the end of its line, less the white space there.
+    pub fn rest(&self, at: usize) -> (usize, usize) {
+        let at = at.min(self.src.len());
+        (at, at + self.src[at..self.end(self.line(at))].trim_end().len())
+    }
+}
+
+/// The ranges a program's diagnostics cover.
+pub struct Ranges<'a> {
+    pub lines: Lines<'a>,
+    /// per line: from where the first node that starts on it starts, to the furthest any such node reaches on it
+    nodes: Vec<Option<(u32, u32)>>,
+}
+impl<'a> Ranges<'a> {
+    pub fn new(src: &'a str, p: &Program) -> Self {
+        let lines = Lines::new(src);
+        let mut nodes = vec![None; lines.ends.len() + 1];
+        walk(p, &mut |at: Span| {
+            if !at.is_none() && at.start as usize <= src.len() {
+                let line = lines.line(at.start as usize);
+                let end = at.end.min(lines.end(line) as u32);
+                let r = &mut nodes[line - 1];
+                *r = Some(r.map_or((at.start, end), |(a, b): (u32, u32)| (a.min(at.start), b.max(end))));
+            }
+        });
+        Ranges { lines, nodes }
+    }
+    /// The range a diagnostic on `line` covers (the checker is line-precise, CN-1a): its nodes' (`nodes`); the line's text
+    /// when no node starts there.
+    pub fn of(&self, line: usize) -> Option<Span> {
+        let src = self.lines.src;
+        let (ls, le) = self.lines.range(line)?;
+        if let Some((a, b)) = self.nodes[line.max(1) - 1] {
+            let t = src[a as usize..b as usize].trim_end();
+            return Some(Span::new(a as usize, a as usize + t.len()));
         }
-    };
-    walk(p, &mut take);
-    if let Some((a, b)) = r {
-        let t = src[a as usize..b as usize].trim_end();
-        return Some(Span::new(a as usize, a as usize + t.len()));
+        let text = &src[ls..le];
+        let t = text.trim_start();
+        let a = ls + (text.len() - t.len());
+        Some(Span::new(a, a + t.trim_end().len()))
     }
-    let text = &src[ls..le];
-    let t = text.trim_start();
-    let a = ls + (text.len() - t.len());
-    Some(Span::new(a, a + t.trim_end().len()))
 }
 
 /// Every span `p` holds: declarations, statements, expressions, markup and attributes.
@@ -344,6 +403,10 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
                 expr(c, f);
                 t.iter().chain(e).for_each(|s| stmt(s, f));
             }
+            StmtKind::For { e, body, .. } => {
+                expr(e, f);
+                body.iter().for_each(|s| stmt(s, f));
+            }
             StmtKind::Try { body, handler, fin, .. } => body.iter().chain(handler.iter().flatten()).chain(fin.iter().flatten()).for_each(|s| stmt(s, f)),
         }
     }
@@ -360,7 +423,7 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
             ExprKind::Tpl(parts) => sub.extend(parts.iter().filter_map(|p| if let TplPart::Expr(x) = p { Some(x) } else { None })),
             ExprKind::Member { o, .. } => sub.push(o),
             ExprKind::Index { o, i, .. } => sub.extend([&**o, &**i]),
-            ExprKind::Call { f, args } => sub.extend(std::iter::once(&**f).chain(args.iter())),
+            ExprKind::Call { f, args, .. } => sub.extend(std::iter::once(&**f).chain(args.iter())),
             ExprKind::Arr(items) => sub.extend(items.iter()),
             ExprKind::Rec(fields) => sub.extend(fields.iter().map(|x| match x {
                 Field::Kv { v, .. } => v,
@@ -390,6 +453,7 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
             MarkupKind::Text(_) | MarkupKind::Style(_) => (vec![], vec![], vec![]),
             MarkupKind::Mif { c, t, t_decls, f: fm, f_decls } => (t_decls.iter().chain(f_decls).collect(), t.iter().chain(fm).collect(), vec![c]),
             MarkupKind::Mfor { xs, decls, body, .. } => (decls.iter().collect(), body.iter().collect(), vec![xs]),
+            MarkupKind::Mview { decls, body, .. } => (decls.iter().collect(), body.iter().collect(), vec![]),
             MarkupKind::Loading { on, fallback, decls, body } => (decls.iter().collect(), fallback.iter().chain(body).collect(), on.iter().collect()),
             MarkupKind::Errored { fallback, decls, body, .. } => (decls.iter().collect(), fallback.iter().chain(body).collect(), vec![]),
             MarkupKind::Portal { to, decls, body } => (decls.iter().collect(), body.iter().collect(), to.iter().collect()),
@@ -400,13 +464,6 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
     }
     p.decls.iter().for_each(|d| decl(d, f));
     p.view.iter().for_each(|m| markup(m, f));
-}
-
-/// A byte offset as a 1-based line and 0-based column in UTF-16 code units (what LSP and TypeScript count).
-pub fn line_col(src: &str, at: u32) -> (usize, usize) {
-    let at = (at as usize).min(src.len());
-    let ls = src[..at].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    (src[..ls].matches('\n').count() + 1, src[ls..at].encode_utf16().count())
 }
 
 #[cfg(test)]
@@ -431,8 +488,9 @@ mod tests {
             }
         }
         assert_eq!(check_spans(src, &p).len(), 2);
-        let r = line_range(src, &p, 4).unwrap();
+        let ranges = Ranges::new(src, &p);
+        let r = ranges.of(4).unwrap();
         assert_eq!(r.text(src), "count := count + 1");
-        assert_eq!(line_col(src, r.start), (4, 2));
+        assert_eq!(ranges.lines.line_col(r.start as usize), (4, 2));
     }
 }

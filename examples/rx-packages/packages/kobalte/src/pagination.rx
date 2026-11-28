@@ -1,0 +1,71 @@
+// Derived from pagination/* of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
+import { call } from "./dom.js"
+import { max, min } from "@reactivescript/std/math"
+import { from } from "@reactivescript/std/object"
+import pure { flag, uniqueId } from "./dom.js"
+import { Div, Nav, Button as ButtonProps } from "./types.js"
+import { Root as Button } from "./button.rx"
+
+type Pages = { page: number; count: number; go: (n: number) => void; disabled: boolean; slots: (number)[] }
+context pages: Pages
+context itemOf: (p: { page: number }) => View
+context ellipsisOf: () => View
+type Plan = { count: number; page: number; siblings: number; first: boolean; last: boolean; fixed: boolean | "no-ellipsis" }
+fn range(n: number): number[] => from({ length: max(0, n) }).map((x, i) => i)
+/** The pages shown; a gap is 0 or less. */
+fn plan(ref p: Plan): (number)[] {
+  direct = p.count < 2 * p.siblings + (p.fixed ? 6 : 4)
+  first = p.first && p.page - 1 > p.siblings
+  last = p.last && p.count - p.page > p.siblings
+  gapA = p.fixed != "no-ellipsis" && p.page - (p.first ? 2 : 1) > p.siblings
+  gapB = p.fixed != "no-ellipsis" && p.count - p.page - (p.last ? 1 : 0) > p.siblings
+  before0 = min(p.page - 1, p.siblings)
+  after0 = min(p.count - p.page, p.siblings)
+  before1 = p.fixed == false ? before0 : before0 + max(p.siblings - after0, 0) + (p.last && !last ? 1 : 0) + (p.fixed == true && !gapB ? 1 : 0)
+  after1 = p.fixed == false ? after0 : after0 + max(p.siblings - before0, 0) + (p.first && !first ? 1 : 0) + (p.fixed == true && !gapA ? 1 : 0)
+  shutA = p.fixed == true && p.page - before1 - (p.first ? 2 : 1) == 1
+  shutB = p.fixed == true && p.count - p.page - after1 - (p.last ? 1 : 0) == 1
+  before = before1 + (shutA ? 1 : 0)
+  after = after1 + (shutB ? 1 : 0)
+  direct ? range(p.count).map(i => i + 1) : [
+    ...(first ? [1] : []), ...(gapA && !shutA ? [0] : []),
+    ...range(before).map(i => p.page - before + i), p.page, ...range(after).map(i => p.page + i + 1),
+    ...(gapB && !shutB ? [0 - 1] : []), ...(last ? [p.count] : [])]
+}
+export type RootProps = Nav & { page?: number; defaultPage?: number; onPageChange?: (n: number) => void; count: number; siblingCount?: number; showFirst?: boolean; showLast?: boolean; fixedItems?: boolean | "no-ellipsis"; disabled?: boolean
+  itemComponent: (p: { page: number }) => View; ellipsisComponent: () => View }
+export component Root(props: RootProps) {
+  { page, defaultPage, onPageChange, count, siblingCount = 1, showFirst = true, showLast = true, fixedItems = false, disabled = false, itemComponent: i, ellipsisComponent: e, children, ...rest } = props
+  source mine := peek(defaultPage) ?? 1
+  own = uniqueId("pagination")
+  now = min(page ?? mine, count)
+  action go(n: number) { mine := n
+    if (onPageChange) { onPageChange(n) } }
+  slots = plan({ count: count, page: now, siblings: siblingCount, first: showFirst, last: showLast, fixed: fixedItems })
+  provide pages = { page: now, count: count, go: go, disabled: disabled, slots: slots }
+  provide itemOf = props.itemComponent
+  provide ellipsisOf = props.ellipsisComponent
+  <nav id={own} data-disabled={flag(disabled)} {...rest}><ul>{children}</ul></nav>
+}
+export component Items() { c = use pages
+  {for s in c.slots { {if s < 1 { <use.ellipsisOf /> } else { <use.itemOf page={s} /> }} }} }
+export component Item(props: ButtonProps & { page: number }) {
+  { page, onClick: none, children, ...rest } = props
+  c = use pages
+  here = c.page == page
+  <li><Button disabled={c.disabled} aria-current={here ? "page" : undefined} data-current={flag(here)} onClick={() => { c.go(page) }} {...rest}>{children}</Button></li>
+}
+export component Ellipsis(props: Div) { { children, ...rest } = props
+  <li><div {...rest}>{children}</div></li> }
+export component Previous(props: ButtonProps) {
+  { onClick: none, children, ...rest } = props
+  c = use pages
+  off = c.disabled || c.page == 1
+  <li><Button tabindex={off ? 0 - 1 : props.tabindex} disabled={off} aria-disabled={off ? "true" : undefined} onClick={() => { c.go(c.page - 1) }} {...rest}>{children}</Button></li>
+}
+export component Next(props: ButtonProps) {
+  { onClick: none, children, ...rest } = props
+  c = use pages
+  off = c.disabled || c.page == c.count
+  <li><Button tabindex={off ? 0 - 1 : props.tabindex} disabled={off} aria-disabled={off ? "true" : undefined} onClick={() => { c.go(c.page + 1) }} {...rest}>{children}</Button></li>
+}

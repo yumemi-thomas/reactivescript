@@ -1,0 +1,9 @@
+// @solid-primitives/graphql: a query's answer, asked of a GraphQL endpoint (client.js makes the query).
+import { createGreeting } from "./client.js"
+
+export default component App() {
+  greeting = createGreeting("https://api.test/graphql")
+  errored fallback (e) { <p>the query failed</p> } {
+    loading fallback { <p>asking</p> } { <p>the server says {greeting.hello}</p> }
+  }
+}

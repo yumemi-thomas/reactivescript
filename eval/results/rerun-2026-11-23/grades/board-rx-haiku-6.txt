@@ -1,0 +1,27 @@
+== hidden
+✗ two adds show both, each taking its own id
+44/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ an add accepted while To do reloads shows the card once
+✗ a toggle and an item add out together: the progress and the card's count agree
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a move into Doing that fills it while a move out is pending disables the rest
+20/26 passed
+== fuzz
+board-rx-haiku-6: 7/20 seeds found a hole
+  seed 3 step 12: duplicate card: #11 shows in todo and todo
+    add Bravo 1 ; land addCard:todo,Bravo 1 ; add Alpha 2 ; add Alpha 3 ; add Delta 4 ; add Delta 5 ; land addCard:todo,Alpha 3 ; add Alpha 6 ; add Delta 7 ; add Delta 8 ; land addCard:todo,Alpha 2 ; land fetchCards:todo
+  seed 8 step 20: count: card "#1 Write spec · 0/2", progress "0/0 done"
+    land fetchCards:doing ; up #4 ; select #3 ; fail moveCard:4,doing,0 ; select #3 ; up #4 ; land fetchCards:todo ; rename Delta ; land fetchChecklist:3 ; up #2 ; land moveCard:2,todo,0 ; toggle 1 ; archive #3 ; right #2 ; land renameCard:3,Delta ; left #4 ; add Delta 1 ; fail moveCard:4,todo,1 ; left #2 ; select #1
+  seed 10 step 10: duplicate card: #10 shows in todo and todo
+    tab archive ; tab board ; add Alpha 1 ; land fetchCards:todo ; select #1 ; land fetchArchived: ; land fetchChecklist:1 ; land fetchCards:done ; add Alpha 2 ; land addCard:todo,Alpha 1
+  seed 14 step 32: duplicate card: #11 shows in todo and todo
+    add Bravo 1 ; land fetchCards:todo ; select #2 ; up #1 ; select #1 ; land addCard:todo,Bravo 1 ; fail moveCard:1,todo,0 ; down #10 ; add-item ship 2 ; land fetchCards:doing ; land fetchCards:done ; land fetchChecklist:2 ; rename Delta ; right #3 ; select #10 ; rename Alpha ; select #4 ; land addItem:1,ship 2 ; land renameCard:1,Delta ; land fetchCards:doing ; land fetchChecklist:10 ; rename Al
+  seed 15 step 22: duplicate card: #10 shows in todo and todo
+    land fetchCards:doing ; select #4 ; up #4 ; land fetchCards:done ; fail moveCard:4,doing,0 ; land fetchCards:todo ; archive #4 ; land fetchChecklist:4 ; fail archiveCard:4 ; add Alpha 1 ; right #4 ; select #5 ; select #1 ; land fetchChecklist:1 ; rename Delta ; fail renameCard:1,Delta ; land fetchChecklist:5 ; land moveCard:4,done,1 ; land fetchCards:todo ; left #3 ; add Alpha 2 ; land addCard
+  seed 17 step 9: duplicate card: #10 shows in todo and todo
+    add Bravo 1 ; land fetchCards:todo ; land fetchCards:done ; add Alpha 2 ; land fetchCards:doing ; right #3 ; right #4 ; right #2 ; land addCard:todo,Bravo 1
+  seed 20 step 10: duplicate card: #10 shows in todo and todo
+    add Bravo 1 ; land fetchCards:doing ; add Bravo 2 ; select #3 ; fail addCard:todo,Bravo 1 ; land fetchChecklist:3 ; land fetchCards:todo ; land fetchCards:done ; toggle 1 ; land addCard:todo,Bravo 2

@@ -1,0 +1,8 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type ListboxProps<T = string, Multiple extends boolean | undefined = false> = import("@ui-sdk/solid/listbox").ListboxProps<T, Multiple>
+export type ListboxState = import("@ui-sdk/solid/listbox").ListboxState
+export type ListHighlightDetails = import("@ui-sdk/solid/listbox").ListHighlightDetails
+export type ListboxItemState = import("@ui-sdk/solid/listbox").ListboxItemState
+export type ListboxItemProps<T = string> = import("@ui-sdk/solid/listbox").ListboxItemProps<T>
+export component Listbox<T = string, Multiple extends boolean | undefined = false>(props: ListboxProps<T, Multiple> & { render?: (props: Record<string, any>, state: ListboxState) => View; itemToValue?: (value: T) => string; isItemEqualToValue?: (itemValue: T, value: T) => boolean; onHighlight?: (value: T | null, details: ListHighlightDetails) => void; onValueChange?: (...args: Parameters<NonNullable<Parameters<typeof import("@ui-sdk/solid/listbox").Listbox>[0]["onValueChange"]>>) => ReturnType<NonNullable<Parameters<typeof import("@ui-sdk/solid/listbox").Listbox>[0]["onValueChange"]>> })
+export component ListboxItem<T = string>(props: Omit<import("@ui-sdk/solid").PartProps<"div", ListboxItemState>, ("value" | "onChange" | "onSelect")> & ListboxItemProps<T> & { render?: (props: Record<string, any>, state: { highlighted: boolean; selected: boolean; disabled: boolean; }) => View })

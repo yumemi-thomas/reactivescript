@@ -1,0 +1,28 @@
+// Drafted by rx-declare from @ui-sdk/solid/tabs's TypeScript types. Check every TODO, then delete it; rx-tsc checks the rest (TY-6).
+//@ for @ui-sdk/solid ^0.1.0-beta.17
+// Read from the code that runs (MO-8v): 1 pure — read, not guessed. Which words, and how: `rx-declare --why`; `rx-verify` tells them from the words written by hand, and runs each.
+export pure fn createTabsController<T extends string = string>(): { getValue: () => T | null; setValue: (value: T | null, options?: TabsChangeOptions) => boolean; select: (value: T, options?: TabsChangeOptions) => boolean; focus: () => void }
+export type TabsApi = import("@ui-sdk/solid/tabs").TabsApi
+export type TabsChangeOptions = import("@ui-sdk/solid/tabs").TabsChangeOptions
+export type TabsController<T extends string = string> = import("@ui-sdk/solid/tabs").TabsController<T>
+export type TabsDirection = import("@ui-sdk/solid/tabs").TabsDirection
+export type TabsIndicatorState = import("@ui-sdk/solid/tabs").TabsIndicatorState
+export type TabsListState = import("@ui-sdk/solid/tabs").TabsListState
+export type TabsOptions<T extends string = string> = import("@ui-sdk/solid/tabs").TabsOptions<T>
+export type TabsOrientation = import("@ui-sdk/solid/tabs").TabsOrientation
+export type TabsPanelProps = import("@ui-sdk/solid/tabs").TabsPanelProps
+export type TabsPanelState = import("@ui-sdk/solid/tabs").TabsPanelState
+export type TabsPrimitive = import("@ui-sdk/solid/tabs").TabsPrimitive
+export type TabsState<T extends string = string> = import("@ui-sdk/solid/tabs").TabsState<T>
+export type TabsTabIconProps = import("@ui-sdk/solid/tabs").TabsTabIconProps
+export type TabsTabIconState = import("@ui-sdk/solid/tabs").TabsTabIconState
+export type TabsTabProps = import("@ui-sdk/solid/tabs").TabsTabProps
+export type TabsTabState = import("@ui-sdk/solid/tabs").TabsTabState
+export type TabsValueChangeReason = import("@ui-sdk/solid/tabs").TabsValueChangeReason
+// TODO Tabs: onValueChange: a closure there may not write a source. `handler (…) => …` if it is called later, outside any computation. Not read: Tabs is not a function the code shows in tabs.jsx
+export component Tabs<A extends string = string, B = unknown>(props: Parameters<typeof import("@ui-sdk/solid/tabs").Tabs<A, B>>[0] & { onValueChange?: handler (value: A | null, details: import("@ui-sdk/core").ChangeDetails<TabsValueChangeReason>) => void; render?: (props: Record<string, any>, state: TabsState<A>) => View })
+export component TabsIndicator(props: Parameters<typeof import("@ui-sdk/solid/tabs").TabsIndicator>[0] & { render?: (props: Record<string, any>, state: NoInfer<TabsIndicatorState>) => View })
+export component TabsList(props: Parameters<typeof import("@ui-sdk/solid/tabs").TabsList>[0] & { render?: (props: Record<string, any>, state: NoInfer<TabsListState>) => View })
+export component TabsPanel(props: Parameters<typeof import("@ui-sdk/solid/tabs").TabsPanel>[0] & { render?: (props: Record<string, any>, state: NoInfer<TabsPanelState>) => View })
+export component TabsTab(props: Parameters<typeof import("@ui-sdk/solid/tabs").TabsTab>[0] & { render?: (props: Record<string, any>, state: NoInfer<TabsTabState>) => View })
+export component TabsTabIcon(props: Parameters<typeof import("@ui-sdk/solid/tabs").TabsTabIcon>[0] & { render?: (props: Record<string, any>, state: NoInfer<{ mirror: boolean }>) => View })

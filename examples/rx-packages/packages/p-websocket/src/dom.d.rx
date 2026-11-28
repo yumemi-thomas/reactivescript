@@ -1,0 +1,3 @@
+export fn watchState(ws: any, f: handler (s: number) => void): () => void
+export fn watchMessage(ws: any, f: handler (data: any) => void): () => void
+export pure fn stateOf(ws: any): number

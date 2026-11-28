@@ -1,0 +1,83 @@
+// Derived from tabs/* of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
+import { call, give, move, pickTab, tabOf, place, hasTabbable } from "./dom.js"
+import client { onResize, onMutation } from "@reactivescript/std/browser"
+import pure { uniqueId, flag, mix } from "./dom.js"
+import { Div, Button as ButtonProps } from "./types.js"
+
+type Orientation = "horizontal" | "vertical"
+type Tabs = { id: string; value: string | undefined; orientation: Orientation; automatic: boolean; disabled: boolean; select: (v: string) => void
+  list: (e: any) => void; came: () => void; ids: { [k: string]: string | undefined }; contents: { [k: string]: string | undefined }; name: (k: string, id: string | undefined) => void; nameContent: (k: string, id: string | undefined) => void
+  shown: any; focused: string | undefined; focus: (v: string) => void }
+context tabs: Tabs
+export type RootProps = Omit<Div, "onChange"> & { value?: string; defaultValue?: string; onChange?: (v: string) => void; orientation?: Orientation; activationMode?: "automatic" | "manual"; disabled?: boolean }
+export component Root(props: RootProps) {
+  { value, defaultValue, onChange, orientation = "horizontal", activationMode = "automatic", disabled = false, id, children, ...rest } = props
+  own = uniqueId("tabs")
+  source mine: string | undefined := peek(defaultValue)
+  source list: any := undefined
+  source tabs_ := 0
+  source focused: string | undefined := undefined
+  source ids: { [k: string]: string | undefined } := {}
+  source contents: { [k: string]: string | undefined } := {}
+  source shown: any := undefined
+  now = value ?? mine
+  action select(v: string) { if (v != now) { mine := v
+    if (onChange) { onChange(v) } } }
+  action setList(e: any) { list := e }
+  action came() { tabs_ := n => n + 1 }
+  action name(k: string, v: string | undefined) { ids[k] := v }
+  action nameContent(k: string, v: string | undefined) { contents[k] := v }
+  action focus(v: string) { focused := v }
+  effect (list, tabs_, now) {
+    let k = pickTab($0, $2)
+    if (k != undefined && k != $2) { select(k) }
+    shown := tabOf($0, k)
+  }
+  provide tabs = { id: id ?? own, value: now, orientation: orientation, automatic: activationMode == "automatic", disabled: disabled, select: select, list: setList, came: came, ids: ids, contents: contents, name: name, nameContent: nameContent, shown: shown, focused: focused, focus: focus }
+  <div id={id ?? own} data-orientation={orientation} {...rest}>{children}</div>
+}
+export component List(props: Div) {
+  { onKeyDown, children, ref: user, ...rest } = props
+  c = use tabs
+  source el: any := undefined
+  <div ref={(e: Element) => { el := e; c.list(e); give(user, e) }} role="tablist" aria-orientation={c.orientation} data-orientation={c.orientation} onKeyDown={(e) => { call(e, onKeyDown); move(e, el, "[role=tab]:not([disabled])", c.orientation, true) }} {...rest}>{children}</div>
+}
+export component Trigger(props: Omit<ButtonProps, "value"> & { value: string }) {
+  { value, disabled, id, type = "button", onPointerDown, onClick, onKeyDown, onFocus, children, ...rest } = props
+  c = use tabs
+  mine = id ?? `${c.id}-trigger-${value}`
+  on_ = c.value == value
+  off = disabled || c.disabled
+  effect (value, mine) { let k = $0
+    c.name(k, $1); c.came(); return () => { c.name(k, undefined); c.came() } }
+  <button type={type} id={mine} role="tab" tabindex={off ? undefined : (c.focused ?? c.value) == value ? 0 : 0 - 1} disabled={off} aria-selected={on_ ? "true" : "false"} aria-disabled={off ? "true" : undefined} aria-controls={on_ ? c.contents[value] : undefined}
+    data-key={value} data-orientation={c.orientation} data-selected={flag(on_)} data-highlighted={flag((c.focused ?? c.value) == value)} data-disabled={flag(off)}
+    onPointerDown={(e) => { call(e, onPointerDown); if (e.pointerType == "mouse" && e.button == 0) { c.select(value) } }} onClick={(e) => { call(e, onClick); c.select(value) }} onKeyDown={(e) => { call(e, onKeyDown); if (e.key == "Enter" || e.key == " ") { c.select(value) } }}
+    onFocus={(e) => { call(e, onFocus); c.focus(value); if (c.automatic) { c.select(value) } }} {...rest}>{children}</button>
+}
+export component Content(props: Div & { value: string; forceMount?: boolean }) {
+  { value, forceMount, id, children, ref: user, ...rest } = props
+  c = use tabs
+  source el: any := undefined
+  source inner := false
+  mine = id ?? `${c.id}-content-${value}`
+  on_ = c.value == value
+  effect (value, mine) { let k = $0
+    c.nameContent(k, $1); return () => { c.nameContent(k, undefined) } }
+  effect (el, on_) { let e = $0
+    if (e) { inner := hasTabbable(e) }
+    return e ? onMutation(e, () => { inner := hasTabbable(e) }, { subtree: true, childList: true, attributes: true, attributeFilter: ["tabindex", "disabled"] }) : undefined }
+  {if forceMount || on_ {
+    <div ref={(e: Element) => { el := e; give(user, e) }} id={mine} role="tabpanel" tabindex={inner ? undefined : 0} aria-labelledby={c.ids[value] ?? `${c.id}-trigger-${value}`} data-orientation={c.orientation} data-selected={flag(on_)} {...rest}>{children}</div>
+  }}
+}
+export component Indicator(props: Div) {
+  { style, children, ...rest } = props
+  c = use tabs
+  source at: any := {}
+  effect (c.shown, c.orientation) { let e = $0
+    let o = $1
+    if (e) { at := place(e, o) }
+    return e ? onResize(e, () => { at := place(e, o) }) : undefined }
+  <div role="presentation" style={mix(at, style)} data-orientation={c.orientation} {...rest}>{children}</div>
+}

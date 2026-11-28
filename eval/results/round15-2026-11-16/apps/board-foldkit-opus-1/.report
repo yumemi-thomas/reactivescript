@@ -1,0 +1,11 @@
+I built the sprint board in Foldkit 0.170. `./check` passes and all 26 visible tests pass in `./test`, after 5 of my 15 allowed runs. Every change shows straight away while it is still being sent to the server; if the server declines, only that one change is undone, even when several are waiting at once. Answers that arrive after you have left a page are ignored, so a page opened again always starts fresh.
+
+I was unsure about a few things the brief doesn't settle:
+- **Cards still being added:** they always sit at the bottom of To do and count in the heading. Move buttons treat only real cards as neighbours, so the card above one has no `down`.
+- **Unloaded columns:** a move button that points into a column still loading (or that failed) is disabled. So is `add-card` until To do has loaded.
+- **Clicking the selected card again** does nothing, so it does not reload the checklist.
+- **Quick repeat toggles:** toggling the same item twice quickly is allowed. In one rare order of server answers the card's `done` count can be off by one until the board reloads.
+- **Server replies:** for moves, renames, toggles, archives and restores I ignore the body of a success reply and keep what was sent; I only need the new id from `addCard` and `addItem`.
+- **Inputs:** typed text is trimmed and blank input is ignored. `title-input` keeps its text after a rename, because the brief says to empty the other two inputs but not that one.
+
+The code is in `/tmp/claude-0/runs/r15/board-foldkit-opus-1/src/`: `main.ts`, `domain.ts`, `message.ts`, `command.ts` and `view.ts`.

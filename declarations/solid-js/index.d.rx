@@ -1,0 +1,16 @@
+//@ for solid-js ^2.0.0
+// Solid 2.0 itself, in rows (09 MO-8k: a shared declaration, found as `node_modules/@rx-types/solid-js/index.d.rx`).
+// Most of solid-js is the language — a source is a signal, an equation a memo, `effect` an effect, `draft(…)` a
+// projection, `guess` an optimistic write, `peek` untrack, `refresh` and `pending?` what they say — so this declares what
+// an .rx program still imports: the store, and the helpers that read plain data. The types are Solid's own (TY-6).
+//
+// The store is a proxy read field by field (a value, not `ref`), made once where it is bound; its setter's callback is
+// given the store's draft (MO-10i): `setTodos((d) => { d.items.push(x) })`.
+export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]
+// A plain copy of a store's value, for a library that wants data it can keep (MO-10i's copy, asked for by name).
+export pure fn snapshot<T>(value: T): T
+// Records put together and taken apart without reading what they hold (Solid's mergeProps and splitProps, renamed).
+export pure fn merge(...sources: any[]): any
+export pure fn omit(props: any, ...keys: any[]): any
+// Applies what is pending now: from a handler, before a measurement (R-io-3: io).
+export fn flush(): void

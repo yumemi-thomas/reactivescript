@@ -1,0 +1,2 @@
+// set.js constructs the library's class. By hand: every word (the module is the app's own).
+export fn makeSet<T>(initial?: T[]): import("@solid-primitives/set").ReactiveSet<T> instantiates

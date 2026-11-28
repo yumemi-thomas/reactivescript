@@ -129,15 +129,134 @@ A component is a function from a props value to a region whose tail is a view.
   it).
 - **RG-4b (Props are one structured equation).** `props` is a single value
   whose fields are equations: `props.x` and `{ x } = props` are projections and
-  keep updating. A prop is never a snapshot unless the body takes one (E-4,
+  keep updating. A field whose key is no name is written as its string and
+  bound to a name, `{ "aria-label": label, ...rest } = props` (2026-11-26; it
+  is `props["aria-label"]`, and the rest is without it). A prop is never a snapshot unless the body takes one (E-4,
   `peek`). Spread, rest, `merge`, and `omit` are operations on this value
-  (06-stores treats its path semantics). Named parameters are not a separate
-  form; destructuring covers the signature use.
-- **RG-4c (Children).** `children` is a view value evaluated in the *caller's*
-  region: its readers are the caller's, its lifetime is the caller's, and the
-  child only decides where it is placed. A child that needs to create its
-  content more than once, or conditionally own it, asks for a function prop
-  instead, which is ordinary.
+  (06-stores treats its path semantics). A projection that holds a view (the
+  children, or a prop typed `View`) is no computation of its own: the view is
+  made where it is read, as `props.children` is (RG-4c, S-context-3). Named parameters are not a separate
+  form; destructuring covers the signature use. `component C()` declares no
+  props: `props` is not a name in its body, and reading it is `UNBOUND`
+  (S-check-1; before 2026-11-14 it read `undefined` silently).
+- **RG-4c (Children; proposed 2026-11-25, proposals/26).** `children` is a
+  view: a block of the *caller's* names, owned where it is *shown*. Each place
+  that shows it has its own, made there and disposed with that place; what it
+  reads from contexts (RG-7b), what it waits on and fails with are that
+  place's. So is a prop typed `View`: the rule is of a prop *declared* `View`
+  where the type is read (written out, a type of the module, one imported
+  from `.rx`), and of the names bound to it (a parameter, a loop's item or an
+  inner block's equation of the same spelling is another name); children
+  declared a number are a number. *Children nobody declares (2026-11-26,
+  W4).* Where the module's own text says nothing of them — no props type,
+  props `any` or `unknown`, `children: any` or `unknown` — they are what a
+  caller writes between the tags, a view: `children?: View` for this rule and
+  for every runner (`str(props.children)` was accepted, and the interpreter
+  showed `#error` where compiled code threw; `{if props.children { …
+  {props.children} … }}` of markup failed to hydrate). A spread of the whole
+  props onto an element is not refused for them (`<input {...props} />`), and
+  gives them on as Solid's spread does: they are the element's content where
+  it writes none of its own (07 §4; the interpreter and the oracle showed
+  nothing there, 2026-11-27). *Children that are a value (2026-11-27).* Two
+  cases are not a view. Children declared a value's type that is read —
+  `number`, and now a list, a record or a function of such types (`children:
+  number[]`, `children: (x: number) => number`) — are the value written
+  between the tags, the one `{…}` or the text, given as it is and not as
+  content to show (`len(props.children)` over `{[1, n]}` is 2: it was 5, the
+  length of the text it was formatted to, and 0 in the interpreter). And
+  children nobody declares, in a component the module does not export, that
+  the component uses as a value (it calls them, gives them to an attribute,
+  computes with them) where every application of it — all in this module —
+  gives a value between the tags (one `{…}`, text alone, nothing), are that
+  value, as before W4: `<Each>{(x: number) => x * n}</Each>` with
+  `props.children(2)` (W4 refused it; every runner agreed on it). Where a
+  caller is not seen (an exported component) or gives markup, W4 stands, and
+  the component says what its children are. A type the
+  checkers do not read (an alias imported from JavaScript) is left as it was:
+  its children may be a function of state the component hands to its own
+  JavaScript. A component only shows a view it is
+  given: `{props.children}` in its view (also `props.children ?? e`, and under
+  a choice, `c ? props.children : e`); gives it on, as another component's
+  content or argument, or in a spread of its props; names it by a projection
+  of the props (RG-4b); or asks whether it was given (`if props.children`,
+  `!props.children`, `props.children != undefined`). That question makes
+  nothing, and is asked of the argument as it was *written*: it is read with
+  each view in it standing for itself. In one sentence: *a view was given
+  where something was written for it — content between the tags, or an
+  argument whose value is something — and a view given on answers as its
+  giver's does.* Content between the tags was given; a
+  view given on (an argument, content that is one `{e}` of a view the giver
+  was given, a spread, a rest, a default, a name, through any number of
+  components) asks its giver; a choice (`c ? a : b`, `a ?? b`, `a && b`)
+  follows its branch, whose condition is read where the question is asked,
+  and tracked; any other expression *given as an argument* is a value and
+  answers as JavaScript has it (`0`, `""`, `false`, `undefined`, `null`
+  under `if`, `!`, `&&`; `undefined` and `null` under `??`; `!= undefined`
+  asks that alone, as the language's `!=` does), which is what it answered
+  before this rule. A value
+  written *as content* is its text, as it is shown (`<Q>{0}</Q>`,
+  `<Q>{false}</Q>`, `<Q>{undefined}</Q>` show the words, and were given);
+  the text that is empty, `<Q>{""}</Q>`, is nothing given, and
+  `<Q><>{""}</></Q>` is content. So an explicit argument, a spread and a
+  rest answer alike, and `if p.label` agrees with `p.label ?? x`. What JavaScript gives as a value
+  answers so too, as Solid's `props.children ? … : …`; its getter (JSX
+  content) is read, as Solid reads it, unless the host offers the answer
+  (`slot(make)` of the runtime), which is then not made (S-context-7).
+  What is read of a view while it is asked for is its maker, a function:
+  JavaScript that keeps it shows the view where it shows it.
+  An argument's expression is a value of the caller (`title={use c}`
+  reads what is provided where it is written); only content, and a
+  `view name (…) { … }`, is a block of the place that shows it. Read as a
+  value — kept by `peek`, a source or `pre`, carried by a context, read by an
+  effect or a handler, answered by a closure, held in a record or a list,
+  given to a fn, or given on to a prop whose declared type is a value's — it
+  is `VIEW_NOT_SHOWN` (S-context-4, S-context-5, S-context-6, S-context-7).
+  A context whose declared type is `View`, or a function giving one
+  (`context item: (row: T) => View`), holds a view (proposed, proposals/27):
+  it is given one the component was given (`provide item = props.item`, of a
+  prop of the context's type) and shown, `{use item}` or `<use.item row={r} />`,
+  and nothing else; it is not exported. Each place that shows it has its own;
+  what the view uses, waits on and fails with goes up from that place to its
+  component's root, then from the block that provides it; its elements are
+  placed there (SV-7d), through content, forwards and portals (S-context-8). Content that takes what the component knows is
+  a view with a parameter, below. (Until this proposal: "evaluated in the
+  caller's region: its readers are the caller's, its lifetime is the caller's,
+  and the child only decides where it is placed", which 08 and RG-7b
+  contradicted, and compiled code followed for a `use` alone.)
+  One `{e}` given to a component whose `children` are declared a function is
+  that function, a value (S-view-2).
+  - **A view (proposed 2026-11-25).** The function prop that makes markup. A
+    prop declared a function giving a `View`, of one parameter or none
+    (`children: (s: { on: boolean }) => View`, `cell: () => View`), may be shown
+    as `<props.f a={e} … />`, in the component's own view, at any number of
+    places. It is then named nowhere else in it, but for `if props.f { … }`, under
+    which an optional one is shown, and a projection that takes it out of a rest.
+    What is given is one `{view (s) { … }}`, or for a prop of another name one
+    `{view f (s) { … }}`: a block of the caller's names, owned where it is shown,
+    an instance at each place. `s` is its props (RG-4b): `s.a` is the argument,
+    read where it is read, never written. For what it waits on and fails with, an
+    argument is checked as read where the view is shown. What the view stores
+    where it outlives it (O-3) is nothing the component's closures hold.
+    Children declared `View | ((s: T) => View)` are given plain content as well:
+    a view that asks nothing, as all plain content is. A spread gives no view: one that may hold
+    the field, by the record written and by its type, is refused. The types are
+    read through the names the module declares or imports from `.rx`. A component
+    so typed that never shows them this way is as it was: it reads and calls
+    them. (`VIEW_FN_EXPECTED`, `VIEW_FN_MISPLACED`; S-view-3 to S-view-7.)
+    *Given on (2026-11-26, L2/B4).* A view with a parameter given on is the
+    view that shows it with everything it is passed: at a component's
+    application, `renderItem={use item}` (a context of the module that holds
+    a view with a parameter), `row={props.row}` (a view with a parameter the
+    enclosing component declares required) and `{...props}` (each such view
+    its props type declares required, and the rest of the spread without
+    them) are read when the module is loaded as `{view renderItem (r) {
+    <use.item {...r} /> }}`, `{view row (r) { <props.row {...r} /> }}` — so
+    every runner and both checkers read the block, and the rules that hold
+    it are the ones above. A context that holds a view is declared in the
+    module that names it, and a component's props type is in its own text, so
+    nothing else is read. An optional view is left as written (given on, a
+    view block would be given where none was): refused, with the long form
+    and its question. S-module-48.
 - **RG-4d (No return channel).** A component body evaluates to its view and
   nothing else. To expose a value upward, the caller passes a handler (or an
   action) the child calls: a source passed as a prop is read-only in the child
@@ -145,7 +264,7 @@ A component is a function from a props value to a region whose tail is a view.
 
 ### RG-6 Instantiation
 
-A call to a function with a `ref` parameter or a node-declaring body (E-9).
+A call to a function with a `ref` parameter or a node-declaring body (E-9; a body that only names values declares none, E-9b).
 
 - **RG-6a (Once, in the caller's region).** The call creates a region nested
   in the region of the call site; the body's sources, effects, and nested
@@ -154,7 +273,9 @@ A call to a function with a `ref` parameter or a node-declaring body (E-9).
 - **RG-6b (Arguments).** Ref arguments are equations passed by reference and
   keep updating inside the body. Value arguments are snapshots at
   instantiation (E-4). An expression passed to a ref parameter is wrapped as an
-  equation at the call site.
+  equation at the call site. To a declared JS primitive (09 MO-10a), one
+  written out as a constant is passed as the plain accessor `() => e`: an
+  equation of a constant has nothing to follow (2026-11-23).
 - **RG-6c (Composition).** Pure transforms compose by lifting (`double(count)`
   is an equation); primitives compose by instantiation (`debounce(ref query,
   300)` owns an effect). A function's kind is visible in its signature; the
@@ -177,7 +298,13 @@ palette = (use theme).palette           // used: in any region beneath — the n
   that each declare `context theme` declare two contexts (09 MO-7). A
   `provide` or `use` of a name that is not a context is `NOT_A_CONTEXT`; of
   an undeclared name, `UNBOUND`. A context is not a value: `{theme}` is
-  `CONTEXT_AS_VALUE`.
+  `CONTEXT_AS_VALUE`. A context has no type parameter: it is declared once,
+  at module level, and every provision and `use` is of that one type. A
+  generic function type as its type (`context item: <T>(p: { item: T }) =>
+  View`, in parentheses too) is `GENERIC_CONTEXT` (2026-11-26): it read as a
+  context of a plain value, and was no context that holds a view. Write the
+  type parameter's place `any` or `unknown`; a generic root's props type the
+  caller's view (proposals/28).
 - **RG-7b (Provide, use).** `provide name = e` in a region makes `e` the
   context's value for every region *instantiated beneath* it — the
   instantiation chain (the tree of views), not the lexical one. `use name`
@@ -187,6 +314,27 @@ palette = (use theme).palette           // used: in any region beneath — the n
   default, `context density: number = 1`, which is the value where nothing
   above provides it. A component body sees the caller's provisions, never
   the caller's locals.
+  *A provision given from what is above it (2026-11-26).* A block's
+  provision is the block's too, wherever it is written in it: `use c` beside
+  `provide c` reads that provision, before it in the text or after. What is
+  above it is read in the provision itself — a `use c` written in what
+  `provide c` is given is what is above that provision, in a closure there
+  too (it is written above it): `provide theme = { ...(use theme), fg:
+  props.fg }`, `provide level = (use level) + 1`, `provide log = (s) =>
+  (use log)(tag + s)`. A provision that comes back to itself where it
+  stands — through a name (`up = use c; provide c = up`), or through a
+  second context of the block, each given from the other — is `CYCLE`
+  (C-1), as is a context's default given from itself; with nothing above
+  and no default, the `use` in the provision is `CONTEXT_NOT_FOUND`
+  (S-context-9).
+  *In a fn (2026-11-24).* A call of a fn is a region of the caller's
+  (RG-6a), so its `use` reads above each place it is called: `fn useForm() {
+  f = use form; f }` is checked at its calls, through other fns, modules and
+  signatures (`uses(…)`, 09 MO-9b), as a JS hook's is (MO-12b), and a fn
+  never called is checked nowhere. A fn that reads a context instantiates
+  (E-9, MO-12b's rule), whether or not its body declares: lifted, its `use`
+  had no region to read above — the client took the default, the server
+  the provision.
 - **RG-7c (Writing through a provision) — withdrawn 2026-10-31.** A
   context is read beneath its provision; `use x := …` is
   `WRITE_TO_NON_SOURCE` (O-4) and `context x: source T` is
@@ -233,7 +381,14 @@ fragment they are inert wrappers.
 - **PT-3 (Client-only).** The server renders nothing for a portal; the
   browser renders it once it has taken the page over. So a client question
   read inside a portal is held by it (SV-7b), and data that should come from
-  the server is read above the portal and passed in.
+  the server is read above the portal and passed in. The server waits for
+  nothing under a portal and shows no fallback and no failure for it: its
+  shell is the mount of the program with nothing in its portals. Taking
+  that page over, what is under the portal is made once hydration has
+  settled, and a boundary outside the portal that has settled keeps its
+  content: until an answer lands the page is the shell, where a client
+  render shows that boundary's fallback (Solid's rule, its
+  `portal-async-content` test; 2026-11-27).
 - **PT-4 (Its place).** For the content model (10 SV-7d) a portal's view is
   at the end of `<body>`: a `<tr>` there is refused.
 

@@ -1,0 +1,20 @@
+// A panel that listens for a keyboard shortcut while it is shown, and stops when it is closed.
+import { onShortcut, liveListeners } from "./keys.js"
+
+component Panel() {
+  source hits := 0
+  effect () {
+    let stop = onShortcut("k", () => { hits := h => h + 1 })
+    return () => { stop() }
+  }
+  <p class="hits">{hits} hits</p>
+}
+
+export default component App() {
+  source shown := true
+  source listeners := 0
+  <button class="toggle" onClick={() => { shown := !shown }}>toggle</button>
+  <button class="count" onClick={() => { listeners := liveListeners() }}>count</button>
+  <p class="live">{listeners} listening</p>
+  if (shown) { <Panel /> }
+}

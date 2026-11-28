@@ -1,0 +1,2 @@
+import { use } from "../../../cover.mjs";
+export default use(import.meta, { pkg: "solid-stripe", modules: ["solid-stripe", "solid-stripe/pricing"], title: "a checkout before Stripe's script is there", ssr: false, server: "the package's default build is compiled for the DOM alone (its `solid` condition is the source an app's bundler compiles); the benchmark imports a package as Node resolves it", dom: /loading/ });

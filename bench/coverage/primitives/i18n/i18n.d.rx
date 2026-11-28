@@ -1,0 +1,3 @@
+// i18n.js makes the translator. By hand: every word (the module is the app's own). The translator is a field of the
+// result, so the view may call it: a function a primitive hands back by itself is io (MO-10b).
+export fn createI18n(ref locale: "en" | "fr"): { t: (key: "hello", args: { name: string }) => string }

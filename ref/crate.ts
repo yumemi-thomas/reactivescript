@@ -2,37 +2,44 @@
 // sides load the modules, parse, check, print signatures and build the resolved model (CP-6); the two must agree exactly.
 // With --lower (CP-1): every program the checker accepts is also compiled by both — ref/compile/emit.ts then Solid's
 // transform(), the crate's emit.rs then compile_program() — for the universal, dom and ssr targets, with a scenario table's
-// handler rows as compile/run.ts passes them; the modules must agree (comments dropped, both printed by esbuild), and the
+// handler rows as compile/run.ts passes them; the modules must agree (comments dropped, both printed by oxc, which keeps the pure annotations), and the
 // crate's source maps onto .rx must hold (checkMap, CP-1c).
 // With --project (TY-1c, CP-8): every program the checker accepts is projected to TSX by both — types/project.ts and the
 // crate's project.rs — and the files must be the same text, line for line; each of the crate's mappings must join the same
 // text on both sides.
-// Usage: node --experimental-strip-types ref/crate.ts [--lower|--project] [filter]     (builds compiler/ with cargo first; VERBOSE=1 lists each;
+// With --spa (08 CN-3d): every program is checked as a client-only build, on both sides.
+// With --whole-program (E-5a): every program is checked as the whole program, on both sides.
+// With --text, over the same programs with characters of several bytes in them, and broken ones (below).
+// Usage: node --experimental-strip-types ref/crate.ts [--lower|--project|--spa|--whole-program] [--text] [filter]     (builds compiler/ with cargo first; VERBOSE=1 lists each;
 //        DUMP=dir writes the first differing module of a failure, both sides, to dir/{ref,crate}.<target>.js)
-import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, existsSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { parseScenario } from "./src/scenario.ts";
-import { loadModules } from "./src/modules.ts";
+import { loadModules, joinPath } from "./src/modules.ts";
 import { checkModules } from "./src/check.ts";
 import { printSignature } from "./src/signature.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lowerMode = process.argv.includes("--lower");
 const projectMode = process.argv.includes("--project");
+const spaMode = process.argv.includes("--spa");
+const textMode = process.argv.includes("--text");
+const wholeMode = process.argv.includes("--whole-program");   // E-5a: every program checked as the whole program, on both sides   // 08 CN-3d: every program checked as a client-only build, on both sides
 const filter = process.argv.slice(2).find(a => !a.startsWith("--"));
 const verbose = !!process.env.VERBOSE;
-type Req = { id: string; entry: string; files: Record<string, string>; extra?: string[] };
+type Req = { id: string; entry: string; files: Record<string, string>; extra?: string[]; spa?: boolean; whole?: boolean; hosts?: string[]; conformance: boolean };   // conformance: a scenario's program (CP-4c); an example is an app's   // spa: 08 CN-3d
 const reqs: Req[] = [];
 
 /** A program: its entry and every file the loader reads for it (MO-8 `.d.rx`, MO-9 signatures, imported modules). */
-function add(id: string, entry: string, read: (p: string) => string | undefined, extra?: string[]) {
+function add(id: string, entry: string, read: (p: string) => string | undefined, extra?: string[], spa?: boolean, whole?: boolean, hosts?: string[], conformance = true) {
   if (filter && !id.includes(filter)) return;
   const files: Record<string, string> = {};
   const rec = (p: string) => { const s = read(p); if (s !== undefined) files[p] = s; return s; };
-  try { loadModules(entry, rec); } catch { /* the files read up to the error are what both sides see */ }
-  reqs.push({ id, entry, files, ...(extra ? { extra } : {}) });
+  try { loadModules(entry, rec, conformance); } catch { /* the files read up to the error are what both sides see */ }
+  reqs.push({ id, entry, files, conformance, ...(extra ? { extra } : {}), ...(spa || spaMode ? { spa: true } : {}), ...(whole || wholeMode ? { whole: true } : {}), ...(hosts?.length ? { hosts: hosts.map(h => joinPath(entry, h)) } : {}) });
 }
 const disk = (p: string) => existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined;
 
@@ -48,24 +55,34 @@ for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLA
       add(`${sc.name} ${t.title}`, sc.entry, read(t.program ?? sc.program), rows.filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7)));
     }
     if (!sc.tables.length && sc.program) add(`${sc.name} Program`, sc.entry, read(sc.program), []);
+    sc.accepted.forEach((a, i) => add(`${sc.name} accept #${i}`, sc.entry, read(a.program), []));
     continue;
   }
   if (sc.program) add(`${sc.name} Program`, sc.entry, read(sc.program));
   for (const t of sc.tables) if (t.program) add(`${sc.name} ${t.title}`, sc.entry, read(t.program));
-  sc.rejected.forEach((r, i) => add(`${sc.name} ${r.types ? "types" : r.warn ? "warn" : "reject"}(${r.rule}) #${i}`, sc.entry, read(r.program)));
+  sc.rejected.forEach((r, i) => add(`${sc.name} ${r.types ? "types" : r.warn ? "warn" : "reject"}(${r.rule}) #${i}`, sc.entry, read(r.program), undefined, r.spa, r.whole, r.hosts, !r.app));
+  sc.accepted.forEach((a, i) => add(`${sc.name} accept${a.whole ? "(whole-program)" : ""} #${i}`, sc.entry, read(a.program), undefined, false, a.whole));
 }
 const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith(".rx") && !e.name.endsWith(".d.rx") ? [join(d, e.name)] : []);
-for (const f of walk(join(root, "examples")).sort()) add(`examples/${f.slice(join(root, "examples").length + 1)}`, f, disk, lowerMode ? [] : undefined);
+for (const f of walk(join(root, "examples")).sort()) add(`examples/${f.slice(join(root, "examples").length + 1)}`, f, disk, lowerMode ? [] : undefined, false, false, undefined, false);
 
+/** The crate's answer to a request of megabytes: its input is a file and not a pipe, where Node's synchronous spawn has been seen
+ *  to wait for ever (macOS: the pipe's other end never found writable). */
+function rxc(command: string, request: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "rx-crate-")); const fd = (writeFileSync(join(dir, "in"), request), openSync(join(dir, "in"), "r"));
+  try { return execFileSync(join(root, `compiler/target/${process.env.RX_PROFILE ?? "release"}/rxc`), [command], { stdio: [fd, "pipe", "inherit"], maxBuffer: 1 << 30 }).toString(); }
+  finally { closeSync(fd); rmSync(dir, { recursive: true, force: true }); }
+}
 const plain = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => v instanceof Map ? Object.fromEntries(v) : v instanceof Set ? [...v] : v));
 function refOf(r: Req) {
   const read = (p: string) => r.files[p];
-  let set; try { set = loadModules(r.entry, read); } catch (e) { return { error: (e as Error).message }; }
-  let checked; try { checked = checkModules(set); } catch (e) { return { throws: (e as Error).message }; }
+  let set; try { set = loadModules(r.entry, read, r.conformance); } catch (e) { return { error: (e as Error).message }; }
+  let checked; try { checked = checkModules(set, !!r.spa, !!r.whole, r.hosts ?? []); } catch (e) { return { throws: (e as Error).message }; }
   return plain({
     order: set.order,
     asts: Object.fromEntries(set.order.map(p => [p, set.programs.get(p)])),
     diags: checked.diags,
+    advice: checked.advice,
     sigs: Object.fromEntries(set.order.map(p => [p, printSignature(checked.sigs.get(p)!)])),
     models: Object.fromEntries(checked.models),
   });
@@ -80,15 +97,36 @@ function diff(a: any, b: any, at = ""): string | null {
   return null;
 }
 
-execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
+// --text: every program again with characters of two, three and four bytes in it (a string's text, a comment, CRLF line
+// ends), so that an offset counted in the wrong unit shows; and, when checking, broken in two places each — cut short, or
+// such a character put between two tokens — where the two must refuse it with one message, on one line. The places are
+// drawn from a fixed seed. A program is one that parses no more than the original did: what is compared is the two sides.
+if (textMode) {
+  let seed = 7; const pick = (n: number) => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) % n;
+  const INS = ["é", "漢", "😀", "e\u0301", "\ufeff", "\u2028", "\u00a0", "\u0085", "é\n", "\"é", "`漢", "/*é", "//é\n", "<é", "\r\n"];
+  const own = reqs.splice(0);
+  for (const r of own) {
+    const entry = r.files[r.entry]; if (entry === undefined) continue;
+    const wide = (t: string) => t.replace(/(from\s*|import\s*|fetch\w*\(\s*)?"([^"\n\\]*)"/g, (m, kept, x) => kept ? m : `"é${x}漢😀"`).replace(/\/\/ /g, "// 😀é ");
+    const files = (f: (t: string) => string) => ({ ...r.files, [r.entry]: f(entry) });
+    reqs.push({ ...r, id: `${r.id} (wide)`, files: files(wide) }, { ...r, id: `${r.id} (crlf)`, files: files(t => wide(t).replace(/\n/g, "\r\n")) });
+    if (lowerMode || projectMode) continue;
+    const chars = [...entry]; const cut = chars.slice(0, pick(chars.length + 1)).join("");
+    const gaps = [0, entry.length]; for (let i = 1; i < entry.length; i++) if (!/^[\w$]{2}$/.test(entry.slice(i - 1, i + 1)) && (entry.slice(0, i) as any).isWellFormed()) gaps.push(i);
+    const at = gaps[pick(gaps.length)], ins = INS[pick(INS.length)];
+    reqs.push({ ...r, id: `${r.id} (cut ${cut.length})`, files: files(() => cut + ["é", "😀\n", "漢 ", "\"é"][pick(4)]) }, { ...r, id: `${r.id} (${JSON.stringify(ins)} at ${at})`, files: files(t => t.slice(0, at) + ins + t.slice(at)) });
+  }
+}
+if (process.env.RX_BUILT !== "1") execFileSync("cargo", ["build", "--profile", process.env.RX_PROFILE ?? "release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
 if (lowerMode) process.exit(await lower());
 if (projectMode) process.exit(await project());
-const out = execFileSync(join(root, "compiler/target/release/rxc"), ["conform"], { input: JSON.stringify(reqs), maxBuffer: 1 << 30 }).toString();
+const out = rxc("conform", JSON.stringify(reqs));
 const got = new Map((JSON.parse(out) as any[]).map(x => [x.id, x]));
 let bad = 0;
 for (const r of reqs) {
   const want = refOf(r); const { id: _, spans, ...have } = got.get(r.id) ?? {};
-  const d = diff(want, have) ?? (spans && Object.keys(spans).length ? `spans (CP-8): ${JSON.stringify(spans).slice(0, 400)}` : null);
+  const broken = textMode && / at \d+\)$/.test(r.id);   // (a line break put after a declaration's word: its span starts on the line before its name's)
+  const d = diff(want, have) ?? (!broken && spans && Object.keys(spans).length ? `spans (CP-8): ${JSON.stringify(spans).slice(0, 400)}` : null);
   if (d) { bad++; console.log(`FAIL ${r.id}\n  ${d}`); } else if (verbose) console.log(`ok   ${r.id}`);
 }
 console.log(`${reqs.length - bad}/${reqs.length} programs: the crate agrees with ref/ (AST, diagnostics, signatures, resolved model), and its spans hold (CP-8)`);
@@ -98,10 +136,12 @@ process.exit(bad ? 1 : 0);
 async function lower(): Promise<number> {
   const { compileModules, CompileError } = await import("./compile/emit.ts");
   const { lowerViews, STRING_RENDERER } = await import("./compile/jsx.ts");
-  const { transformSync } = await import("esbuild");
+  const { parseSync, transformSync } = await import("rolldown/utils");
   const { parseStmts } = await import("./src/parse.ts");
-  const norm = (code: string) => { try { return transformSync(code, { loader: "js", format: "esm", legalComments: "none" }).code; } catch (e) { return `esbuild: ${(e as Error).message}\n${code}`; } };
-  const out = execFileSync(join(root, "compiler/target/release/rxc"), ["lower"], { input: JSON.stringify(reqs.map(r => ({ ...r, renderer: STRING_RENDERER, maps: true }))), maxBuffer: 1 << 30 }).toString();
+  // (a comment is dropped where it stands, but one that says something to a bundler)
+  const plain = (code: string) => parseSync("module.js", code, { lang: "js", sourceType: "module" }).comments.filter(c => !/^\s*[@#]__(PURE|NO_SIDE_EFFECTS)__\s*$/.test(c.value)).reverse().reduce((t, c) => t.slice(0, c.start) + (c.value.includes("\n") ? "\n" : " ") + t.slice(c.end), code);
+  const norm = (code: string) => { const r = transformSync("module.js", plain(code), { lang: "js", sourceType: "module" }); return r.errors.length ? `oxc: ${r.errors[0].message}\n${code}` : r.code; };
+  const out = rxc("lower", JSON.stringify(reqs.map(r => ({ ...r, renderer: STRING_RENDERER, maps: true }))));
   const got = new Map((JSON.parse(out) as any[]).map(x => [x.id, x]));
   let bad = 0, compiled = 0, modules = 0, mapped = 0;
   for (const r of reqs) {
@@ -109,7 +149,7 @@ async function lower(): Promise<number> {
     let set: ReturnType<typeof loadModules> | undefined;
     let want: any;
     try {
-      set = loadModules(r.entry, p => r.files[p]);
+      set = loadModules(r.entry, p => r.files[p], r.conformance);
       if (checkModules(set).diags.length) want = { refused: true };
       else {
         const extra = (r.extra ?? []).map(s => { try { return parseStmts(s); } catch { return []; } });
@@ -195,13 +235,13 @@ function checkMap(code: string, map: string | undefined, prog: any, text: string
 /** --project: types/project.ts's projection against the crate's, and the crate's mappings onto the `.rx`. */
 async function project(): Promise<number> {
   const { projectModules, PRELUDE } = await import("./types/project.ts");
-  const out = JSON.parse(execFileSync(join(root, "compiler/target/release/rxc"), ["project"], { input: JSON.stringify(reqs), maxBuffer: 1 << 30 }).toString());
+  const out = JSON.parse(rxc("project", JSON.stringify(reqs)));
   const got = new Map((out.programs as any[]).map(x => [x.id, x]));
   let bad = 0, n = 0, maps = 0, files = 0;
   if (out.prelude !== PRELUDE) { bad++; console.log("FAIL prelude: compiler/src/prelude.ts is not types/project.ts's PRELUDE"); }
   for (const r of reqs) {
     const read = (p: string) => r.files[p];
-    let set; try { set = loadModules(r.entry, read); } catch { continue; }
+    let set; try { set = loadModules(r.entry, read, r.conformance); } catch { continue; }
     if (checkModules(set).diags.length) continue;                     // the checker refused it: nothing is projected (types/run.ts)
     n++;
     const want = projectModules(set).map(p => ({ path: p.path, rx: p.rx, code: p.code, lines: p.lines }));

@@ -1,0 +1,25 @@
+import { IssuesPage } from "./Issues.rx"
+import { HelpPage } from "./Help.rx"
+import { SettingsPage } from "./Settings.rx"
+
+export default component App() {
+  source tab := "issues"
+  source openCount: number := -1
+  source helpQuery := ""
+  source helpHit: number := 0
+
+  <main>
+    <nav>
+      <button data-testid="tab-issues" onClick={() => { tab := "issues" }}>{openCount < 0 ? "Issues" : `Issues (${openCount})`}</button>{" "}
+      <button data-testid="tab-help" onClick={() => { helpQuery := ""; helpHit := 0; tab := "help" }}>Help</button>{" "}
+      <button data-testid="tab-settings" onClick={() => { tab := "settings" }}>Settings</button>
+    </nav>
+    {if tab == "issues" {
+      <IssuesPage onCount={n => { openCount := n }} onOpenHelp={(q, id) => { helpQuery := ""; helpHit := 0; tab := "help"; onFlush(() => { helpQuery := q; helpHit := id }) }} />
+    } else if tab == "help" {
+      <HelpPage seedQuery={helpQuery} seedHit={helpHit} />
+    } else {
+      <SettingsPage />
+    }}
+  </main>
+}

@@ -1,7 +1,7 @@
 # 08 — Constraints and their enforcement
 
 **Status: OPEN (2026-10-22).** What the compiler refuses, how it decides, and
-what the escape looks like. CN-1, CN-3, CN-4, CN-5 and CN-6 are ruled. The stance is Rust's: every static check is an
+what the escape looks like. CN-1, CN-3, CN-4, CN-5, CN-6 and CN-8 are ruled. The stance is Rust's: every static check is an
 error, the checks are sound (an over-approximation that rejects some fine
 programs and never admits a wrong one), modular (a module is checked against
 its imports' signatures, not their bodies), and the only way around a check
@@ -15,7 +15,11 @@ runtime check.
 - **CN-1a (Errors only).** Bins U (unwritable) and S (static) in
   `99-diagnostics.md` are compile errors. There is no warning tier. Bin R
   is not a constraint: it is the runtime's attribution report (timing,
-  holds, waterfalls) and never fails a build. (Ruled 2026-10-22.)
+  holds, waterfalls) and never fails a build. (Ruled 2026-10-22.) Advice
+  about a correct program (99, the advisory rows) is neither: the checker
+  lists it apart from its diagnostics (`advice`), it is printed, and it
+  never fails a check or a build (2026-11-22: `ASYNC_WATERFALL` over an
+  imperative run is the first).
 - **CN-1b (Diagnostics keep Solid's names).** A static error carries the
   code the dev runtime would have raised for the same shape, so a reader
   who knows one knows the other.
@@ -33,6 +37,7 @@ runtime check.
 | an unkeyed `for` over records whose values change | ST-4b | static shape check |
 | exported rows: a component's props and an exported equation carry their rows in their types | RG-4, R-14 | emitted in `.d.rx`; checked at the import (CN-4) |
 | every failure a reader can see is discharged above it; an action catches what its body can fail with | R-f-5, R-f-6 | the `fails` row over the static application tree (CN-6) |
+| a value that must stay where the checker can see what is done with it: a prop typed with held fields, a JS result with a `ref` part that waits or fails, a library's draft, a primitive's instance (a JS result's held plain fields, a `renders` value and a value that carries components, `renders(later)`, were three more until 2026-11-23, 09 MO-8r) | 09 MO-10f, MO-10l, MO-10i; E-10, E-5a | rules on where a name is written, "may hold" by mention, and a closed set of operations for each kind (CN-7); names are followed through what is written, nothing about JS is inferred |
 
 ## CN-3 — Soundness and the static graph
 
@@ -87,7 +92,10 @@ runtime check.
   turns it on from Solid's options (`generate: "dom"`, `hydratable:
   false`). (Ryan, 2026-10-30: "The problem with topmost in csr on initial
   load is you see nothing"; "Answer after first paint is fine.. its just a
-  transition as normal".) Checked by `rxc`, not yet by `ref/`.
+  transition as normal".) Checked by `rxc` and by `ref/` (`checkModules(set,
+  true)`): a scenario's rejected variant with a `-- spa` line is checked as a
+  client-only build (S-module-11), and `ref/crate.ts --spa` compares the two
+  on every program.
 - **CN-3e (An outside read holds a `loading on`) — Ryan, 2026-10-30.** A
   `loading on(k)` region re-arms when `k` changes, to show its fallback
   while what it waits on loads again. A reader outside that region of a
@@ -98,13 +106,16 @@ runtime check.
   variant, S-solid-19). That is `LOADING_ON_OUTSIDE_HOLD` (bin S). Readers
   are views and effect inputs; a read under `latest`, `pending?` or `peek`
   holds nothing, and neither does a reader under another region that
-  re-arms on the same change (it shows that region's fallback). Keys are
+  re-arms on the same change (it shows that region's fallback), nor that
+  region's own `on` (2026-11-27, the apps hunt: two sibling `loading on(id)`
+  regions over a source with a question were refused, each `on(id)` counted
+  outside the other; S-loading-siblings). Keys are
   the names `on` reads, and for a prop the field (`on(props.selected)` keys
   on `selected`). Checked within a component: a read through a prop in
   another component is left to Solid's run-time report. The fix is
   structural: move the read under the region, or read `latest x` outside
   it. Both show a guess the screen shows until its hold commits (H-11,
-  S-latest-reask; on Solid rc.21 `latest` does not yet, DV-19). (Ryan: "if you can make a reasonable static check we should do it";
+  S-latest-reask; Solid's `latest` does so from rc.22, DV-19 fixed). (Ryan: "if you can make a reasonable static check we should do it";
   found by the round 9 eval, where a tab count's effect outside the list's
   `loading on(filter)` froze the old list on a filter switch in 39 of 82
   `.rx` apps.) Checked by `rxc` and `ref/`.
@@ -147,6 +158,94 @@ runtime check.
   provision's failures at every `use`. An `await` whose promise cannot be
   traced to an import fails with `Error`.
 
+## CN-7 — Values that stay where they are checked (ruled 2026-11-22)
+
+- **CN-7a (Local rules; nothing inferred about JS).** Four checks need a value not to get
+  somewhere the checker cannot see: a JS result whose fields hold or fail
+  (the field must be read where a boundary is asked for), a library's
+  draft (it is the callback's only while the library's call runs), a
+  value `renders` checked where it is bound (its components must render
+  there), a primitive's instance (it is made once only while nothing is
+  read through it). `.rx` has first-class functions and the checker
+  reads no types, so "which values may this expression be" has no answer
+  that is both sound and precise, and an analysis that follows values
+  through aliases, records, calls and closures is a list of the ways
+  someone thought of. The checks are therefore stated so that soundness
+  is local (09 MO-10k):
+  - a result with held fields and a draft are not values at all: the
+    rule is on where their name is written, and a draft's reads are
+    copies by compilation;
+  - a `renders` value and an instance are confined *by mention*: a value
+    may hold a part of one when its expression mentions its name, unless
+    what is written makes a primitive; every way out of the region or
+    the module is where the check refuses it or stops naming it.
+
+  What "followed" means, exactly (closed 2026-11-22): no *value* is
+  tracked through the program's runs; *names* are followed through what
+  is written — a name to its binding's expression, a row to its list, a
+  parameter to the arguments its calls pass, a call to what its fn's body
+  may return and to the closures its callee's value may hold. Each step
+  is syntactic and over-approximates.
+- **CN-7d (A closed set of operations for each kind) — closed
+  2026-11-22.** What a JS method answers, keeps or calls is never read
+  off the syntax around the call: a receiver that mentions a value is
+  not that value, an inherited method may answer the object itself, a
+  method may call the closure it is given with live parts. Each
+  confined kind has a closed set of operations (09 MO-10k's table), and
+  a method is one of them only on positive evidence of which operation
+  it is: a field the declaration names (the declared result
+  type), or the name of a method of plain data (a draft).
+  Anything else is refused — or, for a draft, read as a copy. The
+  evidence is the declaration's, so it is checked as the declaration is
+  (13 TY-6, `rx-verify`).
+- **CN-7b (Stricter, on purpose, and said).** This is CN-3a's stance, an
+  over-approximation that rejects some fine programs and never admits a
+  wrong one: a path read out of a `renders` value is confined with it
+  unless its declaration types it a primitive, and a result with held
+  fields is passed to a child only through a prop whose type keeps its
+  fields' rows (its field can go anywhere). The way round is in the
+  language, not an escape: make a primitive (`str(row.name)`), pass the
+  field or declare the interface, share a change as an action or a named
+  callback, loop with the statement.
+- **CN-7c (The boundary).** What JS does with a value it is given is its
+  declaration's to say (CN-3b, CN-5): `pure` keeps nothing, `io` may keep
+  anything, `draft` and the field rows are trusted as written and checked
+  by running (`rx-verify`, 09 MO-8j). The checks are sound for `.rx` over
+  those declarations, and silent about what undeclared JS does on its
+  own side.
+
+## CN-8 — Scope: Solid's rules, not a library's (ruled 2026-11-22)
+
+- **CN-8a (Access, not enforcement).** An `.rx` program may use any Solid
+  library, through its declaration (09 MO-8, MO-10, MO-11, MO-12). What
+  the checker enforces is Solid's: reactivity and ownership (this
+  document's checks), and the contracts a declaration states in the
+  generic words (`pure`, `io`, `ref`, `instantiates`, `pending`, `fails`,
+  `handler`, `draft`, `renders(H)`, `nests(children in component)`,
+  `uses`, `provides`, …), each of which says where a Solid rule applies to
+  a library's value and means the same for every library that writes it.
+  A word is one of them only if more than one library needs it (09
+  MO-8r, counted over the Solid 2 ecosystem's releases, pre-releases
+  included): what a single package does is written without one.
+  `renders(H)` (09 MO-11u, 2026-11-24) is the case in point: it states an
+  owner's place — the component beneath which a component the program
+  gave the library runs — in the same words for a toaster and for a
+  router, and the checker reads the name of a declared component, never
+  which library it is.
+- **CN-8b (No library's own rules).** A rule that belongs to one package's
+  semantics is that package's, and its own tooling's: the checker names
+  no package, no diagnostic exists for one library, and no declaration
+  word is added whose meaning is one library's contract. A TanStack query
+  key that misses an input of its function is the example: the cache's
+  contract, checked by TanStack's ESLint rule `exhaustive-deps`, and no
+  mistake of Solid's (`keyed(queryKey)` was proposed for it and rejected,
+  `archive/rfc-revisions-2026-11-22.md`).
+- **CN-8c (What a tool may know).** `rx-declare` may know a named release
+  of a package (09 MO-8k: its version-ranged table), to draft the generic
+  words its types cannot show. That is access: the draft is a declaration
+  like one written by hand, and the checker reads the words, not the
+  package.
+
 ## CN-5 — The escape
 
 One word: **`pure`**, at the JS boundary (R-io-4) — the author asserts a
@@ -169,6 +268,7 @@ and no `dynamic` marker: the static graph's checks are sound over `.rx`
 | `NOT_AN_ERROR_CLASS` (new) | S | R-f-1 |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY` | R; S in a client-only build | CN-3c: a runtime report, not a constraint; CN-3d: a first load nothing holds in a client-only build |
 | `LOADING_ON_OUTSIDE_HOLD` | S | CN-3e: a reader outside a `loading on(k)` region of what it waits on |
+| `RESULT_AS_VALUE` (new), `DRAFT_ESCAPES` | S | CN-7; 09 MO-10f, MO-10l, MO-10i (`RENDERS_ESCAPES` was a third until 2026-11-23, 09 MO-8r) |
 
 ---
 
@@ -212,8 +312,10 @@ How each enforcer is realised:
 - **Provisions (RG-7b)** are checked over the static application tree:
   the names available in a region are its own provisions plus, for a
   component, the intersection over every place it is applied; children
-  passed to a component are owned where it reads them, so they see its
-  provisions. A component never applied, or applied only recursively, is
+  passed to a component are owned where it shows them (RG-4c, proposed
+  2026-11-25: it only shows them), so they see its provisions. S-context-4.
+  What a fn uses and does not provide itself is used at each
+  call of it. A component never applied, or applied only recursively, is
   undecidable and not checked (the runtime's `ContextNotFound` remains).
 
 - **Failures (CN-6)** are recorded during the walk and resolved after it,
@@ -223,7 +325,7 @@ How each enforcer is realised:
   applied on the way out of the expression). Resolution builds, per
   region, the chains of catches up to its component's root — through
   children, which continue at the chains of the component's own
-  `props.children` reads and then the application site's. A prop's chains
+  `props.children` reads (or where it shows them, RG-4c) and then the application site's. A prop's chains
   are its reads' chains; a component's escaping classes are its readers'
   classes that some chain lets through, and they continue at each
   application site; the program root's are errors. An action's prop

@@ -1,0 +1,362 @@
+// The board page: one optimistic store per server answer.
+//
+// The server answers per column, so its board is three ordered lists, and the page keeps them as three keyed stores
+// (`todo`, `doing`, `done`), each the answer it stands for, row for row. A card shows where its column's list puts it,
+// so the order on screen is the server's order and a move is what the server does: the card leaves one list and goes
+// into another (or the same one) at an index.
+//
+// Every write has the same life. Its guess is a write into the stores (or into the checklist), shown at once: a path
+// write on one row for an edit, the lists' new shape for a move. The write goes to the server; when it is accepted,
+// the action re-asks the answers it changed, and holds until they land (D-34), so the guess is dropped onto data that
+// already agrees with it. When it is declined there was only ever the guess, and removing it is the undo. Errors are
+// plain client state under the guesses: a refusal is a fact about one request, and no answer has a place for it.
+//
+// An add has no id until the server answers. Its placeholder is guessed into To do's store under a key minted here,
+// for this visit only, and is inert (no move buttons, not selectable). The server's answer is the new card itself, so
+// the action records it in To do's answer (a write whose answer is the new value re-asks nothing) and ends: in one
+// frame the placeholder goes with its guess and the real card shows from the truth. An added item is the same over
+// the checklist's answer.
+//
+// Indexes and columns are worked out in the handler, from the board as shown, and passed in: an action that read a
+// store another action guessed on would be one change with it (D-33). A handler reads only its own pane (a column's
+// buttons their column, the detail its card), never another pane's answer, which may have failed: there the read
+// would throw, and no region can show it. Failures are shown where they are read, by each pane's errored region.
+//
+// Everything here is the visit's: the page is mounted only while it is open, so leaving it discards the stores, their
+// guesses and its errors, and opening it again asks the server again.
+
+import pure { fetchCards, fetchChecklist } from "./api"
+import { moveCard, renameCard, addCard, archiveCard, toggleItem, addItem, Card, Item } from "./api"
+
+export type Row = { id: number; title: string; done: number; total: number; adding: boolean }
+
+fn colName(c: string): string => c == "todo" ? "To do" : c == "doing" ? "Doing" : "Done"
+fn rowsOf(cs: Card[] | null): Row[] =>
+  cs == null ? [] : cs.map(c => ({ id: c.id, title: c.title, done: c.done, total: c.total, adding: false }))
+type List = { card: number; items: Item[] }
+fn withCard(cs: Card[] | null, c: Card): Card[] | null => cs == null || cs.some(x => x.id == c.id) ? cs : [...cs, c]
+fn counted(cs: Card[] | null, id: number): Card[] | null => cs == null ? cs : cs.map(c => c.id == id ? { ...c, total: c.total + 1 } : c)
+fn withItem(l: List | null, card: number, it: Item): List | null =>
+  l == null || l.card != card || l.items.some(x => x.id == it.id) ? l : { card: card, items: [...l.items, it] }
+
+// A move as the server makes it: the card leaves `from` and goes into `to` at `index`, counted without it.
+type Move = { id: number; from: string; to: string; index: number; row: Row }
+fn without(rs: Row[], id: number): Row[] => rs.filter(r => r.id != id)
+fn insertAt(rs: Row[], r: Row, i: number): Row[] => [...rs.slice(0, i), r, ...rs.slice(i)]
+// one column's list after the move
+fn shifted(rs: Row[], col: string, m: Move): Row[] =>
+  col == m.to ? insertAt(col == m.from ? without(rs, m.id) : rs, m.row, m.index) : col == m.from ? without(rs, m.id) : rs
+
+component Column(props: {
+  col: string; ans: Card[] | null; rows: Row[]; retrying: boolean; left: string; right: string;
+  leftOpen: boolean; rightOpen: boolean; onRetry: () => void; onSelect: (id: number) => void; onMove: (id: number, from: string, col: string, by: number) => void;
+}) {
+  <section data-testid={`col-${props.col}`} style="min-width: 14rem">
+    {errored fallback(e) {
+      <h2 data-testid={`head-${props.col}`}>{colName(props.col)}</h2>
+      {if props.retrying {
+        <p>loading</p>
+      } else {
+        <p>error: {e.message}{" "}<button data-testid={`retry-${props.col}`} onClick={() => { props.onRetry() }}>retry</button></p>
+      }}
+    } {
+      {if props.ans == null {
+        <h2 data-testid={`head-${props.col}`}>{colName(props.col)}</h2>
+        <p>loading</p>
+      } else {
+        <h2 data-testid={`head-${props.col}`}>{colName(props.col)} ({props.rows.length})</h2>
+        <ul>
+          {for r in props.rows {
+            <li>
+              {if r.adding {
+                <span data-testid="card">{r.title} (adding…)</span>
+              } else {
+                <button data-testid="card" onClick={() => { props.onSelect(r.id) }}>#{r.id} {r.title} · {r.done}/{r.total}</button>
+                {if props.left != "" {
+                  {" "}{errored fallback(e) { <button data-testid="left" disabled>left</button> } {
+                    <button data-testid="left" disabled={!props.leftOpen} onClick={() => { props.onMove(r.id, props.col, props.left, 0) }}>left</button>
+                  }}
+                }}
+                {if props.right != "" {
+                  {" "}{errored fallback(e) { <button data-testid="right" disabled>right</button> } {
+                    <button data-testid="right" disabled={!props.rightOpen} onClick={() => { props.onMove(r.id, props.col, props.right, 0) }}>right</button>
+                  }}
+                }}
+                {if props.rows[0].id != r.id {
+                  {" "}<button data-testid="up" onClick={() => { props.onMove(r.id, props.col, "", -1) }}>up</button>
+                }}
+                {if props.rows[props.rows.length - 1].id != r.id {
+                  {" "}<button data-testid="down" onClick={() => { props.onMove(r.id, props.col, "", 1) }}>down</button>
+                }}
+              }}
+            </li>
+          }}
+        </ul>
+      }}
+    }}
+  </section>
+}
+
+export component BoardPage() {
+  // 1. The server's truth: one question per column, `null` until its first answer, so one column loading or failing
+  // never holds another. Sources with a question: an accepted add writes its answer here (the answer is the new card),
+  // until the next re-ask brings the server's list.
+  source todoAns = await fetchCards("todo") -> null
+  source doingAns = await fetchCards("doing") -> null
+  source doneAns = await fetchCards("done") -> null
+
+  // 2. One store over each answer, keyed by card: what the column shows, guesses included.
+  todo key id = rowsOf(todoAns)
+  doing key id = rowsOf(doingAns)
+  done key id = rowsOf(doneAns)
+  // whether a column has had its first answer: what other panes' buttons check before moving into it
+  todoUp = todoAns != null
+  doingUp = doingAns != null
+  doneUp = doneAns != null
+  // the work-in-progress limit counts the cards Doing shows, moves still out included
+  intoDoing = doingUp && doing.length < 3
+
+  // The selection and its checklist, the other store.
+  source selected: number | null := null
+  // the answer names its card, so an item add answered after another card was selected leaves it alone
+  source listAns = selected == null ? null : { card: selected, items: await fetchChecklist(selected) }
+  checklist key id = listAns == null ? [] : listAns.items.map(it => ({ id: it.id, text: it.text, done: it.done, adding: false }))
+  // the column a card shows in, and its row there
+  fn shownIn(id: number): string => todo.some(r => r.id == id) ? "todo" : doing.some(r => r.id == id) ? "doing" : done.some(r => r.id == id) ? "done" : ""
+  fn rowsIn(col: string): Row[] => col == "todo" ? todo : col == "doing" ? doing : col == "done" ? done : []
+  selCol = selected == null ? "" : shownIn(selected)
+  sel = selected == null ? null : rowsIn(selCol).find(r => r.id == selected && !r.adding) ?? null
+
+  // Inputs, and what went wrong: plain client state of this visit.
+  source newCard: string := ""
+  source titleInput: string := ""
+  source itemInput: string := ""
+  source minted: number := 0
+  source moveError: string := ""
+  source addError: string := ""
+  source archiveError: string := ""
+  source renameError: string := ""
+  source itemError: string := ""
+
+  // selecting starts the detail as it starts: its inputs empty, its errors gone
+  action pick(id: number) {
+    selected := id
+    titleInput := ""
+    itemInput := ""
+    renameError := ""
+    itemError := ""
+  }
+
+  // An accepted card write ends by re-asking the answers it can have changed: a move every column (another move of
+  // the card may have been answered first and put it elsewhere), an edit the column the card shows in.
+  action reask(cols: string[]) {
+    if (cols.includes("todo")) { refresh todoAns }
+    if (cols.includes("doing")) { refresh doingAns }
+    if (cols.includes("done")) { refresh doneAns }
+  }
+
+  action retry(col: string) {
+    if (col == "todo") {
+      affects todoAns
+      refresh todoAns
+    } else if (col == "doing") {
+      affects doingAns
+      refresh doingAns
+    } else {
+      affects doneAns
+      refresh doneAns
+    }
+  }
+
+  // The move is worked out by the click, from the board as shown, and guessed as the server will make it: each
+  // column's list after it (the lists it leaves alone don't change).
+  action move(m: Move) {
+    try {
+      guess todo := rs => shifted(rs, "todo", m)
+      guess doing := rs => shifted(rs, "doing", m)
+      guess done := rs => shifted(rs, "done", m)
+      onFlush(() => { moveError := "" })
+      await moveCard(m.id, m.to, m.index)
+      // and every column whose answer has it now: another move of this card may have been answered first
+      await reask(["todo", "doing", "done"])
+    } catch (e) {
+      moveError := e.message
+      onFlush(() => { moveError := e.message })
+    }
+  }
+
+  action add(key: number, title: string, at: number) {
+    try {
+      guess todo[at] := { id: key, title: title, done: 0, total: 0, adding: true }
+      onFlush(() => { addError := "" })
+      let r = await addCard("todo", title)
+      todoAns := cs => withCard(cs, { id: r.id, title: r.title, done: 0, total: 0 })
+    } catch (e) {
+      addError := e.message
+      onFlush(() => { addError := e.message })
+    }
+  }
+
+  action rename(i: number, id: number, title: string, col: string, shown: string) {
+    try {
+      if (shown == "todo") { guess todo[i].title := title } else if (shown == "doing") { guess doing[i].title := title } else { guess done[i].title := title }
+      onFlush(() => { renameError := "" })
+      await renameCard(id, title)
+      await reask([col, shown])
+    } catch (e) {
+      renameError := e.message
+      onFlush(() => { renameError := e.message })
+    }
+  }
+
+  action archive(i: number, id: number, col: string, shown: string) {
+    try {
+      if (shown == "todo") { guess todo := rs => without(rs, id) } else if (shown == "doing") { guess doing := rs => without(rs, id) } else { guess done := rs => without(rs, id) }
+      onFlush(() => {
+        selected := null
+        archiveError := ""
+      })
+      await archiveCard(id)
+      await reask([col, shown])
+    } catch (e) {
+      archiveError := e.message
+      onFlush(() => { archiveError := e.message })
+    }
+  }
+
+  action toggle(i: number, j: number, card: number, item: number, to: boolean, col: string, shown: string) {
+    try {
+      guess checklist[j].done := to
+      if (shown == "todo") { guess todo[i].done := n => n + (to ? 1 : -1) } else if (shown == "doing") { guess doing[i].done := n => n + (to ? 1 : -1) } else { guess done[i].done := n => n + (to ? 1 : -1) }
+      onFlush(() => { itemError := "" })
+      await toggleItem(card, item, to)
+      refresh listAns
+      await reask([col, shown])
+    } catch (e) {
+      itemError := e.message
+      onFlush(() => { itemError := e.message })
+    }
+  }
+
+  action addLine(i: number, card: number, key: number, text: string, shown: string) {
+    try {
+      guess checklist := ls => [...ls, { id: key, text: text, done: false, adding: true }]
+      if (shown == "todo") { guess todo[i].total := n => n + 1 } else if (shown == "doing") { guess doing[i].total := n => n + 1 } else { guess done[i].total := n => n + 1 }
+      onFlush(() => { itemError := "" })
+      let it = await addItem(card, text)
+      listAns := l => withItem(l, card, it)
+      todoAns := cs => counted(cs, card)
+      doingAns := cs => counted(cs, card)
+      doneAns := cs => counted(cs, card)
+    } catch (e) {
+      itemError := e.message
+      onFlush(() => { itemError := e.message })
+    }
+  }
+
+  // a move button: `col` set, to the bottom of that column; `col` empty, `by` places up or down in its own
+  fn moveOf(id: number, from: string, col: string, by: number): Move | null =>
+    placed(rowsIn(from), id, from, col != "" ? col : from,
+      col != "" ? rowsIn(col).length : rowsIn(from).findIndex(r => r.id == id) + by)
+  fn placed(rs: Row[], id: number, from: string, to: string, index: number): Move | null =>
+    rs.some(r => r.id == id) ? ({ id: id, from: from, to: to, index: index, row: rs.filter(r => r.id == id)[0] }) : null
+
+  <div>
+    <div style="display: flex; gap: 1.5rem; align-items: flex-start">
+      <div>
+        <Column col="todo" ans={todoAns} rows={todo} retrying={false} left="" right="doing" leftOpen={false} rightOpen={intoDoing}
+          onRetry={() => { retry("todo") }} onSelect={id => { pick(id) }} onMove={(id, f, c, by) => { let m = moveOf(id, f, c, by); if (m != null) { move(m) } }} />
+        {errored fallback(e) { <p></p> } {
+        <div>
+          <input data-testid="new-card" value={newCard} onInput={e => { newCard := e.target.value }} placeholder="new card" />{" "}
+          <button data-testid="add-card" disabled={!todoUp || todo.length < 0} onClick={() => {
+            if (newCard != "") {
+              let t = newCard
+              let key = -(minted + 1)
+              onFlush(() => {
+                newCard := ""
+                minted := n => n + 1
+              })
+              add(key, t, todo.length)
+            }
+          }}>add</button>
+          {if addError != "" {
+            <p data-testid="add-error">add error: {addError}</p>
+          }}
+        </div>
+        }}
+      </div>
+      <Column col="doing" ans={doingAns} rows={doing} retrying={false} left="todo" right="done" leftOpen={todoUp} rightOpen={doneUp}
+        onRetry={() => { retry("doing") }} onSelect={id => { pick(id) }} onMove={(id, f, c, by) => { let m = moveOf(id, f, c, by); if (m != null) { move(m) } }} />
+      <Column col="done" ans={doneAns} rows={done} retrying={false} left="doing" right="" leftOpen={intoDoing} rightOpen={false}
+        onRetry={() => { retry("done") }} onSelect={id => { pick(id) }} onMove={(id, f, c, by) => { let m = moveOf(id, f, c, by); if (m != null) { move(m) } }} />
+      <section data-testid="detail" style="min-width: 16rem">
+        {errored fallback(e) { <p>can't show this card right now</p> } {
+        {if sel == null {
+          <p>select a card</p>
+        } else {
+          <h2>#{sel.id} {sel.title}</h2>
+          <p>in {colName(selCol)}</p>
+          <div>
+            <input data-testid="title-input" value={titleInput} onInput={e => { titleInput := e.target.value }} placeholder="new title" />{" "}
+            <button data-testid="rename" onClick={() => {
+              if (titleInput != "") {
+                let t = titleInput
+                onFlush(() => { titleInput := "" })
+                rename(rowsIn(selCol).findIndex(r => r.id == sel.id), sel.id, t, selCol, selCol)
+              }
+            }}>rename</button>{" "}
+            <button data-testid="archive" onClick={() => { archive(rowsIn(selCol).findIndex(r => r.id == sel.id), sel.id, selCol, selCol) }}>archive</button>
+          </div>
+          {if renameError != "" {
+            <p>rename error: {renameError}</p>
+          }}
+          <div data-testid="checklist">
+            {loading on(selected) fallback { <p>loading checklist</p> } {
+              {errored fallback(e) { <p>checklist error: {e.message}</p> } {
+                <ul>
+                  {for it in checklist {
+                    <li>
+                      {if it.adding {
+                        <span data-testid="item">[ ] {it.text} (adding…)</span>
+                      } else {
+                        <span data-testid="item">[{it.done ? "x" : " "}] {it.text}</span>{" "}
+                        <button data-testid="toggle" disabled={pending? checklist} onClick={() => {
+                          // `disabled` reads false while a newly selected card's checklist loads (05 DV-22); the handler reads true
+                          if (!(pending? checklist)) { toggle(rowsIn(selCol).findIndex(r => r.id == sel.id), checklist.findIndex(x => x.id == it.id), sel.id, it.id, !it.done, selCol, selCol) }
+                        }}>toggle</button>
+                      }}
+                    </li>
+                  }}
+                </ul>
+                <p data-testid="progress">{checklist.filter(it => it.done).length}/{checklist.length} done</p>
+                <input data-testid="item-input" value={itemInput} onInput={e => { itemInput := e.target.value }} placeholder="new item" />{" "}
+                <button data-testid="add-item" disabled={pending? checklist} onClick={() => {
+                  if (itemInput != "" && !(pending? checklist)) {
+                    let t = itemInput
+                    let key = -(minted + 1)
+                    onFlush(() => {
+                      itemInput := ""
+                      minted := n => n + 1
+                    })
+                    addLine(rowsIn(selCol).findIndex(r => r.id == sel.id), sel.id, key, t, selCol)
+                  }
+                }}>add item</button>
+              }}
+            }}
+          </div>
+          {if itemError != "" {
+            <p>item error: {itemError}</p>
+          }}
+        }}
+        }}
+      </section>
+    </div>
+    {if moveError != "" {
+      <p data-testid="move-error">move error: {moveError}</p>
+    }}
+    {if archiveError != "" {
+      <p data-testid="archive-error">archive error: {archiveError}</p>
+    }}
+  </div>
+}

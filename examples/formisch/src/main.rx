@@ -1,0 +1,43 @@
+// Formisch (Solid 2 build) from .rx: a valibot schema built once at module level (a constant, so createForm takes it
+// with no peek, E-10), each field's render prop (MO-11k), the submit handler writing an .rx source. Below it, Solid 2's
+// own store, written through its setter's draft (MO-10i): by path, in a loop, and read out of it as a copy.
+import { createForm, Form, Field, object, string, pipe, isEmail, minLength } from "./formisch.js"
+import { createStore } from "./store.js"
+
+schema = object({ email: pipe(string(), isEmail("Enter a valid email")), password: pipe(string(), minLength(8, "At least 8 characters")) })
+source signedIn := ""
+source text := ""
+source kept: string[] := []
+
+component Login() {
+  form = createForm({ schema: schema })
+  <Form of={form} onSubmit={(output) => { signedIn := output.email }}>
+    <Field of={form} path={["email"]}>{view (field) {
+      <input class="email" {...field.props} type="email" value={field.input ?? ""} />
+      if (field.errors) { <p class="err">{field.errors[0]}</p> }
+    }}</Field>
+    <Field of={form} path={["password"]}>{view (field) {
+      <input class="password" {...field.props} type="password" value={field.input ?? ""} />
+      if (field.errors) { <p class="err">{field.errors[0]}</p> }
+    }}</Field>
+    <button class="submit" type="submit">Sign in</button>
+  </Form>
+  <p class="who">signed in: {signedIn}</p>
+}
+
+component Todos() {
+  [todos, setTodos] = createStore<{ items: string[]; done: number }>({ items: [], done: 0 })
+  <input class="text" value={text} onInput={(e) => { text := e.target.value }} />
+  <button class="add" onClick={() => { setTodos((d) => { d.items[len(d.items)] := text }); text := "" }}>add</button>
+  <button class="finish" onClick={() => { setTodos((d) => { d.done := v => v + 1 }) }}>finish one</button>
+  <button class="all" onClick={() => { setTodos((d) => { d.done := 0; for (const item of d.items) { d.done := d.done + 1 } }) }}>finish all</button>
+  <button class="keep" onClick={() => { setTodos((d) => { kept := d.items }) }}>keep these</button>
+  <ul>{for item in todos.items { <li>{item}</li> }}</ul>
+  <p class="count">{todos.done} of {len(todos.items)} done</p>
+  <p class="kept">{len(kept)} kept</p>
+}
+
+export default component App() {
+  <Login />
+  <Todos />
+}

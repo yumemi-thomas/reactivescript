@@ -32,9 +32,11 @@ target/release/rxc project ../examples/todo.rx   # the TSX projection, with mapp
 target/release/rxc model ../examples/todo.rx     # the resolved model, as JSON
 target/release/rxc serve                         # a language server's requests, a JSON line each (CP-8e)
 cargo build --lib --release --target wasm32-unknown-unknown   # … the same requests as WebAssembly (src/wasm.rs), what the server loads
+cargo build -p rx-words --release --target wasm32-unknown-unknown   # words/: the words rx-declare proves from a JS module's code (words/DESIGN.md), a module of its own
 target/release/rxc compile ../examples/todo.rx --out out   # modules (dom; --target ssr|universal), source maps onto .rx, style.css
 target/release/rxc app ../examples/todo.rx       # the same as JSON, imports by .rx path: what the Vite front end gets
 target/release/rxc check --spa ../examples/todo.rx   # a client-only build: a first load nothing holds is an error (08 CN-3d); also compile, app
+target/release/rxc check --whole-program ../examples/todo.rx   # the modules loaded are the whole program: a kept peek of a prop or provision is decided by every application and provision (E-5a)
 npm --prefix ../ref run crate                    # CP-5: the crate against ref/ on every program
 npm --prefix ../ref run crate -- --project       # … and the TSX projection, text for text, every mapping checked
 RX_CRATE=1 npm --prefix ../ref run types         # the types scenarios, on the crate's projection
@@ -66,7 +68,25 @@ SOLID_VITE_PLUGIN=../../solid-vite-plugin node test/vite.mjs   # every example a
 ```
 
 `test/vite.mjs` needs a built checkout of solid-vite-plugin with built-in
-`.rx` (solidjs/solid-vite-plugin#471, released in 3.0.0-next.57); it does not take the package from npm yet.
+`.rx` (solidjs/solid-vite-plugin#471, released in 3.0.0-next.57). The npm release works: with
+`@solidjs/vite-plugin@3.0.1` installed somewhere, point `SOLID_VITE_PLUGIN` at its package directory.
+
+Two tests need what npm's 3.0.1 does not have yet, front ends given Vite's resolver (`context.resolve`) and called
+at each build's start (`Frontend.buildStart`): the `frontend-resolve` branch of
+`github.com/yumemi-thomas/solid-vite-plugin`, built (`pnpm install && npx rolldown -c`).
+
+```sh
+SOLID_VITE_PLUGIN=<that checkout> node test/vite-hosts.mjs   # whole-program hosts: an alias only Vite knows, a host beyond the root (hostRoots)
+SOLID_VITE_PLUGIN=<that checkout> node test/vite-watch.mjs   # vite build --watch: a .ts-only edit is type-checked, a created .d.rx is read
+```
+
+(`vite-watch` polls, and makes an edit again until a rebuild has started for it: Rolldown's watcher takes a file's
+state some time after the build that named it has ended, and on macOS an edit made before that was never seen. Run at
+`27e56ed` of that branch, 2026-11-23, and again with 09 MO-14f in the crate: `vite-hosts` 6/6, `vite-watch` 7/7. The
+three suites run the Vite `bench/package.json` pins, from its workspace (`test/vite-dir.mjs`; they ran the one in Solid's
+checkout until 2026-11-24): read and run at 8.3.8, three times each. Its source still writes the two spellings below
+(`getImportModule` and the hot update's `replacedUrl`) — `test/vite.mjs context` fails with `__rxKey` taken away — and
+still takes a build watcher's polling from `watch.chokidar` alone (`convertToWatcherOptions`).)
 
 What happens to a `.rx` module in Vite:
 
@@ -83,13 +103,84 @@ What happens to a `.rx` module in Vite:
   with its map onto `.rx` (by line, CP-1c) and, on the entry, the program's
   stylesheet. Solid's plugin then runs its lazy, refresh and
   server-function passes (12 SF-7a) and links the stylesheet as a CSS module
-  (CSS-4).
+  (CSS-4). The server-function pass runs only with
+  `solid({ serverFunctions: true })`: a front end is not told the plugin's
+  options, so each `server fn` body in a browser build carries references
+  to files that do not exist, which the pass removes with the body. With
+  the pass off, the build fails as it transforms the module, before
+  anything is written, and the dev server refuses to serve it — the
+  missing file's name says which fn, where, and the option. In the
+  server's build a body takes the app of the request it answers
+  (`serverApp` from `@reactivescript/runtime/server`), so it brings the
+  runtime with it.
 
 The app mounts a program with `createApp` from `@reactivescript/runtime`
 (`../runtime`, CP-4a), as the examples do.
 
-Not yet: hot updates of `.rx` modules are untested; server rendering in Vite
-needs a request-scoped app for server functions to run in.
+- **Rebuilds are checked.** Under `vite build --watch`, the type-check (13
+  TY-1d) runs again when an entry is compiled after a change, and, where
+  Solid's plugin calls front ends at each build's start, when only a `.ts`
+  module changed. A `.d.rx` created where the program looked for one is
+  read at the program's next compile; nothing watches a path that has no
+  file, so creating it starts no rebuild by itself.
+- **A route file's page.** `import Person from "./routes/people/[id].rx?rx-page"` is `?rx-lib` with the module's
+  default component as the default export (spec/11 CP-4d): what a file-based router that takes `.rx` route files
+  imports each as (`bench/tasks/file-routes`). Beside its components, a module imported `?rx-page` or `?rx-lib`
+  exports each of its exported records of functions as a plain record (`export route = { loader: …, validateSearch:
+  … }` is `import { route } from "./routes/index.rx?rx-page"`): a route's options, for a router whose generator takes
+  them from the route file (`bench/tasks/router-rx-routes`). A `host.d.rx` in the folder of a program's modules, or one above
+  it, says what the host does with the components it renders (spec/09 MO-14) and which of its own components it
+  renders through (MO-14f: the router's component in an `.rx` entry, a layout's `<Outlet />`): the crate reads it
+  with the program, and it is watched as every declaration the program read is. `examples/tanstack` is such an app,
+  built here with TanStack Router's Vite plugin (`test/vite.mjs` installs it once into `test/.out`).
+- **A host declaration derived from the router's tree** (`//@ routes <source>` on its first line, spec/09 MO-14g) is
+  held to the tree before a program is read: the dev server writes one that has fallen behind again and says so (a
+  route file was added while it runs), a build refuses it (`HOST_VIEW_STALE`). The reader is the language server's
+  (`@reactivescript/language-server/src/host-routes.js`): the project's, else this checkout's.
+- **Under the dev server a module is named** (`module.__rxKey`: its path from the root and a hash of its compiled
+  text), and the runtime keys its instance by the name (spec/11 CP-4b). A dev server serves one module under several
+  URLs — a timestamp after each edit, and Vite 8 spells the query of a `?import` module in two orders — and the
+  browser evaluates each: without the name a module's state and its contexts were made twice, and an edited route
+  file read `no provision` for what the app's entry provides. A build names nothing. `test/vite.mjs` (*context*).
+- **Solid's start mode** (`solid({ start: { app }, ssr: true, frontends: { ".rx": rx({ pages: [app] }) } })`, `app`
+  an `.rx` file): start mode takes its root as a file and writes the import itself, so `pages` tells the front end
+  that file is a page — its default component, as an import with `?rx-page` says (spec/11 CP-4d);
+  `bench/tasks/start-mode`.
+- **The runtime is this package's dependency** (spec/11 CP-4a): an app lists the compiler, and the import a compiled
+  `?rx-lib` or `?rx-page` module carries is found here (`runtimeFor`) — the bare name where the app's own imports
+  reach the package, else this package's own copy by its folder. The published manifest
+  (`scripts/published.mjs`, written by the publish job: the runtime in `dependencies`, Solid as a peer) is also what
+  lets Solid's plugin load the runtime with the app's copy of Solid under the dev server; it is not committed to
+  `package.json`, as the platform packages are not, and the suites install the package with it
+  (`bench/harness.mjs`, `test/runtime-resolve.mjs`: the runtime nested, hoisted, and listed nowhere).
+- **Whole program (opt-in).** `rx({ wholeProgram: true })` counts the JS
+  under the Vite root that imports a module with `?rx-lib` as its hosts
+  (02 E-5a); `hostRoots: ["../site"]` names folders or files beyond the
+  root that hold more.
+
+Not yet: Solid's refresh of a single `.rx` component in place is untested (an edit of an `.rx` module reloads the
+page, or re-runs the module that hosts it, and what the page shows after it is tested: `test/vite.mjs`,
+`bench/tasks/router-rx-routes`, `start-mode`). Server functions in Vite — served, over the wire after a client
+navigation, in a client-only app, and their failures — are tested by `test/server-fns.mjs`.
+
+### A library: `rx-lib`
+
+`rx-lib` (`lib.mjs`, the package's bin; spec/09 MO-13e) builds a package written in `.rx` for every app that may use
+it, `.rx` or `.tsx`:
+
+```sh
+npx rx-lib --write           # entries from package.json's "reactivescript": { "entries": [...] }, or src/index.rx
+npx rx-lib src/index.rx src/theme.rx --root src --out dist   # the same, said on the command line
+```
+
+For each module the entries reach it writes `x.dom.js` and `x.ssr.js` (the module compiled for the browser and for
+the server, `rxc app --lib`), `x.js` and `x.server.js` (what an import resolves to on each side: the factory as
+`__rx`, and each export through the runtime's `library`, or `primitives` where a fn hands JavaScript its parts (spec/09 MO-13i), with the module's name), `x.d.rx` (the printed signature, `//@ signature x.rx`),
+`x.rx.d.ts` (the projection's types, emitted by the project's `rx-tsc`: `@reactivescript/language-server` must be
+installed, or pass `--no-types`) and `x.d.ts` (the types of `x.js`). It fails when the package.json's `exports` do
+not name those files under Solid's conditions, printing the map; `--write` writes it, and the peers. `RXC=<rxc>`
+compiles with a binary in place of the Node-API build. `test/lib.mjs` covers the build; `bench/tasks/rx-package`
+builds a package, installs it and runs an `.rx` app and a `.tsx` app against it.
 
 ### Releasing
 

@@ -1,0 +1,41 @@
+// A person's page on @solidjs/router 2.0's data layer: the person is a `query()` the page reads (cached per id, asked
+// again after a mutation), promoting them is a form action, its settled submissions are read with `useSubmissions`,
+// a button asks the query again by its key (`revalidate`), and another empties the cache (`query.clear()`, a method of
+// the library's `query`): the next visit asks.
+// (Router 2.0 has no `createAsync` and no `useSubmission`: a query is read with Solid's own primitives — here, an
+// equation that awaits it — and submissions are the settled history, `useSubmissions`.)
+import { createRouter, defineRoute, useSubmissions, revalidate, query } from "@solidjs/router"
+import { getPerson, promoteForm, NotFound } from "./people.js"
+
+component Layout(props: { children?: View }) {
+  <nav><a href="/">Home</a> <a href="/people/1">Ann</a> <a href="/people/9">Nobody</a></nav>
+  errored fallback(e: NotFound) { <p class="missing">{e.message}</p> } {
+    loading fallback { <p class="wait">loading…</p> } { <main>{props.children}</main> }
+  }
+}
+component Home() { <h1>People</h1> }
+component Person(props: { params: { id: string } }) {
+  person = await getPerson(props.params.id)
+  submissions = useSubmissions(promoteForm)
+  last = len(submissions) > 0 ? submissions[len(submissions) - 1] : null
+  <h1>{person.name}</h1>
+  <p class="role">{person.role}, asked {person.asked}×</p>
+  <form action={promoteForm} method="post">
+    <input type="hidden" name="id" value={props.params.id} />
+    <button class="promote" type="submit">Promote</button>
+  </form>
+  <p class="result">{last != null && last.result != null ? last.result : ""}</p>
+  <button class="again" onClick={() => { revalidate("person") }}>ask again</button>
+  <button class="forget" onClick={() => { query.clear() }}>forget</button>
+}
+
+Router = createRouter({ routes: [
+  defineRoute({ path: "/", component: Layout, children: [
+    defineRoute({ path: "/", component: Home }),
+    defineRoute({ path: "/people/:id", component: Person })
+  ] })
+] })
+
+export default component App() {
+  <Router />
+}

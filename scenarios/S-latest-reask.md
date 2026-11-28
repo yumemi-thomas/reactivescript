@@ -46,15 +46,3 @@ refresh (instant 5). The re-ask's answer commits the server's list (instant 6).
 | 4 | resolve "l" [{"id":1},{"id":2},{"id":3},{"id":4}] | `2 / 2` |
 | 5 | resolve "close" 0 | `2 / 2` |
 | 6 | resolve "l" [{"id":2},{"id":3},{"id":4}] | `3 / 3` |
-
-## Divergences (DV-19)
-
-- oracle "Frames" instant 4: `2 / 3`
-- oracle "Frames" instant 5: `2 / 3`
-- oracle "Variant: the outside answer changes the truth" instant 4: `2 / 4`
-- oracle "Variant: the outside answer changes the truth" instant 5: `2 / 4`
-
-Found by the timing fuzzer on the chain4 reference desk (Solid 2.0.0-rc.21): a tab count read with `latest` showed the
-server's row count beside a list with a close in flight. Filed as solidjs/solid#4689; Solid ruled it (decision 3 in
-#4695, D-22: "a slot that is displaying a guess has the guess as its newest value"), not built yet. The variant was
-found reviewing PR #31: an earlier interpreter change let the closed row come back at instant 5 (`4 / 4`).

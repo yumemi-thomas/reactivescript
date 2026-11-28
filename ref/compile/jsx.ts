@@ -5,12 +5,16 @@ import { transform } from "@solidjs/compiler";
 import { fileURLToPath } from "node:url";
 export type Target = "universal" | "dom" | "ssr";
 export const STRING_RENDERER = fileURLToPath(new URL("./string-renderer.ts", import.meta.url));
+/** An element's name may have a `.` (MO-11q: `<my-kit.card>`, `<svg.g>`), which JSX reads as a member of a component: it is written
+ *  with a mark, and the mark taken off what Solid's compiler answers. */
+const DOT = "__rx_dot_";
+export const jsxTag = (tag: string) => tag.replaceAll(".", DOT);
 /** Each module's JSX → JavaScript for `target` (dom and ssr with hydration; universal over the test renderer). */
 export function lowerViews(files: Map<string, string>, target: Target): Map<string, string> {
   const out = new Map<string, string>();
   for (const [name, code] of files) {
     const r = transform(code, { filename: name.replace(/\.mjs$/, ".jsx"), generate: target, hydratable: target !== "universal", moduleName: target === "universal" ? STRING_RENDERER : "@solidjs/web" });
-    out.set(name, r.code);
+    out.set(name, r.code.replaceAll(DOT, "."));
   }
   return out;
 }

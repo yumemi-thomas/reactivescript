@@ -1,0 +1,14 @@
+== hidden
+✗ two adds show both, each taking its own id
+✗ a renamed card keeps its new title when it moves
+43/45 passed
+== overlap
+✗ an earlier move declined while a later move of the card is out leaves it where the later one put it
+✗ one of two moves declined puts back only its card
+✗ toggles keep showing while the checklist reloads
+✗ a move into Doing that fills it while a move out is pending disables the rest
+22/26 passed
+== fuzz
+board-rx-opus-2: 1/20 seeds found a hole
+  seed 8 step 38: settled: card: "#1 Write spec · 0/2", server "#1 Alpha · 0/2"
+    land fetchCards:doing ; up #4 ; select #3 ; fail moveCard:4,doing,0 ; up #4 ; tab archive ; fail fetchCards:todo ; tab board ; tab archive ; land moveCard:4,doing,0 ; tab board ; add Delta 1 ; (move failed: locator.click: Timeout 2000ms exceeded.) ; land fetchCards:todo ; down #1 ; up #1 ; land fetchChecklist:3 ; up #2 ; add Delta 2 ; fail addCard:todo,Delta 2 ; up #1 ; select #1 ; rename Alph

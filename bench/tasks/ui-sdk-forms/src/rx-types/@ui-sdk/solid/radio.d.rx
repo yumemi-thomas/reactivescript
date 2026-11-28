@@ -1,0 +1,13 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+// As `rx-declare @ui-sdk/solid/radio` drafts them: the group's context is the app's own claim (2026-11-25:
+// a radio fails alone, "<Radio> must be used inside <RadioGroup>", and renders inside its
+// group). By hand: `handler` on the group's change.
+export type RadioState = import("@ui-sdk/solid/radio").RadioState
+export type RadioProps = import("@ui-sdk/solid/radio").RadioProps
+export type RadioGroupOptions<T extends string = string> = import("@ui-sdk/solid/radio").RadioGroupOptions<T>
+export type RadioGroupState = import("@ui-sdk/solid/radio").RadioGroupState
+export type RadioGroupValueChangeReason = import("@ui-sdk/solid/radio").RadioGroupValueChangeReason
+export context radioGroup
+export component Radio(props: Omit<import("@ui-sdk/solid").PartProps<"button", RadioState>, "value" | "onSelect"> & RadioProps & { render?: (props: Record<string, any>, state: { checked: boolean; disabled: boolean; readOnly: boolean; required: boolean; }) => View }) uses(radioGroup)
+export component RadioGroup<T extends string = string>(props: RadioGroupOptions<T> & Omit<import("@ui-sdk/solid").PartProps<"div", RadioGroupState>, "onChange" | "onSelect"> & { onValueChange?: handler (value: T | null, details: import("@ui-sdk/core").ChangeDetails<RadioGroupValueChangeReason>) => void; render?: (props: Record<string, any>, state: { value: string | null; disabled: boolean; readOnly: boolean; required: boolean; }) => View }) provides(radioGroup)
+export component RadioIndicator(props: Parameters<typeof import("@ui-sdk/solid/radio").RadioIndicator>[0] & { render?: (props: Record<string, any>, state: NoInfer<RadioState>) => View })

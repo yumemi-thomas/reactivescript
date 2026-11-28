@@ -1,0 +1,12 @@
+== hidden
+✗ the new-card input starts empty when the board opens again
+44/45 passed
+== overlap
+✗ one of two moves declined puts back only its card
+✗ an add accepted while To do reloads shows the card once
+✗ a toggle declined after another card was selected puts the first card's count back
+✗ two renames, the later declined after the earlier was accepted: the earlier title stays
+✗ a move into Doing that fills it while a move out is pending disables the rest
+21/26 passed
+== fuzz
+board-rx-opus-5: 0/20 seeds found a hole

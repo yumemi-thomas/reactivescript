@@ -1,0 +1,55 @@
+// Button, ToggleButton, ToggleGroup. Derived from button, toggle-button and toggle-group of @kobalte/core 2 (solid2, 9c237a06) (MIT, see ../NOTICE).
+import { call, give, move, tell, enter, mark } from "./dom.js"
+import { isString } from "@reactivescript/std/is"
+import pure { flag, uniqueId } from "./dom.js"
+import { Button as ButtonProps, Div } from "./types.js"
+
+export component Root(props: ButtonProps) {
+  { type = "button", disabled, children, ...rest } = props
+  <button type={type} disabled={disabled} aria-disabled={undefined} data-disabled={flag(disabled)} {...rest}>{children}</button>
+}
+
+export type ToggleButtonProps = Omit<ButtonProps, "children" | "onChange"> & { pressed?: boolean; defaultPressed?: boolean; onChange?: (pressed: boolean) => void; children?: View | ((s: { pressed: boolean }) => View) }
+export component ToggleButton(props: ToggleButtonProps) {
+  { pressed, defaultPressed, onChange, onClick, children: shown, ...rest } = props
+  source mine := peek(defaultPressed) ?? false
+  now = pressed ?? mine
+  <Root aria-pressed={now ? "true" : "false"} data-pressed={flag(now)} onClick={(e: any) => { call(e, onClick)
+    if (!props.disabled) { let next = !now; mine := next; if (onChange) { onChange(next) } } }} {...rest}><props.children pressed={now} /></Root>
+}
+
+type Group = { on: string[]; disabled: boolean; orientation: "horizontal" | "vertical"; pick: (v: string) => void; focused: string | undefined; id: string; focus: (v: string) => void }
+context group: Group
+export type ToggleGroupProps = Omit<Div, "onChange"> & { disabled?: boolean; orientation?: "horizontal" | "vertical" } & ({ multiple?: false; value?: string | null; defaultValue?: string; onChange?: (v: string | null) => void } | { multiple: true; value?: string[]; defaultValue?: string[]; onChange?: (v: string[]) => void })
+fn list(v: any): string[] => v == undefined ? [] : isString(v) ? [v] : v
+export component ToggleGroup(props: ToggleGroupProps) {
+  { value, defaultValue, onChange, multiple = false, disabled = false, orientation = "horizontal", onKeyDown, onFocusIn, children, ref: user, ...rest } = props
+  source mine: string[] := list(peek defaultValue)
+  own = uniqueId("group")
+  source el: any := undefined
+  source focused: string | undefined := undefined
+  picked = value === undefined ? mine : list(value)
+  action pick(v: string) {
+    let next = picked.includes(v) ? picked.filter(x => x != v) : multiple ? [...picked, v] : [v]
+    mine := next
+    tell(onChange, multiple ? next : next[0] ?? null)
+  }
+  action focus(v: string) { focused := v }
+  provide group = { on: picked, disabled: disabled, orientation: orientation, pick: pick, focused: focused, id: own, focus: focus }
+  <div role="group" id={own} ref={(e: Element) => { el := e; give(user, e) }} tabindex={disabled ? undefined : focused == undefined ? 0 : 0 - 1} data-orientation={orientation} onKeyDown={(e) => { call(e, onKeyDown); move(e, el, "[aria-pressed]:not([disabled])", orientation, true) }} onFocusIn={(e) => { call(e, onFocusIn); enter(e, el, picked[0]) }} {...rest}>{children}</div>
+}
+export type ToggleGroupItemProps = Omit<ButtonProps, "children" | "value"> & { value: string; children?: View | ((s: { pressed: boolean }) => View) }
+export component ToggleGroupItem(props: ToggleGroupItemProps) {
+  { value, disabled, onClick, onFocus, onPointerDown, onKeyDown, children: shown, ref: user, ...rest } = props
+  g = use group
+  source pressedBy := ""
+  now = g.on.includes(value)
+  off = disabled || g.disabled
+  mine = uniqueId(peek(g.id) + "-item")
+  <Root id={props.id ?? mine} ref={(e: Element) => { mark(e, value); give(user, e) }} disabled={off} tabindex={off ? undefined : g.focused == value ? 0 : 0 - 1} aria-pressed={now ? "true" : "false"} data-orientation={g.orientation} data-pressed={flag(now)}
+    onPointerDown={(e: any) => { call(e, onPointerDown); pressedBy := e.pointerType; if (e.pointerType == "mouse" && !off) { g.pick(value) } }}
+    onClick={(e: any) => { call(e, onClick); if (pressedBy != "mouse") { g.pick(value) }
+      pressedBy := "" }}
+    onKeyDown={(e: any) => { call(e, onKeyDown); if (e.key == "Enter" || e.key == " ") { e.preventDefault(); g.pick(value) } }}
+    onFocus={(e: any) => { call(e, onFocus); g.focus(value) }} {...rest}><props.children pressed={now} /></Root>
+}

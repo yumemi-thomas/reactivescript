@@ -1,15 +1,18 @@
 // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
+import { inPrelude, language } from "./names.ts";
 import { classMap } from "./style.ts";
+import { nonTailAwaits } from "./awaits.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
+import { instantiates, keptParts, ownUses, readsOwn } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
 
 import { RuleError, CheckError } from "./errors.ts";
 import { checkModules, unwrapServer } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
-import { singleModule, type ModuleSet } from "./modules.ts";
+import { singleModule, shownAll, shownIn, usedIn, heldReads, viewCtxAll, viewsAll, type ModuleSet, type Shown } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
@@ -21,12 +24,15 @@ const NOT_YET = Symbol("until: not yet");                 // AC-6: thrown out of
 export class Flight { key: string; state: "pending" | "resolved" | "rejected" = "pending"; value: unknown; first: { state: "resolved" | "rejected"; value: unknown } | null = null; constructor(key: string) { this.key = key; } }
 export class ViewValue { region: Region; items: VItem[]; constructor(region: Region, items: VItem[]) { this.region = region; this.items = items; } }
 
+/** RG-4c: a view given to a component that shows it (`view (s) { … }`): the caller's names, an instance at each place it is shown. */
+export class ViewFn { m: Extract<Markup, { k: "mview" }>; region: Region; plain: boolean; one?: Node; constructor(m: Extract<Markup, { k: "mview" }>, region: Region, plain = false) { this.m = m; this.region = region; this.plain = plain; } }   // `plain`: content, a view that asks nothing (RG-4c)
+
 type Path = string;
 const join = (p: Path, k: string | number) => (p === "" ? String(k) : `${p}.${k}`);
 type Target = Node | object;
 const isErr = (v: unknown): v is ErrVal => v instanceof ErrVal;
 const isAbsent = (v: unknown) => v instanceof ErrVal || v instanceof PendingVal;
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !(v instanceof ErrVal) && !(v instanceof PendingVal) && !(v instanceof Flight) && !(v instanceof ViewValue);
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !(v instanceof ErrVal) && !(v instanceof PendingVal) && !(v instanceof Flight) && !(v instanceof ViewValue) && !(v instanceof ViewFn);
 
 /** Whether a difference between a guess and the truth touches a key the guess wrote (AC-3: a path guess is per key, Solid's per-node override). */
 function guessedAt(n: { guessPaths: Path[] }, diff: Set<Path>): boolean {
@@ -34,11 +40,13 @@ function guessedAt(n: { guessPaths: Path[] }, diff: Set<Path>): boolean {
   return false;
 }
 /** Leaf paths at which `a` and `b` differ (E-6 per path). */
+/** ST-5: a copy of an answer's arrays and records, kept beside a value that path writes change in place. */
+function plainCopy(v: unknown): unknown { return Array.isArray(v) ? v.map(plainCopy) : v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plainCopy(x)])) : v; }
 function diffPaths(a: unknown, b: unknown, path: Path, out: Set<Path>) {
   if (Object.is(a, b)) return;
   if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b)) {
     const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-    for (const k of keys) diffPaths(a[k], b[k], join(path, k), out);
+    for (const k of keys) { if ((k in a) !== (k in b)) out.add(join(path, k)); diffPaths(a[k], b[k], join(path, k), out); }   // a field that is there and `undefined` is not one that is not there: `{ ...r }` gives the first and not the second (07 §4)
     if (Array.isArray(a) && Array.isArray(b) && a.length !== b.length) out.add(join(path, "length"));
     return;
   }
@@ -53,18 +61,20 @@ export class Node {
   value: unknown = undefined; hasValue = false;        // in-flight (σ′)
   committed: unknown = undefined; hasCommitted = false; // committed (σ)
   changedSinceCommit = false;
-  prev: unknown = undefined; hasPrev = false;           // C-2 (ruled 2026-10-23, DV-5): the value before the most recent change
+  prev: unknown = undefined; hasPrev = false; own: unknown = undefined; hasOwn = false; was: unknown = undefined; wasAt = -1; ownPre = false;   // ownPre: its expression reads it; own: the last value the node had when the instant began (`pre x` in x's own equation, however often the instant computes it)           // C-2 (ruled 2026-10-23, DV-5): the value before the most recent change
   state: "clean" | "check" | "dirty" = "dirty";
   changed = false; demanded = false; evaluated = false; // this instant
   deps = new Map<Target, Set<string>>();
   lane = false;                                        // R-10: read a probe during last compute
   lanes = new Set<Node>();                             // R-10 / H-7: which probed sources' lanes this value lives in
   inLanes = new Set<Node>();                           // H-7: the lanes it is held by: all but a guess's lane reached only through `latest` (DV-10)
+  lifted: Node[] = [];                                 // 07 §3: the awaits of its expression that are flights of their own
   flight: Flight | null = null; answered = false; firstPaint = false; landing = false;   // R-1, R-7; landing: its flight answered and it has not recomputed since
   heldBy: number | null = null;                        // the change (instant) whose uncommitted write / flight this value belongs to
   taint = new Set<number>();                           // open changes this value derives from (equations); empty for served reads
   heldOn: number | null = null;                        // readers: the group this reader holds (root), or null
   taintFrom = new Set<Node>();                         // the inputs whose holds this node's last pass took (plain reads, not probes)
+  control = false;                                     // H-8: an `if` condition or a `for` list — a computation (Solid's memo), not a display: a held value is not served to it
   served = new Set<Node>();                            // readers: held values this pass was served σ for (D-3); re-run while any is still in flight
   triggered = false;                                   // readers: this instant's pass was caused by a notification (D-4: membership is the tick's)
   kept = new Map<Target, Set<string>>();               // D-10: inputs of the committed pass, kept while the value is held
@@ -72,13 +82,17 @@ export class Node {
   plainTaint = new Set<number>();                      // R-11: the open changes this pass's plain reads derive from (a lane value carries these, not its lane's)
   probed = new Set<Node>();                            // R-11 / Solid D-25: the nodes this pass read ahead (`latest`, `pending?`)
   plainAhead = new Set<Node>();                        // R-11: held nodes this pass read plainly and was given the in-flight value
-  screenFor: Set<Node> | null = null;                  // R-11: a re-run pass's probed nodes — a plain read of one is the screen's
+  verdict = false;                                     // R-11 (Solid D-25, as Solid runs it): this pass is a display-ahead reader — it probes, or its last pass did
+  carried = false;                                     // R-11: the pass is one only because its last pass probed (S-solid-50's carry-over)
+  probes = false; lastProbes = false; passInstant = -1;   // R-11: this pass probed (`latest`, `pending?`, or read an equation whose last pass did); its last pass did; the instant of its last pass
   deferred = false; lagging = false;                   // V-16 / D-40: declared lag — re-asks never hold; readers keep the shown answer
   question = false;                                    // ST-5: `source x = e` — an equation until written
   guess: unknown = undefined; hasGuess = false; guessBy: number | null = null; corrected = false; guessPaths: Path[] = [];
   shownGuess: unknown = undefined; guessShown = false; answerCorrected = false;   // D-22/D-34 (Solid decision 3, #4695): the guess as the screen last showed it; `latest x` keeps it after an answer corrects the graph, until the hold commits
   guessEntries: { path: Path; by: number; value: unknown; spent?: boolean }[] = [];   // H-11: each guess with the hold it was made over ("" = the root); `guess` is the truth with the live ones applied in order; `spent`: a new answer corrected it (D-34) — it shows the truth now but still belongs to its action, so the action's re-ask still holds it (D-34) and its end still ends it   // guessPaths: the keys guessed ("" = the root; AC-3 path targets)   // AC-3 / H-11: a guess over the hold `guessBy`; corrected: the truth differed, display keeps what it showed
   quiet = false; refreshBy: number | null = null; refreshInAction = false;      // AC-4: a quiet re-ask; its landing belongs to the change that asked (D-31)
+  reasked = false;
+  overridden = false; lastAnswer: unknown = undefined; hasAnswer = false;   // ST-5 (2026-11-27): a question source written over, and its question's last value — the write stands until that value changes                                     // H-6a: a `refresh` re-ask whose flight is out (it outlives `quiet`, which is the asking instant's)
   affectedBy: number | null = null;                    // AC-5: declared pending until that change lands
   heldKeys = new Map<string, number>();                // ST-2c: held path writes, per key ("" = the root)
   keyBy: string | null = null;                         // ST-4: a keyed collection is reconciled by this key
@@ -90,11 +104,12 @@ type CtxBinding = { context: Extract<Decl, { k: "context" }>; home: Region; dflt
 type Binding = Node | { constant: unknown } | CtxBinding | { fn: FnDecl; home: Region } | { comp: CompDecl; home: Region } | { action: ActionDecl; home: Region };   // home: the declaring region — bodies resolve names there (lexical, RG-7a; across modules, MO-6)
 /** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
 /** A block being executed: a plain block, a `try` body (with its handlers), a catch handler, or a finally. */
-type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[] };
+type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[]; env?: Map<string, unknown> };   // env: the scope a turn of a loop runs in (07 §5), and the blocks inside it; absent: the run's
 type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; caught?: Extract<Expr, { k: "catch" }> | null; result?: unknown; returned?: boolean; settle?: { flight: Flight; name: string } };   // settle: a server function's body — its end settles the call (12 SF-7b)
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
   scope = new Map<string, Binding>();
+  providedBy = new Map<CtxBinding, object>();          // RG-7b: the declaration each was provided by
   provided = new Map<CtxBinding, Node>();              // RG-7: provisions by context, found through the instantiation chain
   alive = true;
   parent: Region | null; rt: Runtime; boundary: BoundaryItem | null;
@@ -109,14 +124,14 @@ export class Region {
     this.parent?.children.delete(this);
   }
 }
-type EffectRec = { computes: Node[]; body: Stmt[]; region: Region; ran: boolean; alive: boolean; cleanup?: () => void; last: unknown[] };
+type EffectRec = { computes: Node[]; body: Stmt[]; region: Region; ran: boolean; alive: boolean; cleanup?: () => void; last: unknown[]; erred?: boolean };
 type Write = { node: Node; path: (string | number)[]; value: unknown };
 
 // view instances: structure has a committed and an in-flight version (H-2, H-8)
 type ViewInst = { region: Region; items: VItem[] };
 type Row = { elem: unknown; region: Region; inst: ViewInst };
 type ReaderItem = { k: "read"; node: Node; shown: string | null };
-type BoundaryItem = { classes?: unknown[]; k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean; armedBy: number; laneAttached: boolean; bornCandidates: number };
+type BoundaryItem = { classes?: unknown[]; k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean; armedBy: number; laneAttached: boolean; bornCandidates: number; quiet?: Node[] };   // quiet: H-6a, the quiet re-asks `on` reads through, while they are out
 type VItem =
   | { k: "text"; s: string } | ReaderItem | { k: "comp"; inst: ViewInst; portal?: boolean }   // portal: RG-8 — settled and committed here, shown at the end of the document
   | { k: "el"; tag: string; attrs: { name: string; node: Node }[]; children: VItem[] }
@@ -130,14 +145,17 @@ function catching(b: BoundaryItem | null, err: unknown): BoundaryItem | null { f
 /** H-12: a `loading` above an error fallback that is armed (re-armed by its `on`): the pending content under the fallback is its. */
 function armedAbove(eb: BoundaryItem): BoundaryItem | null { for (let x = eb.parent; x; x = x.parent) if (x.k === "loading") return x.armed ? x : null; return null; }
 /** An `errored` above that is showing its fallback: everything under it is behind it (H-4). */
-function erroredShowing(b: BoundaryItem | null): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === "errored" && x.showingFallback) return x; return null; }
+function erroredShowing(b: BoundaryItem | null): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === "errored" && x.showingFallback && x.committedFallback) return x; return null; }
 
 // ---------------------------------------------------------------- runtime
+/** E-9b: a name of a fn's body, in a call of it. */
+class Local { read: () => unknown; constructor(read: () => unknown) { this.read = read; } }
 export class Runtime {
   root: Region;
   effects: EffectRec[] = [];
   view!: ViewInst;
   pendingWrites: Write[] = [];
+  private refCalls: { made: number; region: Region; call: () => void }[] = [];                // 07 §4: the `ref`s of the elements made, not yet called
   pendingCleanups: (() => void)[] = [];
   subs = new Map<Target, Map<string, Set<Node>>>();
   flights = new Map<string, Flight>();
@@ -153,6 +171,8 @@ export class Runtime {
   private groupOpen(c: number) { return this.openChanges.has(this.find(c)); }
   private tracking: Node | null = null;
   private demandMode = true;
+  /** B3 (2026-11-26): statement closures written as items of a list or fields of a record: io values, made in reactive scope */
+  private heldClosures = new WeakSet<Expr>();
   private probing = 0;                                  // inside `latest`: reads σ′, never served
   private committedView = false;                        // D-25: evaluate a lane reader against the committed world
   private probeReads: Set<Node> | null = null;          // `pending?` over a composite: nodes read inside
@@ -170,10 +190,28 @@ export class Runtime {
 
   /** 09 MO-1: each imported module's region, instantiated once, dependencies first; its state is app state. */
   modules = new Map<string, Region>();
+  private shown: Map<unknown, Map<string, Shown>>;   // RG-4c
+  above = new WeakMap<object, object>();               // RG-7b: a `use c` written in what `provide c` is given, and that provision: it reads what is above it
+  private views: Map<unknown, Set<string>> = new Map();   // RG-4c: each component's props that are views
+  private held: Set<unknown>;                          // RG-4c: the readers that show a component's children
+  private viewCtxs = new Set<unknown>();                // RG-4c: the contexts that hold a view
+  /** RG-4c: what answers when a view is asked whether it was given. A view is a value that is not made until it is
+   *  shown, so the question is the value's own, as of any other (`0`, `""`, `undefined` answer as JavaScript has it):
+   *  content, a named view and one given on are something. Content that is one `{e}` asking nothing of its place is
+   *  what `e` shows: a view given on asks its giver, a value is its text. */
+  askedAt(v: unknown): unknown { return this.asked(v); }
+  private asked(v: unknown): unknown {
+    while (v instanceof ViewFn && v.plain && v.m.body.length === 1) {
+      const r = v.m.body[0]; if (r.k !== "read" || r.e.k === "fn" || placed(r.e)) break;
+      const x = this.ev(r.e, v.region); if (isAbsent(x)) return x;
+      v = x instanceof ViewFn || x instanceof ViewValue || (x === undefined && this.held.has(r)) ? x : fmt(x);
+    }
+    return v;
+  }
   constructor(input: Program | ModuleSet) {
     const set = "programs" in input ? input : singleModule(input);
     const program = set.programs.get(set.entry)!;
-    this.program = program;
+    this.program = program; this.shown = shownAll(set); this.held = heldReads(set); this.viewCtxs = viewCtxAll(set); this.views = viewsAll(set);
     this.root = new Region(null, this, null);
     const { diags } = checkModules(set); if (diags.length) throw new CheckError(diags);   // 08: the checker runs first; every static diagnostic is an error
     for (const path of set.order) { if (path === set.entry) continue; const r = new Region(this.root, this, null); this.modules.set(path, r); this.declare(set.programs.get(path)!.decls, r); }
@@ -181,13 +219,15 @@ export class Runtime {
     this.view = this.instantiate(program.view, this.root);
   }
 
+  private logFn = Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true });
+  private langFn(name: string): unknown { const l = language(name, false); return l === "fn" ? BUILTINS[name] : l === "log" ? this.logFn : undefined; }
   // ---- declarations (E-1, E-4, E-7, EF-1) ----
   declare(decls: Decl[], region: Region) {
     for (const d of decls) {
       if (d.k === "import" && d.resolved) { const m = this.modules.get(d.resolved); if (!m) throw new RuleError("MO-9", `${d.from} is known by its signature only (${d.from.replace(/\.rx$/, ".d.rx")}): there is no body to run`); for (const { name, alias } of d.names) { const b = m.scope.get(name); if (b) region.scope.set(alias, b); } continue; }   // MO-1: the module's own bindings (a type binds nothing)
       if (d.k === "import" && isPrims(d.from)) { for (const { name, alias } of d.names) { const f = primRx(name); if (!f) throw new RuleError("IMPORT", `${name} from "${d.from}" is not in the scenario prelude`); region.scope.set(alias, { fn: f, home: this.root }); } continue; }   // MO-10: the prelude's primitives, as the .rx they mean
       if (d.k === "import") for (const { name, alias } of d.names) {                    // R-io-4: a JS import is io unless `pure`; the scenario prelude supplies the values
-        const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined);   // "./api": every function is a flight keyed by its arguments
+        const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : inPrelude(d, name) ? this.langFn(name) : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined;   // "./api": every function is a flight keyed by its arguments
         if (v === undefined) throw new RuleError("IMPORT", `${name} from "${d.from}" is not in the scenario prelude`);
         region.scope.set(alias, { constant: d.pure || d.declaredPure?.includes(name) || d.declaredErrors?.includes(name) || typeof v !== "function" ? v : Object.assign((...a: unknown[]) => (v as (...a: unknown[]) => unknown)(...a), { io: true }) });
       }
@@ -197,8 +237,8 @@ export class Runtime {
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) this.serverNames.set(sf, d.name); }   // SF-1d: its flights are named by the equation
       if (d.k === "fn") region.scope.set(d.name, { fn: d, home: region }); if (d.k === "component") region.scope.set(d.name, { comp: d, home: region }); if (d.k === "action") region.scope.set(d.name, { action: d, home: region }); }
     for (const d of decls) {                                           // E-7: equations are a system
-      if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
-      if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(this.ctxNamed(d.name, region), b instanceof Node ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
+      if (d.k === "eq" && !this.instantiates(d.e, region)) { for (const x of keptParts(d.e, d.name)) this.keptExprs.add(x); const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.ownPre = readsOwn(d.e, d.name); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
+      if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; const c = this.ctxNamed(d.name, region); for (const u of ownUses(d.name, d.e)) this.above.set(u, d); region.providedBy.set(c, d); region.provided.set(c, b instanceof Node && b.kind === "source" ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
       if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
       else if (d.k === "source") { const n = this.mkNode("source", d.name, region); n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
     }
@@ -209,7 +249,7 @@ export class Runtime {
         if (isReactive(d.init, region)) throw new RuleError("SNAPSHOT_INITIALIZER", `source ${d.name} := … reads a reactive value: write the snapshot as peek(…) (E-4, DV-6)`);
         n.value = this.demandMode && !this.currentRun ? this.unsubscribed(() => this.evalExpr(d.init, region)) : this.snapshot(d.init, region); n.hasValue = true; n.state = "clean"; n.changed = true; n.changedSinceCommit = true;   // E-4
       } else if (d.k === "effect") {
-        const computes = d.inputs.map((e, i) => this.mkNode("eq", `effect#${i}`, region, rt => rt.evalExpr(e, region)));
+        const computes = d.inputs.map((e, i) => this.mkNode("eq", `effect#${i}`, region, rt => rt.whole(rt.evalExpr(e, region))));
         const rec: EffectRec = { computes, body: d.body, region, ran: false, alive: true, last: [] };
         region.effects.push(rec); this.effects.push(rec);
       }
@@ -217,7 +257,7 @@ export class Runtime {
   }
   private fnBind(e: Expr, region: Region): { fn: FnDecl; home: Region } | null { if (e.k !== "call" || e.f.k !== "id") return null; const b = region.lookup(e.f.name); return b && "fn" in b ? b : null; }
   private fnOf(e: Expr, region: Region): FnDecl | null { return this.fnBind(e, region)?.fn ?? null; }
-  private isInstantiating(f: FnDecl) { return f.params.some(p => p.ref) || f.decls.length > 0; }
+  private isInstantiating(f: FnDecl) { return instantiates(f); }
   private instantiates(e: Expr, region: Region) { const f = this.fnOf(e, region); return !!f && this.isInstantiating(f); }
   private instantiateFn(call: Extract<Expr, { k: "call" }>, region: Region): Node {   // E-9 / RG-6
     const fb = this.fnBind(call, region)!; const f = fb.fn;
@@ -235,14 +275,48 @@ export class Runtime {
     if (tb instanceof Node) return tb;
     return this.mkNode("eq", `${f.name}()`, r, rt => rt.evalExpr(f.tail, r));
   }
+  /** 07 §4: a spread on an element is Solid's — the `children` it carries are the element's content, where the element
+   *  writes none of its own (`<div {...props} />`). */
+  private spreadKidsOf = new WeakMap<Markup, Markup[]>();
+  private spreadKids(m: Extract<Markup, { k: "el" }>): Markup[] {
+    if (!m.attrs.some(a => a.name === "...") || m.children.some(c => c.k !== "text" || c.s.trim())) return m.children;
+    let ks = this.spreadKidsOf.get(m);
+    if (!ks) { ks = [...m.children, ...m.attrs.filter(a => a.name === "...").map((a): Markup => { const r: Markup = { k: "read", e: { k: "member", o: a.e, p: "children" } }; this.held.add(r as never); return r; })]; this.spreadKidsOf.set(m, ks); }
+    return ks;
+  }
   mkNode(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) { const n = new Node(kind, name, region, compute); region.nodes.add(n); return n; }
 
   // ---- instants (02 §4, 05 H-2/H-3) ----
   step(writes: Write[]): { frame: string; effects: string[] }[] {
     const out: { frame: string; effects: string[] }[] = [];
     let w = writes;
+    let fold = false;
     for (;;) {
-      do { this.instant++; out.push(this.runInstant(w)); w = this.pendingWrites; this.pendingWrites = []; } while (w.length && w.some(x => this.effective(x)));   // W-3: an apply's writes that are all equal open no instant
+      // 07 §4, 02 SC-4c: a `ref` is called as its element is made, in the creating pass, and what it writes is in that
+      // frame (Solid's ref()): here the `ref`s of the elements one instant made are called together after it, each reading
+      // the screen as that instant left it (as a handler does, H-10) — none sees another's write — and the instant their
+      // writes open is shown as that one. A region those writes make (an `if` that becomes true) is a later pass.
+      do {
+        this.instant++; const f = this.runInstant(w); if (fold && out.length) { f.effects.unshift(...out[out.length - 1].effects); out[out.length - 1] = f; } else out.push(f);
+        w = this.pendingWrites; this.pendingWrites = []; fold = false;
+        // …an effect's writes of the same instant are the next one, after it. An element made under a hold is made with
+        // the hold's values and shows with it (Solid #4767, kept by #5110): its `ref` reads those values, and what it
+        // writes is the hold's — it shows when the element does. One whose region is gone is never called.
+        for (;;) {
+          const live = this.refCalls.filter(c => c.region.alive); this.refCalls = [];
+          if (!live.length) break;
+          const fold = (rw: Write[], hold?: number) => {
+            if (!rw.some(x => this.effective(x))) return;
+            if (hold !== undefined) this.union(this.instant + 1, hold);
+            this.instant++; const f2 = this.runInstant(rw); f2.effects.unshift(...out[out.length - 1].effects); out[out.length - 1] = f2;
+            w = [...w, ...this.pendingWrites]; this.pendingWrites = [];
+          };
+          const held = live.filter(c => this.openChanges.has(this.find(c.made)));
+          for (const c of live) if (!held.includes(c)) c.call();
+          { const rw = this.pendingWrites; this.pendingWrites = []; fold(rw); }
+          for (const c of held) { this.probing++; try { c.call(); } finally { this.probing--; } const rw = this.pendingWrites; this.pendingWrites = []; fold(rw, c.made); }
+        }
+      } while (w.length && w.some(x => this.effective(x)));   // W-3: an apply's writes that are all equal open no instant
       const logBefore = this.log.length;
       const stray = this.pendingSettled.filter(s => s.change === null); this.pendingSettled = this.pendingSettled.filter(s => s.change !== null);
       for (const s of stray) this.fireSettled(s.f);                    // EF-7: registered by a run whose writes opened no instant — it fires now, with this one
@@ -264,8 +338,8 @@ export class Runtime {
   land(target: string, value: unknown, reject = false) {
     let f: Flight | undefined;
     if (/^".*"$/.test(target)) f = this.flights.get(target.slice(1, -1));
-    else { const n = this.findNode(target); f = n?.flight ?? undefined; if (!n) throw new Error(`no node ${target}`); if (!f) throw new Error(`${target} has no flight`); }
-    if (!f) throw new Error(`no flight ${target}`);
+    else { const n = this.findNode(target); f = n ? this.flightsOf(n).find(x => x.state === "pending") ?? this.flightsOf(n)[0] : undefined; if (!n) throw new Error(`no node ${target}`); if (!f) throw new Error(`${target} has no flight`); }
+    if (!f) throw new Error(`no flight ${target.replace(/^"(.*)"$/, "$1")}`);   // the flight's key, as the other runners name it
     this.answer(f, reject ? "rejected" : "resolved", reject ? (value instanceof Error ? value : new Error(String(value))) : value);   // `reject x NotFound("…")`: a declared class (MO-8)
     const w = this.pendingWrites; this.pendingWrites = [];
     return this.step(w);
@@ -290,6 +364,7 @@ export class Runtime {
         let cur: unknown = w.node.value; for (const k of w.path) cur = isObj(cur) ? cur[String(k)] : undefined;
         w = { ...w, value: (w.value as (v: unknown) => unknown)(cur) };
       }
+      if (w.node.question) w.node.overridden = true;                                                      // ST-5: written over
       if (w.path.length === 0) {
         if (w.node.keyBy && Array.isArray(w.value) && Array.isArray(w.node.value)) w = { ...w, value: this.reconcile(w.node.value, w.value, w.node.keyBy) };   // ST-4a on a source: a root write reconciles by key
         const d = new Set<Path>(); diffPaths(w.node.value, w.value, "", d);
@@ -319,7 +394,7 @@ export class Runtime {
       node.corrected = false; this.rebuildGuess(node); this.notify(node, "");
     }
     this.pendingGuesses = [];
-    for (const n of this.pendingRefresh) { n.quiet = true; n.refreshBy = this.instant; if (n.flight) this.flights.delete(n.flight.key); this.markDirty(n); }   // AC-4: re-ask quietly
+    for (const n of this.pendingRefresh) { n.quiet = true; n.reasked = true; n.overridden = false; n.refreshBy = this.instant; if (n.flight) this.flights.delete(n.flight.key); this.markDirty(n); }   // AC-4: re-ask quietly
     this.pendingRefresh = [];
     for (const n of this.pendingAffects) n.affectedBy = this.instant;                                        // AC-5
     this.pendingAffects = [];
@@ -344,7 +419,8 @@ export class Runtime {
       if (process.env.RS_TRACE) console.log(`[instant ${this.instant} pass ${pass}] holding=${holding.map(h => h.name + "@" + h.heldOn).join(",")} heldRoots=${[...heldRoots]} roots=${[...roots()]} parent=${[...this.parent.entries()].map(e => e.join(">"))} actions=${[...this.openActions].map(a => a.change)} lanes=${[...this.heldLanes].map(l => l.name + ":" + l.heldBy + "/" + [...l.taint])}`);
       for (const g of roots()) {
         if (heldRoots.has(g)) { this.openChanges.add(g); continue; }
-        this.openChanges.delete(g); any = true; committedSome = true;
+        for (const c of [...this.openChanges]) if (this.find(c) === g) this.openChanges.delete(c);   // every change of the group: one left behind was a group again at the next instant, and its commit took that instant's fresh writes with it
+        any = true; committedSome = true;
         this.commitGroup(g);
       }
       if (!any) break;
@@ -378,7 +454,9 @@ export class Runtime {
       const settled = e.computes.every(c => !(c.value instanceof PendingVal) && ![...c.taint].some(t => this.openChanges.has(this.find(t))) && !this.laneHeld(c));   // E-12: an error is an answer; D-34: a corrected guess's effects wait for the commit, as its views do
       const differs = (c: Node, i: number) => { if (!e.ran) return true; const d = new Set<Path>(); diffPaths(e.last[i], c.value, "", d); return d.size > 0; };
       const fire = settled && (!e.ran || e.computes.some((c, i) => c.changedSinceCommit && differs(c, i)));   // EF-2: a value differing from the one last received (pending → equal is not a change)
-      if (!fire) continue;
+      if (settled && e.computes.some(c => c.value instanceof ErrVal)) { if (fire) e.erred = true; continue; }   // EF-2a: a failed input doesn't fire the apply; the next answer does
+      if (!fire && !(settled && e.erred)) continue;
+      e.erred = false;
       for (const c of e.computes) c.changedSinceCommit = false;
       e.last = e.computes.map(c => c.value);
       e.cleanup?.(); e.cleanup = undefined; e.ran = true;
@@ -397,7 +475,7 @@ export class Runtime {
     for (const n of this.allNodes()) {
       if (n.heldBy !== null && this.find(n.heldBy) === g) {
         n.heldBy = null;
-        if (n.kind === "source") this.notify(n, "");                   // readers served the old committed value re-run
+        if (n.kind === "source") for (const s of this.subs.get(n)?.get("") ?? []) if (!s.ownPre) this.markDirty(s);   // not one that builds on its own value: readers served the old committed value re-run
       }
       const stillHeld = n.heldBy !== null && this.openChanges.has(this.find(n.heldBy)) && this.find(n.heldBy) !== g;
       const openTaint = [...n.taint].some(t => this.openChanges.has(this.find(t)) && this.find(t) !== g);
@@ -414,6 +492,18 @@ export class Runtime {
     }
     this.commit(this.view, g);
   }
+  /** H-6a: the quiet re-asks (AC-4) a node is computed from, itself included, whose flight is out. */
+  private quietUnder(n: Node, seen = new Set<Node>(), out: Node[] = []): Node[] {
+    if (seen.has(n)) return out; seen.add(n);
+    if (n.reasked && n.flight?.state === "pending") out.push(n);
+    for (const t of n.deps.keys()) if (t instanceof Node) this.quietUnder(t, seen, out);
+    return out;
+  }
+  private reaches(n: Node, to: Set<Node>, seen = new Set<Node>()): boolean {
+    if (to.has(n)) return true; if (seen.has(n)) return false; seen.add(n);
+    for (const t of n.deps.keys()) if (t instanceof Node && this.reaches(t, to, seen)) return true;
+    return false;
+  }
   // ---- settle / commit / render over the two structure versions ----
   private settle(v: ViewInst, holding: Node[], boundary: BoundaryItem | null) { for (const i of v.items) this.settleItem(i, holding, boundary); }
   private settleItem(i: VItem, holding: Node[], boundary: BoundaryItem | null) {
@@ -423,6 +513,7 @@ export class Runtime {
       case "read": {
         const v = this.pull(i.node);
         if (v instanceof ViewValue) return this.settle(v, holding, boundary);
+        { const lb = nearest(boundary, "loading"); if (lb && lb.armed && lb.quiet?.length && this.reaches(i.node, new Set(lb.quiet))) { lb.caught.push(i.node); i.node.heldOn = null; return; } }   // H-6a: pending in Solid while the re-ask `on` reads through is out
         { const eb = erroredShowing(boundary); const above = eb && v instanceof PendingVal ? armedAbove(eb) : null; if (above) { above.caught.push(i.node); i.node.heldOn = null; return; }   // H-12: an armed `loading` above the error fallback takes the pending content (found by S-ai2-search)
           if (eb && (i.node.served.size || v instanceof PendingVal)) { eb.stillWaiting = true; i.node.served.clear(); i.node.heldOn = null; return; } }   // behind an error fallback: not the display (H-4); pending is not an answer (D-41)
         if (v instanceof ErrVal) {                                                                                         // H-12 / D-41: an error is an answer; it reveals with its frame
@@ -474,12 +565,14 @@ export class Runtime {
         if (ownServed) { i.node.heldOn = this.find(this.instant); holding.push(i.node); i.shown = fmt(v); return; }        // served this change's own flight: publishes committed-derived text, holds the change (S-solid-27)
         i.node.heldOn = null; i.shown = fmt(v); return;                                                                    // only committed / served values: shows now (Solid D-3)
       }
-      case "el": { for (const a of i.attrs) this.pull(a.node); for (const c of i.children) this.settleItem(c, holding, boundary); return; }
+      case "el": { for (const a of i.attrs) if (this.pull(a.node) instanceof PendingVal) this.holdPending(a.node, holding, boundary); for (const c of i.children) this.settleItem(c, holding, boundary); return; }   // a pending attribute waits as a pending read does: its boundary catches it, or it holds (X7: the interpreter showed the element at once)
       case "mif": {
         const c = this.pull(i.cond);
+        const behind = (c instanceof PendingVal || i.cond.served.size > 0) && this.behindErrorFallback(i.cond, boundary);   // H-4: behind a shown error fallback the condition holds nothing
         if (isErr(c)) { this.erroredControl(i.cond, c, boundary); if (i.inflight) this.settle(i.inflight.inst, holding, boundary); return; }   // H-12: an errored condition is a failed reader — its boundary takes it; the branch stays (found by S-ai2-settings)
         const want = c instanceof PendingVal ? (i.inflight?.branch ?? null) : (c ? "t" : "f");
         if (want === null) { this.holdPending(i.cond, holding, boundary); return; }
+        if (c instanceof PendingVal && !behind) this.holdPending(i.cond, holding, boundary);   // H-4: a pending condition holds with its branch shown, as a pending read does (an `await` in the condition: it held nothing)
         if (i.inflight?.branch !== want) {
           if (i.inflight && i.inflight !== i.committed) i.inflight.inst.region.dispose();   // an uncommitted branch is replaced
           const existing = i.committed?.branch === want ? i.committed : null;
@@ -496,6 +589,7 @@ export class Runtime {
       }
       case "mfor": {
         const xs = this.pull(i.xs);
+        if ((xs instanceof PendingVal || i.xs.served.size) && this.behindErrorFallback(i.xs, boundary) && xs instanceof PendingVal) return;   // H-4: behind a shown error fallback the collection holds nothing
         if (xs instanceof PendingVal) { this.holdPending(i.xs, holding, boundary); return; }
         if (isErr(xs)) { this.erroredControl(i.xs, xs, boundary); for (const r of i.inflightRows) this.settle(r.inst, holding, boundary); return; }   // H-12, as for `if` (found by S-ai2-tracker)
         const arr = Array.isArray(xs) ? xs : [];
@@ -517,6 +611,11 @@ export class Runtime {
       }
       case "loading": {
         if (i.onNode) { this.pull(i.onNode); if (i.onNode.changed && !i.armed) { i.armed = true; i.armedBy = this.instant; } }   // H-6: a change to what `on` reads re-arms; the fallback belongs to this change's frame (H-5)
+        // H-6a (Solid's Loading, followed, 2026-11-27): a value `on` reads going pending is a change — a quiet re-ask (`refresh`)
+        // of what it is computed from re-arms, and what reads that re-ask under the region is pending in Solid (only the screen
+        // keeps the old answer: AC-4's quiet is the hold's), so the armed region catches it until the answer lands
+        i.quiet = i.onNode ? this.quietUnder(i.onNode) : [];
+        if (i.quiet.length && !i.armed) { i.armed = true; i.armedBy = this.instant; }
         i.caught = []; i.bornCandidates = 0;
         this.settle(i.content, holding, i);
         if (i.armed) { i.showingFallback = i.caught.length > 0 || i.bornCandidates > 0; if (!i.showingFallback) i.armed = false; }   // H-5: catch; disarm when ready (born-held candidates keep it armed until the hold is decided)
@@ -543,10 +642,18 @@ export class Runtime {
     const openE = [...node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
     node.heldOn = openE.length || node.taint.has(this.instant) ? this.find(openE[0] ?? this.instant) : null;
   }
+  /** H-4 (Solid F-3): a control reader behind a shown error fallback, pending or served a held value, is not the display: it
+   *  holds nothing and keeps the fallback up (D-41) — what it was served is no flight a display waits on, so a change only it
+   *  needs reveals at once (as a plain read there, `settleItem`'s "read").
+   *  An armed `loading` above takes it instead (H-12): false, and `holdPending` decides. */
+  private behindErrorFallback(node: Node, boundary: BoundaryItem | null): boolean {
+    const eb = erroredShowing(boundary); if (!eb || armedAbove(eb)) return false;
+    eb.stillWaiting = true; node.served.clear(); node.heldOn = null; return true;
+  }
   /** A pending control reader (`if`/`for`) holds or is caught exactly as a pending read is (H-4, H-5). */
   private holdPending(node: Node, holding: Node[], boundary: BoundaryItem | null) {
     const eb = erroredShowing(boundary); const above = eb ? armedAbove(eb) : null; if (above) { above.caught.push(node); node.heldOn = null; return; }
-    if (eb) { eb.stillWaiting = true; node.heldOn = null; return; }
+    if (eb) { eb.stillWaiting = true; node.served.clear(); node.heldOn = null; return; }
     const lb = nearest(boundary, "loading"); if (lb && lb.armed) { lb.caught.push(node); node.heldOn = null; return; }
     const open = [...node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
     for (const c of open) this.union(open[0], c);
@@ -634,7 +741,7 @@ export class Runtime {
       }
       case "loading": case "errored": {
         // D-17: `on` read a probe → the fallback shows now; otherwise the display follows settle once nothing under it is held on an open change
-        if ((i.k === "loading" && i.onNode?.lane && this.onAhead(i.onNode)) || i.laneAttached || !this.openChanges.has(this.find(i.armedBy))) i.committedFallback = i.showingFallback;
+        if ((i.k === "loading" && (i.onNode?.lane || i.onNode?.verdict) && this.onAhead(i.onNode)) || i.laneAttached || !this.openChanges.has(this.find(i.armedBy))) i.committedFallback = i.showingFallback;
         this.patchLanes(i.content); if (i.committedFallback) this.patchLanes(i.fallback); return;
       }
       case "text": return;
@@ -652,8 +759,8 @@ export class Runtime {
     for (const s of this.subs.get(m)?.get("") ?? []) this.markDirty(s, "check");
   }
   pull(n: Node): unknown {
-    if (n.kind === "source") { n.taint = n.heldBy !== null ? new Set([n.heldBy]) : new Set(); return this.demandMode ? n.value : (n.hasCommitted ? n.committed : n.value); }   // H-10: snapshots see σ
-    if (!this.demandMode) return this.transient(n);
+    if (n.kind === "source") { n.taint = n.heldBy !== null ? new Set([n.heldBy]) : new Set(); return this.demandMode || this.probing ? n.value : (n.hasCommitted ? n.committed : n.value); }   // H-10: snapshots see σ; R-9: `latest` in imperative scope reads the value a held write moves it toward (σ′)
+    if (!this.demandMode) { const v = this.transient(n); if (v instanceof PendingVal && this.currentRun && !this.probing && !this.verdicts) throw new Error(`NotReadyError: ${n.name} has no value yet`);   /* R-8a: a run's read of a value that has never had one fails there, as `latest` of it does (R-12; Solid F-9) — what the run wrote before stands */ return v; }
     n.demanded = true;
     if (n.evaluated) return n.value;
     let recompute = !n.hasValue || n.state === "dirty";
@@ -671,31 +778,40 @@ export class Runtime {
       const prevTracking = this.tracking; this.tracking = n; const prevFlight = n.flight;
       n.triggered = notified;
       let v: unknown;
-      n.screenFor = null;
+      // R-11 (Solid D-25 as Solid runs it, followed — DV-21 closed 2026-11-27): posture is the pass's. A pass that probes anywhere
+      // in it is a display-ahead reader for every held read in it, and so is the next pass of a node whose last pass probed
+      // (one pass, the carry-over: Solid sets its verdict bit at a pass's end from that pass's probes). Its plain reads of held
+      // values are the screen's and it joins no hold. The pass learns that it probes only by running, so a pass that probed
+      // after a plain held read runs once more as a reader ahead (Solid restarts it: "its reads agree in either order").
+      if (n.passInstant !== this.instant) { n.carried = n.lastProbes; n.passInstant = this.instant; }
+      n.verdict = n.carried;
       for (;;) {
-        n.lane = false; n.lanes = new Set(); n.inLanes = new Set(); n.flight = null; n.taint = new Set(); n.plainTaint = new Set(); n.taintFrom = new Set(); n.served = new Set(); n.probed = new Set(); n.plainAhead = new Set();
+        n.lane = false; n.lanes = new Set(); n.inLanes = new Set(); n.flight = null; n.taint = new Set(); n.plainTaint = new Set(); n.taintFrom = new Set(); n.served = new Set(); n.probed = new Set(); n.plainAhead = new Set(); n.probes = false;
         try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
-        // R-11 (Solid D-25, decision 1 of #4695): posture is per read. A plain read of a node this same pass also read ahead is
-        // the screen's (`[x, pending? x]` in an equation is `[committed, true]` now, either order: Solid S-27's memo case). The pass
-        // learns what it probes only by running, so a pass that did both is run once more with those nodes on the screen.
-        if (n.screenFor || n.kind !== "eq" || ![...n.plainAhead].some(b => n.probed.has(b))) break;
-        n.screenFor = new Set(n.probed); this.unsubscribe(n);
+        if (n.verdict || !n.probes || (n.plainAhead.size === 0 && n.served.size === 0)) break;
+        n.verdict = true; this.unsubscribe(n);
       }
+      n.lastProbes = n.probes;
       this.tracking = prevTracking;
       const landed = n.landing && !(v instanceof PendingVal); n.landing = false;   // a new answer, even one equal to the truth the guess was made over: it is compared with the guess (D-34)
       this.subscribe(n);
       if (n.deferred && n.answered && v instanceof PendingVal) { n.lagging = true; v = n.value; }   // D-40: a declared-lag re-ask keeps showing its last answer
       else if (n.deferred) n.lagging = false;
+      if (n.reasked && n.flight?.state !== "pending") n.reasked = false;                             // H-6a: the re-ask landed
       if (n.quiet && v instanceof PendingVal && n.answered) v = n.value;                              // AC-4: a quiet re-ask reveals silently; nothing pends
       else if (n.quiet && !(v instanceof PendingVal)) { if (n.refreshBy !== null && this.groupOpen(n.refreshBy)) n.heldBy = n.refreshBy; else { n.quiet = false; n.refreshBy = null; } }   // D-31: a refresh in a hold lands into it
+      if (n.question && !(v instanceof PendingVal) && !(v instanceof ErrVal)) {                       // ST-5 (2026-11-27, the apps hunt): a write over a question stands until the question's value changes — a re-ask with the same answer keeps it (as a keyed list kept it)
+        if (n.overridden && n.hasAnswer) { const d = new Set<Path>(); diffPaths(n.lastAnswer, v, "", d); if (d.size === 0) v = n.value; else { n.lastAnswer = plainCopy(v); n.overridden = false; } }
+        else { n.lastAnswer = plainCopy(v); n.hasAnswer = true; }
+      }
       if (n.keyBy && Array.isArray(v) && Array.isArray(n.value)) v = this.reconcile(n.value, v, n.keyBy);   // ST-4a: rows with the same key keep their identity and receive per-key updates
       const ch = new Set<Path>();
       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
-      if (ch.size > 0) { if (n.hasValue) { n.prev = n.value; n.hasPrev = true; } n.value = v; n.changed = true; n.changedSinceCommit = true; }   // C-2: `pre` is the value before this change
+      if (ch.size > 0) { if (!n.changed) { if (n.hasValue && !isAbsent(n.value)) { n.own = n.value; n.hasOwn = true; } else if (!n.hasValue) n.hasOwn = false; if (n.hasValue) { n.prev = n.value; n.hasPrev = true; } } n.value = v; n.changed = true; n.changedSinceCommit = true; }   // C-2: `pre` is the value before this change
       n.hasValue = true;
       if (n.hasGuess && !n.questionMoved && !isAbsent(v) && (ch.size > 0 || landed)) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (guessedAt(n, dg)) { for (const e of n.guessEntries) if (guessedAt({ guessPaths: [e.path] }, dg)) e.spent = true; if (n.guessEntries.some(e => !e.spent)) this.rebuildGuess(n, v); else n.guess = v; n.corrected = true; n.answerCorrected = true; } }   // D-34: a new answer different from the guess at a guessed key corrects the graph now (derivations; `latest x` of a shown guess keeps it, D-22); equal there confirms silently (the screen keeps the guess's world until the commit)
       if (!(v instanceof PendingVal)) n.answered = true;   // H-12: an error is an answer (a first load ends with it — found by S-ai2-search)
-      if (n.hasGuess && n.question && notified && v instanceof PendingVal && !n.quiet && !n.guessEntries.some(e => !e.spent && this.find(e.by) === this.find(this.instant))) {   // H-11 (Solid D-34, S-44): a new question under a guess is held with the guess's hold; its answer is not the guess's truth
+      if (n.hasGuess && notified && v instanceof PendingVal && !n.quiet && !n.guessEntries.some(e => !e.spent && this.find(e.by) === this.find(this.instant))) {   // H-11 (Solid D-34, S-44): a new question under a guess is held with the guess's hold; its answer is not the guess's truth — a guessed equation's too (2026-11-27, the claims hunt: only a source's was)
         for (const e of n.guessEntries) if (!e.spent && this.groupOpen(e.by)) { this.union(this.instant, e.by); n.questionMoved = true; }
       }
       if (n.kind === "eq" && notified && v instanceof PendingVal && !(n.deferred && n.answered) && !n.quiet) n.heldBy = this.instant;   // a deferred node's first load holds like any   // R-4: a pass this change triggered asked a new question; its pending belongs to this change
@@ -711,17 +827,31 @@ export class Runtime {
     n.state = "clean"; n.evaluated = true;
     return n.value;
   }
-  /** ST-4a: reconcile a new collection by key — same key: the old object, updated in place per key; new key: the new object. */
+  /** ST-4a: reconcile a new collection by key — same key: the old object, updated in place per key; new key: the new object.
+   *  The key holds at any depth, as Solid's (`reconcile(v, key)`): a list inside a row is reconciled by it too, and a row
+   *  with no key is paired by its position (Solid: "unkeyed items fall back to position"). */
   private reconcile(old: unknown[], nu: unknown[], key: string): unknown[] {
     const byKey = new Map<unknown, Record<string, unknown>>();
-    for (const o of old) if (isObj(o)) byKey.set(o[key], o);
-    return nu.map(e => { if (!isObj(e)) return e; const o = byKey.get(e[key]); if (!o) return e; this.applyDiff(o, e); return o; });
+    for (const o of old) if (isObj(o) && !Array.isArray(o) && o[key] !== undefined && !byKey.has(o[key])) byKey.set(o[key], o);
+    return nu.map((e, i) => {
+      if (!isObj(e) || Array.isArray(e)) return e;
+      let o: Record<string, unknown> | undefined;
+      if (e[key] !== undefined) { o = byKey.get(e[key]); if (o) byKey.delete(e[key]); }   // one row for one key (ST-4d)
+      else { const p = old[i]; if (isObj(p) && !Array.isArray(p) && p[key] === undefined) o = p; }
+      if (!o) return e; if (o !== e) this.applyDiff(o, e, key); return o;
+    });
   }
-  private applyDiff(o: Record<string, unknown>, e: Record<string, unknown>) {
+  private applyDiff(o: Record<string, unknown>, e: Record<string, unknown>, key?: string) {
+    if (key !== undefined && Array.isArray(o) && Array.isArray(e)) {   // a list inside a row: by the key, as the root is
+      const r = this.reconcile(o, e, key);
+      for (let i = 0; i < r.length; i++) if (!Object.is(o[i], r[i]) || !(i in o)) { o[i] = r[i]; this.notify(o, String(i)); }
+      if (o.length !== r.length) { o.length = r.length; this.notify(o, "length"); }
+      return;
+    }
     for (const k of new Set([...Object.keys(o), ...Object.keys(e)])) {
       const a = o[k], b = e[k];
-      if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b)) { this.applyDiff(a, b); continue; }
-      if (Object.is(a, b)) continue;
+      if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b)) { this.applyDiff(a, b, key); continue; }
+      if (Object.is(a, b) && (k in o) === (k in e)) continue;
       if (!(k in e)) delete o[k]; else o[k] = b;
       this.notify(o, k);
     }
@@ -741,14 +871,42 @@ export class Runtime {
   private untracked<T>(f: () => T): T { const dm = this.demandMode, tr = this.tracking; this.demandMode = false; this.tracking = null; try { return f(); } finally { this.demandMode = dm; this.tracking = tr; } }
 
   // ---- expressions ----
-  evalExpr(e: Expr, region: Region, env?: Map<string, unknown>): unknown { return this.ev(e, region, env); }
+  evalExpr(e: Expr, region: Region, env?: Map<string, unknown>): unknown {
+    // 07 §3, R-1: each `await` that is not an equation's result is a flight of its own — a node the expression reads where
+    // the `await` was (awaits.ts; the compilers hoist the same ones). A reader's own result too: it is no equation's memo.
+    if (this.tracking && this.demandMode && !this.roots.has(e)) { this.roots.add(e); for (const h of nonTailAwaits(e, this.tracking.kind === "eq")) this.liftedAwaits.add(h.node); }
+    return this.ev(e, region, env);
+  }
+  private roots = new WeakSet<Expr>(); private liftedAwaits = new WeakSet<Expr>(); private liftedNodes = new WeakMap<Region, Map<Expr, Node>>();
+  /** …that node, made where the `await` is first reached (E-11: an arm not selected asks nothing). */
+  private liftedNode(e: Expr, region: Region, env?: Map<string, unknown>): Node {
+    let m = this.liftedNodes.get(region); if (!m) this.liftedNodes.set(region, (m = new Map()));
+    let n = m.get(e);
+    if (!n) { const owner = this.tracking!; n = this.mkNode("eq", `${owner.name}$await`, region, rt => rt.ev(e, region, env)); m.set(e, n); owner.lifted.push(n); }
+    return n;
+  }
+  /** A node's flights: its own, or those of the awaits lifted out of its expression. */
+  private flightsOf(n: Node): Flight[] { return [...(n.flight ? [n.flight] : []), ...n.lifted.flatMap(l => this.flightsOf(l))]; }
+  private withLifted(n: Node): Node[] { return [n, ...n.lifted.flatMap(l => this.withLifted(l))]; }
+  private verdicts = 0;                                 // evaluating `pending? e`: a verdict reads no value
+  private latestOver = 0;                               // R-9: evaluating `latest (e)` of an expression
   private latestOfGuess = 0;                            // DV-10: evaluating `latest g` of a guess: its reads join g's lane without being held by it
   private addLane(l: Node, held = true) { const t = this.tracking!; t.lanes.add(l); if (held && !this.latestOfGuess) t.inLanes.add(l); }
   /** H-6, R-11 (Solid D-17, decision 1 of #4695): a re-arm shows its fallback now iff every held value its `on` pass read, it read
    *  ahead. A plain read of another held value — served, or derived from an open change — makes the pass the hold's work. */
   private onAhead(n: Node) {
-    if ([...n.served].some(b => !n.probed.has(b))) return false;
+    if (!n.verdict && [...n.served].some(b => !n.probed.has(b))) return false;   // R-11: a pass ahead read every held value as the screen's
     return ![...n.taint].some(t => t === this.instant || this.groupOpen(t));
+  }
+  /** R-11: whether a pass ahead reads `b` as the screen's. A held value: written by an open change, or derived from one.
+   *  The instant's own writes are held only once the instant is: a probing pass is settled again after the hold decision
+   *  (it is in a lane), so it may take them as held now; a pass ahead only by the carry-over is not settled again, and reads
+   *  a write of this instant as the screen's only where an action already holds the instant. */
+  private aheadOf(b: Node, carried: boolean) {
+    const now = this.find(this.instant);
+    const heldNow = !carried || [...this.openActions].some(a => a.change !== null && this.find(a.change) === now);
+    const open = (c: number | null) => c !== null && (this.groupOpen(c) || (this.find(c) === now && heldNow));
+    return open(b.heldBy) || [...b.taint].some(open);
   }
   /** H-7: a reader keeps what it showed while one of the lanes it is in is held or frozen. */
   private laneHeld(n: Node) { return [...n.inLanes].some(l => this.heldLanes.has(l) || this.frozen(l)); }
@@ -761,19 +919,35 @@ export class Runtime {
         return b.guess;
       }
       if (b.lane && this.tracking && this.demandMode) { this.tracking.lane = true; for (const l of b.lanes) this.addLane(l, b.inLanes.has(l)); }   // R-10: lane flows through equations
+      if (b.lastProbes && this.tracking && this.demandMode && !this.probing) this.tracking.probes = true;   // R-11 (Solid: "a verdict reader is one while it probes or reads a memo that does"): a pass that reads an equation whose last pass read ahead reads ahead
       if (this.tracking && this.demandMode) {
         const held = b.heldBy !== null && (b.heldBy === this.instant || this.groupOpen(b.heldBy));
         const future = ((b.kind === "source" || b.question) && b.heldBy !== this.instant && !(b.value instanceof PendingVal)) || b.value instanceof PendingVal;   // a landed answer is consumed, not served; own writes are read
         const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
-        if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
+        const heldRead = !this.probing && b.hasCommitted && (held || [...b.taint].some(t => t === this.instant || this.groupOpen(t)));
+        if (heldRead && this.tracking.verdict && !b.lane && !armed && this.aheadOf(b, this.tracking.carried)) return b.committed;   // R-11: a reader ahead reads a held value as the screen shows it, and joins nothing
+        if (this.tracking.kind === "reader" && !this.tracking.control && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
         if (this.probing) this.tracking.probed.add(b);
-        else if (b.hasCommitted && (held || [...b.taint].some(t => t === this.instant || this.groupOpen(t)))) {
-          if (this.tracking.screenFor?.has(b)) return b.committed;                                   // R-11: the plain twin of a probe in this pass reads the screen
-          this.tracking.plainAhead.add(b);
-        }
+        else if (heldRead) this.tracking.plainAhead.add(b);
         if (!this.probing) { this.tracking.taintFrom.add(b); for (const t of (b.lane ? b.plainTaint : b.taint)) { this.tracking.taint.add(t); this.tracking.plainTaint.add(t); } }   // probes and lane work are the lane's, not the instant's (F-6); a lane value carries the holds of its plain reads (R-11, Solid D-25)
       }
+      if (this.latestOver && v instanceof PendingVal && b.hasCommitted) return b.committed;
       return v;
+  }
+  /** E-9b: a call of a fn that names values. A name is evaluated when it is read (E-3), in whatever order (E-7), and once
+   *  for the call where it is read in one way: a read that is no input (a `peek`), or a closure called when the call is
+   *  over, evaluates it again, as the one-line form would. */
+  private withLocals(f: FnDecl, home: Region, en: Map<string, unknown>): unknown {
+    let live = true;
+    const way = () => [this.tracking, this.demandMode, this.probing, this.latestOfGuess, this.authoritative, this.committedView, this.currentRun, this.probeReads];
+    for (const d of f.decls) if (d.k === "eq") {
+      let at: unknown[] | undefined, v: unknown;
+      en.set(d.name, new Local(() => {
+        const w = way(); if (live && at && at.every((x, i) => x === w[i])) return v;
+        const x = this.evalExpr(d.e, home, en); if (live) { at = w; v = x; } return x;
+      }));
+    }
+    try { return this.evalExpr(f.tail, home, en); } finally { live = false; }
   }
   private nodeOf(e: Expr, region: Region, env?: Map<string, unknown>): Node | null {
     if (e.k === "id") { if (env?.has(e.name)) return null; const b = region.lookup(e.name); return b instanceof Node ? b : null; }
@@ -781,22 +955,45 @@ export class Runtime {
     if (e.k === "latest") return this.nodeOf(e.e, region, env);
     return null;
   }
-  private ev(e: Expr, region: Region, env?: Map<string, unknown>): unknown {
+  /** C-2: the parts of an equation that its result keeps while it builds on its own last value: a whole source there is a
+   *  copy of its root, which a write replaces (ST-2a). */
+  private keptExprs = new Set<Expr>();
+  private ev(e: Expr, region: Region, env?: Map<string, unknown>): unknown { const v = this.ev0(e, region, env); return this.keptExprs.has(e) ? this.keep(v) : v; }
+  private keep(v: unknown): unknown { return isObj(v) && [...this.allNodes()].some(n => n.value === v && this.isRoot(n)) ? this.whole(v) : v; }
+  private isRoot(n: Node): boolean { return isObj(n.value) && (n.kind === "source" || n.question || n.keyBy !== null); }
+  private copiedFrom = new WeakMap<object, object>();
+  /** A copy of a value's contents, read whole. EF-2: what an effect's input is. */
+  private whole(v: unknown, seen = new Map<unknown, unknown>()): unknown {
+    if (!isObj(v) || ![Object.prototype, Array.prototype, null].includes(Object.getPrototypeOf(v))) return v;
+    if (seen.has(v)) return seen.get(v);
+    const out: any = Array.isArray(v) ? [] : {}; seen.set(v, out); this.copiedFrom.set(out, v);
+    for (const k of Object.keys(v)) { this.track(v, k); out[k] = this.whole(v[k], seen); }
+    if (Array.isArray(v)) this.track(v, "length");
+    return out;
+  }
+  /** A copy, with what has not changed since as the value itself. */
+  private asItWas(c: any, top = true): unknown {
+    const live: any = isObj(c) ? this.copiedFrom.get(c) : undefined; if (live === undefined) return c;
+    const keys = Object.keys(c), now: any = {}; let same = !top && Object.keys(live).length === keys.length;
+    for (const k of keys) { now[k] = this.asItWas(c[k], false); if (!Object.is(now[k], live[k])) same = false; }
+    return same ? live : Array.isArray(c) ? Object.assign([], now) : now;
+  }
+  private ev0(e: Expr, region: Region, env?: Map<string, unknown>): unknown {
     switch (e.k) {
       case "lit": return e.v;
       case "id": {
-        if (env?.has(e.name)) return env.get(e.name);
+        if (env?.has(e.name)) { const v = env.get(e.name); return v instanceof Local ? v.read() : v; }
         const b = region.lookup(e.name);
-        if (!b) { if (e.name in BUILTINS) return BUILTINS[e.name]; throw new RuleError("SCOPE", `unbound ${e.name}`); }
+        if (!b) { const f = this.langFn(e.name); if (f) return f; throw new RuleError("SCOPE", `unbound ${e.name}`); }
         if ("constant" in b) return b.constant;
         if ("fn" in b) {
           if (this.isInstantiating(b.fn)) throw new RuleError("E-9", `instantiating fn ${b.fn.name} must be bound: x = ${b.fn.name}(…)`);
           const f = b.fn;
           const home = b.home;
-          return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
+          return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return f.named ? this.withLocals(f, home, en) : this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
-        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
+        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); a.params.forEach((p, i) => en.set(p, args[i])); if (a.ret !== undefined) return this.startRun(a.body, home, en, false); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1i: an action that answers at once runs as a handler's body, and its answer is the call's   // AC-1: an action is io; its body is lexical (its declaration's names)
         { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return v; }   // R-f-7: a snapshot of an error throws it
       }
       case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); return v[e.p]; }
@@ -805,14 +1002,20 @@ export class Runtime {
       case "pre": {                                                    // C-2 (DV-5, Solid's): the value before the most recent change
         const b = region.lookup(e.name);
         if (!b || !(b instanceof Node)) throw new RuleError("C-2", `pre of non-reactive ${e.name}`);
-        if (this.tracking === b || (b.question && this.tracking === b)) { if (b.hasValue && !(b.value instanceof PendingVal)) return b.value; return e.init ? this.ev(e.init, region, env) : undefined; }   // own equation: the value before this recompute (the memo's `prev`); no edge
+        if (this.tracking === b || (b.question && this.tracking === b)) { if (b.changed || isAbsent(b.value)) { if (b.hasOwn) return b.own; } else if (b.hasValue) return b.value; return e.init ? this.ev(e.init, region, env) : undefined; }   // own equation: the value before this recompute (the memo's `prev`); no edge
         if (this.tracking && this.demandMode) { this.track(b, ""); this.pull(b); }                                    // another node: an input of it
-        if (b.hasPrev) return b.prev;
+        if (this.isRoot(b)) {                                                                                          // a store: what it was before its last change, at any depth
+          const cur = this.whole(b.value), last = b.was, d = new Set<Path>();
+          if (last !== undefined) { diffPaths(last, cur, "", d); if (d.size && b.wasAt !== this.instant) { b.prev = last; b.hasPrev = true; b.wasAt = this.instant; } }
+          b.was = cur;
+          if (b.hasPrev) return this.asItWas(b.prev);
+        } else if (b.hasPrev) return b.prev;
         return e.init ? this.ev(e.init, region, env) : undefined;
       }
       case "peek": return this.demandMode ? this.unsubscribed(() => this.ev(e.e, region, env)) : this.untracked(() => this.ev(e.e, region, env));   // E-5: in reactive scope, the pass's own values with no input; imperative reads see σ (H-10)
-      case "use": return this.readNode(this.provisionOf(e.name, region));   // RG-7b: the nearest provision of the context through the instantiation chain
+      case "use": return this.readNode(this.provisionOf(e.name, region, this.above.get(e)));   // RG-7b: the nearest provision of the context through the instantiation chain
       case "await": {                                                  // R-1, R-6, R-7
+        if (this.tracking && this.demandMode && this.liftedAwaits.has(e)) { const own = this.liftedNode(e, region, env); if (this.tracking !== own) return this.readNode(own); }   // 07 §3: a flight of its own
         const v = this.ev(e.e, region, env); if (isAbsent(v)) return v;
         if (!(v instanceof Flight)) return v;                          // a value: same instant, no tick
         const n = this.tracking; if (n) n.flight = v;
@@ -825,16 +1028,18 @@ export class Runtime {
       case "latest": {                                                 // R-9 probe: the value an update is moving toward, else the committed value
         const ln = this.nodeOf(e.e, region, env);
         const ahead = !!ln?.hasGuess;                                  // DV-10: `latest` of a guess reads ahead of the guess's held lane (Solid #4284)
-        if (this.tracking) { this.tracking.lane = true; if (ln) { this.addLane(ln, !ahead); this.tracking.probed.add(ln); } }
+        if (this.tracking) { this.tracking.lane = true; this.tracking.probes = true; if (ln) { this.addLane(ln, !ahead); this.tracking.probed.add(ln); } }
         if (this.committedView && ln && ln.hasCommitted) { this.track(ln, ""); return ln.committed; }   // D-25: an outsider shows what is on screen
         if (ln && e.e.k === "id" && ln.hasGuess && ln.answerCorrected && ln.guessShown && this.frozen(ln)) { this.track(ln, ""); return ln.shownGuess; }   // D-22, D-34 (Solid decision 3; DV-19): an answer corrected the graph, but the slot still displays the guess: `latest` keeps it until the hold commits
-        this.probing++; if (ahead) this.latestOfGuess++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; if (ahead) this.latestOfGuess--; }
+        const whole = e.e.k !== "id" && !ln;                              // R-9: `latest` of an expression is the expression over the latest value of each thing it reads — one still asked reads what it last answered
+        this.probing++; if (ahead) this.latestOfGuess++; if (whole) this.latestOver++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; if (ahead) this.latestOfGuess--; if (whole) this.latestOver--; }
         if (v instanceof PendingVal && ln && ln.hasCommitted && e.e.k === "id") return ln.committed;
         if (v instanceof PendingVal && !this.demandMode) throw new Error("NotReadyError: latest of a value that has never had one");   // R-12: in imperative scope as anywhere, `latest` of a first load throws (Solid S-28, A7)
         return v;
       }
       case "pending": {                                                // R-9 / H-9 verdict
-        if (this.tracking) this.tracking.lane = true;
+        this.verdicts++; try { return (() => {
+        if (this.tracking) { this.tracking.lane = true; this.tracking.probes = true; }
         const n = this.nodeOf(e.e, region, env);
         if (!n) {                                                      // composite: the verdict of the reads inside it (Solid S-29)
           const prev = this.probeReads; const reads = new Set<Node>(); this.probeReads = reads;
@@ -862,8 +1067,9 @@ export class Runtime {
           return false;
         }
         return open(n.heldBy);
+              })(); } finally { this.verdicts--; }
       }
-      case "if": { const c = this.ev(e.c, region, env); if (isAbsent(c)) return c; return this.ev(c ? e.t : e.f, region, env); }
+      case "if": { const c = this.asked(this.ev(e.c, region, env)); if (isAbsent(c)) return c; return this.ev(c ? e.t : e.f, region, env); }
       case "serverfn": { let f = this.serverFns.get(e); if (!f) this.serverFns.set(e, (f = this.serverFn({ name: this.serverNames.get(e) ?? "server fn", params: e.params, body: e.body }, region))); return f; }   // SF-1d
       case "throw": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; throw v; }   // R-f-3: in reactive scope the equation's value is the error (E-12)
       case "catch": {                                                  // R-f-4: a matching failure becomes a value; pending and other failures pass
@@ -873,20 +1079,23 @@ export class Runtime {
         const en = new Map(env); if (e.name) en.set(e.name, v.err);
         return this.ev(e.alt, region, en);
       }
-      case "un": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; return e.op === "!" ? !v : -(v as number); }
+      case "un": { const v = e.op === "!" ? this.asked(this.ev(e.e, region, env)) : this.ev(e.e, region, env); if (isAbsent(v)) return v; return e.op === "!" ? !v : -(v as number); }
       case "bin": {                                                    // R-5: inputs are static — an absent operand does not erase the others
         const l = this.ev(e.l, region, env);
-        if (e.op === "&&") { if (isAbsent(l)) return l; return l ? this.ev(e.r, region, env) : l; }
-        if (e.op === "||") { if (isAbsent(l)) return l; return l ? l : this.ev(e.r, region, env); }
-        if (e.op === "??") { if (isAbsent(l)) return l; return l != null ? l : this.ev(e.r, region, env); }
+        if (e.op === "&&" || e.op === "||" || e.op === "??") {         // RG-4c: a view on the left is asked, not made
+          const a = this.asked(l); if (isAbsent(a)) return a;
+          if (e.op === "&&") return a ? this.ev(e.r, region, env) : a;
+          return (e.op === "||" ? a : a != null) ? l : this.ev(e.r, region, env);
+        }
+        if ((e.op === "==" || e.op === "!=") && e.r.k === "lit" && e.r.v == null && l instanceof ViewFn) { const a = this.asked(l); if (isAbsent(a)) return a; return BIN[e.op](a, e.r.v); }
         const r = this.ev(e.r, region, env);
         if (isAbsent(l)) return l; if (isAbsent(r)) return r;
         return BIN[e.op](l, r);
       }
-      case "arr": { const items: unknown[] = []; let bad: unknown; for (const i of e.items) { if (i.k === "spread") { const v = this.ev(i.e, region, env); if (isAbsent(v)) bad ??= v; else items.push(...(v as unknown[])); } else { const v = this.ev(i, region, env); if (isAbsent(v)) bad ??= v; items.push(v); } } return bad ?? items; }
+      case "arr": { const items: unknown[] = []; let bad: unknown; for (const i of e.items) { if (i.k === "fn" && i.stmts) this.heldClosures.add(i); if (i.k === "spread") { const v = this.ev(i.e, region, env); if (isAbsent(v)) bad ??= v; else items.push(...(v as unknown[])); } else { const v = this.ev(i, region, env); if (isAbsent(v)) bad ??= v; items.push(v); } } return bad ?? items; }
       case "spread": throw new RuleError("SYNTAX", "spread outside an array literal");
       case "omit": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; const o: Record<string, unknown> = {}; if (isObj(v)) for (const k of Object.keys(v)) if (!e.keys.includes(k)) { this.track(v, k); o[k] = v[k]; } return o; }   // RG-4b: an object rest
-      case "rec": { const o: Record<string, unknown> = {}; let bad: unknown; for (const f of e.fields) { if ("spread" in f) { const v = this.ev(f.spread, region, env); if (isAbsent(v)) bad ??= v; else if (isObj(v)) { for (const k of Object.keys(v)) { this.track(v, k); o[k] = v[k]; } } continue; } const v = this.ev(f.v, region, env); if (isAbsent(v)) bad ??= v; o[f.key] = v; } return bad ?? o; }
+      case "rec": { const o: Record<string, unknown> = {}; let bad: unknown; for (const f of e.fields) { if (!("spread" in f) && f.v.k === "fn" && f.v.stmts) this.heldClosures.add(f.v); if ("spread" in f) { const v = this.ev(f.spread, region, env); if (isAbsent(v)) bad ??= v; else if (isObj(v)) { for (const k of Object.keys(v)) { this.track(v, k); o[k] = v[k]; } } continue; } const v = this.ev(f.v, region, env); if (isAbsent(v)) bad ??= v; o[f.key] = v; } return bad ?? o; }
       case "draft": {                                                  // ST-3: a copy of the seed, written only along `d`, is the value
         const seed = this.ev(e.seed, region, env); if (isAbsent(seed)) return seed;
         const copied = new Set<object>();
@@ -908,7 +1117,7 @@ export class Runtime {
       }
       case "fn": {
         const imperative = !this.demandMode;                           // SC-3
-        if (e.stmts) { if (!imperative) throw new RuleError("W-2", "a statement-bodied arrow in reactive scope"); const act = !!inferredAction(e.stmts); return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.runStmts(e.stmts!, region, en, [], act); }; }   // AC-1b: an inferred action
+        if (e.stmts) { if (!imperative && !this.heldClosures.has(e)) throw new RuleError("W-2", "a statement-bodied arrow in reactive scope"); const act = !!inferredAction(e.stmts); return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.runStmts(e.stmts!, region, en, [], act); }; }   // AC-1b: an inferred action
         return (...args: unknown[]) => {
           const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i]));
           if (!imperative) return this.ev(e.body, region, en);
@@ -918,12 +1127,15 @@ export class Runtime {
       case "stylemap": return classMap(e.css);                      // 07 CSS-5: a constant
       case "call": {
         let f: unknown, self: unknown;
-        if (e.f.k === "id" && e.f.name === "until" && !env?.has("until") && !region.lookup("until")) return this.until(e.args[0], region, env);   // AC-6
-        if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env?.has(e.f.name) && !region.lookup(e.f.name)) return this.hook(e.f.name, e.args[0], region, env);   // EF-7, EF-8
+        const lang = e.f.k === "id" ? language(e.f.name, env?.has(e.f.name) || region.lookup(e.f.name)) : undefined;
+        if (lang === "until") return this.until(e.args[0], region, env);   // AC-6
+        if (lang === "onSettled" || lang === "onFlush") return this.hook(lang, e.args[0], region, env);   // EF-7, EF-8
         if (e.f.k === "member") { self = this.ev(e.f.o, region, env); if (isAbsent(self)) return self; f = self == null ? undefined : (self as any)[e.f.p]; if (isObj(self)) this.track(self, e.f.p); }   // a method call: `xs.map(f)`, TS verbatim
         else f = this.ev(e.f, region, env);
         const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
         if (bad && this.demandMode) return bad;                        // absence propagates in reactive scope; in imperative scope an error is a value (E-12)
+        // RG-4c, a function prop: `props.children(…)` where the children are one closure, as JSX passes it
+        while (f instanceof ViewFn && f.plain && f.m.body.length === 1 && f.m.body[0].k === "read") { const v: ViewFn = f, r = v.m.body[0] as Extract<Markup, { k: "read" }>; f = this.readNode(v.one ??= this.mkNode("reader", "reader", v.region, rt => rt.evalExpr(r.e, v.region))); if (isAbsent(f)) return f; }
         if (typeof f !== "function") throw new RuleError("TYPE", "call of non-function");
         if ((f as { io?: boolean }).io && this.demandMode) throw new RuleError("IO-2", "io function called in reactive scope");
         if (f === BUILTINS.fetch) return this.flight(String(args[0]));
@@ -934,9 +1146,9 @@ export class Runtime {
   /** RG-7: a context by its name in scope (lexical) — its identity is the declaration. */
   private ctxNamed(name: string, region: Region): CtxBinding { const b = region.lookup(name); if (!b || !("context" in b)) throw new RuleError("RG-7", `${name} is not a context`); return b; }
   /** RG-7b: the nearest provision of a context above `region`, else its default. */
-  private provisionOf(name: string, region: Region): Node {
+  private provisionOf(name: string, region: Region, own?: object): Node {
     const c = this.ctxNamed(name, region);
-    for (let r: Region | null = region; r; r = r.parent) { const n = r.provided.get(c); if (n) return n; }
+    for (let r: Region | null = region; r; r = r.parent) { const n = r.provided.get(c); if (!n) continue; if (own && r.providedBy.get(c) === own) { own = undefined; continue; } return n; }   // `provide c = … use c …`: what is above that provision
     if (c.context.dflt) { const de = c.context.dflt; return c.dflt ??= this.mkNode("eq", `${name} (default)`, c.home, rt => rt.evalExpr(de, c.home)); }
     throw new RuleError("RG-7b", `no provision for ${name}`);
   }
@@ -960,7 +1172,6 @@ export class Runtime {
       const f = question ? this.flight(key) : new Flight(`${key}#${this.serverSeq++}`);
       const fail = (msg: string): never => { throw new RuleError("WIRE_VALUE", `${d.name}: ${msg}`); };
       const env = new Map<string, unknown>(d.params.map((p, i) => [p, wireCopy(args[i], `argument ${p}`, fail)]));
-      env.set("log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true }));
       this.resume({ frames: [{ stmts: d.body, i: 0, kind: "block" }], region: home, env, change: null, flight: null, action: false, bind: null, settle: { flight: f, name: d.name } });
       return f;
     };
@@ -1024,7 +1235,6 @@ export class Runtime {
   // ---- imperative scope (SC-2) ----
   runStmts(stmts: Stmt[], region: Region, env: Map<string, unknown>, params: unknown[] = [], action = false): unknown {
     params.forEach((p, i) => env.set(`$${i}`, p));
-    env.set("log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true }));
     return this.startRun(stmts, region, env, action);
   }
   /** Start an imperative run (a handler, an apply block, or an action body — AC-1); it may suspend at `await`. */
@@ -1035,14 +1245,14 @@ export class Runtime {
   }
   private resume(run: Run): unknown {
     return this.untracked(() => {
-      const { region, env } = run;
+      const { region } = run; let env = run.env;                          // the scope of the statement running: the run's, or a loop's turn's (07 §5)
       const prev = this.currentRun; this.currentRun = run;
       /** AC-7: unwind to the nearest `try` with a catch; none → the run ends rejected (an uncaught throw is the action's rejection, DV-2). */
       const raise = (err: unknown): boolean => {
         while (run.frames.length) {
           const f = run.frames.pop()!;
-          if (f.kind === "try" && f.handler && isA(err, f.catchClasses)) { if (f.catchName) env.set(f.catchName, err); run.frames.push({ stmts: f.handler, i: 0, kind: "catch", fin: f.fin }); return true; }   // R-f-6: a typed catch takes its classes; others pass
-          if (f.kind === "try" && f.fin) { run.frames.push({ stmts: f.fin, i: 0, kind: "finally" }); }   // a finally runs on the way out; the error continues after it (approximation: it runs now, then unwinding resumes)
+          if (f.kind === "try" && f.handler && isA(err, f.catchClasses)) { if (f.catchName) (f.env ?? run.env).set(f.catchName, err); run.frames.push({ stmts: f.handler, i: 0, kind: "catch", fin: f.fin, env: f.env }); return true; }   // R-f-6: a typed catch takes its classes; others pass
+          if (f.kind === "try" && f.fin) { run.frames.push({ stmts: f.fin, i: 0, kind: "finally", env: f.env }); }   // a finally runs on the way out; the error continues after it (approximation: it runs now, then unwinding resumes)
         }
         this.endRun(run, true, err); return false;
       };
@@ -1056,14 +1266,15 @@ export class Runtime {
           return true;
         };
         if (run.flight) {                                                  // resuming after `await`
+          env = run.frames[run.frames.length - 1]?.env ?? run.env;
           const f = run.flight; const bind = run.bind, c = run.caught; run.flight = null; run.bind = null; run.caught = null;
           if (!land(bind, c, f.state !== "rejected", f.value)) return undefined;
         }
         while (run.frames.length) {
-          const f = run.frames[run.frames.length - 1];
+          const f = run.frames[run.frames.length - 1]; env = f.env ?? run.env;
           if (f.i >= f.stmts.length) {                                     // a block ended
             run.frames.pop();
-            if ((f.kind === "try" || f.kind === "catch") && f.fin) run.frames.push({ stmts: f.fin, i: 0, kind: "finally" });
+            if ((f.kind === "try" || f.kind === "catch") && f.fin) run.frames.push({ stmts: f.fin, i: 0, kind: "finally", env: f.env });
             continue;
           }
           const s = f.stmts[f.i++];
@@ -1082,8 +1293,9 @@ export class Runtime {
             if (s.k === "let") env.set(s.name, this.ev(s.e, region, env));
             else if (s.k === "expr") run.result = this.ev(s.e, region, env);
             else if (s.k === "return") { run.result = s.e ? this.ev(s.e, region, env) : undefined; run.returned = true; run.frames.length = 0; break; }
-            else if (s.k === "sif") run.frames.push({ stmts: this.ev(s.c, region, env) ? s.t : s.f, i: 0, kind: "block" });
-            else if (s.k === "try") run.frames.push({ stmts: s.body, i: 0, kind: "try", catchName: s.catchName, catchClasses: this.classValues(s.catchClasses, region), handler: s.handler, fin: s.fin });
+            else if (s.k === "sif") run.frames.push({ stmts: this.ev(s.c, region, env) ? s.t : s.f, i: 0, kind: "block", env: f.env });
+            else if (s.k === "for") { const xs = [...(this.ev(s.e, region, env) as Iterable<unknown>)]; for (let j = xs.length - 1; j >= 0; j--) { const turn = new Map(env); turn.set(s.name, xs[j]); run.frames.push({ stmts: s.body, i: 0, kind: "block", env: turn }); } }   // 07 §5: a loop over what `e` holds now — each turn a block with a scope of its own, where its variable is bound
+            else if (s.k === "try") run.frames.push({ stmts: s.body, i: 0, kind: "try", catchName: s.catchName, catchClasses: this.classValues(s.catchClasses, region), handler: s.handler, fin: s.fin, env: f.env });
             else if (s.k === "throw") { if (!raise(this.ev(s.e, region, env))) return undefined; }
             else this.resumeStmtOnly(s, region, env);
           } catch (e) {
@@ -1100,12 +1312,12 @@ export class Runtime {
   private resumeStmtOnly(s: Stmt, region: Region, env: Map<string, unknown>) {
     const run = this.currentRun ?? { action: false };
     if (s.k === "action") this.startRun(s.body, region, new Map(env), true);
-    else if (s.k === "refresh") { const n = this.nodeNamed(s.name, region); if (!n || (n.kind !== "eq") || !(n.question || n.flight || n.compute)) throw new RuleError("INVALID_REFRESH_TARGET", `${s.name} has no question to re-ask`); n.refreshInAction = !!run.action; this.pendingRefresh.push(n); }
+    else if (s.k === "refresh") { const n = this.nodeNamed(s.name, region); if (!n || (n.kind !== "eq") || !(n.question || n.flight || n.compute)) throw new RuleError("INVALID_REFRESH_TARGET", `${s.name} has no question to re-ask`); for (const l of this.withLifted(n)) { l.refreshInAction = !!run.action; this.pendingRefresh.push(l); } }
     else if (s.k === "affects") { const n = this.nodeNamed(s.name, region); if (!n) throw new RuleError("INVALID_AFFECTS_TARGET", `${s.name} is not reactive`); this.pendingAffects.push(n); }
     else if (s.k === "optimistic") {
       if (!run.action) throw new RuleError("GUESS_OUTSIDE_HOLD", "a guess outside an action body");
       const n = this.nodeNamed(s.target.name, region);
-      if (!n || !(n.question || (n.kind === "eq" && !n.deferred && n.compute))) throw new RuleError("GUESS_NO_QUESTION", `${s.target.name} is not a source with a question (source x = e)`);
+      if (!n || !(n.kind === "source" || n.question || (n.kind === "eq" && !n.deferred && n.compute))) throw new RuleError("W-1", `guess on ${s.target.name}, which is neither a source nor an equation`);
       const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, env)));
       this.pendingGuesses.push({ node: n, path, value: this.ev(s.e, region, env) });
     } else if (s.k === "write") {
@@ -1186,37 +1398,72 @@ export class Runtime {
       case "text": return { k: "text", s: m.s };
       case "style": return { k: "text", s: "" };                                          // CSS-4: removed from the view
       case "portal": { const r = new Region(region, this, region.boundary); this.declare(m.decls, r); return { k: "comp", portal: true, inst: this.instantiate(m.body, r) }; }   // RG-8: owned here (its boundary, its provisions), shown elsewhere
-      case "read": return { k: "read", node: this.mkNode("reader", "reader", region, rt => rt.evalExpr(m.e, region)), shown: null };
+      case "read": {
+        // RG-4c: a view the component was given is shown here: an instance of this place, owned by it, named by where it is written
+        let held: { of: ViewFn; view: ViewValue } | null = null;
+        return { k: "read", node: this.mkNode("reader", "reader", region, rt => {
+          const v = rt.evalExpr(m.e, region);
+          if (held && held.of !== v) { held.view.region.dispose(); held = null; }
+          if (!(v instanceof ViewFn) || !v.plain) return v === undefined && (this.held.has(m) || (m.e.k === "use" && this.viewCtxs.has((region.lookup(m.e.name) as { context?: unknown })?.context))) ? "" : v;   // children that were not given show nothing; so does a context that holds a view
+          if (!held) { const cr = new Region(region, this, region.boundary, v.region); held = { of: v, view: new ViewValue(cr, v.m.body.map(c => this.inst1(c, cr))) }; }
+          return held.view;
+        }), shown: null };
+      }
       case "el": {
+        { const u = usedIn(m.tag); if (u !== undefined) {                              // RG-4c: `<use.item … />`, the view a context holds: an instance of this place, owned by it, named by where it is written
+          let held: { of: ViewFn; view: ViewValue } | null = null; const s = this.spread({}, this.parts(m, region), new Set());
+          return { k: "read", node: this.mkNode("reader", "reader", region, rt => {
+            const v = rt.evalExpr({ k: "use", name: u }, region);
+            if (held && held.of !== v) { held.view.region.dispose(); held = null; }
+            if (!(v instanceof ViewFn)) return v === undefined ? "" : v;
+            if (!held) { const r = new Region(region, this, region.boundary, v.region); for (const p of v.m.params) r.scope.set(p, { constant: s }); this.declare(v.m.decls, r); held = { of: v, view: new ViewValue(r, v.m.body.map(c => this.inst1(c, r))) }; }
+            return held.view;
+          }), shown: null };
+        } }
+        const n = shownIn(m.tag), given = n && region.lookup(n[0]);
+        if (given && "constant" in given && typeof given.constant === "object" && given.constant) {   // RG-4c
+          const view = Object.getOwnPropertyDescriptor(given.constant, n![1])?.value;
+          if (!(view instanceof ViewFn)) return { k: "text", s: "" };   // none was given
+          const r = new Region(region, this, region.boundary, view.region);   // owned where it is shown, names from where it is written
+          const s = this.spread({}, this.parts(m, region), new Set());
+          for (const p of view.m.params) r.scope.set(p, { constant: s });
+          this.declare(view.m.decls, r);
+          return { k: "comp", inst: { region: r, items: view.m.body.map(c => this.inst1(c, r)) } };
+        }
         if (/^[A-Z]/.test(m.tag)) {
           const b = region.lookup(m.tag);
           if (!b || !("comp" in b)) throw new RuleError("SCOPE", `unknown component ${m.tag}`);
           const comp = b.comp; const r = new Region(region, this, region.boundary, b.home);   // owned at the application, names from the declaration (RG-7a, MO-6)
-          const parts = m.attrs.map(a => ({ name: a.name, node: this.mkNode("eq", `${m.tag}.${a.name}`, region, rt => rt.evalExpr(a.e, region)) }));
-          let props: Record<string, unknown> = {};
-          if (!parts.some(p => p.name === "...")) for (const p of parts) Object.defineProperty(props, p.name, { enumerable: true, get: () => this.readNode(p.node) });   // a prop read is a read of the argument's node: taint, lanes, serving (found by S-fail-2)
-          else {                                                                                  // 07 §4: a spread gives every field of its value; the last part that has a field wins, as Solid's merge
-            const obj = (v: unknown) => v != null && typeof v === "object" ? v as Record<string, unknown> : {};
-            const find = (k: string) => { for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; if (p.name === k) return { p, spread: false }; if (p.name === "..." && k in obj(this.readNode(p.node))) return { p, spread: true }; } return null; };
-            const read = (k: string) => { const f = find(k); return !f ? undefined : f.spread ? obj(this.readNode(f.p.node))[k] : this.readNode(f.p.node); };
-            const keys = () => [...new Set(parts.flatMap(p => p.name === "..." ? Object.keys(obj(this.readNode(p.node))) : [p.name]))].filter(k => k !== "children");
-            props = new Proxy(props, {
-              get: (t, k) => typeof k !== "string" || k === "children" ? Reflect.get(t, k) : read(k),
-              has: (t, k) => typeof k !== "string" || k === "children" ? Reflect.has(t, k) : !!find(k),
-              ownKeys: t => [...keys(), ...Reflect.ownKeys(t)],
-              getOwnPropertyDescriptor: (t, k) => typeof k === "string" && k !== "children" ? (find(k) ? { enumerable: true, configurable: true, value: read(k) } : undefined) : Reflect.getOwnPropertyDescriptor(t, k),
-            });
+          const written = m.children.some(c => c.k === "mview" ? !c.prop : c.k !== "text" || !!c.s.trim()) || !!this.shown.get(comp)?.get("children");   // RG-4c: content that is written is the children; with none, a spread may give them
+          const views = new Set(written ? ["children"] : []); for (const c of m.children) if (c.k === "mview" && c.prop) views.add(c.prop);
+          const props = this.spread({}, this.parts(m, region), views);
+          for (const c of m.children) if (c.k === "mview" && c.prop) Object.defineProperty(props, c.prop, { enumerable: true, configurable: true, value: new ViewFn(c, region) });
+          const takes = this.shown.get(comp)?.get("children"), content = m.children.filter(c => c.k !== "mview");
+          if (takes) {                                             // RG-4c: a view; plain content, where it is taken, is one that asks nothing
+            const view = m.children.find(c => c.k === "mview" && !c.prop) ?? (content.some(c => c.k !== "text" || c.s.trim()) ? { k: "mview" as const, params: [], decls: [], body: content } : undefined);
+            Object.defineProperty(props, "children", { enumerable: true, value: view?.k === "mview" ? new ViewFn(view, region) : undefined });
           }
-          let children: ViewValue | null = null;                   // RG-4c: instantiated where first read — owned by the reader's region, named by the caller's
-          Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, m.children.map(c => this.inst1(c, cr))); } return children; } });
+          // RG-4c: children the component declares a value's type (`children: number[]`), or uses as a value where every
+          // caller gives one (`kidsValue`), are what is written between the tags as a value: the one `{…}`, or the text
+          const shownKids = content.filter(c => c.k !== "text" || c.s.trim()), asValue = !takes && written && this.views.has(comp) && !this.views.get(comp)!.has("children");
+          if (asValue && shownKids.length && shownKids.every(c => c.k === "text")) Object.defineProperty(props, "children", { enumerable: true, value: shownKids.map(c => (c as { s: string }).s).join("").trim() });
+          else if (asValue && shownKids.length === 1 && shownKids[0].k === "read") { const one = shownKids[0].e, kn = this.mkNode("eq", `${m.tag}.children`, region, rt => rt.evalExpr(one, region)); Object.defineProperty(props, "children", { enumerable: true, get: () => this.readNode(kn) }); }
+          else
+          if (!takes && written) Object.defineProperty(props, "children", { enumerable: true, value: new ViewFn({ k: "mview", params: [], decls: [], body: content }, region, true) });   // RG-4c: content is a view that asks nothing, made at each place it is shown
           r.scope.set(comp.props, { constant: props });
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };
         }
-        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, /^on[A-Z:]/.test(a.name) ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
+        // 07 §4: an element's `ref` is called once, with the element, as it is made (Solid's ref(): untracked, in the
+        // creating pass, where a write is a handler's); what it is given stands for the element
+        for (const a of m.attrs) if (a.name === "ref" || a.name === "...") {
+          const v = this.untracked(() => this.evalExpr(a.e, region)), f = a.name === "ref" ? v : isObj(v) ? this.untracked(() => v.ref) : undefined;
+          for (const g of [f].flat(Infinity as 1)) if (typeof g === "function") this.refCalls.push({ made: this.instant, region, call: () => { this.untracked(() => g({ tagName: m.tag })); } });
+        }
+        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, (/^on[A-Z:]/.test(a.name) || a.name === "ref") ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: this.spreadKids(m).map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
       }
-      case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
-      case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };
+      case "mif": return { k: "mif", m, cond: Object.assign(this.mkNode("reader", "if", region, rt => { const c = rt.askedAt(rt.evalExpr(m.c, region)); return isAbsent(c) ? c : Boolean(c); }), { control: true }), region, committed: null, inflight: null };
+      case "mfor": return { k: "mfor", m, xs: Object.assign(this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), { control: true }), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };
       case "loading": case "errored": {
         const item: BoundaryItem = { classes: m.k === "errored" ? this.classValues(m.classes, region) : undefined, k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false, armedBy: Math.max(this.instant, 0), laneAttached: false, bornCandidates: 0 };
         if (m.k === "loading" && m.on) item.onNode = this.mkNode("reader", "on", region, rt => rt.evalExpr(m.on!, region));
@@ -1228,6 +1475,23 @@ export class Runtime {
         return item;
       }
     }
+  }
+  /** The arguments of an application, each a node of the caller's. */
+  private parts(m: Extract<Markup, { k: "el" }>, region: Region) { return m.attrs.map(a => ({ name: a.name, node: this.mkNode("eq", `${m.tag}.${a.name}`, region, /^on[A-Z:]/.test(a.name) || a.name === "ref" ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })); }   // SC-4, SC-4b: a handler given to a component is an imperative closure, as an element's
+  /** `views`: the fields that are no argument's, defined on the target: a view given, the children. */
+  private spread(props: Record<string, unknown>, parts: { name: string; node: Node }[], views = new Set(["children"])): Record<string, unknown> {
+    if (!parts.some(p => p.name === "...")) { for (const p of parts) Object.defineProperty(props, p.name, { enumerable: true, get: () => this.readNode(p.node) }); return props; }   // a prop read is a read of the argument's node: taint, lanes, serving (found by S-fail-2)
+    // 07 §4: a spread gives every field of its value; the last part that has a field wins, as Solid's merge
+    const obj = (v: unknown) => v != null && typeof v === "object" ? v as Record<string, unknown> : {};
+    const find = (k: string) => { for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; if (p.name === k) return { p, spread: false }; if (p.name === "..." && k in obj(this.readNode(p.node))) return { p, spread: true }; } return null; };
+    const read = (k: string) => { const f = find(k); return !f ? undefined : f.spread ? obj(this.readNode(f.p.node))[k] : this.readNode(f.p.node); };
+    const keys = () => [...new Set(parts.flatMap(p => p.name === "..." ? Object.keys(obj(this.readNode(p.node))) : [p.name]))].filter(k => !views.has(k));
+    return new Proxy(props, {
+      get: (t, k) => typeof k !== "string" || views.has(k) ? Reflect.get(t, k) : read(k),
+      has: (t, k) => typeof k !== "string" || views.has(k) ? Reflect.has(t, k) : !!find(k),
+      ownKeys: t => [...keys(), ...Reflect.ownKeys(t)],
+      getOwnPropertyDescriptor: (t, k) => typeof k === "string" && !views.has(k) ? (find(k) ? { enumerable: true, configurable: true, value: read(k) } : undefined) : Reflect.getOwnPropertyDescriptor(t, k),
+    });
   }
   private allNodes(): Node[] { const out: Node[] = []; const walk = (r: Region) => { out.push(...r.nodes); for (const c of r.children) walk(c); }; walk(this.root); return out; }
 }
@@ -1271,4 +1535,12 @@ function freeVars(e: Expr, out: Set<string>) {
     case "use": break;
     case "draft": { freeVars(e.seed, out); for (const st of e.body) { if (st.k === "write" || st.k === "let" || st.k === "expr" || st.k === "optimistic") freeVars(st.e, out); if (st.k === "write") for (const p of st.target.path) if (typeof p !== "string") freeVars(p, out); } out.delete("d"); break; }
   }
+}
+
+/** Whether an expression asks something of the place it is evaluated at: a `use`, an `await`. */
+function placed(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  if (Array.isArray(e)) return e.some(placed);
+  const o = e as { k?: string };
+  return o.k === "use" || o.k === "await" || Object.values(e).some(placed);
 }

@@ -1,0 +1,20 @@
+// A cart on Solid 2's store: one updater, written once and reused by two handlers; a loop over the draft; and a
+// snapshot of the items kept for later (an undo stack).
+import { createStore } from "solid-js"
+import { record, first } from "./audit.js"
+
+type Cart = { items: { name: string; qty: number }[]; total: number }
+source seen := ""
+
+export default component App() {
+  [cart, setCart] = createStore<Cart>({ items: [{ name: "tea", qty: 1 }, { name: "milk", qty: 2 }], total: 3 })
+  // the shared change: one more of everything
+  restock = (d: Cart) => { for (const item of d.items) { item.qty := item.qty + 1 }; d.total := d.total + len(d.items) }
+  <ul>{for item in cart.items { <li>{item.name} × {item.qty}</li> }}</ul>
+  <p class="total">total {cart.total}</p>
+  <button class="one" onClick={() => { setCart(restock) }}>restock</button>
+  <button class="two" onClick={() => { setCart(restock); setCart(restock) }}>restock twice</button>
+  <button class="keep" onClick={() => { setCart((d) => { record("items", d.items) }) }}>remember</button>
+  <button class="show" onClick={() => { seen := first() }}>show</button>
+  <p class="seen">{seen}</p>
+}

@@ -1,0 +1,53 @@
+import pure { search, fetchItem } from "./api"
+import { Item } from "./api"
+
+error ItemNotFound(id: number) => `item ${id} not found`
+
+fn foundItem(it: Item | null, id: number) => it == null ? throw ItemNotFound(id) : it
+
+export component HelpPage(props: { initialQuery: string; initialSel: number | null }) {
+  source query: string := peek(props.initialQuery)
+  source sel: number | null := peek(props.initialSel)
+
+  hits = query.length >= 2 ? await search(query) : []
+  item = sel == null ? null : foundItem(await fetchItem(sel), sel)
+
+  <div>
+    <input data-testid="query" value={query} onInput={(e) => { query := e.target.value }} />
+    <div data-testid="results">
+      {if query == "" {
+      } else if query.length < 2 {
+        <p>{`too short: ${query}`}</p>
+      } else {
+        {loading fallback { <p>searching…</p> } {
+          {errored fallback(e) { <p>{`search failed: ${e.message}`}</p> } {
+            {if pending? hits { <p>searching…</p> }}
+            <p>{`${hits.length} results for ${query}`}</p>
+            <ul>
+              {for h in hits {
+                <li data-testid="hit" onClick={() => { sel := h.id }}>{h.id == sel ? `> ${h.name}` : h.name}</li>
+              }}
+            </ul>
+          }}
+        }}
+      }}
+    </div>
+    <div data-testid="item">
+      {if sel == null {
+        <p>pick a result</p>
+      } else {
+        {loading on(sel) fallback { <p>loading…</p> } {
+          {errored fallback(e) {
+            <p>{`failed: ${e.message}`}</p>
+            <button data-testid="retry-item" onClick={() => { refresh item }}>retry</button>
+          } {
+            {errored fallback(e: ItemNotFound) { <p>{e.message}</p> } {
+              <h3>{item.name}</h3>
+              <p>{item.blurb}</p>
+            }}
+          }}
+        }}
+      }}
+    </div>
+  </div>
+}

@@ -1,0 +1,18 @@
+import pure { load } from "./api.js"
+import { Root, Trigger, Page as Portal, Overlay, Content, Title, CloseButton } from "@rx-packages/kobalte/dialog"
+/*TOP*/
+export default component App() {
+  source n: number := 0
+  source other: number := 0
+  source list: string[] := ["a", "b"]
+  source extra: boolean := false
+  source on: boolean := false
+  slow = await load(n)
+  action bump() { n := n + 1 }
+  /*DECL*/
+  <main><p>{n} {other} {list.join("+")}</p>
+    <button onClick={() => { bump(); extra := !extra; list := [...list, "c"] }}>b</button>
+    <div>/*A*/<Root open={on} onOpenChange={(v: boolean) => { on := v }}><Trigger>o</Trigger><Portal><Overlay /><Content><Title>CHILD</Title><CloseButton>x</CloseButton></Content></Portal></Root>/*B*/</div>
+    {errored fallback { <i>e</i> } { {loading fallback { <i>l</i> } { <b>{slow}</b> }} }}
+  </main>
+}

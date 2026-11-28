@@ -1,0 +1,6 @@
+// @solid-primitives/jsx-tokenizer: children that are data for their parent (tabs.js makes the tokens and reads them).
+import { Tabs, Tab } from "./tabs.js"
+
+export default component App() {
+  <Tabs><Tab title="one" /><Tab title="two" /></Tabs>
+}

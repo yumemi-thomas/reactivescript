@@ -1,0 +1,7 @@
+//@ signature tabs.rx (09-modules MO-3, MO-13a). Sources are read-only to importers (MO-2).
+export component Tabs(props: { render: provides(./tabs.rx#tabs); ...props; value; defaultValue; onValueChange; orientation; activation; loop; hiddenUntilFound; controller; debug; class: provides(./tabs.rx#tabs); style: provides(./tabs.rx#tabs); children: provides(./tabs.rx#tabs) }) shape(roots div; closes-p)
+export component TabsList(props: { render; ...props; class; style; children }) uses(./tabs.rx#tabs) shape(roots div; closes-p)
+export component TabsTab(props: { render; ...props; value; disabled; class; style; children }) uses(./tabs.rx#tabs) shape(roots button)
+export component TabsTabIcon(props: { render; ...props; mirror; id; class; style; children }) uses(./tabs.rx#tabs) shape(roots span)
+export component TabsIndicator(props: { render; ...props; class; style; children }) uses(./tabs.rx#tabs) shape(roots span)
+export component TabsPanel(props: { value; keepMounted; hiddenUntilFound; ...props; render; class; style; children }) uses(./tabs.rx#tabs) shape(roots div; closes-p)

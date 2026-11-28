@@ -1,0 +1,13 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type SliderValueChangeDetails = import("@ui-sdk/solid/slider").SliderValueChangeDetails
+export type SliderValueCommitDetails = import("@ui-sdk/solid/slider").SliderValueCommitDetails
+export type SliderState = import("@ui-sdk/solid/slider").SliderState
+export type SliderThumbState = import("@ui-sdk/solid/slider").SliderThumbState
+export type SliderThumbProps = import("@ui-sdk/solid/slider").SliderThumbProps
+export type SliderValueState = import("@ui-sdk/solid/slider").SliderValueState
+export component Slider<Value extends number | number[] = number | number[]>(props: Parameters<typeof import("@ui-sdk/solid/slider").Slider<Value>>[0] & { onValueChange?: (value: Value extends (number | number[]) ? Value : Value & (number | number[]), details: SliderValueChangeDetails) => void; onValueCommit?: (value: Value extends (number | number[]) ? Value : Value & (number | number[]), details: SliderValueCommitDetails) => void; render?: (props: Record<string, any>, state: NoInfer<SliderState>) => View })
+export component SliderControl(props: Parameters<typeof import("@ui-sdk/solid/slider").SliderControl>[0] & { render?: (props: Record<string, any>, state: NoInfer<SliderState>) => View })
+export component SliderIndicator(props: Parameters<typeof import("@ui-sdk/solid/slider").SliderIndicator>[0] & { render?: (props: Record<string, any>, state: NoInfer<SliderState>) => View })
+export component SliderThumb(props: (Omit<import("@ui-sdk/solid").PartProps<"div", SliderThumbState>, "defaultValue" | "onChange" | "onSelect">) & SliderThumbProps & { render?: (props: Record<string, any>, state: SliderThumbState) => View })
+export component SliderTrack(props: Parameters<typeof import("@ui-sdk/solid/slider").SliderTrack>[0] & { render?: (props: Record<string, any>, state: NoInfer<SliderState>) => View })
+export component SliderValue(props: Parameters<typeof import("@ui-sdk/solid/slider").SliderValue>[0] & { render?: (props: Record<string, any>, state: NoInfer<SliderValueState>) => View })

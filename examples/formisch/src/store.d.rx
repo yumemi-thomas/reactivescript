@@ -1,0 +1,3 @@
+// Solid 2's createStore in rows: the store is a proxy read field by field (a value, not `ref`), and its setter's callback
+// gets the store's draft (MO-10i)
+export pure fn createStore<T>(init: T): [T, (update: (draft state: T) => T | void) => void]

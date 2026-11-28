@@ -1,0 +1,5 @@
+export type Code = import("./cm.js").Code
+export type Rich = import("./cm.js").Rich
+export type Said = import("./cm.js").Said
+export client fn openCode(parent: any, options: { value: string; extensions: any[]; readOnly: boolean }, said: handler (s: { value?: string; focused?: boolean }) => void): Code
+export client fn openRich(element: any, options: any, changed: handler (s: Said) => void): Rich

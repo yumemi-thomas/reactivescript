@@ -1,0 +1,37 @@
+// Timers that follow a delay. What is kept across two delays (the fraction of a period already spent) is clock.js's.
+import { every } from "@reactivescript/std/time"
+import { repeating, timer } from "./clock.js"
+
+export type Run = () => void
+export type Delay = number | false
+export type Poll = (prev: any) => any
+
+/** Runs `run` each `delay` (once, with setTimeout); `false` pauses it, and a new delay keeps the fraction already spent. */
+export fn createTimer(run: Run, ref delay: Delay, set: any) {
+  clock = timer(run, set)
+  effect (delay) { return clock.follow($0) }
+  null
+}
+
+/** `value` asked again at each tick. */
+export fn createPolled(poll: Poll, ref timeout: Delay, first: any) {
+  source ticks := 0
+  action tick() { ticks := n => n + 1 }
+  ticking = createTimer(tick, timeout, peek repeating)
+  polled = again(poll, pre polled -> first, ticks)
+  effect (polled) {}   // asked at each tick, read or not
+  polled
+}
+export fn createIntervalCounter(ref timeout: Delay): number {
+  count = createPolled((n) => n + 1, timeout, -1)
+  count
+}
+fn again(poll: Poll, prev: any, _tick: number): any => poll(prev)
+
+/** A handler run in a loop; each turn reads the delay of the next one. */
+export fn createTimeoutLoop(run: Run, ref timeout: Delay) {
+  source current: Delay := peek(timeout)
+  delay = current == false ? timeout : current
+  effect (delay) { return $0 == false ? undefined : every($0, () => { run(); current := peek(timeout) }) }
+  null
+}

@@ -1,0 +1,1 @@
+export const probes = Object.fromEntries(Object.entries({ max: [1, 3], min: [1, 3], abs: [-1], ceil: [1.2], cos: [1], floor: [1.7], round: [1.5], sin: [1], sqrt: [4], isFinite: [1], isInteger: [1], num: ["4"] }).map(([k, v]) => [k, { args: () => v }]));

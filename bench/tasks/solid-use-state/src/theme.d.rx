@@ -1,0 +1,6 @@
+// theme.js: solid-use's `provide(context, value)` is a call made while a component is made, which an `.rx` component's
+// body has no place for; the module makes the scope and the hook. It is no context (09 MO-12): the library's scope is
+// there while the component's body runs and not for what is made under it later (a conditional turned on), so the row
+// says neither `provides` nor `uses` (it said both until rx-verify ran it, 2026-11-24). By hand: every word.
+export component ThemeScope(props: { value: string; children?: View })
+export fn useTheme(): ref string

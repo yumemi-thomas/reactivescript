@@ -1,0 +1,5 @@
+//@ for @ui-sdk/solid ^0.1.0-beta.13
+export type FieldOptions = import("@ui-sdk/solid/field").FieldOptions
+export type FieldState = import("@ui-sdk/solid/field").FieldState
+export component Field(props: FieldOptions & import("@ui-sdk/solid").PartProps<"div", FieldState> & { render?: (props: Record<string, any>, state: { disabled: boolean; required: boolean; focused: boolean; invalid: boolean; valid: boolean; }) => View })
+export component FieldLabel(props: import("@ui-sdk/solid").PartProps<"label", FieldState> & { render?: (props: Record<string, any>, state: { disabled: boolean; required: boolean; focused: boolean; invalid: boolean; valid: boolean; }) => View })

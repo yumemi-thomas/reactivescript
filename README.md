@@ -22,9 +22,38 @@ them things the compiler refuses, the way Rust refuses a borrow, so the
 program that runs is one where those mistakes cannot happen
 ([spec/08](spec/08-constraints.md), [spec/99](spec/99-diagnostics.md)).
 
-The checks are static only. A `.rx` program compiles to ordinary Solid 2.0
-code and adds nothing at run time beyond what Solid does
-([spec/11](spec/11-compiler.md)).
+The checks are static: none of them becomes a run-time check. A `.rx`
+program compiles to ordinary Solid 2.0 code over a small runtime of Solid's
+own primitives ([spec/11](spec/11-compiler.md)). In three places a rule is
+kept by construction instead of by refusal, and there the compiled code does
+a little more than hand-written Solid would: a value read out of a library's
+draft is a copy, a JS result with an accessor among its parts is read
+through a getter per part, and a loop runs over the values its list held
+when it started ([spec/09](spec/09-modules.md) MO-10i, MO-10b;
+[spec/07](spec/07-surface.md) §5).
+
+A `.rx` program can use the Solid ecosystem's libraries through their
+declarations ([spec/09](spec/09-modules.md), [guide/libraries.md](guide/libraries.md)).
+What the compiler enforces there is Solid's — reactivity, ownership, and
+the contracts a declaration states in words any library can write — and
+never one package's own rules, which stay that package's tooling's
+([spec/08](spec/08-constraints.md) CN-8). Where JavaScript renders the
+`.rx` components — a file-based router's route tree — one declaration says
+what it does with them, and a page is checked under its layout, the
+router and what the app's own component has around the router, with the
+router's own generated types ([spec/09](spec/09-modules.md) MO-14;
+`examples/tanstack`). That declaration is read off the router's own tree
+and refused when it falls behind (MO-14g); the route files themselves are
+`.rx` with `filesystem-routing`, and an app is served and hydrated by
+Solid's own start mode ([spec/11](spec/11-compiler.md) CP-4d;
+`bench/tasks/start-mode`).
+
+The other way works too: a library written in `.rx` is built once
+(`rx-lib`) and published as a package that an `.rx` app is checked against —
+by the signature the compiler printed for it, never a declaration written by
+hand — and that a Solid 2 app in TypeScript imports as an ordinary Solid
+library, with TypeScript's checks and no others ([spec/09](spec/09-modules.md)
+MO-13, [guide/libraries.md](guide/libraries.md)).
 
 It is also meant to be easy for an AI to write correctly. The rules are
 small and explicit, and each checker error names the rule it enforces and usually the fix. We
@@ -62,7 +91,7 @@ Async is an `await` in an equation. The compiler tracks that the value can be
 pending and can fail, so it asks you to say what to show in both cases:
 
 ```rx
-import pure { fetchUser } from "./api"   // `pure`: safe to call from an equation (R-io-4)
+import pure { fetchUser } from "./api"   // createApp({ api: { fetchUser } }), typed by an api.d.ts beside it; `pure`: safe to call from an equation (R-io-4)
 
 export default component Profile() {
   source id := 1
@@ -82,7 +111,7 @@ export default component Profile() {
 Leave out the `errored` boundary and it does not compile:
 
 ```
-profile.rx:10: error UNHANDLED_FAILURE [R-f-5] a reader of user.name (in <Profile>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+profile.rx:10: error UNHANDLED_FAILURE [R-f-5] a reader of user.name (in <Profile>) can fail with Error and no catch or errored boundary above it discharges Error — show it where it is read: `errored fallback(e) { … } { … }` around the reader (or `await … catch (e) => …` at the await, to make the rejection an answer)
 ```
 
 Beyond this the language has structured stores with per-path writes
@@ -90,7 +119,9 @@ Beyond this the language has structured stores with per-path writes
 data loads ([spec/05](spec/05-holds.md)), modules that own their state and
 export actions to change it ([spec/09](spec/09-modules.md)), streamed SSR with
 hydration ([spec/10](spec/10-server.md)), `server fn` for code that runs on
-the server ([spec/12](spec/12-server-functions.md)), scoped `<style>`
+the server ([spec/12](spec/12-server-functions.md); in a Vite app it needs
+Solid's server-function pass, `solid({ serverFunctions: true })`, and a build
+without it fails), scoped `<style>`
 ([spec/07](spec/07-surface.md)), and types checked by TypeScript through a
 TSX projection ([spec/13](spec/13-types.md)). For whole apps, start with
 [`examples/todo.rx`](examples/todo.rx) and
@@ -177,7 +208,7 @@ node --experimental-strip-types ref/check.ts examples/todo.rx   # check a progra
 node --experimental-strip-types ref/run.ts                      # run every scenario
 ```
 
-Running the scenarios on Solid itself needs Solid's `next` branch built from
+Running the scenarios on Solid itself needs Solid's `main` branch built from
 source (pnpm and a Rust toolchain); see [CONTRIBUTING.md](CONTRIBUTING.md) and
 [`ref/README.md`](ref/README.md). The compiler builds with Cargo
 ([`compiler/README.md`](compiler/README.md)). To try an unreleased editor build, install a `.vsix` from a run of the

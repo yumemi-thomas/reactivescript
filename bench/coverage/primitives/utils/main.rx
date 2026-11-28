@@ -1,0 +1,9 @@
+// @solid-primitives/utils: the helpers the other packages are written with; here, plain functions.
+import { clamp, asArray } from "@solid-primitives/utils"
+
+export default component App() {
+  source n := 5
+  bounded = clamp(n, 0, 10)
+  <p>{bounded} of {asArray("one").length}</p>
+  <button onClick={() => { n := 50 }}>overshoot</button>
+}

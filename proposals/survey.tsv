@@ -1,0 +1,740 @@
+package	primitive	class	causes
+a11y	createFormControl	B	R,H
+a11y	createFormControlInput	C	
+a11y	FormControlContext	C	
+a11y	useFormControl	C	
+a11y	makeAnnounce	D	
+a11y	createAnnounce	D	
+a11y	createReducedMotion	B	H
+active-element	makeActiveElementListener	D	
+active-element	createActiveElement	B	H
+active-element	focus	D	
+analytics	makeAnalytics	D	
+analytics	createAnalytics	D	
+analytics	createServerPlugin	D	
+analytics	AnalyticsProvider	B	P,H
+analytics	useAnalytics	B	R,H
+analytics	makeAnalyticsGuard	D	
+analytics	createAnalyticsGuard	D	
+analytics	createSolidStartRelayPlugin	D	
+analytics	createTanStackRelayPlugin	D	
+animation	makeAnimate	D	
+animation	createAnimate	B	P,H
+animation	makeScrollAnimation	D	
+animation	createScrollAnimation	B	P,H
+animation	makeViewAnimation	D	
+animation	createViewAnimation	B	P,H
+animation	makeFlip	D	
+animation	makeStagger	D	
+animation	createStagger	B	P,H
+animation	makeAnimationGroup	D	
+animation	createAnimationGroup	B	R,P
+animation	makeMotionPath	D	
+animation	createMotionPath	B	P,H
+animation	makeSequence	D	
+animation	createPresenceAnimation	B	R,P,H
+async	fromStream	D	
+async	fromJSONStream	D	
+async	makeAbortable	D	
+async	createAbortable	D	
+async	makeRetrying	D	
+async	createAggregated	B	P,H
+audio	makeAudio	D	
+audio	makeAudioPlayer	D	
+audio	createAudio	B	R,P,H
+bounds	getElementBounds	D	
+bounds	createElementBounds	B	R,P,H
+broadcast-channel	makeBroadcastChannel	D	
+broadcast-channel	createBroadcastChannel	B	R,P,H
+clipboard	writeClipboard	D	
+clipboard	readClipboard	D	
+clipboard	makeClipboard	D	
+clipboard	createClipboard	B	R,P,H
+clipboard	copyToClipboard	D	
+clipboard	newClipboardItem	D	
+clipboard	newItem	D	
+clipboard	element	D	
+clipboard	input	D	
+connectivity	makeConnectivityListener	D	
+connectivity	makeNetworkInformation	D	
+connectivity	createConnectivitySignal	B	H
+connectivity	createNetworkInformation	B	R,H
+connectivity	useConnectivitySignal	B	H
+connectivity	useNetworkInformation	B	R,H
+context	createContextProvider	E	
+context	createOptionalContextProvider	E	
+context	createLayeredContext	E	
+context	MultiProvider	E	
+context	ContextConsumer	E	
+controlled-props	BoolProp	A	
+controlled-props	NumberProp	A	
+controlled-props	RangeProp	A	
+controlled-props	StringProp	A	
+controlled-props	SelectProp	B	P,H
+controlled-props	createControlledProp	B	R,P,H
+controlled-props	createControlledProps	B	R,H
+controlled-signal	createControllableSignal	B	R,P,H
+controlled-signal	createControllableBooleanSignal	B	R,H
+controlled-signal	createControllableArraySignal	B	R,P,H
+controlled-signal	createControllableSetSignal	B	R,P,H
+controlled-signal	createToggleState	B	R,P,H
+cookies	parseCookie	D	
+cookies	getCookiesString	D	
+cookies	createServerCookie	B	R,P,H
+cookies	createUserTheme	B	R,P,H
+cursor	makeBodyCursor	D	
+cursor	makeElementCursor	D	
+cursor	createElementCursor	B	P,H
+cursor	createBodyCursor	B	P,H
+cursor	createDragCursor	B	P,H
+cursor	cursorRef	D	
+date	SECOND	D	
+date	MINUTE	D	
+date	HOUR	D	
+date	DAY	D	
+date	WEEK	D	
+date	MONTH	D	
+date	YEAR	D	
+date	UNITS	D	
+date	DEFAULT_MESSAGES	D	
+date	getDate	D	
+date	getTime	D	
+date	getDateDifference	A	
+date	getCountdown	D	
+date	formatDate	A	
+date	formatDateRelative	D	
+date	createDate	B	R,P,H
+date	createDateNow	B	R,P,H
+date	createTimeDifference	B	R,P,H
+date	createTimeDifferenceFromNow	B	R,P,H
+date	createTimeAgo	B	R,P,H
+date	createCountdown	B	R,P,H
+date	createCountdownFromNow	B	R,P,H
+deep	trackDeep	D	
+deep	deepTrack	D	
+deep	trackStore	D	
+deep	captureStoreUpdates	D	
+destructure	destructure	E	
+devices	createDevices	B	H
+devices	createMicrophones	B	H
+devices	createSpeakers	B	H
+devices	createCameras	B	H
+drag-drop	closestCenter	D	
+drag-drop	closestCorners	D	
+drag-drop	rectIntersection	D	
+drag-drop	pointerWithin	D	
+drag-drop	createDragContext	C	
+drag-drop	makeDraggable	D	
+drag-drop	createDraggable	C	
+drag-drop	makeDroppable	D	
+drag-drop	createDroppable	C	
+drag-drop	makeNativeDroppable	D	
+drag-drop	createNativeDroppable	B	R,P,H
+drag-drop	createSortable	C	
+drag-drop	arrayMove	D	
+event-bus	EventBusCore	D	
+event-bus	createEventBus	D	
+event-bus	createEventHub	D	
+event-bus	createEventStack	D	
+event-bus	EmitterCore	D	
+event-bus	createEmitter	D	
+event-bus	createGlobalEmitter	D	
+event-bus	toPromise	D	
+event-bus	once	D	
+event-bus	toEffect	D	
+event-bus	batchEmits	D	
+event-dispatcher	createEventDispatcher	D	
+event-listener	makeEventListener	D	
+event-listener	createEventListener	B	P,H
+event-listener	createEventSignal	B	P,H
+event-listener	eventListener	D	
+event-listener	createEventListenerMap	B	P,H
+event-listener	WindowEventListener	B	H
+event-listener	DocumentEventListener	B	H
+event-listener	makeEventListenerStack	D	
+event-listener	preventDefault	D	
+event-listener	stopPropagation	D	
+event-listener	stopImmediatePropagation	D	
+event-props	createEventProps	C	
+favicon	makeFavicon	D	
+favicon	createFavicon	B	P,H
+favicon	makeFaviconAnimation	D	
+favicon	createFaviconAnimation	B	R,P,H
+favicon	makeFaviconBadge	D	
+favicon	createFaviconBadge	B	P,H
+favicon	makeFaviconScheme	D	
+favicon	createFaviconScheme	B	R,P,H
+favicon	makeFaviconProgress	D	
+favicon	createFaviconProgress	B	P,H
+favicon	FaviconLink	A	
+filesystem	makeNoFileSystem	D	
+filesystem	makeNoAsyncFileSystem	D	
+filesystem	makeNodeFileSystem	D	
+filesystem	makeTauriFileSystem	D	
+filesystem	makeWebAccessFileSystem	D	
+filesystem	makeVirtualFileSystem	D	
+filesystem	createSyncFileSystem	D	
+filesystem	createAsyncFileSystem	D	
+filesystem	createFileSystem	D	
+filesystem	getParentDir	A	
+filesystem	getItemName	A	
+filesystem	limitPath	D	
+filesystem	toPromise	D	
+filesystem	rsync	D	
+filesystem	makeChokidarWatcher	D	
+flux-store	createAction	E	
+flux-store	createActions	E	
+flux-store	createFluxStore	E	
+flux-store	createFluxStoreFactory	E	
+focus	autofocus	D	
+focus	createAutofocus	B	P,H
+focus	createFocusTrap	B	H
+focus	createFocusRestore	B	P,H
+focus	makeFocusListener	D	
+focus	createFocusSignal	B	P,H
+focus	createFocusGroup	B	R,P,H
+focus	getFocusableTreeWalker	D	
+form	createForm	D	
+form	toFormData	D	
+form	createFormResetListener	B	P
+fullscreen	makeFullscreen	D	
+fullscreen	createFullscreen	B	R,P,H
+fullscreen	fullscreen	D	
+geolocation	makeGeolocation	D	
+geolocation	makeGeolocationWatcher	D	
+geolocation	createGeolocation	D	
+geolocation	createGeolocationWatcher	B	R,P,H
+geolocation	createDistance	B	P,H
+geolocation	createWithinRadius	B	P,H
+gestures	registerPointerListener	D	
+gestures	DEFAULT_DELAY	D	
+gestures	DEFAULT_MIN_SWIPE_DISTANCE	D	
+gestures	getCenterOfTwoPoints	D	
+gestures	doubleTap	D	
+gestures	longPress	D	
+gestures	pinch	D	
+gestures	pan	D	
+gestures	rotate	D	
+gestures	swipe	D	
+gestures	tap	D	
+graphql	GraphQLError	D	
+graphql	createGraphQLClient	D	
+graphql	createGraphQLMutation	D	
+graphql	request	D	
+graphql	multipartRequest	D	
+graphql	makeMultipartBody	D	
+graphql	gql	D	
+history	createUndoHistory	B	R,P,H
+i18n	flatten	D	
+i18n	prefix	D	
+i18n	template	D	
+i18n	resolveTemplate	D	
+i18n	identityResolveTemplate	D	
+i18n	resolveRichTemplate	D	
+i18n	richText	D	
+i18n	missingKeyAsPath	A	
+i18n	missingKeyAsTemplate	D	
+i18n	translator	D	
+i18n	scopedTranslator	D	
+i18n	chainedTranslator	D	
+i18n	proxyTranslator	D	
+idle	createIdleTimer	B	R,P,H
+input-mask	stringMaskRegExp	D	
+input-mask	stringMaskToArray	D	
+input-mask	regexMaskToFn	D	
+input-mask	maskArrayToFn	D	
+input-mask	anyMaskToFn	D	
+input-mask	createInputMask	D	
+input-mask	createMaskPattern	D	
+interaction	ariaHideOutside	D	
+interaction	createHideOutside	B	P,H
+interaction	makeInteractOutside	D	
+interaction	interactOutside	D	
+interaction	createInteractOutside	B	P,H
+intersection-observer	makeIntersectionObserver	D	
+intersection-observer	createIntersectionObserver	B	R,P,H
+intersection-observer	createViewportObserver	D	
+intersection-observer	createVisibilityObserver	B	P,H
+intersection-observer	Occurrence	D	
+intersection-observer	getOccurrence	D	
+intersection-observer	withOccurrence	D	
+intersection-observer	DirectionX	D	
+intersection-observer	DirectionY	D	
+intersection-observer	getDirection	D	
+intersection-observer	withDirection	D	
+jsx-tokenizer	createTokenizer	D	
+jsx-tokenizer	createToken	D	
+jsx-tokenizer	createObjectToken	D	
+jsx-tokenizer	resolveTokens	D	
+jsx-tokenizer	isToken	D	
+keyboard	useKeyDownEvent	B	H
+keyboard	useKeyDownList	B	H
+keyboard	useCurrentlyHeldKey	B	H
+keyboard	useKeyDownSequence	B	H
+keyboard	createKeyHold	B	P,H
+keyboard	createShortcut	D	
+keyboard	createKeyDown	B	P,H
+keyed	keyArray	D	
+keyed	Key	E	
+keyed	Entries	E	
+keyed	MapEntries	E	
+keyed	SetValues	E	
+keyed	Rerun	D	
+lifecycle	createIsMounted	A	
+lifecycle	isHydrated	D	
+lifecycle	onElementConnect	D	
+list	List	E	
+list	listArray	D	
+list-state	createListState	B	R,P,H
+list-state	createMultiSelectListState	B	R,P,H
+map	ReactiveMap	D	
+map	ReactiveWeakMap	D	
+map	createMap	D	
+map	createWeakMap	D	
+marker	makeSearchRegex	D	
+marker	createMarker	D	
+masonry	createMasonry	D	
+match	MatchTag	A	
+match	MatchField	A	
+match	MatchValue	A	
+media	makeMediaQueryListener	D	
+media	createMediaQuery	B	P,H
+media	createPrefersDark	B	P,H
+media	usePrefersDark	B	H
+media	createBreakpoints	B	R,P,H
+media	sortBreakpoints	D	
+mediastream	createStream	B	R,H
+mediastream	createAmplitudeFromStream	B	R,P,H
+mediastream	createAmplitudeStream	B	R,P,H
+mediastream	createScreen	B	R,P,H
+mediastream	createMediaPermissionRequest	D	
+memo	createPureReaction	D	
+memo	createLatest	D	
+memo	createLatestMany	D	
+memo	createWritableMemo	E	
+memo	createLazyMemo	E	
+memo	createMemoCache	D	
+memo	createReducer	B	R,P,H
+mouse	makeMousePositionListener	D	
+mouse	makeMouseInsideListener	D	
+mouse	getPositionToElement	D	
+mouse	getPositionToScreen	D	
+mouse	getPositionInElement	D	
+mouse	createMousePosition	B	R,P,H
+mouse	useMousePosition	B	R,H
+mouse	createPositionToElement	B	R,P,H
+mutable	createMutable	D	
+mutable	modifyMutable	D	
+mutation-observer	createMutationObserver	D	
+mutation-observer	mutationObserver	D	
+notification	isNotificationSupported	D	
+notification	makeNotification	D	
+notification	createNotification	B	R,P,H
+notification	createNotificationPermission	B	R,H
+orientation	makeOrientation	D	
+orientation	createOrientation	B	R,H
+page-utilities	createPageVisibility	B	H
+page-utilities	usePageVisibility	B	H
+page-utilities	makePageLeave	D	
+page-utilities	createPageLeaveBlocker	B	P,H
+pagination	createSegment	B	P,H
+pagination	PAGINATION_DEFAULTS	D	
+pagination	createPagination	B	R,P,H
+pagination	createInfiniteScroll	D	
+permission	createPermission	B	P,H
+platform	isAndroid	D	
+platform	isWindows	D	
+platform	isMac	D	
+platform	isIPhone	D	
+platform	isIPad	D	
+platform	isIPod	D	
+platform	isIOS	D	
+platform	isAppleDevice	D	
+platform	isMobile	D	
+platform	isFirefox	D	
+platform	isOpera	D	
+platform	isSafari	D	
+platform	isIE	D	
+platform	isChromium	D	
+platform	isEdge	D	
+platform	isChrome	D	
+platform	isBrave	D	
+platform	isGecko	D	
+platform	isBlink	D	
+platform	isWebKit	D	
+platform	isPresto	D	
+platform	isTrident	D	
+platform	isEdgeHTML	D	
+pointer	getPositionToElement	D	
+pointer	createPointerListeners	B	P,H
+pointer	createPerPointerListeners	D	
+pointer	createPointerPosition	B	P,H
+pointer	createPointerList	D	
+pointer	pointerPosition	D	
+pointer	pointerHover	D	
+presence	createPresence	B	R,P,H
+promise	promiseTimeout	D	
+promise	raceTimeout	D	
+promise	until	E	
+promise	untilAll	D	
+promise	untilAny	D	
+promise	retry	D	
+promise	changed	D	
+props	propTraps	D	
+props	filterProps	D	
+props	createPropsPredicate	D	
+props	partitionProps	D	
+props	stringStyleToObject	D	
+props	combineStyle	D	
+props	combineProps	D	
+props	combineHandlers	D	
+queue	makeQueue	D	
+queue	createQueue	D	
+queue	makePriorityQueue	D	
+queue	createPriorityQueue	D	
+queue	createTaskQueue	D	
+queue	createConcurrentTaskQueue	D	
+raf	createCallbacksSet	D	
+raf	createMs	B	R,P,H
+raf	createRAF	B	R,H
+raf	default	B	R,H
+raf	createScheduledLoop	D	
+raf	targetFPS	D	
+raf	useGlobalRAF	D	
+range	repeat	D	
+range	Repeat	E	
+range	mapRange	D	
+range	Range	E	
+range	indexRange	D	
+range	IndexRange	E	
+range	createNumericRange	B	P,H
+refs	mergeRefs	D	
+refs	defaultElementPredicate	D	
+refs	getResolvedElements	D	
+refs	resolveElements	D	
+refs	getFirstChild	D	
+refs	resolveFirst	D	
+refs	Refs	D	
+refs	Ref	D	
+resize-observer	makeResizeObserver	D	
+resize-observer	createResizeObserver	D	
+resize-observer	getWindowSize	D	
+resize-observer	createWindowSize	B	R,H
+resize-observer	useWindowSize	B	R,H
+resize-observer	getElementSize	D	
+resize-observer	createElementSize	B	R,P,H
+rootless	createSubRoot	D	
+rootless	createBranch	D	
+rootless	createCallback	D	
+rootless	createDisposable	D	
+rootless	createSingletonRoot	E	
+rootless	createSharedRoot	E	
+rootless	createHydratableSingletonRoot	E	
+rootless	createRootPool	D	
+scheduled	debounce	D	
+scheduled	throttle	D	
+scheduled	scheduleIdle	D	
+scheduled	leading	D	
+scheduled	leadingAndTrailing	D	
+scheduled	createScheduled	D	
+script-loader	createScriptLoader	D	
+scroll	getScrollParent	D	
+scroll	isScrollable	D	
+scroll	getScrollPosition	D	
+scroll	createScrollPosition	B	R,P,H
+scroll	useWindowScrollPosition	B	R,H
+scroll	createPreventScroll	B	P,H
+selection	getTextNodes	D	
+selection	createSelection	B	R,H
+sensors	makeAccelerometer	D	
+sensors	createAccelerometer	B	P,H
+sensors	makeGyroscope	D	
+sensors	createGyroscope	B	R,P,H
+sensors	makeSensor	D	
+sensors	createSensor	B	P,H
+sensors	makeCompass	D	
+sensors	createCompass	B	R,P,H
+sensors	makeBattery	D	
+sensors	createBattery	B	H
+set	ReactiveSet	D	
+set	ReactiveWeakSet	D	
+set	createSet	D	
+set	createWeakSet	D	
+set	union	B	P,H
+set	intersection	B	P,H
+set	difference	B	P,H
+set	symmetricDifference	B	P,H
+set	readonlySet	D	
+share	BLUESKY	D	
+share	BUFFER	D	
+share	EMAIL	D	
+share	EVERNOTE	D	
+share	FACEBOOK	D	
+share	FLIPBOARD	D	
+share	HACKERNEWS	D	
+share	INSTAPAPER	D	
+share	LINE	D	
+share	LINKEDIN	D	
+share	MESSENGER	D	
+share	MESSANGER	D	
+share	ODNOKLASSNIKI	D	
+share	PINTEREST	D	
+share	POCKET	D	
+share	QUORA	D	
+share	REDDIT	D	
+share	SKYPE	D	
+share	SMS	D	
+share	STUMBLEUPON	D	
+share	TELEGRAM	D	
+share	TUMBLR	D	
+share	TWITTER	D	
+share	VIBER	D	
+share	VK	D	
+share	WARPCAST	D	
+share	WEIBO	D	
+share	WHATSAPP	D	
+share	WORDPRESS	D	
+share	X	D	
+share	XING	D	
+share	YAMMER	D	
+share	createSocialShare	B	R,P,H
+share	makeWebShare	D	
+share	createWebShare	B	R,H
+signal-builders	toggle	D	
+signal-builders	string	B	H
+signal-builders	float	B	P,H
+signal-builders	int	B	P,H
+signal-builders	join	B	P,H
+signal-builders	lowercase	A	
+signal-builders	uppercase	A	
+signal-builders	capitalize	A	
+signal-builders	substring	B	P,H
+signal-builders	template	D	
+signal-builders	add	B	P,H
+signal-builders	substract	B	P,H
+signal-builders	multiply	B	P,H
+signal-builders	divide	B	P,H
+signal-builders	power	B	P,H
+signal-builders	round	B	P,H
+signal-builders	ceil	B	P,H
+signal-builders	floor	B	P,H
+signal-builders	clamp	B	P,H
+signal-builders	push	B	P,H
+signal-builders	drop	B	P,H
+signal-builders	dropRight	B	P,H
+signal-builders	filter	B	P,H
+signal-builders	filterOut	B	P,H
+signal-builders	sort	B	P,H
+signal-builders	map	B	P,H
+signal-builders	slice	B	P,H
+signal-builders	splice	B	P,H
+signal-builders	remove	B	P,H
+signal-builders	removeItems	B	P,H
+signal-builders	concat	B	P,H
+signal-builders	flatten	B	P,H
+signal-builders	filterInstance	B	P,H
+signal-builders	filterOutInstance	B	P,H
+signal-builders	omit	B	P,H
+signal-builders	pick	B	P,H
+signal-builders	get	B	P,H
+signal-builders	merge	B	P,H
+signal-builders	update	B	P,H
+sortable	ascending	D	
+sortable	descending	D	
+sortable	by	D	
+sortable	combine	D	
+sortable	reverse	D	
+sortable	makeSorted	D	
+sortable	createSorted	B	P,H
+sortable	sortedIndex	D	
+sortable	sortedIndexBy	D	
+sortable	insertSorted	D	
+sortable	createSortedIndex	B	R,P,H
+sortable	createSortedProjection	B	R,P,H
+spring	makeSpring	D	
+spring	createSpring	B	R,P,H
+spring	createDerivedSpring	B	P,H
+sse	makeSSE	D	
+sse	createSSE	B	R,P,H
+sse	makeSSEAsyncIterable	D	
+sse	createSSEStream	B	P,H
+sse	SSEReadyState	D	
+sse	makeSSEWorker	D	
+state-machine	createMachine	D	
+static-store	createStaticStore	E	
+static-store	createHydratableStaticStore	E	
+static-store	createDerivedStaticStore	E	
+storage	cookieStorage	D	
+storage	addClearMethod	D	
+storage	addWithOptionsMethod	D	
+storage	multiplexStorage	D	
+storage	makeObjectStorage	D	
+storage	makePersisted	D	
+storage	multiplexSync	D	
+storage	storageSync	D	
+storage	wsSync	D	
+storage	messageSync	D	
+storage	tauriStorage	D	
+styles	getRemSize	D	
+styles	createRemSize	B	H
+styles	useRemSize	B	H
+styles	setServerRemSize	D	
+timer	makeTimer	D	
+timer	createTimer	B	P,H
+timer	createTimeoutLoop	B	H
+timer	createPolled	B	P,H
+timer	createIntervalCounter	B	P,H
+transition-group	createSwitchTransition	D	
+transition-group	createListTransition	D	
+trigger	createTrigger	D	
+trigger	TriggerCache	D	
+trigger	createTriggerCache	D	
+tween	createTween	B	P,H
+upload	createFilePicker	B	R,P,H
+upload	createDropzone	B	R,P,H
+upload	dropzone	D	
+upload	createFileUploader	B	R,H
+upload	fileSender	D	
+upload	fileUploader	D	
+url	setLocationFallback	D	
+url	createLocationState	B	R,P,H
+url	useSharedLocationState	B	R,H
+url	updateLocation	D	
+url	getSearchParamsRecord	D	
+url	createLocationSearchParams	B	R,P,H
+url	useSharedLocationSearchParams	B	R,H
+url	createSearchParams	D	
+url	ReactiveSearchParams	D	
+url	createURLRecord	B	R,P,H
+url	createURL	D	
+url	ReactiveURL	D	
+utils	isServer	D	
+utils	isClient	D	
+utils	isDev	D	
+utils	isProd	D	
+utils	noop	D	
+utils	trueFn	A	
+utils	falseFn	A	
+utils	defaultEquals	D	
+utils	EQUALS_FALSE_OPTIONS	D	
+utils	INTERNAL_OPTIONS	D	
+utils	ofClass	D	
+utils	isObject	D	
+utils	isNonNullable	D	
+utils	filterNonNullable	D	
+utils	compare	A	
+utils	arrayEquals	A	
+utils	chain	D	
+utils	reverseChain	D	
+utils	clamp	D	
+utils	createIdGenerator	D	
+utils	access	D	
+utils	asArray	D	
+utils	accessArray	D	
+utils	withAccess	D	
+utils	asAccessor	D	
+utils	accessWith	D	
+utils	defer	D	
+utils	entries	D	
+utils	keys	D	
+utils	tryOnCleanup	D	
+utils	createCallbackStack	D	
+utils	createMicrotask	D	
+utils	createServerSafeSignal	D	
+utils	createHydratableSignal	D	
+utils	createHydrateSignal	D	
+utils	handleDiffArray	D	
+utils	afterPaint	D	
+utils	json	D	
+utils	ndjson	D	
+utils	lines	A	
+utils	number	D	
+utils	safe	D	
+utils	pipe	D	
+utils	contains	D	
+utils	globalRegistry	D	
+utils	wrapSetter	D	
+utils	shallowArrayCopy	D	
+utils	shallowObjectCopy	D	
+utils	shallowCopy	D	
+utils	withArrayCopy	D	
+utils	withObjectCopy	D	
+utils	withCopy	D	
+utils	add	D	
+utils	substract	D	
+utils	multiply	D	
+utils	divide	D	
+utils	power	D	
+utils	clamp	D	
+utils	update	D	
+utils	omit	D	
+utils	pick	D	
+utils	get	D	
+utils	split	D	
+utils	merge	D	
+utils	push	D	
+utils	drop	D	
+utils	dropRight	D	
+utils	filterOut	D	
+utils	filter	D	
+utils	sort	D	
+utils	map	D	
+utils	slice	D	
+utils	splice	D	
+utils	fill	D	
+utils	concat	D	
+utils	remove	D	
+utils	removeItems	D	
+utils	flatten	D	
+utils	sortBy	D	
+utils	filterInstance	D	
+utils	filterOutInstance	D	
+utils	COLOR_INTL_TRANSLATIONS	D	
+utils	parseColor	D	
+utils	normalizeColor	D	
+utils	getColorChannels	D	
+utils	normalizeHue	D	
+utils	colorToOKLCH	D	
+utils	tryParseColor	D	
+utils	isValidColor	D	
+utils	detectColorFormat	D	
+utils	lighten	D	
+utils	darken	D	
+utils	saturate	D	
+utils	desaturate	D	
+utils	complement	D	
+utils	mix	D	
+utils	contrastRatio	D	
+utils	isReadable	D	
+utils	colorScale	D	
+utils	perceptualColorScale	D	
+vibrate	isVibrationSupported	D	
+vibrate	makeVibrate	D	
+vibrate	createVibrate	B	R,P,H
+vibrate	frequencyToPattern	D	
+vibrate	makePulse	D	
+vibrate	createPulse	B	R,P,H
+video	makeVideo	D	
+video	setVideoSrc	D	
+video	createVideo	B	R,P,H
+video	makeVideoPlayer	D	
+video	createVideoPlayer	B	R,P,H
+video	makeVideoFrameCallback	D	
+video	createVideoFrameCallback	B	R,P
+virtual	createVirtualList	B	R,P,H
+virtual	VirtualList	C	
+websocket	makeWS	D	
+websocket	createWS	D	
+websocket	createWSState	B	H
+websocket	createWSMessage	B	P
+websocket	makeReconnectingWS	D	
+websocket	createReconnectingWS	D	
+websocket	makeHeartbeatWS	D	
+websocket	wsMessageIterable	D	
+websocket	createWSData	B	P,H
+websocket	createWSStore	D	
+workers	createReactiveWorker	D	
+workers	createWorker	D	
+workers	createWorkerPool	D	
+workers	createWorkerQuery	B	P,H
+workers	workerScope	D	

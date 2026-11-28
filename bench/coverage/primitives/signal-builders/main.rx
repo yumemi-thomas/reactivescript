@@ -1,0 +1,10 @@
+// @solid-primitives/signal-builders: accessors combined into accessors (total.js). `.rx` writes the same as an
+// equation, `total = price + tax`; a module of the app's own shows the library's.
+import { createTotal } from "./total.js"
+
+export default component App() {
+  source price := 10
+  total = createTotal(price, 2)
+  <p>total {total}</p>
+  <button onClick={() => { price := 20 }}>raise</button>
+}
